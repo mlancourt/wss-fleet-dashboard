@@ -51,18 +51,18 @@ const d = (offsetDays) => new Date(TODAY + offsetDays * DAY).toISOString().slice
 
 // ---------------------------------------------------------------- fake corpus
 
-// PLACEHOLDER band names. The real 9 rental-rate-matrix categories and their
-// display order come from Matt — the app renders whatever `categories` holds.
+// The real 9 rental-rate-matrix bands, in canonical display order (confirmed by
+// the Architect, Sep 2026). The real snapshot emits exactly this order.
 const CATEGORIES = [
-  'Compact Walk-Behind',
-  'Walk-Behind 20-24"',
-  'Walk-Behind 26-32"',
-  'Mid Rider Scrubber',
-  'Large Rider Scrubber',
   'Walk-Behind Sweeper',
-  'Rider Sweeper',
-  'Burnisher / Polisher',
-  'Support & Accessories',
+  'Ride-On Sweeper',
+  'Small Walk-Behind Scrubber',
+  'Mid-Size Walk-Behind Scrubber',
+  'Large Walk-Behind Scrubber',
+  'Chariot (Stand-on) Scrubber',
+  'Small Rider Scrubber',
+  'Mid-Size Rider Scrubber',
+  'Large Rider Scrubber',
 ];
 
 const BRANDS = ['Nordvale', 'Ironline', 'Cascade Clean', 'Meridian', 'Halstead'];
@@ -91,23 +91,23 @@ const NOTES_DOWN = [
 // [state, readiness] per unit, grouped by category index. Hand-built so the
 // coverage promises above hold and the 9 cards show a mix of lights.
 const PLAN = [
-  // 0 Compact Walk-Behind -> 2 available+ready = GREEN
+  // 0 Walk-Behind Sweeper -> 2 available+ready = GREEN
   [['AVAILABLE', 'READY'], ['AVAILABLE', 'READY'], ['ON-RENT', 'READY'], ['ON-RENT', 'READY']],
-  // 1 Walk-Behind 20-24" -> 2 available+ready = GREEN
+  // 1 Ride-On Sweeper -> 2 available+ready = GREEN
   [['AVAILABLE', 'READY'], ['AVAILABLE', 'READY'], ['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['RESERVED', 'READY']],
-  // 2 Walk-Behind 26-32" -> 1 available+ready = YELLOW
+  // 2 Small Walk-Behind Scrubber -> 1 available+ready = YELLOW
   [['AVAILABLE', 'READY'], ['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['IN-SHOP', 'DOWN'], ['RESERVED', 'NEEDS-PREP']],
-  // 3 Mid Rider Scrubber -> 1 available but NEEDS-PREP = RED
+  // 3 Mid-Size Walk-Behind Scrubber -> 1 available but NEEDS-PREP = RED
   [['AVAILABLE', 'NEEDS-PREP'], ['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['ON-DEMO', 'READY'], ['IN-SHOP', 'NEEDS-PREP']],
-  // 4 Large Rider Scrubber -> 0 available = RED
+  // 4 Large Walk-Behind Scrubber -> 0 available = RED
   [['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['LOANER-OUT', 'READY']],
-  // 5 Walk-Behind Sweeper -> 1 available+ready = YELLOW
+  // 5 Chariot (Stand-on) Scrubber -> 1 available+ready = YELLOW
   [['AVAILABLE', 'READY'], ['ON-RENT', 'READY'], ['ON-DEMO', 'READY'], ['RETIRED', 'DOWN']],
-  // 6 Rider Sweeper -> 0 available = RED
+  // 6 Small Rider Scrubber -> 0 available = RED
   [['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['LOANER-OUT', 'READY'], ['IN-SHOP', 'DOWN']],
-  // 7 Burnisher / Polisher -> 0 available = RED
+  // 7 Mid-Size Rider Scrubber -> 0 available = RED
   [['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['RESERVED', 'READY']],
-  // 8 Support & Accessories -> 1 available, NEEDS-PREP = RED
+  // 8 Large Rider Scrubber -> 1 available, NEEDS-PREP = RED
   [['AVAILABLE', 'NEEDS-PREP'], ['ON-RENT', 'READY'], ['ON-RENT', 'READY'], ['RETIRED', 'NEEDS-PREP']],
 ];
 

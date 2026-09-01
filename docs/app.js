@@ -16,14 +16,11 @@ import {
   fmtDate, fmtDateFull, todayCentral, addBusinessDays,
   fmtInstantCentral, hoursSince, fmtMoney,
 } from './dates.js';
+import { loadData, postEvent, mockVariant } from './api.js';
 
 /* ============================================================ 1. config ==== */
 
-// Set at M2 to the deployed Worker origin, e.g.
-//   'https://wss-fleet-worker.mlancourt.workers.dev'
-// Empty string = not wired yet (M0: mock mode only).
-const API_BASE = '';
-
+// The Worker origin (API_BASE) lives in docs/api.js.
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -83,74 +80,11 @@ function bootToken() {
   try { return localStorage.getItem(TOKEN_KEY); } catch (_) { return t || null; }
 }
 
-function mockVariant() {
-  const v = new URL(window.location.href).searchParams.get('mock');
-  return v === 'full' || v === 'empty' ? v : null;
-}
+/* ================================================ 6. api (see docs/api.js) == */
 
-/* ================================================================ 6. api == */
-
-async function loadData() {
-  const variant = mockVariant();
-
-  if (variant) {
-    const params = new URL(window.location.href).searchParams;
-    const res = await fetch(`mock/mock-${variant}.json`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`mock file ${res.status} — run: npm run mock`);
-    const snapshot = await res.json();
-
-    // Mock-only knobs, so states the snapshot can't express are still reviewable:
-    //   ?pending=1  load sample unapplied events -> pending badges
-    //   ?age=48     backdate generated_at N hours -> the >36h stale warning
-    //   ?role=sales pretend to be someone else   -> which write buttons appear
-    let pending = [];
-    if (params.get('pending')) {
-      pending = await fetch('mock/mock-pending.json', { cache: 'no-store' })
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []);
-    }
-    const age = Number(params.get('age'));
-    if (age > 0 && snapshot.meta) {
-      snapshot.meta.generated_at = new Date(Date.now() - age * 3600000).toISOString();
-    }
-    const role = params.get('role');
-
-    return {
-      me: { name: 'Mock User', role: role || 'owner' },
-      snapshot,
-      pending,
-      source: `mock:${variant}`,
-    };
-  }
-
-  const token = bootToken();
-  if (!token) { const e = new Error('no-token'); e.code = 'no-token'; throw e; }
-  if (!API_BASE) { const e = new Error('no-api'); e.code = 'no-api'; throw e; }
-
-  // Token goes in the Authorization header, never the URL.
-  const res = await fetch(`${API_BASE}/api/data`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store',
-  });
-  if (res.status === 401) { const e = new Error('bad-token'); e.code = 'bad-token'; throw e; }
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const body = await res.json();
-  // pending comes back with /api/data, so the header count needs no second
-  // round-trip to /api/health — same number, one less request on bad LTE.
-  return { me: body.me, snapshot: body.snapshot, pending: body.pending || [], source: 'api' };
-}
-
-async function postEvent(action, serial, payload) {
-  if (mockVariant()) throw new Error('Mock mode — writes are disabled.');
-  const token = bootToken();
-  const res = await fetch(`${API_BASE}/api/event`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, serial, payload }),
-  });
-  if (!res.ok) throw new Error(`Event rejected (${res.status})`);
-  return res.json();
-}
+// loadData / postEvent / mockVariant are imported from docs/api.js — pure, so
+// tools/selftest-api.mjs can prove the mock knobs are inert in production.
+const ctx = () => ({ url: window.location.href, token: bootToken() });
 
 /* ========================================================== 7. selectors == */
 
@@ -378,7 +312,7 @@ function actionsFor(u) {
 
   // In mock mode the forms still open — the UI is reviewable — but submitting
   // is refused in postEvent(). Nothing fake ever enters the pending list.
-  const mock = !!mockVariant();
+  const mock = !!mockVariant(window.location.href);
   return html`
     <h2>Actions</h2>
     ${mock ? raw('<div class="info">Mock mode — the forms open, but submitting is refused until the Worker is live (M1).</div>') : ''}
@@ -634,7 +568,7 @@ async function refresh() {
   state.loading = true;
   renderHeader();
   try {
-    const d = await loadData();
+    const d = await loadData(ctx());
     state.me = d.me;
     state.snapshot = d.snapshot;
     state.pending = d.pending;
@@ -680,7 +614,7 @@ document.addEventListener('submit', async (ev) => {
     : { readiness: fd.get('readiness'), note: fd.get('note') || '' };
 
   try {
-    const stored = await postEvent(action, form.dataset.serial, payload);
+    const stored = await postEvent(ctx(), action, form.dataset.serial, payload);
     state.pending.push(stored);
     render();
     const msg = $('#write-msg');

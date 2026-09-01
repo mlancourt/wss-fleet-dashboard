@@ -49,7 +49,10 @@ for the generators and tests; nothing compiles the page.
 ### Mock-only URL knobs
 
 These work in `?mock=` mode only, so states the snapshot can't express are still
-reviewable:
+reviewable. **Mock mode itself only exists on localhost or in a build with no
+`API_BASE`** — on a real host with the Worker wired, `?mock=`, `&role=`,
+`&pending=` and `&age=` are inert and identity comes solely from the server's
+`me.role`. `tools/selftest-api.mjs` asserts this.
 
 | Param | Effect |
 |---|---|
@@ -75,7 +78,10 @@ whenever you re-run — that's expected.
 npm test
 ```
 
-Guards the one bug class `CLAUDE.md` calls disqualifying: business dates are
+Two suites. `selftest-api.mjs` proves the mock knobs are inert in production
+(role from the server only, no mock file fetched, snapshot untouched, token in
+the header not the URL). `selftest-dates.mjs` guards the one bug class
+`CLAUDE.md` calls disqualifying: business dates are
 date-only Central strings, and `new Date("YYYY-MM-DD")` parses as UTC midnight,
 showing Central users **yesterday**. All date handling lives in `docs/dates.js`
 (pure, no DOM) so it can be asserted directly. Run it under a hostile timezone
@@ -106,7 +112,8 @@ package.json            scripts only; wrangler is the sole dev dependency (M1)
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
-  app.js                routing, views, API layer, write forms
+  app.js                routing, views, write forms
+  api.js                data source: Worker or mock (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)

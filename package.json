@@ -7,7 +7,7 @@
   "scripts": {
     "mock": "node tools/make-mock-data.js",
     "icons": "node tools/make-icons.js",
-    "test": "node tools/selftest-dates.mjs",
+    "test": "node tools/selftest-dates.mjs && node tools/selftest-api.mjs",
     "dev:worker": "wrangler dev --config worker/wrangler.toml",
     "start": "node tools/serve.js"
   }
