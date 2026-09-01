@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v3';
+const CACHE = 'wss-fleet-shell-v4';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
@@ -49,11 +49,12 @@ self.addEventListener('fetch', (ev) => {
   if (isData || url.origin !== self.location.origin) return;
 
   // Shell (HTML, JS, CSS, icons): network-first, cache as the offline fallback.
-  // Not stale-while-revalidate — that serves a new index.html with last
-  // deploy's app.js for one load, and a half-updated page is worse than a
-  // slightly slower one. The shell is ~20 KB; LTE can afford it.
+  // `cache: 'no-cache'` = always revalidate with the server. GitHub Pages sends
+  // max-age=600, and a plain fetch() would hand back the browser's HTTP-cached
+  // copy for 10 minutes after a deploy — i.e. yesterday's app.js. Revalidation
+  // is a 304 on unchanged files, so it costs one small round-trip per file.
   ev.respondWith(
-    fetch(req).then((res) => {
+    fetch(req, { cache: 'no-cache' }).then((res) => {
       if (res && res.ok) {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy));
