@@ -22,7 +22,7 @@ the hard rules — read it before changing anything here.
 | **M0 — shell on mock** | ✅ done | every view renders both mock variants, zero console errors |
 | **M1 — Worker** | ✅ done | full publish → read → event → ack loop green locally, curl-scripted below |
 | **M2 — deploy real** | ✅ done | Matt opens his tokened URL on his phone and sees the real fleet |
-| M3 — domain + PWA | ⬜ | `fleet.wisconsinscrubandsweep.com` installs as an app |
+| M3 — domain + PWA | 🟡 waiting on DNS | `fleet.wisconsinscrubandsweep.com` installs as an app |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -120,7 +120,7 @@ docs/                   GitHub Pages root — the app shell
   sw.js                 shell cache only; data is never cached
   icons/                generated PNGs
   mock/                 generated FAKE snapshots — never real data
-  CNAME                 added at M3, not before
+  CNAME                 on branch m3-cname until DNS resolves — see M3
 
 worker/                 the Cloudflare Worker
   worker.js             entire Worker, single file (dashboard paste-deploy stays possible)
@@ -132,6 +132,7 @@ tools/
   make-icons.js         icon generator
   serve.js              dev static server (sends Cache-Control: no-store)
   m1-loop.sh            the Worker loop, curl-scripted (npm run m1)
+  m3-check.sh           DNS / Pages / HTTPS readiness for the custom domain (npm run m3)
   selftest-api.mjs      mock-gate + api-layer test
   selftest-dates.mjs    the date-rule test
 ```
@@ -311,9 +312,48 @@ after a fresh deploy, not a fault.
 
 ### M3 — custom domain + PWA
 
-_To be filled in: add `docs/CNAME`, the one-line request to Machinio
-(`CNAME fleet → mlancourt.github.io`), enforce HTTPS in Pages settings, update
-Worker CORS, verify add-to-home-screen on iOS Safari and Android Chrome._
+**Why `docs/CNAME` is on a branch, not on `main`.** The moment GitHub Pages has
+a custom domain, every `mlancourt.github.io/wss-fleet-dashboard/` URL redirects
+to it. Until Machinio's record exists that domain resolves to nothing, so
+merging the CNAME early takes the crew's links down for as long as Machinio
+takes. Order matters:
+
+1. **Matt → Machinio**, one line: add `CNAME` record, host **`fleet`**, target
+   **`mlancourt.github.io`** (no trailing path, no `www`).
+2. Poll until step 1 shows ✓:
+   ```bash
+   npm run m3
+   ```
+3. Merge the CNAME (Pages picks up the domain within a minute, cert follows):
+   ```bash
+   git merge --no-ff m3-cname && git push origin main
+   ```
+4. Once `npm run m3` shows HTTPS 200, enforce it:
+   ```bash
+   gh api -X PUT repos/mlancourt/wss-fleet-dashboard/pages -F https_enforced=true
+   ```
+5. Re-issue the crew links on the new origin — same tokens, new host:
+   `https://fleet.wisconsinscrubandsweep.com/?t=…`. **They must open the new
+   link once**: the token is kept per origin, so the github.io copy doesn't
+   carry over. Worker CORS already allows the fleet origin.
+
+#### Install check (do this on the final domain, not github.io)
+
+**iPhone — Safari only** (Chrome/in-app browsers can't add PWAs on iOS):
+1. Open the tokened link in Safari. Confirm the header shows *data as of …*.
+2. Share button → **Add to Home Screen** → Add.
+3. Open it from the icon: no Safari bars (standalone), data loads, ⏳ badge
+   and tabs work.
+4. Swipe it away, open again — still loads without the link (token persisted).
+5. Turn on Airplane Mode and open it: the shell should appear with a
+   *Can't load the board* card, never yesterday's fleet.
+
+**Android — Chrome:**
+1. Open the tokened link. ⋮ menu → **Install app** (or *Add to Home screen*).
+2. Same checks 3–5 as above.
+
+If step 4 fails on either, the token wasn't stored on that origin — open the
+tokened link once more and retry.
 
 ### Tokens
 
