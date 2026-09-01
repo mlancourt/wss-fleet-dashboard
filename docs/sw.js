@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v2';
+const CACHE = 'wss-fleet-shell-v3';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
@@ -48,22 +48,21 @@ self.addEventListener('fetch', (ev) => {
   // "here's yesterday's fleet".
   if (isData || url.origin !== self.location.origin) return;
 
-  // Navigations: network-first so a deploy lands immediately, shell as fallback.
-  if (req.mode === 'navigate') {
-    ev.respondWith(
-      fetch(req).catch(() => caches.match('index.html').then((r) => r || caches.match('./')))
-    );
-    return;
-  }
-
-  // Shell assets: serve cached, revalidate in the background.
+  // Shell (HTML, JS, CSS, icons): network-first, cache as the offline fallback.
+  // Not stale-while-revalidate — that serves a new index.html with last
+  // deploy's app.js for one load, and a half-updated page is worse than a
+  // slightly slower one. The shell is ~20 KB; LTE can afford it.
   ev.respondWith(
-    caches.match(req).then((cached) => {
-      const net = fetch(req).then((res) => {
-        if (res && res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
-        return res;
-      }).catch(() => cached);
-      return cached || net;
-    })
+    fetch(req).then((res) => {
+      if (res && res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy));
+      }
+      return res;
+    }).catch(() =>
+      caches.match(req).then((cached) =>
+        cached || (req.mode === 'navigate' ? caches.match('index.html') : undefined)
+      ).then((r) => r || Response.error())
+    )
   );
 });
