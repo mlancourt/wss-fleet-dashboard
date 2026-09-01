@@ -13,7 +13,7 @@
 // Set at M2 to the deployed Worker origin, e.g.
 //   'https://wss-fleet-worker.mlancourt.workers.dev'
 // Empty string = not wired yet (mock mode only).
-export const API_BASE = '';
+export const API_BASE = 'https://wss-fleet-worker.mlancourt.workers.dev';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '']);
 

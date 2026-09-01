@@ -9,7 +9,7 @@ workers_dev = true
 # and paste the id it prints here. Local dev (Miniflare) ignores the id.
 [[kv_namespaces]]
 binding = "FLEET_KV"
-id = "replace-with-real-namespace-id-at-m2"
+id = "b420e982edde467dbae09a04c8e41634"
 
 # Secrets are NOT here. `npx wrangler secret put ADMIN_SECRET --config worker/wrangler.toml`
 # for production; worker/.dev.vars (gitignored) for local dev.
