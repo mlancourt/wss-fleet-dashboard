@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 1,
-    "generated_at": "2026-09-01T23:28:53.005Z",
+    "generated_at": "2026-09-01T23:34:57.158Z",
     "run_id": "mock-empty-2026-09-01",
     "fleet_totals": {
       "units": 39,
@@ -25,7 +25,7 @@
   "units": [
     {
       "serial": "900107",
-      "asset_item": "Nordvale SW-900",
+      "asset_item": "A-1001",
       "brand": "Nordvale",
       "model": "SW-900",
       "description": "Walk-Behind Sweeper — Nordvale SW-900",
@@ -55,7 +55,7 @@
     },
     {
       "serial": "900114",
-      "asset_item": "Ironline R-660",
+      "asset_item": "A-1002",
       "brand": "Ironline",
       "model": "R-660",
       "description": "Walk-Behind Sweeper — Ironline R-660",
@@ -85,7 +85,7 @@
     },
     {
       "serial": "900121",
-      "asset_item": "Nordvale R-880",
+      "asset_item": "A-1003",
       "brand": "Nordvale",
       "model": "R-880",
       "description": "Walk-Behind Sweeper — Nordvale R-880",
@@ -115,7 +115,7 @@
     },
     {
       "serial": "900128",
-      "asset_item": "Halstead R-660",
+      "asset_item": "A-1004",
       "brand": "Halstead",
       "model": "R-660",
       "description": "Walk-Behind Sweeper — Halstead R-660",
@@ -145,7 +145,7 @@
     },
     {
       "serial": "900135",
-      "asset_item": "Meridian SC-1700",
+      "asset_item": "A-1005",
       "brand": "Meridian",
       "model": "SC-1700",
       "description": "Ride-On Sweeper — Meridian SC-1700",
@@ -175,7 +175,7 @@
     },
     {
       "serial": "900142",
-      "asset_item": "Halstead T-320",
+      "asset_item": "A-1006",
       "brand": "Halstead",
       "model": "T-320",
       "description": "Ride-On Sweeper — Halstead T-320",
@@ -205,7 +205,7 @@
     },
     {
       "serial": "900149",
-      "asset_item": "Cascade Clean SC-1700",
+      "asset_item": "A-1007",
       "brand": "Cascade Clean",
       "model": "SC-1700",
       "description": "Ride-On Sweeper — Cascade Clean SC-1700",
@@ -235,7 +235,7 @@
     },
     {
       "serial": "900156",
-      "asset_item": "Meridian R-660",
+      "asset_item": "A-1008",
       "brand": "Meridian",
       "model": "R-660",
       "description": "Ride-On Sweeper — Meridian R-660",
@@ -265,7 +265,7 @@
     },
     {
       "serial": "900163",
-      "asset_item": "Cascade Clean SC-1700",
+      "asset_item": "A-1009",
       "brand": "Cascade Clean",
       "model": "SC-1700",
       "description": "Ride-On Sweeper — Cascade Clean SC-1700",
@@ -295,7 +295,7 @@
     },
     {
       "serial": "900170",
-      "asset_item": "Nordvale BX-40",
+      "asset_item": "A-1010",
       "brand": "Nordvale",
       "model": "BX-40",
       "description": "Small Walk-Behind Scrubber — Nordvale BX-40",
@@ -325,7 +325,7 @@
     },
     {
       "serial": "900177",
-      "asset_item": "Nordvale BX-27",
+      "asset_item": "A-1011",
       "brand": "Nordvale",
       "model": "BX-27",
       "description": "Small Walk-Behind Scrubber — Nordvale BX-27",
@@ -355,7 +355,7 @@
     },
     {
       "serial": "900184",
-      "asset_item": "Meridian T-320",
+      "asset_item": "A-1012",
       "brand": "Meridian",
       "model": "T-320",
       "description": "Small Walk-Behind Scrubber — Meridian T-320",
@@ -385,7 +385,7 @@
     },
     {
       "serial": "900191",
-      "asset_item": "Ironline BX-27",
+      "asset_item": "A-1013",
       "brand": "Ironline",
       "model": "BX-27",
       "description": "Small Walk-Behind Scrubber — Ironline BX-27",
@@ -415,7 +415,7 @@
     },
     {
       "serial": "900198",
-      "asset_item": "Cascade Clean BX-27",
+      "asset_item": "A-1014",
       "brand": "Cascade Clean",
       "model": "BX-27",
       "description": "Small Walk-Behind Scrubber — Cascade Clean BX-27",
@@ -445,7 +445,7 @@
     },
     {
       "serial": "900205",
-      "asset_item": "Halstead BX-27",
+      "asset_item": "A-1015",
       "brand": "Halstead",
       "model": "BX-27",
       "description": "Mid-Size Walk-Behind Scrubber — Halstead BX-27",
@@ -475,7 +475,7 @@
     },
     {
       "serial": "900212",
-      "asset_item": "Ironline BX-27",
+      "asset_item": "A-1016",
       "brand": "Ironline",
       "model": "BX-27",
       "description": "Mid-Size Walk-Behind Scrubber — Ironline BX-27",
@@ -505,7 +505,7 @@
     },
     {
       "serial": "900219",
-      "asset_item": "Nordvale SC-2400",
+      "asset_item": "A-1017",
       "brand": "Nordvale",
       "model": "SC-2400",
       "description": "Mid-Size Walk-Behind Scrubber — Nordvale SC-2400",
@@ -535,7 +535,7 @@
     },
     {
       "serial": "900226",
-      "asset_item": "Meridian BX-27",
+      "asset_item": "A-1018",
       "brand": "Meridian",
       "model": "BX-27",
       "description": "Mid-Size Walk-Behind Scrubber — Meridian BX-27",
@@ -565,7 +565,7 @@
     },
     {
       "serial": "900233",
-      "asset_item": "Cascade Clean BX-40",
+      "asset_item": "A-1019",
       "brand": "Cascade Clean",
       "model": "BX-40",
       "description": "Mid-Size Walk-Behind Scrubber — Cascade Clean BX-40",
@@ -595,7 +595,7 @@
     },
     {
       "serial": "900240",
-      "asset_item": "Ironline T-320",
+      "asset_item": "A-1020",
       "brand": "Ironline",
       "model": "T-320",
       "description": "Large Walk-Behind Scrubber — Ironline T-320",
@@ -625,7 +625,7 @@
     },
     {
       "serial": "900247",
-      "asset_item": "Ironline R-660",
+      "asset_item": "A-1021",
       "brand": "Ironline",
       "model": "R-660",
       "description": "Large Walk-Behind Scrubber — Ironline R-660",
@@ -655,7 +655,7 @@
     },
     {
       "serial": "900254",
-      "asset_item": "Halstead SC-2400",
+      "asset_item": "A-1022",
       "brand": "Halstead",
       "model": "SC-2400",
       "description": "Large Walk-Behind Scrubber — Halstead SC-2400",
@@ -685,7 +685,7 @@
     },
     {
       "serial": "900261",
-      "asset_item": "Nordvale BX-40",
+      "asset_item": "A-1023",
       "brand": "Nordvale",
       "model": "BX-40",
       "description": "Large Walk-Behind Scrubber — Nordvale BX-40",
@@ -715,7 +715,7 @@
     },
     {
       "serial": "900268",
-      "asset_item": "Ironline SC-1700",
+      "asset_item": "A-1024",
       "brand": "Ironline",
       "model": "SC-1700",
       "description": "Chariot (Stand-on) Scrubber — Ironline SC-1700",
@@ -745,7 +745,7 @@
     },
     {
       "serial": "900275",
-      "asset_item": "Meridian SC-1700",
+      "asset_item": "A-1025",
       "brand": "Meridian",
       "model": "SC-1700",
       "description": "Chariot (Stand-on) Scrubber — Meridian SC-1700",
@@ -775,7 +775,7 @@
     },
     {
       "serial": "900282",
-      "asset_item": "Meridian R-880",
+      "asset_item": "A-1026",
       "brand": "Meridian",
       "model": "R-880",
       "description": "Chariot (Stand-on) Scrubber — Meridian R-880",
@@ -805,7 +805,7 @@
     },
     {
       "serial": "900289",
-      "asset_item": "Halstead SC-2400",
+      "asset_item": "A-1027",
       "brand": "Halstead",
       "model": "SC-2400",
       "description": "Chariot (Stand-on) Scrubber — Halstead SC-2400",
@@ -835,7 +835,7 @@
     },
     {
       "serial": "900296",
-      "asset_item": "Meridian SW-900",
+      "asset_item": "A-1028",
       "brand": "Meridian",
       "model": "SW-900",
       "description": "Small Rider Scrubber — Meridian SW-900",
@@ -865,7 +865,7 @@
     },
     {
       "serial": "900303",
-      "asset_item": "Ironline SC-1700",
+      "asset_item": "A-1029",
       "brand": "Ironline",
       "model": "SC-1700",
       "description": "Small Rider Scrubber — Ironline SC-1700",
@@ -895,7 +895,7 @@
     },
     {
       "serial": "900310",
-      "asset_item": "Ironline BX-27",
+      "asset_item": "A-1030",
       "brand": "Ironline",
       "model": "BX-27",
       "description": "Small Rider Scrubber — Ironline BX-27",
@@ -925,7 +925,7 @@
     },
     {
       "serial": "900317",
-      "asset_item": "Ironline SC-1700",
+      "asset_item": "A-1031",
       "brand": "Ironline",
       "model": "SC-1700",
       "description": "Small Rider Scrubber — Ironline SC-1700",
@@ -955,7 +955,7 @@
     },
     {
       "serial": "900324",
-      "asset_item": "Ironline BX-27",
+      "asset_item": "A-1032",
       "brand": "Ironline",
       "model": "BX-27",
       "description": "Mid-Size Rider Scrubber — Ironline BX-27",
@@ -985,7 +985,7 @@
     },
     {
       "serial": "900331",
-      "asset_item": "Halstead R-880",
+      "asset_item": "A-1033",
       "brand": "Halstead",
       "model": "R-880",
       "description": "Mid-Size Rider Scrubber — Halstead R-880",
@@ -1015,7 +1015,7 @@
     },
     {
       "serial": "900338",
-      "asset_item": "Ironline SW-900",
+      "asset_item": "A-1034",
       "brand": "Ironline",
       "model": "SW-900",
       "description": "Mid-Size Rider Scrubber — Ironline SW-900",
@@ -1045,7 +1045,7 @@
     },
     {
       "serial": "900345",
-      "asset_item": "Cascade Clean SW-900",
+      "asset_item": "A-1035",
       "brand": "Cascade Clean",
       "model": "SW-900",
       "description": "Mid-Size Rider Scrubber — Cascade Clean SW-900",
@@ -1075,7 +1075,7 @@
     },
     {
       "serial": "900352",
-      "asset_item": "Cascade Clean R-660",
+      "asset_item": "A-1036",
       "brand": "Cascade Clean",
       "model": "R-660",
       "description": "Large Rider Scrubber — Cascade Clean R-660",
@@ -1105,7 +1105,7 @@
     },
     {
       "serial": "900359",
-      "asset_item": "Cascade Clean BX-40",
+      "asset_item": "A-1037",
       "brand": "Cascade Clean",
       "model": "BX-40",
       "description": "Large Rider Scrubber — Cascade Clean BX-40",
@@ -1135,7 +1135,7 @@
     },
     {
       "serial": "900366",
-      "asset_item": "Meridian BX-40",
+      "asset_item": "A-1038",
       "brand": "Meridian",
       "model": "BX-40",
       "description": "Large Rider Scrubber — Meridian BX-40",
@@ -1165,7 +1165,7 @@
     },
     {
       "serial": "900373",
-      "asset_item": "Meridian BX-40",
+      "asset_item": "A-1039",
       "brand": "Meridian",
       "model": "BX-40",
       "description": "Large Rider Scrubber — Meridian BX-40",

@@ -107,6 +107,11 @@ const serviceQueue = () => (state.snapshot && state.snapshot.service_queue) || [
 const categories = () => (state.snapshot && state.snapshot.categories) || [];
 const billing = () => (state.snapshot && state.snapshot.billing) || {};
 
+/** Display name: brand + model ("Factory Cat Model 34"). asset_item is an identifier, shown on the sub-line. */
+const unitName = (u) => [u.brand, u.model].filter(Boolean).join(' ') || u.asset_item || 'Unit';
+/** Sub-line identifiers: "#serial · A-1042" (asset # only when present). */
+const unitIds = (u) => [`#${u.serial}`, u.asset_item].filter(Boolean).join(' · ');
+
 const unitBySerial = (s) => units().find((u) => String(u.serial) === String(s)) || null;
 const pendingFor = (serial) => state.pending.filter((e) => String(e.serial) === String(serial));
 
@@ -203,8 +208,8 @@ function viewCategory(cat) {
     return html`
       <a class="card unit-row" href="#/unit/${raw(encodeURIComponent(u.serial))}">
         <span class="unit-main">
-          <span class="unit-title">${u.asset_item || `${u.brand || ''} ${u.model || ''}`.trim() || 'Unit'}</span>
-          <span class="unit-loc"><span class="unit-serial">#${u.serial}</span> · ${loc}</span>
+          <span class="unit-title">${unitName(u)}</span>
+          <span class="unit-loc"><span class="unit-serial">${unitIds(u)}</span> · ${loc}</span>
           ${raw(unitChips(u))}
         </span>
         ${CHEV}
@@ -246,8 +251,8 @@ function viewUnit(serial) {
   return html`
     <a class="crumb" href="#/cat/${raw(encodeURIComponent(u.category || ''))}">‹ ${u.category || 'Fleet'}</a>
     <div class="detail-head">
-      <div class="h">${u.asset_item || `${u.brand || ''} ${u.model || ''}`.trim() || 'Unit'}</div>
-      <div class="s"><span class="unit-serial">#${u.serial}</span> · ${u.category || '—'}</div>
+      <div class="h">${unitName(u)}</div>
+      <div class="s"><span class="unit-serial">${unitIds(u)}</span> · ${u.category || '—'}</div>
       ${raw(unitChips(u))}
     </div>
     ${raw(pendingBlock)}
@@ -256,6 +261,8 @@ function viewUnit(serial) {
     <h2>Unit</h2>
     <div class="card"><dl class="kv">
       ${raw(kvRow('Brand / model', [u.brand, u.model].filter(Boolean).join(' ')))}
+      ${raw(kvRow('Asset #', u.asset_item))}
+      ${raw(kvRow('Serial', u.serial))}
       ${raw(kvRow('Description', u.description))}
       ${raw(kvRow('Status', u.status))}
       ${raw(kvRow('Hours', u.hours != null ? u.hours.toLocaleString('en-US') : '', 'num'))}
@@ -381,7 +388,7 @@ function viewRentals() {
             <span class="unit-title">${a.customer || 'Unknown customer'}</span>
             <span class="unit-loc">
               <a href="#/unit/${raw(encodeURIComponent(a.serial))}">#${a.serial}</a>
-              ${u ? raw(html` · ${u.asset_item}`) : ''}${a.job_site ? raw(html` · ${a.job_site}`) : ''}
+              ${u ? raw(html` · ${unitName(u)}`) : ''}${a.job_site ? raw(html` · ${a.job_site}`) : ''}
             </span>
           </span>
         </div>

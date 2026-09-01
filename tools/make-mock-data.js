@@ -150,7 +150,7 @@ function build({ withServiceQueue }) {
 
       const unit = {
         serial,
-        asset_item: `${brand} ${model}`,
+        asset_item: `A-${1000 + units.length + 1}`,
         brand,
         model,
         description: `${category} — ${brand} ${model}`,
@@ -259,7 +259,7 @@ function build({ withServiceQueue }) {
           ticket_id,
           customer: pick(CUSTOMERS),
           serial: attach ? own.serial : null,
-          unit_desc: attach ? own.asset_item : `${pick(BRANDS)} ${pick(MODELS)} (customer owned)`,
+          unit_desc: attach ? `${own.brand} ${own.model}` : `${pick(BRANDS)} ${pick(MODELS)} (customer owned)`,
           stage,
           assigned: pick(['Josh', 'Zac']),
           opened: d(-Math.round(1 + rand() * 25)),
