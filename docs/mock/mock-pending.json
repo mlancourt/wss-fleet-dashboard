@@ -1,0 +1,27 @@
+[
+  {
+    "id": "evt-mock-1",
+    "ts": "2026-09-01T19:05:56.521Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "reserve",
+    "serial": "900107",
+    "payload": {
+      "customer": "Ironwood Packaging",
+      "purpose": "quote hold",
+      "until": "2026-09-07"
+    }
+  },
+  {
+    "id": "evt-mock-2",
+    "ts": "2026-09-01T21:25:56.521Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "readiness",
+    "serial": "900114",
+    "payload": {
+      "readiness": "NEEDS-PREP",
+      "note": "squeegee blades ordered"
+    }
+  }
+]

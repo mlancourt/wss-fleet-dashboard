@@ -1,0 +1,712 @@
+/* WSS Fleet — app shell.
+ *
+ * Reads a dashboard-data snapshot (schema_version 1) and renders it.
+ * ZERO data lives in this repo: the snapshot comes from the Worker at runtime,
+ * or from docs/mock/*.json in mock mode (fake data only).
+ *
+ * Two rules this file exists to not break:
+ *   1. Business dates are date-only Central strings. NEVER new Date("YYYY-MM-DD")
+ *      — JS reads that as UTC midnight and Central users see yesterday.
+ *      All date-only handling below is string surgery. See fmtDate/addBusinessDays.
+ *   2. Writes are proposals. A submitted event renders as "pending", never as
+ *      if the vault had already accepted it.
+ */
+
+import {
+  fmtDate, fmtDateFull, todayCentral, addBusinessDays,
+  fmtInstantCentral, hoursSince, fmtMoney,
+} from './dates.js';
+
+/* ============================================================ 1. config ==== */
+
+// Set at M2 to the deployed Worker origin, e.g.
+//   'https://wss-fleet-worker.mlancourt.workers.dev'
+// Empty string = not wired yet (M0: mock mode only).
+const API_BASE = '';
+
+const TOKEN_KEY = 'wss_fleet_token';
+const STALE_HOURS = 36;
+
+/* ==================================================== 2. tiny html helper == */
+
+const RAW = Symbol('raw');
+const raw = (s) => ({ [RAW]: String(s) });
+
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function interp(v) {
+  if (v == null || v === false) return '';
+  if (Array.isArray(v)) return v.map(interp).join('');
+  if (typeof v === 'object' && RAW in v) return v[RAW];
+  return esc(v);
+}
+
+// Tagged template: interpolations are escaped unless wrapped in raw().
+function html(strings, ...vals) {
+  let out = strings[0];
+  for (let i = 0; i < vals.length; i++) out += interp(vals[i]) + strings[i + 1];
+  return out;
+}
+
+const $ = (sel) => document.querySelector(sel);
+
+/* ================================== 3. date + money (see docs/dates.js) ==== */
+
+// Date handling lives in its own pure module so tools/selftest-dates.mjs can
+// assert it. Do not re-implement any of this inline.
+/* ============================================================== 4. state == */
+
+const state = {
+  me: null,          // {name, role}
+  snapshot: null,
+  pending: [],       // unapplied events from the Worker
+  error: null,
+  source: null,      // 'mock:full' | 'mock:empty' | 'api'
+  loading: false,
+  explainedPending: false,
+};
+
+/* ======================================================== 5. token + auth == */
+
+function bootToken() {
+  const url = new URL(window.location.href);
+  const t = url.searchParams.get('t');
+  if (t) {
+    try { localStorage.setItem(TOKEN_KEY, t); } catch (_) { /* private mode */ }
+    // Strip the token from the address bar so it isn't shoulder-surfed or shared.
+    url.searchParams.delete('t');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+  try { return localStorage.getItem(TOKEN_KEY); } catch (_) { return t || null; }
+}
+
+function mockVariant() {
+  const v = new URL(window.location.href).searchParams.get('mock');
+  return v === 'full' || v === 'empty' ? v : null;
+}
+
+/* ================================================================ 6. api == */
+
+async function loadData() {
+  const variant = mockVariant();
+
+  if (variant) {
+    const params = new URL(window.location.href).searchParams;
+    const res = await fetch(`mock/mock-${variant}.json`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`mock file ${res.status} — run: npm run mock`);
+    const snapshot = await res.json();
+
+    // Mock-only knobs, so states the snapshot can't express are still reviewable:
+    //   ?pending=1  load sample unapplied events -> pending badges
+    //   ?age=48     backdate generated_at N hours -> the >36h stale warning
+    //   ?role=sales pretend to be someone else   -> which write buttons appear
+    let pending = [];
+    if (params.get('pending')) {
+      pending = await fetch('mock/mock-pending.json', { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []);
+    }
+    const age = Number(params.get('age'));
+    if (age > 0 && snapshot.meta) {
+      snapshot.meta.generated_at = new Date(Date.now() - age * 3600000).toISOString();
+    }
+    const role = params.get('role');
+
+    return {
+      me: { name: 'Mock User', role: role || 'owner' },
+      snapshot,
+      pending,
+      source: `mock:${variant}`,
+    };
+  }
+
+  const token = bootToken();
+  if (!token) { const e = new Error('no-token'); e.code = 'no-token'; throw e; }
+  if (!API_BASE) { const e = new Error('no-api'); e.code = 'no-api'; throw e; }
+
+  // Token goes in the Authorization header, never the URL.
+  const res = await fetch(`${API_BASE}/api/data`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  });
+  if (res.status === 401) { const e = new Error('bad-token'); e.code = 'bad-token'; throw e; }
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const body = await res.json();
+  // pending comes back with /api/data, so the header count needs no second
+  // round-trip to /api/health — same number, one less request on bad LTE.
+  return { me: body.me, snapshot: body.snapshot, pending: body.pending || [], source: 'api' };
+}
+
+async function postEvent(action, serial, payload) {
+  if (mockVariant()) throw new Error('Mock mode — writes are disabled.');
+  const token = bootToken();
+  const res = await fetch(`${API_BASE}/api/event`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, serial, payload }),
+  });
+  if (!res.ok) throw new Error(`Event rejected (${res.status})`);
+  return res.json();
+}
+
+/* ========================================================== 7. selectors == */
+
+const units = () => (state.snapshot && state.snapshot.units) || [];
+const agreements = () => (state.snapshot && state.snapshot.agreements) || [];
+const serviceQueue = () => (state.snapshot && state.snapshot.service_queue) || [];
+const categories = () => (state.snapshot && state.snapshot.categories) || [];
+const billing = () => (state.snapshot && state.snapshot.billing) || {};
+
+const unitBySerial = (s) => units().find((u) => String(u.serial) === String(s)) || null;
+const pendingFor = (serial) => state.pending.filter((e) => String(e.serial) === String(serial));
+
+/**
+ * Category counts.
+ *   ready    AVAILABLE and READY   — the only thing that can go out today
+ *   in prep  NEEDS-PREP, any live state
+ *   down     DOWN, any live state
+ *   reserved unit_state RESERVED   — its own chip, never counted available
+ * RETIRED units are excluded from prep/down; they aren't coming back.
+ */
+function countCategory(cat) {
+  const us = units().filter((u) => u.category === cat);
+  const live = us.filter((u) => u.unit_state !== 'RETIRED');
+  return {
+    total: us.length,
+    ready: us.filter((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY').length,
+    prep: live.filter((u) => u.readiness === 'NEEDS-PREP').length,
+    down: live.filter((u) => u.readiness === 'DOWN').length,
+    reserved: us.filter((u) => u.unit_state === 'RESERVED').length,
+  };
+}
+
+const light = (readyCount) => (readyCount >= 2 ? '🟢' : readyCount === 1 ? '🟡' : '🔴');
+
+/* =========================================================== 8. fragments == */
+
+const STATE_CLASS = {
+  AVAILABLE: 'ok', RESERVED: 'hold', 'ON-RENT': 'out', 'ON-DEMO': 'out',
+  'LOANER-OUT': 'out', 'IN-SHOP': 'warn', RETIRED: '',
+};
+const READY_CLASS = { READY: 'ok', 'NEEDS-PREP': 'warn', DOWN: 'bad' };
+
+const chip = (text, cls) => html`<span class="chip ${cls || ''}">${text}</span>`;
+
+function unitChips(u) {
+  const p = pendingFor(u.serial);
+  return html`<div class="chips">
+    ${raw(chip(u.unit_state, STATE_CLASS[u.unit_state]))}
+    ${raw(chip(u.readiness, READY_CLASS[u.readiness]))}
+    ${p.length ? raw(chip(`⏳ ${p.length} pending`, 'pending')) : ''}
+  </div>`;
+}
+
+function emptyState(title, sub) {
+  return html`<div class="empty"><strong>${title}</strong>${sub || ''}</div>`;
+}
+
+/* =============================================================== 9. views == */
+
+function viewCategories() {
+  const cats = categories();
+  if (!cats.length) return emptyState('No categories in this snapshot.', 'The run engine publishes them.');
+
+  const totals = (state.snapshot.meta && state.snapshot.meta.fleet_totals) || {};
+  const cards = cats.map((cat) => {
+    const c = countCategory(cat);
+    const n = (v, label) => html`<span class="${v ? 'n' : 'zero'}">${v}</span> ${label}`;
+    return html`
+      <a class="card cat-card" href="#/cat/${raw(encodeURIComponent(cat))}">
+        <span class="cat-light" aria-hidden="true">${light(c.ready)}</span>
+        <span class="cat-body">
+          <span class="cat-name">${cat}</span>
+          <span class="cat-sub">
+            ${raw(n(c.ready, 'ready'))} · ${raw(n(c.prep, 'in prep'))} ·
+            ${raw(n(c.down, 'down'))} · ${raw(n(c.reserved, 'reserved'))}
+          </span>
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+      </a>`;
+  });
+
+  return html`
+    <h1>Fleet</h1>
+    ${raw(cards.join(''))}
+    <h2>Fleet totals</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Units', totals.units != null ? totals.units : units().length))}
+      ${raw(kvRow('Cost', fmtMoney(totals.cost), 'num'))}
+      ${raw(kvRow('Book', fmtMoney(totals.book), 'num'))}
+      ${raw(kvRow('Ask', fmtMoney(totals.ask), 'num'))}
+      ${raw(kvRow('Floor', fmtMoney(totals.floor), 'num'))}
+    </dl></div>`;
+}
+
+function viewCategory(cat) {
+  const us = units().filter((u) => u.category === cat);
+  const c = countCategory(cat);
+
+  // Sort so what's rentable today floats to the top.
+  const rank = { AVAILABLE: 0, RESERVED: 1, 'IN-SHOP': 2, 'ON-DEMO': 3, 'ON-RENT': 4, 'LOANER-OUT': 5, RETIRED: 6 };
+  us.sort((a, b) => (rank[a.unit_state] ?? 9) - (rank[b.unit_state] ?? 9)
+    || String(a.serial).localeCompare(String(b.serial)));
+
+  const rows = us.map((u) => {
+    // No job_site means it hasn't left the yard.
+    const loc = u.job_site || (u.unit_state === 'RESERVED' && u.reservation && u.reservation.customer
+      ? `held for ${u.reservation.customer}` : 'shop');
+    return html`
+      <a class="card unit-row" href="#/unit/${raw(encodeURIComponent(u.serial))}">
+        <span class="unit-main">
+          <span class="unit-title">${u.asset_item || `${u.brand || ''} ${u.model || ''}`.trim() || 'Unit'}</span>
+          <span class="unit-loc">#<span class="unit-serial">${u.serial}</span> · ${loc}</span>
+          ${raw(unitChips(u))}
+        </span>
+        <span class="chev" aria-hidden="true">›</span>
+      </a>`;
+  });
+
+  return html`
+    <a class="crumb" href="#/">‹ Fleet</a>
+    <h1>${light(c.ready)} ${cat}</h1>
+    <div class="cat-sub" style="margin:-6px 0 12px">
+      ${c.ready} ready · ${c.prep} in prep · ${c.down} down · ${c.reserved} reserved
+    </div>
+    ${us.length ? raw(rows.join('')) : raw(emptyState('No units in this category.'))}`;
+}
+
+function kvRow(label, value, cls) {
+  const empty = value === '' || value == null;
+  return html`<div class="kv-row"><dt>${label}</dt>
+    <dd class="${cls || ''}${empty ? ' muted' : ''}">${empty ? '—' : value}</dd></div>`;
+}
+
+function viewUnit(serial) {
+  const u = unitBySerial(serial);
+  if (!u) return html`<a class="crumb" href="#/">‹ Fleet</a>${raw(emptyState('Unit not found.', 'It may have left the snapshot.'))}`;
+
+  const ag = u.agreement != null ? agreements().find((a) => a.agreement === u.agreement) : null;
+  const rc = u.rate_card || {};
+  const rv = u.reservation || {};
+  const p = pendingFor(u.serial);
+
+  const pendingBlock = p.length ? html`
+    <div class="note">
+      <strong>⏳ ${p.length} pending change${p.length > 1 ? 's' : ''}</strong>
+      ${raw(p.map((e) => html`<div>${e.action} by ${e.actor || 'someone'}</div>`).join(''))}
+      ${state.explainedPending ? '' : raw('<div style="margin-top:6px">Applies at the next run — the board still shows the current truth.</div>')}
+    </div>` : '';
+  if (p.length) state.explainedPending = true;
+
+  const loanerPlacement = u.unit_state === 'LOANER-OUT' && u.agreement != null && !ag;
+
+  return html`
+    <a class="crumb" href="#/cat/${raw(encodeURIComponent(u.category || ''))}">‹ ${u.category || 'Fleet'}</a>
+    <div class="detail-head">
+      <div class="h">${u.asset_item || `${u.brand || ''} ${u.model || ''}`.trim() || 'Unit'}</div>
+      <div class="s">#${u.serial} · ${u.category || '—'}</div>
+      ${raw(unitChips(u))}
+    </div>
+    ${raw(pendingBlock)}
+    ${u.readiness_note ? raw(html`<div class="note"><strong>Readiness note</strong>${u.readiness_note}</div>`) : ''}
+
+    <h2>Unit</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Brand / model', [u.brand, u.model].filter(Boolean).join(' ')))}
+      ${raw(kvRow('Description', u.description))}
+      ${raw(kvRow('Status', u.status))}
+      ${raw(kvRow('Hours', u.hours != null ? u.hours.toLocaleString('en-US') : '', 'num'))}
+      ${raw(kvRow('In service', fmtDateFull(u.in_service)))}
+      ${raw(kvRow('Location', u.job_site))}
+      ${raw(kvRow('Service ticket', u.service_ticket))}
+    </dl></div>
+
+    <h2>Money</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Acquisition cost', fmtMoney(u.acquisition_cost), 'num'))}
+      ${raw(kvRow('Book', fmtMoney(u.book), 'num'))}
+      ${raw(kvRow('Ask', fmtMoney(u.ask), 'num'))}
+      ${raw(kvRow('Floor', fmtMoney(u.floor), 'num'))}
+      ${raw(kvRow('Rate — monthly', rc.monthly != null ? fmtMoney(rc.monthly) : '', 'num'))}
+      ${raw(kvRow('Rate — full day', rc.full_day != null ? fmtMoney(rc.full_day) : '', 'num'))}
+    </dl></div>
+
+    ${u.unit_state === 'RESERVED' || rv.customer ? raw(html`
+      <h2>Reservation</h2>
+      <div class="card"><dl class="kv">
+        ${raw(kvRow('Customer', rv.customer))}
+        ${raw(kvRow('Held by', rv.held_by))}
+        ${raw(kvRow('Purpose', rv.purpose))}
+        ${raw(kvRow('Until', fmtDateFull(rv.until)))}
+      </dl></div>`) : ''}
+
+    ${ag ? raw(html`
+      <h2>Agreement</h2>
+      <div class="card"><dl class="kv">
+        ${raw(kvRow('Agreement', ag.agreement))}
+        ${raw(kvRow('Customer', ag.customer))}
+        ${raw(kvRow('Cycle', ag.cycle))}
+        ${raw(kvRow('Cycle rate', fmtMoney(ag.cycle_rate), 'num'))}
+        ${raw(kvRow('Cycles billed', ag.cycles_max != null ? `${ag.cycles_billed} of ${ag.cycles_max}` : ag.cycles_billed, 'num'))}
+        ${raw(kvRow('Last invoiced', ag.last_invoiced_period_start
+          ? `${fmtDate(ag.last_invoiced_period_start)} – ${fmtDateFull(ag.last_invoiced_period_end)}` : ''))}
+        ${raw(kvRow('Last invoice', ag.last_invoice))}
+        ${raw(kvRow('Next due', fmtDateFull(ag.next_due)))}
+        ${raw(kvRow('Customer PO', ag.customer_po))}
+      </dl></div>
+      ${raw(rowAlerts(ag))}`) : ''}
+
+    ${loanerPlacement ? raw(html`<h2>Placement</h2>
+      <div class="info">Loaner out on agreement ${u.agreement}. Loaners carry no billing row — that's expected, not a missing record.</div>`) : ''}
+
+    ${u.unit_state === 'ON-DEMO' ? raw(html`
+      <h2>Placement</h2><div class="info">Out on demo. No agreement.</div>`) : ''}
+
+    ${raw(actionsFor(u))}`;
+}
+
+/* ---- writes (proposals only) ---- */
+
+function actionsFor(u) {
+  const role = (state.me && state.me.role) || '';
+  const canReserve = (role === 'sales' || role === 'owner') && u.unit_state === 'AVAILABLE';
+  const canReadiness = role === 'service' || role === 'owner';
+  if (!canReserve && !canReadiness) return '';
+
+  // In mock mode the forms still open — the UI is reviewable — but submitting
+  // is refused in postEvent(). Nothing fake ever enters the pending list.
+  const mock = !!mockVariant();
+  return html`
+    <h2>Actions</h2>
+    ${mock ? raw('<div class="info">Mock mode — the forms open, but submitting is refused until the Worker is live (M1).</div>') : ''}
+    <div class="actions">
+      ${canReserve ? raw('<button class="btn" type="button" data-form="reserve">Reserve this unit</button>') : ''}
+      ${canReadiness ? raw('<button class="btn ghost" type="button" data-form="readiness">Set readiness</button>') : ''}
+    </div>
+    <div id="write-form"></div>
+    <div id="write-msg"></div>`;
+}
+
+function reserveForm(u) {
+  const until = addBusinessDays(todayCentral(), 5); // +5 business days, Sat/Sun skipped
+  return html`
+    <form class="write" data-action="reserve" data-serial="${u.serial}">
+      <label for="f-cust">Customer</label>
+      <input id="f-cust" name="customer" required autocomplete="off">
+      <label for="f-purp">Purpose</label>
+      <input id="f-purp" name="purpose" placeholder="quote hold, demo, replacement…" autocomplete="off">
+      <label for="f-until">Hold until</label>
+      <input id="f-until" name="until" type="date" value="${until}">
+      <div class="actions"><button class="btn" type="submit">Submit reservation</button></div>
+      <div class="form-note">This is a proposal. It shows as pending until the next run applies it.</div>
+    </form>`;
+}
+
+function readinessForm(u) {
+  const opt = (v) => html`<option value="${v}"${v === u.readiness ? raw(' selected') : ''}>${v}</option>`;
+  return html`
+    <form class="write" data-action="readiness" data-serial="${u.serial}">
+      <label for="f-ready">Readiness</label>
+      <select id="f-ready" name="readiness">
+        ${raw(['READY', 'NEEDS-PREP', 'DOWN'].map(opt).join(''))}
+      </select>
+      <label for="f-note">Note</label>
+      <textarea id="f-note" name="note" placeholder="what's wrong / what it needs"></textarea>
+      <div class="actions"><button class="btn" type="submit">Submit readiness</button></div>
+      <div class="form-note">This is a proposal. It shows as pending until the next run applies it.</div>
+    </form>`;
+}
+
+/* ---- rentals / billing / service ---- */
+
+function viewRentals() {
+  const rows = agreements();
+  if (!rows.length) return html`<h1>Rentals</h1>${raw(emptyState('No agreements in this snapshot.'))}`;
+
+  // Unbilled rentals and alerts first — those are the ones that cost money.
+  const sorted = rows.slice().sort((a, b) => {
+    const sev = (r) => (r.agreement == null ? 0 : (r.alerts && r.alerts.length ? 1 : 2));
+    return sev(a) - sev(b) || String(a.customer || '').localeCompare(String(b.customer || ''));
+  });
+
+  const cards = sorted.map((a) => {
+    const u = unitBySerial(a.serial);
+    const cycles = a.cycles_max != null ? `${a.cycles_billed} of ${a.cycles_max}` : `${a.cycles_billed}`;
+    return html`
+      <div class="card">
+        <div class="unit-row">
+          <span class="unit-main">
+            <span class="unit-title">${a.customer || 'Unknown customer'}</span>
+            <span class="unit-loc">
+              <a href="#/unit/${raw(encodeURIComponent(a.serial))}">#${a.serial}</a>
+              ${u ? raw(html` · ${u.asset_item}`) : ''}${a.job_site ? raw(html` · ${a.job_site}`) : ''}
+            </span>
+          </span>
+        </div>
+        <dl class="kv" style="margin-top:8px">
+          ${raw(kvRow('Agreement', a.agreement == null ? raw('<span style="color:#C62828">none</span>') : a.agreement))}
+          ${raw(kvRow('Cycle', `${a.cycle || '—'} · ${fmtMoney(a.cycle_rate)}`))}
+          ${raw(kvRow('Cycles billed', cycles, 'num'))}
+          ${raw(kvRow('Last invoice', a.last_invoice))}
+          ${raw(kvRow('Next due', a.next_due ? fmtDateFull(a.next_due) : ''))}
+        </dl>
+        ${raw(rowAlerts(a))}
+      </div>`;
+  });
+
+  return html`<h1>Rentals</h1><div class="cat-sub" style="margin:-6px 0 12px">${rows.length} agreements</div>${raw(cards.join(''))}`;
+}
+
+/**
+ * Alerts for an agreements row. `agreement: null` is the unbilled-rental case and
+ * must be loud, but the engine usually says so in `alerts` too — don't say it twice.
+ */
+function rowAlerts(a) {
+  const alerts = (a.alerts || []).slice();
+  if (a.agreement == null && !alerts.some((x) => /unbilled/i.test(x))) {
+    alerts.unshift('UNBILLED RENTAL — unit is out with no agreement');
+  }
+  return alerts.map((x) => html`<div class="alert">⚠️ ${x}</div>`).join('');
+}
+
+function viewBilling() {
+  const b = billing();
+  const due = b.due_next_7_days || [];
+  const made = b.created_last_run || [];
+
+  const dueRows = due.map((x) => html`
+    <div class="card">
+      <div class="unit-row"><span class="unit-main">
+        <span class="unit-title">${x.customer || '—'}</span>
+        <span class="unit-loc">Agreement ${x.agreement ?? '—'} ·
+          <a href="#/unit/${raw(encodeURIComponent(x.serial))}">#${x.serial}</a></span>
+      </span></div>
+      <dl class="kv" style="margin-top:8px">
+        ${raw(kvRow('Amount', fmtMoney(x.amount), 'num'))}
+        ${raw(kvRow('Due', fmtDateFull(x.due)))}
+      </dl>
+    </div>`);
+
+  const madeRows = made.map((x) => html`
+    <div class="card">
+      <div class="unit-row"><span class="unit-main">
+        <span class="unit-title">${x.customer || '—'}</span>
+        <span class="unit-loc">Invoice ${x.invoice} · agreement ${x.agreement ?? '—'}</span>
+      </span></div>
+      <dl class="kv" style="margin-top:8px">
+        ${raw(kvRow('Amount', fmtMoney(x.amount), 'num'))}
+        ${raw(kvRow('Period', `${fmtDate(x.period_start)} – ${fmtDateFull(x.period_end)}`))}
+      </dl>
+    </div>`);
+
+  return html`
+    <h1>Billing</h1>
+    <div class="info">Display only. Nothing here creates, sends, or moves money.</div>
+    <h2>Due next 7 days</h2>
+    ${due.length ? raw(dueRows.join('')) : raw(emptyState('Nothing due in the next 7 days.'))}
+    <h2>Created last run</h2>
+    ${made.length ? raw(madeRows.join('')) : raw(emptyState('No invoices created on the last run.'))}
+    ${made.length ? raw('<div class="form-note">Created last night — awaiting Matt.</div>') : ''}`;
+}
+
+const STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
+
+function viewService() {
+  const q = serviceQueue();
+  if (!q.length) {
+    return html`<h1>Service</h1>${raw(emptyState('Service queue is empty.',
+      'Tickets appear here once the service module starts publishing.'))}`;
+  }
+
+  // Any stage the engine sends that we don't know about still gets a column.
+  const stages = STAGES.concat(q.map((t) => t.stage).filter((s) => s && !STAGES.includes(s)));
+  const cols = [...new Set(stages)].map((stage) => {
+    const tix = q.filter((t) => t.stage === stage);
+    const cards = tix.map((t) => html`
+      <div class="kan-card">
+        <div class="kan-t">${t.customer || '—'}</div>
+        <div class="kan-s">${t.unit_desc || '—'}</div>
+        <div class="kan-s">${t.ticket_id}${t.assigned ? raw(html` · ${t.assigned}`) : ''} · opened ${fmtDate(t.opened)}</div>
+        ${t.serial ? raw(html`<div class="kan-s"><a href="#/unit/${raw(encodeURIComponent(t.serial))}">#${t.serial}</a></div>`) : ''}
+        ${t.quote != null ? raw(html`<div class="kan-s">Quote ${fmtMoney(t.quote)}</div>`) : ''}
+        ${t.machinio_ref ? raw(html`<div class="kan-s">${t.machinio_ref}</div>`) : ''}
+      </div>`);
+    return html`<section class="kan-col">
+      <div class="kan-head"><span>${stage}</span><span class="c">${tix.length}</span></div>
+      ${tix.length ? raw(cards.join('')) : raw('<div class="kan-empty">nothing here</div>')}
+    </section>`;
+  });
+
+  return html`<h1>Service</h1><div class="kanban">${raw(cols.join(''))}</div>`;
+}
+
+/* ---- gate / error screens ---- */
+
+function viewGate(code) {
+  if (code === 'no-token') {
+    return html`<h1>WSS Fleet</h1>
+      <div class="card">
+        <p>This board opens from your personal link.</p>
+        <p><strong>Ask Matt for your link</strong> — then bookmark it or add it to your home screen.</p>
+      </div>`;
+  }
+  if (code === 'bad-token') {
+    return html`<h1>Link not recognized</h1>
+      <div class="card"><p>That link isn't active any more. Ask Matt for a new one.</p></div>`;
+  }
+  if (code === 'no-api') {
+    return html`<h1>Not wired up yet</h1>
+      <div class="card">
+        <p>The Worker endpoint isn't configured in this build (M0).</p>
+        <p>Open <code>?mock=full</code> or <code>?mock=empty</code> to preview with fake data.</p>
+      </div>`;
+  }
+  return html`<h1>Can't load the board</h1>
+    <div class="card"><p>${state.error || 'Unknown error.'}</p>
+    <div class="actions"><button class="btn" type="button" id="retry">Try again</button></div></div>`;
+}
+
+/* ============================================================= 10. header == */
+
+function renderHeader() {
+  const asof = $('#asof');
+  const badge = $('#pending-badge');
+
+  if (!state.snapshot) {
+    asof.textContent = state.loading ? 'loading…' : '';
+    asof.classList.remove('stale');
+    badge.hidden = true;
+    return;
+  }
+
+  const gen = (state.snapshot.meta && state.snapshot.meta.generated_at) || '';
+  const stale = gen && hoursSince(gen) > STALE_HOURS;
+  asof.textContent = `${stale ? '⚠️ ' : ''}data as of ${fmtInstantCentral(gen)}` +
+    (state.source && state.source.startsWith('mock') ? ` · ${state.source}` : '');
+  asof.classList.toggle('stale', !!stale);
+
+  const n = state.pending.length;
+  badge.hidden = n === 0;
+  badge.textContent = `⏳ ${n} pending`;
+}
+
+function renderTabs(route) {
+  const tab = route.startsWith('#/rentals') ? 'rentals'
+    : route.startsWith('#/billing') ? 'billing'
+    : route.startsWith('#/service') ? 'service' : 'fleet';
+  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === tab));
+}
+
+/* ============================================================= 11. router == */
+
+function render() {
+  const view = $('#view');
+  const hash = window.location.hash || '#/';
+  renderTabs(hash);
+
+  if (state.error) { view.innerHTML = viewGate(state.error.code); renderHeader(); return; }
+  if (!state.snapshot) { view.innerHTML = '<div class="loading">Loading…</div>'; renderHeader(); return; }
+
+  const parts = hash.replace(/^#\/?/, '').split('/');
+  const section = parts[0] || '';
+  const arg = parts.slice(1).join('/');
+
+  let out;
+  if (section === 'rentals') out = viewRentals();
+  else if (section === 'billing') out = viewBilling();
+  else if (section === 'service') out = viewService();
+  else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
+  else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
+  else out = viewCategories();
+
+  view.innerHTML = out;
+  renderHeader();
+  view.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+
+/* =============================================================== 12. boot == */
+
+async function refresh() {
+  state.loading = true;
+  renderHeader();
+  try {
+    const d = await loadData();
+    state.me = d.me;
+    state.snapshot = d.snapshot;
+    state.pending = d.pending;
+    state.source = d.source;
+    state.error = null;
+  } catch (err) {
+    state.error = err;
+    state.error.code = err.code || 'error';
+    console.warn('[wss-fleet] load failed:', err.message);
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+
+// Delegated events — the view is re-rendered wholesale, so nothing binds directly.
+document.addEventListener('click', (ev) => {
+  const openForm = ev.target.closest('[data-form]');
+  if (openForm) {
+    const serial = window.location.hash.split('/').pop();
+    const u = unitBySerial(decodeURIComponent(serial));
+    if (!u) return;
+    $('#write-form').innerHTML = openForm.dataset.form === 'reserve' ? reserveForm(u) : readinessForm(u);
+    return;
+  }
+  if (ev.target.id === 'retry') refresh();
+  if (ev.target.closest('#refresh')) {
+    $('#refresh').classList.add('spin');
+    refresh().finally(() => $('#refresh').classList.remove('spin'));
+  }
+});
+
+document.addEventListener('submit', async (ev) => {
+  const form = ev.target.closest('form.write');
+  if (!form) return;
+  ev.preventDefault();
+  const btn = form.querySelector('button[type=submit]');
+  btn.disabled = true;
+  const fd = new FormData(form);
+  const action = form.dataset.action;
+  const payload = action === 'reserve'
+    ? { customer: fd.get('customer'), purpose: fd.get('purpose') || '', until: fd.get('until') }
+    : { readiness: fd.get('readiness'), note: fd.get('note') || '' };
+
+  try {
+    const stored = await postEvent(action, form.dataset.serial, payload);
+    state.pending.push(stored);
+    render();
+    const msg = $('#write-msg');
+    if (msg) msg.innerHTML = '<div class="note"><strong>Submitted</strong>Applies at the next run.</div>';
+  } catch (err) {
+    const msg = $('#write-msg');
+    if (msg) msg.innerHTML = html`<div class="alert">⚠️ ${err.message}</div>`;
+    btn.disabled = false;
+  }
+});
+
+window.addEventListener('hashchange', render);
+
+// Service worker on real hosts only. On localhost a cached shell just makes you
+// debug yesterday's CSS; iOS requires HTTPS for install anyway, so dev loses nothing.
+const IS_LOCAL = ['localhost', '127.0.0.1', '::1', ''].includes(location.hostname);
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !IS_LOCAL) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('[wss-fleet] sw:', e.message));
+  });
+} else if ('serviceWorker' in navigator && IS_LOCAL) {
+  // Clean up a worker left behind by an earlier build on this port.
+  navigator.serviceWorker.getRegistrations()
+    .then((rs) => rs.forEach((r) => r.unregister()))
+    .catch(() => {});
+  if (window.caches) caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {});
+}
+
+refresh();

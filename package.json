@@ -1,0 +1,14 @@
+{
+  "name": "wss-fleet-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WSS Fleet — employee-facing ops board. Static app shell + Cloudflare Worker.",
+  "type": "module",
+  "scripts": {
+    "mock": "node tools/make-mock-data.js",
+    "icons": "node tools/make-icons.js",
+    "test": "node tools/selftest-dates.mjs",
+    "dev:worker": "wrangler dev --config worker/wrangler.toml",
+    "start": "node tools/serve.js"
+  }
+}

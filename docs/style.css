@@ -1,0 +1,229 @@
+/* WSS Fleet — phone-first (design target 390x844). Desktop is a bonus.
+   Brand: maroon #B71C1C, white, near-black. Gloves-on tap targets (44px min). */
+
+:root {
+  --maroon: #B71C1C;
+  --maroon-dark: #8E1414;
+  --maroon-tint: #FBEDED;
+  --ink: #16161A;
+  --ink-2: #4A4A52;
+  --ink-3: #7A7A85;
+  --line: #E2E2E6;
+  --bg: #F5F5F7;
+  --card: #FFFFFF;
+  --green: #1B8A3A;
+  --amber: #B26A00;
+  --red: #C62828;
+  --amber-tint: #FFF6E5;
+  --red-tint: #FDECEC;
+  --green-tint: #EAF6EE;
+  --radius: 12px;
+  --tap: 44px;
+  --hdr-h: 70px;
+  --tabs-h: 58px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font: inherit; }
+
+/* ------------------------------------------------------------------ header */
+
+.hdr {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--maroon);
+  color: #fff;
+  padding: max(env(safe-area-inset-top), 8px) 14px 8px;
+  box-shadow: 0 1px 0 rgba(0,0,0,.12);
+}
+.hdr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.brand { font-weight: 700; font-size: 19px; letter-spacing: .3px; }
+.refresh {
+  background: rgba(255,255,255,.15);
+  border: 0; color: #fff;
+  width: var(--tap); height: 36px;
+  border-radius: 8px; font-size: 19px; cursor: pointer;
+}
+.refresh:active { background: rgba(255,255,255,.3); }
+.refresh.spin { opacity: .5; }
+
+.hdr-meta {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; margin-top: 3px;
+  color: rgba(255,255,255,.9);
+}
+.asof.stale { font-weight: 600; color: #FFE28A; }
+.pending-badge {
+  background: rgba(255,255,255,.2);
+  border-radius: 999px; padding: 1px 9px; font-weight: 600; white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------- main */
+
+.view {
+  padding: 12px 12px calc(var(--tabs-h) + env(safe-area-inset-bottom) + 16px);
+  max-width: 760px;
+  margin: 0 auto;
+  outline: none;
+}
+.loading, .empty {
+  padding: 32px 16px; text-align: center; color: var(--ink-3);
+}
+.empty strong { display: block; color: var(--ink-2); margin-bottom: 4px; }
+
+h1 { font-size: 20px; margin: 2px 0 12px; }
+h2 { font-size: 15px; margin: 20px 0 8px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .6px; }
+
+.crumb {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: var(--tap); color: var(--maroon); font-weight: 600; font-size: 15px;
+}
+
+/* ------------------------------------------------------------------- cards */
+
+.card {
+  display: block;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+a.card:active { background: #F0F0F3; }
+
+.cat-card { display: flex; align-items: center; gap: 12px; min-height: 68px; }
+.cat-light { font-size: 22px; line-height: 1; flex: 0 0 auto; }
+.cat-body { flex: 1 1 auto; min-width: 0; }
+.cat-name { display: block; font-weight: 650; font-size: 16.5px; }
+.cat-sub { display: block; font-size: 13px; color: var(--ink-2); margin-top: 3px; }
+.cat-sub .n { font-weight: 650; color: var(--ink); }
+.cat-sub .zero { color: var(--ink-3); font-weight: 400; }
+.chev { color: var(--ink-3); font-size: 20px; flex: 0 0 auto; }
+
+/* ------------------------------------------------------------------- chips */
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chip {
+  font-size: 11.5px; font-weight: 650; letter-spacing: .3px;
+  padding: 2px 8px; border-radius: 999px;
+  background: #ECECF0; color: var(--ink-2); white-space: nowrap;
+}
+.chip.ok      { background: var(--green-tint); color: var(--green); }
+.chip.warn    { background: var(--amber-tint); color: var(--amber); }
+.chip.bad     { background: var(--red-tint);   color: var(--red); }
+.chip.hold    { background: #EDE7F6; color: #5E35B1; }
+.chip.out     { background: #E3F2FD; color: #1565C0; }
+.chip.pending { background: #FFF3CD; color: #7A5B00; }
+
+/* -------------------------------------------------------------- unit rows */
+
+.unit-row { display: flex; align-items: center; gap: 12px; }
+.unit-main { flex: 1 1 auto; min-width: 0; }
+.unit-title { display: block; font-weight: 650; font-size: 15.5px; }
+.unit-serial { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13px; }
+.unit-loc { display: block; font-size: 13px; color: var(--ink-3); margin-top: 2px; }
+
+/* ------------------------------------------------------------ detail sheet */
+
+.kv { border-top: 1px solid var(--line); }
+.kv-row {
+  display: flex; justify-content: space-between; gap: 14px;
+  padding: 9px 0; border-bottom: 1px solid var(--line);
+  font-size: 14.5px;
+}
+.kv-row:last-child { border-bottom: 0; padding-bottom: 2px; }
+.kv-row dt { color: var(--ink-2); flex: 0 0 auto; }
+.kv-row dd { margin: 0; text-align: right; font-weight: 600; word-break: break-word; }
+.kv-row dd.num { font-variant-numeric: tabular-nums; }
+.kv-row dd.muted { font-weight: 400; color: var(--ink-3); }
+
+.detail-head { margin-bottom: 10px; }
+.detail-head .h { font-size: 21px; font-weight: 700; }
+.detail-head .s { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
+
+.note {
+  background: var(--amber-tint); border: 1px solid #F0DFB8;
+  border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 10px 0;
+}
+.note strong { display: block; margin-bottom: 3px; }
+.alert {
+  background: var(--red-tint); border: 1px solid #F3C9C9; color: #8E1F1F;
+  border-radius: 10px; padding: 10px 12px; font-size: 14px; font-weight: 600; margin: 8px 0 0;
+}
+.info {
+  background: #EEF4FD; border: 1px solid #CFE0F7; color: #14457E;
+  border-radius: 10px; padding: 10px 12px; font-size: 13.5px; margin: 10px 0;
+}
+
+/* ----------------------------------------------------------------- actions */
+
+.actions { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+.btn {
+  display: block; width: 100%; min-height: var(--tap);
+  border: 0; border-radius: 10px; padding: 12px;
+  background: var(--maroon); color: #fff; font-weight: 650; font-size: 16px;
+  cursor: pointer; text-align: center;
+}
+.btn:active { background: var(--maroon-dark); }
+.btn[disabled] { background: #C9C9CF; cursor: default; }
+.btn.ghost { background: #fff; color: var(--maroon); border: 1.5px solid var(--maroon); }
+.btn.ghost:active { background: var(--maroon-tint); }
+
+form.write { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-top: 12px; }
+form.write label { display: block; font-size: 13px; color: var(--ink-2); margin: 10px 0 4px; font-weight: 600; }
+form.write input, form.write select, form.write textarea {
+  width: 100%; min-height: var(--tap); padding: 10px 12px; font: inherit;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+}
+form.write textarea { min-height: 76px; resize: vertical; }
+.form-note { font-size: 12.5px; color: var(--ink-3); margin-top: 10px; }
+
+/* --------------------------------------------------------------- kanban */
+
+.kanban { display: grid; gap: 14px; }
+.kan-col { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.kan-head { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; font-size: 13px; letter-spacing: .5px; color: var(--maroon); }
+.kan-head .c { color: var(--ink-3); font-weight: 600; }
+.kan-card { border-top: 1px solid var(--line); padding: 9px 0 6px; font-size: 14px; }
+.kan-card:last-child { padding-bottom: 0; }
+.kan-t { font-weight: 650; }
+.kan-s { color: var(--ink-2); font-size: 13px; }
+.kan-empty { border-top: 1px solid var(--line); padding: 10px 0 2px; color: var(--ink-3); font-size: 13px; }
+
+/* ------------------------------------------------------------------- tabs */
+
+.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; background: #fff; border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tab {
+  flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; min-height: var(--tabs-h); font-size: 11.5px; font-weight: 600; color: var(--ink-3);
+}
+.tab-i { font-size: 18px; line-height: 1; }
+.tab.on { color: var(--maroon); }
+
+/* ---------------------------------------------------------------- desktop */
+
+/* Bottom tab bar stays at every width — one layout, nothing to re-learn. */
+@media (min-width: 720px) {
+  .kanban { grid-template-columns: repeat(3, 1fr); }
+  .tabs { justify-content: center; }
+  .tab { flex: 0 0 160px; }
+}

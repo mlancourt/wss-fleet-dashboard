@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#B71C1C">
+<title>WSS Fleet</title>
+<!-- Relative paths only: this must work at the domain root AND at
+     mlancourt.github.io/<repo>/ while we test pre-DNS. -->
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WSS Fleet">
+<meta name="robots" content="noindex, nofollow">
+</head>
+<body>
+
+<header class="hdr" id="hdr">
+  <div class="hdr-row">
+    <a class="brand" href="#/">WSS&nbsp;Fleet</a>
+    <button class="refresh" id="refresh" type="button" title="Reload data" aria-label="Reload data">&#8635;</button>
+  </div>
+  <div class="hdr-meta" id="hdr-meta">
+    <span id="asof" class="asof">loading&hellip;</span>
+    <span id="pending-badge" class="pending-badge" hidden></span>
+  </div>
+</header>
+
+<main id="view" class="view" tabindex="-1">
+  <div class="loading">Loading&hellip;</div>
+</main>
+
+<nav class="tabs" id="tabs" aria-label="Sections">
+  <a href="#/"         data-tab="fleet"   class="tab"><span class="tab-i">&#9635;</span>Fleet</a>
+  <a href="#/rentals"  data-tab="rentals" class="tab"><span class="tab-i">&#9776;</span>Rentals</a>
+  <a href="#/billing"  data-tab="billing" class="tab"><span class="tab-i">&#36;</span>Billing</a>
+  <a href="#/service"  data-tab="service" class="tab"><span class="tab-i">&#9881;</span>Service</a>
+</nav>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
