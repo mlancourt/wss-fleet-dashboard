@@ -1,14 +1,13 @@
 {
   "meta": {
     "schema_version": 1,
-    "generated_at": "2026-09-01T22:20:37.568Z",
+    "generated_at": "2026-09-01T23:28:53.005Z",
     "run_id": "mock-empty-2026-09-01",
     "fleet_totals": {
       "units": 39,
       "cost": 553600,
       "book": 352777,
-      "ask": 483650,
-      "floor": 370350
+      "ask": 483650
     },
     "mock": true
   },
@@ -40,7 +39,6 @@
       "acquisition_cost": 17900,
       "book": 11400,
       "ask": 16000,
-      "floor": 11950,
       "rate_card": {
         "monthly": 2000,
         "full_day": 350
@@ -71,7 +69,6 @@
       "acquisition_cost": 21000,
       "book": 11848,
       "ask": 16950,
-      "floor": 12450,
       "rate_card": {
         "monthly": 475,
         "full_day": 195
@@ -102,7 +99,6 @@
       "acquisition_cost": 7800,
       "book": 5547,
       "ask": 8100,
-      "floor": 5800,
       "rate_card": {
         "monthly": 2250,
         "full_day": 250
@@ -133,7 +129,6 @@
       "acquisition_cost": 25900,
       "book": 12480,
       "ask": 18850,
-      "floor": 13100,
       "rate_card": {
         "monthly": 500,
         "full_day": 515
@@ -164,7 +159,6 @@
       "acquisition_cost": 23300,
       "book": 12456,
       "ask": 15950,
-      "floor": 13100,
       "rate_card": {
         "monthly": 1050,
         "full_day": 325
@@ -195,7 +189,6 @@
       "acquisition_cost": 9100,
       "book": 4489,
       "ask": 6050,
-      "floor": 4700,
       "rate_card": {
         "monthly": 2325,
         "full_day": 415
@@ -226,7 +219,6 @@
       "acquisition_cost": 24300,
       "book": 12248,
       "ask": 18200,
-      "floor": 12850,
       "rate_card": {
         "monthly": 1000,
         "full_day": 285
@@ -257,7 +249,6 @@
       "acquisition_cost": 5700,
       "book": 4770,
       "ask": 7200,
-      "floor": 5000,
       "rate_card": {
         "monthly": 700,
         "full_day": 480
@@ -288,7 +279,6 @@
       "acquisition_cost": 4100,
       "book": 3238,
       "ask": 4050,
-      "floor": 3400,
       "rate_card": {
         "monthly": 800,
         "full_day": 290
@@ -319,7 +309,6 @@
       "acquisition_cost": 7800,
       "book": 6113,
       "ask": 8750,
-      "floor": 6400,
       "rate_card": {
         "monthly": 1250,
         "full_day": 410
@@ -350,7 +339,6 @@
       "acquisition_cost": 9500,
       "book": 6579,
       "ask": 8600,
-      "floor": 6900,
       "rate_card": {
         "monthly": 1150,
         "full_day": 250
@@ -381,7 +369,6 @@
       "acquisition_cost": 8400,
       "book": 5002,
       "ask": 7150,
-      "floor": 5250,
       "rate_card": {
         "monthly": 675,
         "full_day": 175
@@ -412,7 +399,6 @@
       "acquisition_cost": 26000,
       "book": 11957,
       "ask": 14950,
-      "floor": 12550,
       "rate_card": {
         "monthly": 1775,
         "full_day": 510
@@ -443,7 +429,6 @@
       "acquisition_cost": 22000,
       "book": 15900,
       "ask": 21100,
-      "floor": 16700,
       "rate_card": {
         "monthly": 1350,
         "full_day": 550
@@ -474,7 +459,6 @@
       "acquisition_cost": 9000,
       "book": 6765,
       "ask": 8900,
-      "floor": 7100,
       "rate_card": {
         "monthly": 1050,
         "full_day": 515
@@ -505,7 +489,6 @@
       "acquisition_cost": 11400,
       "book": 8854,
       "ask": 11500,
-      "floor": 9300,
       "rate_card": {
         "monthly": 925,
         "full_day": 235
@@ -536,7 +519,6 @@
       "acquisition_cost": 18600,
       "book": 13702,
       "ask": 17900,
-      "floor": 14400,
       "rate_card": {
         "monthly": 2050,
         "full_day": 435
@@ -567,7 +549,6 @@
       "acquisition_cost": 13400,
       "book": 8700,
       "ask": 12350,
-      "floor": 9150,
       "rate_card": {
         "monthly": 2200,
         "full_day": 365
@@ -598,7 +579,6 @@
       "acquisition_cost": 15000,
       "book": 6852,
       "ask": 9850,
-      "floor": 7200,
       "rate_card": {
         "monthly": 2050,
         "full_day": 280
@@ -629,7 +609,6 @@
       "acquisition_cost": 11200,
       "book": 7944,
       "ask": 11150,
-      "floor": 8350,
       "rate_card": {
         "monthly": 1700,
         "full_day": 300
@@ -660,7 +639,6 @@
       "acquisition_cost": 24000,
       "book": 14354,
       "ask": 19300,
-      "floor": 15050,
       "rate_card": {
         "monthly": 675,
         "full_day": 585
@@ -691,7 +669,6 @@
       "acquisition_cost": 8000,
       "book": 4281,
       "ask": 5650,
-      "floor": 4500,
       "rate_card": {
         "monthly": 2075,
         "full_day": 445
@@ -722,7 +699,6 @@
       "acquisition_cost": 19800,
       "book": 8916,
       "ask": 11700,
-      "floor": 9350,
       "rate_card": {
         "monthly": 2250,
         "full_day": 440
@@ -753,7 +729,6 @@
       "acquisition_cost": 18100,
       "book": 10133,
       "ask": 14350,
-      "floor": 10650,
       "rate_card": {
         "monthly": 600,
         "full_day": 165
@@ -784,7 +759,6 @@
       "acquisition_cost": 12900,
       "book": 7905,
       "ask": 11950,
-      "floor": 8300,
       "rate_card": {
         "monthly": 2350,
         "full_day": 180
@@ -815,7 +789,6 @@
       "acquisition_cost": 17200,
       "book": 14263,
       "ask": 18300,
-      "floor": 15000,
       "rate_card": {
         "monthly": 1275,
         "full_day": 600
@@ -846,7 +819,6 @@
       "acquisition_cost": 12200,
       "book": 10350,
       "ask": 13400,
-      "floor": 10850,
       "rate_card": {
         "monthly": 1825,
         "full_day": 420
@@ -877,7 +849,6 @@
       "acquisition_cost": 14200,
       "book": 10118,
       "ask": 13850,
-      "floor": 10600,
       "rate_card": {
         "monthly": 975,
         "full_day": 150
@@ -908,7 +879,6 @@
       "acquisition_cost": 19200,
       "book": 16212,
       "ask": 20600,
-      "floor": 17000,
       "rate_card": {
         "monthly": 1050,
         "full_day": 560
@@ -939,7 +909,6 @@
       "acquisition_cost": 11200,
       "book": 5806,
       "ask": 7450,
-      "floor": 6100,
       "rate_card": {
         "monthly": 725,
         "full_day": 385
@@ -970,7 +939,6 @@
       "acquisition_cost": 10300,
       "book": 6113,
       "ask": 8150,
-      "floor": 6400,
       "rate_card": {
         "monthly": 1125,
         "full_day": 250
@@ -1001,7 +969,6 @@
       "acquisition_cost": 9000,
       "book": 7231,
       "ask": 10500,
-      "floor": 7600,
       "rate_card": {
         "monthly": 1350,
         "full_day": 465
@@ -1032,7 +999,6 @@
       "acquisition_cost": 11800,
       "book": 7297,
       "ask": 9800,
-      "floor": 7650,
       "rate_card": {
         "monthly": 525,
         "full_day": 255
@@ -1063,7 +1029,6 @@
       "acquisition_cost": 11400,
       "book": 6618,
       "ask": 8450,
-      "floor": 6950,
       "rate_card": {
         "monthly": 1850,
         "full_day": 370
@@ -1094,7 +1059,6 @@
       "acquisition_cost": 5400,
       "book": 4226,
       "ask": 6250,
-      "floor": 4450,
       "rate_card": {
         "monthly": 2375,
         "full_day": 240
@@ -1125,7 +1089,6 @@
       "acquisition_cost": 8500,
       "book": 6662,
       "ask": 9800,
-      "floor": 7000,
       "rate_card": {
         "monthly": 925,
         "full_day": 510
@@ -1156,7 +1119,6 @@
       "acquisition_cost": 25500,
       "book": 20056,
       "ask": 29400,
-      "floor": 21050,
       "rate_card": {
         "monthly": 550,
         "full_day": 430
@@ -1187,7 +1149,6 @@
       "acquisition_cost": 8500,
       "book": 4174,
       "ask": 5450,
-      "floor": 4400,
       "rate_card": {
         "monthly": 1700,
         "full_day": 175
@@ -1218,7 +1179,6 @@
       "acquisition_cost": 15000,
       "book": 11218,
       "ask": 15750,
-      "floor": 11800,
       "rate_card": {
         "monthly": 725,
         "full_day": 415

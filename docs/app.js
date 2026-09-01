@@ -167,7 +167,6 @@ function viewCategories() {
   const cats = categories();
   if (!cats.length) return emptyState('No categories in this snapshot.', 'The run engine publishes them.');
 
-  const totals = (state.snapshot.meta && state.snapshot.meta.fleet_totals) || {};
   const cards = cats.map((cat) => {
     const c = countCategory(cat);
     const n = (v, label) => html`<span class="${v ? 'n' : 'zero'}">${v}</span> ${label}`;
@@ -184,21 +183,8 @@ function viewCategories() {
       </a>`;
   });
 
-  return html`
-    <h1>Fleet</h1>
-    ${raw(cards.join(''))}
-    <h2>Fleet totals</h2>
-    <div class="stats">
-      ${raw(stat('Units', totals.units != null ? totals.units : units().length, 'wide'))}
-      ${raw(stat('Cost', fmtMoney(totals.cost)))}
-      ${raw(stat('Book', fmtMoney(totals.book)))}
-      ${raw(stat('Ask', fmtMoney(totals.ask)))}
-      ${raw(stat('Floor', fmtMoney(totals.floor)))}
-    </div>`;
-}
-
-function stat(label, value, cls) {
-  return html`<div class="stat ${cls || ''}"><div class="stat-l">${label}</div><div class="stat-v">${value}</div></div>`;
+  // Landing = category cards only (D15). No fleet-totals block here.
+  return html`<h1>Fleet</h1>${raw(cards.join(''))}`;
 }
 
 function viewCategory(cat) {
@@ -283,7 +269,6 @@ function viewUnit(serial) {
       ${raw(kvRow('Acquisition cost', fmtMoney(u.acquisition_cost), 'num'))}
       ${raw(kvRow('Book', fmtMoney(u.book), 'num'))}
       ${raw(kvRow('Ask', fmtMoney(u.ask), 'num'))}
-      ${raw(kvRow('Floor', fmtMoney(u.floor), 'num'))}
       ${raw(kvRow('Rate — monthly', rc.monthly != null ? fmtMoney(rc.monthly) : '', 'num'))}
       ${raw(kvRow('Rate — full day', rc.full_day != null ? fmtMoney(rc.full_day) : '', 'num'))}
     </dl></div>

@@ -140,7 +140,6 @@ function build({ withServiceQueue }) {
       const cost = money(4000, 26000, 100);
       const book = Math.round(cost * (0.45 + rand() * 0.4));
       const ask = Math.round(book * (1.25 + rand() * 0.3) / 50) * 50;
-      const floor = Math.round(book * 1.05 / 50) * 50;
 
       const note =
         readiness === 'NEEDS-PREP' ? pick(NOTES_PREP) :
@@ -163,7 +162,7 @@ function build({ withServiceQueue }) {
         hours: unit_state === 'RETIRED' ? null : Math.round(200 + rand() * 3400),
         in_service: d(-Math.round(300 + rand() * 1500)),
         acquisition_cost: cost,
-        book, ask, floor,
+        book, ask,
         rate_card: {
           monthly: money(450, 2400, 25),
           full_day: money(150, 600, 5),
@@ -294,9 +293,8 @@ function build({ withServiceQueue }) {
     acc.cost += u.acquisition_cost;
     acc.book += u.book;
     acc.ask += u.ask;
-    acc.floor += u.floor;
     return acc;
-  }, { units: 0, cost: 0, book: 0, ask: 0, floor: 0 });
+  }, { units: 0, cost: 0, book: 0, ask: 0 });
 
   return {
     meta: {

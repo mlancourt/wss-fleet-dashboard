@@ -89,7 +89,7 @@ CORS: allow origins `https://fleet.wisconsinscrubandsweep.com` and `https://mlan
 
 ## Write model (v1 scope — exactly this, nothing more)
 
-Roles: `owner` (Matt — all writes) · `sales` (Kevin — reserve/release) · `service` (Josh, Zac — readiness). Everyone **reads everything** including cost/book/ask/floor (decision D12 — deliberate; don't "protect" fields).
+Roles: `owner` (Matt — all writes) · `sales` (Kevin — reserve/release) · `service` (Josh, Zac — readiness). Everyone **reads everything** including cost/book/ask (decision D12 — deliberate; don't "protect" fields).
 
 Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest):
 
@@ -108,7 +108,7 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
 ```jsonc
 {
   "meta": { "schema_version": 1, "generated_at": "<UTC ISO>", "run_id": "…",
-            "fleet_totals": { "units": 39, "cost": 0, "book": 0, "ask": 0, "floor": 0 } },
+            "fleet_totals": { "units": 39, "cost": 0, "book": 0, "ask": 0 } },   // no floor (D16)
   "categories": ["…9 rental-rate-matrix band names, display order…"],
   "units": [ {
     "serial": "150074", "asset_item": "…", "brand": "…", "model": "…", "description": "…",
@@ -116,7 +116,7 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "unit_state": "AVAILABLE|RESERVED|ON-RENT|ON-DEMO|LOANER-OUT|IN-SHOP|RETIRED",
     "readiness": "READY|NEEDS-PREP|DOWN", "readiness_note": null, "hours": null,
     "in_service": "YYYY-MM-DD", "acquisition_cost": 0,
-    "book": 0, "ask": 0, "floor": 0,            // engine-computed fresh each run — display only
+    "book": 0, "ask": 0,                        // engine-computed fresh each run — display only; no floor (D16)
     "rate_card": { "monthly": null, "full_day": null },
     "job_site": null, "agreement": 4130,         // null when not out
     "reservation": { "held_by": null, "purpose": null, "customer": null, "until": null },
@@ -146,8 +146,8 @@ Notes you must honor: invoice numbers look like `R<agmt>-<cycle>` and occasional
 
 Brand: WSS maroon `#B71C1C`, white, near-black. Clean, big tap targets, gloves-on friendly. Responsive; design at 390×844 first, desktop is a bonus.
 
-1. **Landing = 9 category cards** (from `categories`, that order). Each card: category name, an **availability light — 🟢 if (AVAILABLE ∧ READY) count ≥ 2, 🟡 if exactly 1, 🔴 if 0** — and a sub-line `N ready · N in prep · N down · N reserved` (reserved = `unit_state: RESERVED`, its own chip, never counted available). Kevin reads the color; techs read the sub-line. Compute counts client-side from `units`.
-2. **Category → unit list** (chips for state + readiness, serial, location) **→ unit detail** (everything: specs, cost/book/ask/floor, agreement + rate + last-invoiced period, reservation, readiness note, hours). Two levels, never more.
+1. **Landing = 9 category cards** (from `categories`, that order). Each card: category name, an **availability light — 🟢 if (AVAILABLE ∧ READY) count ≥ 2, 🟡 if exactly 1, 🔴 if 0** — and a sub-line `N ready · N in prep · N down · N reserved` (reserved = `unit_state: RESERVED`, its own chip, never counted available). Kevin reads the color; techs read the sub-line. Compute counts client-side from `units`. **Category cards only — no fleet-totals block on the landing page (D15).**
+2. **Category → unit list** (chips for state + readiness, serial, location) **→ unit detail** (everything: specs, cost/book/ask — **no floor price (D16)**, agreement + rate + last-invoiced period, reservation, readiness note, hours). Two levels, never more.
 3. **Rentals view:** the `agreements` array — customer, unit, rate, `next_due`, cycles billed/max; `agreement: null` and any `alerts` rendered loud. **Billing view:** `billing.due_next_7_days` + `billing.created_last_run` ("created last night — awaiting Matt").
 4. **Service view:** kanban columns by `stage`.
 5. **Persistent header:** `published_at` as "data as of …" + pending-events count (from `/api/health`), so nobody trusts a stale board unknowingly. If the snapshot is > 36h old, show a subtle ⚠️.

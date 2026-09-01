@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-01T19:20:37.568Z",
+    "ts": "2026-09-01T20:28:53.005Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -14,7 +14,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-01T21:40:37.568Z",
+    "ts": "2026-09-01T22:48:53.005Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
