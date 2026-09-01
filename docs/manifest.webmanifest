@@ -1,6 +1,6 @@
 {
-  "name": "WSS Fleet",
-  "short_name": "WSS Fleet",
+  "name": "WSS Fleet Tracker",
+  "short_name": "Fleet Tracker",
   "description": "Wisconsin Scrub & Sweep rental fleet, rentals, billing and service — one pane of glass.",
   "start_url": "./",
   "scope": "./",

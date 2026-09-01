@@ -130,7 +130,13 @@ function countCategory(cat) {
   };
 }
 
-const light = (readyCount) => (readyCount >= 2 ? '🟢' : readyCount === 1 ? '🟡' : '🔴');
+// 🟢 ≥2 ready · 🟡 exactly 1 · 🔴 none — rendered as a CSS dot; the label carries the meaning.
+function light(readyCount) {
+  const k = readyCount >= 2 ? 'g' : readyCount === 1 ? 'y' : 'r';
+  const label = readyCount >= 2 ? 'good availability' : readyCount === 1 ? 'one ready' : 'none ready';
+  return raw(html`<span class="dot dot-${k}" role="img" aria-label="${label}"></span>`);
+}
+const CHEV = raw('<span class="chev" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>');
 
 /* =========================================================== 8. fragments == */
 
@@ -167,15 +173,14 @@ function viewCategories() {
     const n = (v, label) => html`<span class="${v ? 'n' : 'zero'}">${v}</span> ${label}`;
     return html`
       <a class="card cat-card" href="#/cat/${raw(encodeURIComponent(cat))}">
-        <span class="cat-light" aria-hidden="true">${light(c.ready)}</span>
+        ${light(c.ready)}
         <span class="cat-body">
           <span class="cat-name">${cat}</span>
           <span class="cat-sub">
-            ${raw(n(c.ready, 'ready'))} · ${raw(n(c.prep, 'in prep'))} ·
-            ${raw(n(c.down, 'down'))} · ${raw(n(c.reserved, 'reserved'))}
+            ${raw(n(c.ready, 'ready'))}<span class="sep">·</span>${raw(n(c.prep, 'in prep'))}<span class="sep">·</span>${raw(n(c.down, 'down'))}<span class="sep">·</span>${raw(n(c.reserved, 'reserved'))}
           </span>
         </span>
-        <span class="chev" aria-hidden="true">›</span>
+        ${CHEV}
       </a>`;
   });
 
@@ -183,13 +188,17 @@ function viewCategories() {
     <h1>Fleet</h1>
     ${raw(cards.join(''))}
     <h2>Fleet totals</h2>
-    <div class="card"><dl class="kv">
-      ${raw(kvRow('Units', totals.units != null ? totals.units : units().length))}
-      ${raw(kvRow('Cost', fmtMoney(totals.cost), 'num'))}
-      ${raw(kvRow('Book', fmtMoney(totals.book), 'num'))}
-      ${raw(kvRow('Ask', fmtMoney(totals.ask), 'num'))}
-      ${raw(kvRow('Floor', fmtMoney(totals.floor), 'num'))}
-    </dl></div>`;
+    <div class="stats">
+      ${raw(stat('Units', totals.units != null ? totals.units : units().length, 'wide'))}
+      ${raw(stat('Cost', fmtMoney(totals.cost)))}
+      ${raw(stat('Book', fmtMoney(totals.book)))}
+      ${raw(stat('Ask', fmtMoney(totals.ask)))}
+      ${raw(stat('Floor', fmtMoney(totals.floor)))}
+    </div>`;
+}
+
+function stat(label, value, cls) {
+  return html`<div class="stat ${cls || ''}"><div class="stat-l">${label}</div><div class="stat-v">${value}</div></div>`;
 }
 
 function viewCategory(cat) {
@@ -209,19 +218,17 @@ function viewCategory(cat) {
       <a class="card unit-row" href="#/unit/${raw(encodeURIComponent(u.serial))}">
         <span class="unit-main">
           <span class="unit-title">${u.asset_item || `${u.brand || ''} ${u.model || ''}`.trim() || 'Unit'}</span>
-          <span class="unit-loc">#<span class="unit-serial">${u.serial}</span> · ${loc}</span>
+          <span class="unit-loc"><span class="unit-serial">#${u.serial}</span> · ${loc}</span>
           ${raw(unitChips(u))}
         </span>
-        <span class="chev" aria-hidden="true">›</span>
+        ${CHEV}
       </a>`;
   });
 
   return html`
     <a class="crumb" href="#/">‹ Fleet</a>
-    <h1>${light(c.ready)} ${cat}</h1>
-    <div class="cat-sub" style="margin:-6px 0 12px">
-      ${c.ready} ready · ${c.prep} in prep · ${c.down} down · ${c.reserved} reserved
-    </div>
+    <h1>${light(c.ready)}${cat}</h1>
+    <div class="sub">${c.ready} ready · ${c.prep} in prep · ${c.down} down · ${c.reserved} reserved</div>
     ${us.length ? raw(rows.join('')) : raw(emptyState('No units in this category.'))}`;
 }
 
@@ -254,7 +261,7 @@ function viewUnit(serial) {
     <a class="crumb" href="#/cat/${raw(encodeURIComponent(u.category || ''))}">‹ ${u.category || 'Fleet'}</a>
     <div class="detail-head">
       <div class="h">${u.asset_item || `${u.brand || ''} ${u.model || ''}`.trim() || 'Unit'}</div>
-      <div class="s">#${u.serial} · ${u.category || '—'}</div>
+      <div class="s"><span class="unit-serial">#${u.serial}</span> · ${u.category || '—'}</div>
       ${raw(unitChips(u))}
     </div>
     ${raw(pendingBlock)}
@@ -393,8 +400,8 @@ function viewRentals() {
             </span>
           </span>
         </div>
-        <dl class="kv" style="margin-top:8px">
-          ${raw(kvRow('Agreement', a.agreement == null ? raw('<span style="color:#C62828">none</span>') : a.agreement))}
+        <dl class="kv" style="margin-top:10px">
+          ${raw(kvRow('Agreement', a.agreement == null ? raw('<span class="none">none</span>') : a.agreement))}
           ${raw(kvRow('Cycle', `${a.cycle || '—'} · ${fmtMoney(a.cycle_rate)}`))}
           ${raw(kvRow('Cycles billed', cycles, 'num'))}
           ${raw(kvRow('Last invoice', a.last_invoice))}
@@ -404,7 +411,7 @@ function viewRentals() {
       </div>`;
   });
 
-  return html`<h1>Rentals</h1><div class="cat-sub" style="margin:-6px 0 12px">${rows.length} agreements</div>${raw(cards.join(''))}`;
+  return html`<h1>Rentals</h1><div class="sub">${rows.length} agreements</div>${raw(cards.join(''))}`;
 }
 
 /**
@@ -431,7 +438,7 @@ function viewBilling() {
         <span class="unit-loc">Agreement ${x.agreement ?? '—'} ·
           <a href="#/unit/${raw(encodeURIComponent(x.serial))}">#${x.serial}</a></span>
       </span></div>
-      <dl class="kv" style="margin-top:8px">
+      <dl class="kv" style="margin-top:10px">
         ${raw(kvRow('Amount', fmtMoney(x.amount), 'num'))}
         ${raw(kvRow('Due', fmtDateFull(x.due)))}
       </dl>
@@ -443,7 +450,7 @@ function viewBilling() {
         <span class="unit-title">${x.customer || '—'}</span>
         <span class="unit-loc">Invoice ${x.invoice} · agreement ${x.agreement ?? '—'}</span>
       </span></div>
-      <dl class="kv" style="margin-top:8px">
+      <dl class="kv" style="margin-top:10px">
         ${raw(kvRow('Amount', fmtMoney(x.amount), 'num'))}
         ${raw(kvRow('Period', `${fmtDate(x.period_start)} – ${fmtDateFull(x.period_end)}`))}
       </dl>
@@ -494,7 +501,7 @@ function viewService() {
 
 function viewGate(code) {
   if (code === 'no-token') {
-    return html`<h1>WSS Fleet</h1>
+    return html`<h1>WSS Fleet Tracker</h1>
       <div class="card">
         <p>This board opens from your personal link.</p>
         <p><strong>Ask Matt for your link</strong> — then bookmark it or add it to your home screen.</p>
