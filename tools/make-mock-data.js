@@ -125,7 +125,7 @@ function build({ withServiceQueue }) {
     plan.forEach(([unit_state, readiness]) => {
       const serial = String(serialSeq += 7);
       const brand = pick(BRANDS);
-      const model = pick(MODELS);
+      const model = pick(MODELS) + (units.length % 4 === 0 ? ' 2026' : '');   // some models carry a year
       const isLoaner = unit_state === 'LOANER-OUT';
       const out = OUT_STATES.has(unit_state);
 

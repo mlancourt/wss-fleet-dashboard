@@ -107,8 +107,11 @@ const serviceQueue = () => (state.snapshot && state.snapshot.service_queue) || [
 const categories = () => (state.snapshot && state.snapshot.categories) || [];
 const billing = () => (state.snapshot && state.snapshot.billing) || {};
 
-/** Display name: brand + model ("Factory Cat Model 34"). asset_item is an identifier, shown on the sub-line. */
-const unitName = (u) => [u.brand, u.model].filter(Boolean).join(' ') || u.asset_item || 'Unit';
+/** Display name: brand + model ("Factory Cat Model 34"). asset_item is an identifier, shown on the sub-line.
+ *  A trailing model year ("MODEL 34 2026") is dropped from the name only — the full
+ *  model string still shows in the detail card. Display rule, not a data change. */
+const stripYear = (m) => String(m || '').replace(/\s+(19|20)\d{2}\s*$/, '').trim();
+const unitName = (u) => [u.brand, stripYear(u.model)].filter(Boolean).join(' ') || u.asset_item || 'Unit';
 /** Sub-line identifiers: "#serial · A-1042" (asset # only when present). */
 const unitIds = (u) => [`#${u.serial}`, u.asset_item].filter(Boolean).join(' · ');
 
