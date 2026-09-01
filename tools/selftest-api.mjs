@@ -10,7 +10,7 @@
  * Run: npm test        (no dependencies, no network)
  */
 import assert from 'node:assert/strict';
-import { loadData, postEvent, mockVariant } from '../docs/api.js';
+import { loadData, postEvent, mockVariant, resolveApiBase, API_BASE } from '../docs/api.js';
 
 let passed = 0;
 const check = async (name, fn) => { await fn(); passed++; console.log(`  ok  ${name}`); };
@@ -129,6 +129,14 @@ await check('postEvent: refused in mock mode, posts JSON with Bearer in producti
   assert.equal(c.init.method, 'POST');
   assert.equal(c.init.headers.Authorization, 'Bearer tok');
   assert.deepEqual(JSON.parse(c.init.body), { action: 'reserve', serial: '150074', payload: { customer: 'X' } });
+});
+
+await check('?api= override only honoured on localhost', async () => {
+  assert.equal(resolveApiBase(`${LOCAL}?x=1`, 'http://localhost:8788/'), 'http://localhost:8788');
+  assert.equal(resolveApiBase(PROD, 'http://evil.example'), API_BASE, 'production ignores the override');
+  assert.equal(resolveApiBase(PAGES, 'https://evil.example'), API_BASE);
+  assert.equal(resolveApiBase(LOCAL, 'javascript:alert(1)'), API_BASE, 'non-http override ignored');
+  assert.equal(resolveApiBase(LOCAL, null), API_BASE);
 });
 
 console.log(`\n${passed} checks passed`);

@@ -20,8 +20,8 @@ the hard rules — read it before changing anything here.
 | Milestone | State | Exit criteria |
 |---|---|---|
 | **M0 — shell on mock** | ✅ done | every view renders both mock variants, zero console errors |
-| M1 — Worker | ⬜ next | full publish → read → event → ack loop green locally, curl-scripted below |
-| M2 — deploy real | ⬜ | Matt opens his tokened URL on his phone and sees the real fleet |
+| **M1 — Worker** | ✅ done | full publish → read → event → ack loop green locally, curl-scripted below |
+| M2 — deploy real | ⬜ next | Matt opens his tokened URL on his phone and sees the real fleet |
 | M3 — domain + PWA | ⬜ | `fleet.wisconsinscrubandsweep.com` installs as an app |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
@@ -108,7 +108,7 @@ changes.
 ```
 CLAUDE.md               the build brief — architecture, contracts, hard rules
 README.md               this file
-package.json            scripts only; wrangler is the sole dev dependency (M1)
+package.json            scripts; wrangler is the sole dev dependency
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
@@ -122,14 +122,17 @@ docs/                   GitHub Pages root — the app shell
   mock/                 generated FAKE snapshots — never real data
   CNAME                 added at M3, not before
 
-worker/                 the Cloudflare Worker (M1)
+worker/                 the Cloudflare Worker
   worker.js             entire Worker, single file (dashboard paste-deploy stays possible)
-  wrangler.toml
+  wrangler.toml         binding FLEET_KV; namespace id filled in at M2
+  .dev.vars             local ADMIN_SECRET + ALLOW_LOCALHOST=1 (gitignored)
 
 tools/
   make-mock-data.js     fake snapshot generator
   make-icons.js         icon generator
   serve.js              dev static server (sends Cache-Control: no-store)
+  m1-loop.sh            the Worker loop, curl-scripted (npm run m1)
+  selftest-api.mjs      mock-gate + api-layer test
   selftest-dates.mjs    the date-rule test
 ```
 
@@ -185,15 +188,103 @@ plain CNAME from any host. Do not "simplify" this.
 
 ### M1 — Worker locally
 
-_To be filled in when the Worker lands. Must include the full curl loop:
-`admin/publish` → `GET /api/data` with a test token → `POST /api/event` →
-`GET /admin/events` → `POST /admin/events/ack`._
+The Worker is one file, [`worker/worker.js`](worker/worker.js). `wrangler` is the
+only dev dependency (`npm install` once). Local dev uses Miniflare with a local
+KV — nothing touches Cloudflare.
+
+```bash
+npm run dev:worker
+```
+
+That reads `worker/.dev.vars` (gitignored — create it if missing):
+
+```
+ADMIN_SECRET=dev-admin-secret-not-for-production
+ALLOW_LOCALHOST=1
+```
+
+Then, in another terminal, the full loop:
+
+```bash
+npm run m1
+```
+
+[`tools/m1-loop.sh`](tools/m1-loop.sh) is the M1 exit criterion as a script —
+34 checks: load a throwaway token map → publish the mock snapshot →
+`GET /api/data` as sales / service (role comes back from the server) →
+`GET /api/health` → every write refusal (wrong role, unknown action, bad
+serial, missing customer, bad date, bad readiness) → two real events →
+both visible to crew and admin, oldest first → ack one by id, one by full key
+→ the other survives → back to baseline. Plus 404 / 405 / CORS preflight.
+
+The same loop runs against the deployed Worker:
+
+```bash
+WORKER=https://wss-fleet-worker.<account>.workers.dev ADMIN_SECRET='…' npm run m1
+```
+
+(it replaces the token map with throwaway test tokens — re-post the real map
+afterwards, see **Tokens**).
+
+**Page → Worker locally.** The page is at `localhost:8787` and the Worker at
+`localhost:8788`, so on localhost only, `?api=` points the page at it:
+
+```
+http://localhost:8787/?api=http://localhost:8788&t=m1testsales00000000000000000001
+```
+
+The override is stored like the token and ignored off-localhost
+(`selftest-api.mjs` proves it). `?api=` with an empty value clears it.
+
+By hand, the pieces:
+
+```bash
+W=http://localhost:8788; S=dev-admin-secret-not-for-production
+T=m1testsales00000000000000000001
+
+# tokens (names/roles echoed back, token values never are)
+curl -s -X POST $W/api/admin/tokens -H "X-Admin-Secret: $S" -H 'Content-Type: application/json' \
+  -d "{\"$T\":{\"name\":\"Test Kevin\",\"role\":\"sales\"}}"
+
+# publish
+curl -s -X POST $W/api/admin/publish -H "X-Admin-Secret: $S" --data-binary @docs/mock/mock-full.json
+
+# read
+curl -s $W/api/data   -H "Authorization: Bearer $T" | head -c 300; echo
+curl -s $W/api/health -H "Authorization: Bearer $T"; echo
+
+# write (a proposal — lands as evt:<utc-iso>:<rand6>)
+curl -s -X POST $W/api/event -H "Authorization: Bearer $T" -H 'Content-Type: application/json' \
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme Foods","purpose":"quote hold","until":"2026-09-08"}}'
+
+# drain + ack (what the run engine does)
+curl -s $W/api/admin/events -H "X-Admin-Secret: $S"
+curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type: application/json' \
+  -d '{"ids":["<id from the list>"]}'
+```
+
+#### Worker API
+
+| Endpoint | Auth | Returns |
+|---|---|---|
+| `GET /api/data` | token | `{me:{name,role}, snapshot, pending:[events]}` |
+| `POST /api/event` | token | `201` the stored event `{id, ts, actor, role, action, serial, payload}` |
+| `GET /api/health` | token | `{published_at, generated_at, run_id, pending_count}` |
+| `POST /api/admin/publish` | secret | body = snapshot JSON; needs `meta.schema_version` |
+| `GET /api/admin/events` | secret | `{count, events:[{id, key, event}]}` oldest first |
+| `POST /api/admin/events/ack` | secret | `{ids:[…]}` → deletes only those; `{deleted:n}` |
+| `POST /api/admin/tokens` | secret | replaces the map; echoes names + roles only |
+
+Token: `Authorization: Bearer <t>` (preferred) or `?t=`. Secret: `X-Admin-Secret`.
+Unknown → `401 {"error":"unauthorized"}`. Wrong role for an action → `403`.
+Bad shape → `400` with a plain-English `error`. The Worker validates shape and
+role only — never business state; the vault wins.
 
 ### M2 — Worker + Pages live
 
 _To be filled in: `wrangler login`, create KV namespace `fleet-dashboard`,
 `wrangler secret put ADMIN_SECRET`, deploy, enable Pages from `/docs` on `main`,
-set `API_BASE` in `docs/app.js`._
+set `API_BASE` in `docs/api.js`._
 
 ### M3 — custom domain + PWA
 

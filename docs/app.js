@@ -16,7 +16,7 @@ import {
   fmtDate, fmtDateFull, todayCentral, addBusinessDays,
   fmtInstantCentral, hoursSince, fmtMoney,
 } from './dates.js';
-import { loadData, postEvent, mockVariant } from './api.js';
+import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
 
 /* ============================================================ 1. config ==== */
 
@@ -84,7 +84,20 @@ function bootToken() {
 
 // loadData / postEvent / mockVariant are imported from docs/api.js — pure, so
 // tools/selftest-api.mjs can prove the mock knobs are inert in production.
-const ctx = () => ({ url: window.location.href, token: bootToken() });
+const ctx = () => ({ url: window.location.href, token: bootToken(), apiBase: resolveApiBase(window.location.href, devApiOverride()) });
+
+// Dev only: `?api=http://localhost:8788` on localhost points the page at
+// `wrangler dev`. Stored like the token; resolveApiBase() ignores it off-localhost.
+const API_KEY = 'wss_fleet_api';
+function devApiOverride() {
+  const url = new URL(window.location.href);
+  const a = url.searchParams.get('api');
+  try {
+    if (a === '') localStorage.removeItem(API_KEY);
+    else if (a) localStorage.setItem(API_KEY, a);
+    return localStorage.getItem(API_KEY);
+  } catch (_) { return a || null; }
+}
 
 /* ========================================================== 7. selectors == */
 
@@ -494,8 +507,9 @@ function viewGate(code) {
   if (code === 'no-api') {
     return html`<h1>Not wired up yet</h1>
       <div class="card">
-        <p>The Worker endpoint isn't configured in this build (M0).</p>
-        <p>Open <code>?mock=full</code> or <code>?mock=empty</code> to preview with fake data.</p>
+        <p>The Worker endpoint isn't configured in this build.</p>
+        <p>Open <code>?mock=full</code> or <code>?mock=empty</code> to preview with fake data,
+        or on localhost <code>?api=http://localhost:8788</code> to use <code>wrangler dev</code>.</p>
       </div>`;
   }
   return html`<h1>Can't load the board</h1>

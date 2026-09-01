@@ -22,6 +22,16 @@ export function isLocalHost(url) {
 }
 
 /**
+ * Which Worker to talk to. On localhost a stored override (set via ?api=…,
+ * see app.js) lets the page hit `wrangler dev`; anywhere else it is API_BASE,
+ * full stop — the URL cannot redirect a real user's traffic.
+ */
+export function resolveApiBase(url, override) {
+  if (override && isLocalHost(url) && /^https?:\/\//.test(override)) return override.replace(/\/+$/, '');
+  return API_BASE;
+}
+
+/**
  * 'full' | 'empty' | null. The gate: with an API wired and a non-local host,
  * this is always null, so nothing downstream can be steered from the URL.
  */

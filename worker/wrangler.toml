@@ -1,0 +1,15 @@
+# WSS Fleet Worker.  Deploy: `npm run deploy:worker`   Local: `npm run dev:worker` (port 8788)
+name = "wss-fleet-worker"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+# M2: create the namespace once with
+#   npx wrangler kv namespace create fleet-dashboard --config worker/wrangler.toml
+# and paste the id it prints here. Local dev (Miniflare) ignores the id.
+[[kv_namespaces]]
+binding = "FLEET_KV"
+id = "replace-with-real-namespace-id-at-m2"
+
+# Secrets are NOT here. `npx wrangler secret put ADMIN_SECRET --config worker/wrangler.toml`
+# for production; worker/.dev.vars (gitignored) for local dev.
