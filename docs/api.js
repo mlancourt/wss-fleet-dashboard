@@ -66,6 +66,7 @@ export async function loadData({ url, token, apiBase = API_BASE, fetch = default
     cache: 'no-store',
   });
   if (res.status === 401) throw fail('bad-token');
+  if (res.status === 503) throw fail('no-snapshot');   // Worker is up, engine hasn't published yet
   if (!res.ok) throw fail('error', `API ${res.status}`);
   const body = await res.json();
 

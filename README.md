@@ -21,7 +21,7 @@ the hard rules — read it before changing anything here.
 |---|---|---|
 | **M0 — shell on mock** | ✅ done | every view renders both mock variants, zero console errors |
 | **M1 — Worker** | ✅ done | full publish → read → event → ack loop green locally, curl-scripted below |
-| M2 — deploy real | ⬜ next | Matt opens his tokened URL on his phone and sees the real fleet |
+| **M2 — deploy real** | ✅ done | Matt opens his tokened URL on his phone and sees the real fleet |
 | M3 — domain + PWA | ⬜ | `fleet.wisconsinscrubandsweep.com` installs as an app |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
@@ -282,9 +282,32 @@ role only — never business state; the vault wins.
 
 ### M2 — Worker + Pages live
 
-_To be filled in: `wrangler login`, create KV namespace `fleet-dashboard`,
-`wrangler secret put ADMIN_SECRET`, deploy, enable Pages from `/docs` on `main`,
-set `API_BASE` in `docs/api.js`._
+Live since Sep 1, 2026:
+
+| Thing | Where |
+|---|---|
+| Worker | `https://wss-fleet-worker.mlancourt.workers.dev` |
+| KV namespace | `fleet-dashboard` — id in `worker/wrangler.toml` |
+| Page (pre-DNS) | `https://mlancourt.github.io/wss-fleet-dashboard/` — Pages from `/docs` on `main`, HTTPS enforced |
+| `API_BASE` | set in `docs/api.js` |
+
+How it was done, for the next time (all from this repo, `wrangler login` first):
+
+```bash
+npx wrangler kv namespace create fleet-dashboard --config worker/wrangler.toml   # paste id into wrangler.toml
+openssl rand -hex 24 | tr -d '\n' | npx wrangler secret put ADMIN_SECRET --config worker/wrangler.toml
+npm run deploy:worker
+gh api -X POST repos/mlancourt/wss-fleet-dashboard/pages -f 'source[branch]=main' -f 'source[path]=/docs'
+```
+
+Redeploying the Worker after a code change is just `npm run deploy:worker`;
+the page redeploys itself on every push to `main` (Pages build takes ~1 min).
+The Worker's own secret and the crew tokens live only in Cloudflare and with
+Matt — never in this repo, never in a chat log that gets pasted anywhere.
+
+Until the engine publishes, `/api/data` answers `503 no snapshot published yet`
+and the page shows "Nothing published yet" — that is the expected state right
+after a fresh deploy, not a fault.
 
 ### M3 — custom domain + PWA
 

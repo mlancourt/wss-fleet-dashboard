@@ -85,6 +85,11 @@ await check('no token in production: no request at all', async () => {
   assert.equal(fetch.calls.length, 0, 'the gate screen must not fetch anything');
 });
 
+await check('503 -> no-snapshot (Worker up, nothing published)', async () => {
+  await assert.rejects(loadData({ url: PROD, token: 'tok', apiBase: API, fetch: fakeFetch({ status: 503 }) }),
+    (e) => e.code === 'no-snapshot');
+});
+
 await check('401 -> bad-token', async () => {
   await assert.rejects(loadData({ url: PROD, token: 'old', apiBase: API, fetch: fakeFetch({ status: 401 }) }),
     (e) => e.code === 'bad-token');

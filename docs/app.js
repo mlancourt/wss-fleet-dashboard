@@ -504,6 +504,14 @@ function viewGate(code) {
     return html`<h1>Link not recognized</h1>
       <div class="card"><p>That link isn't active any more. Ask Matt for a new one.</p></div>`;
   }
+  if (code === 'no-snapshot') {
+    return html`<h1>Nothing published yet</h1>
+      <div class="card">
+        <p>Your link works. The fleet snapshot hasn't been published to the board yet.</p>
+        <p>It arrives with the next run — pull down or tap ↻ later.</p>
+        <div class="actions"><button class="btn" type="button" id="retry">Check again</button></div>
+      </div>`;
+  }
   if (code === 'no-api') {
     return html`<h1>Not wired up yet</h1>
       <div class="card">
