@@ -171,8 +171,9 @@ plain CNAME from any host. Do not "simplify" this.
 - **Writes are proposals.** A submitted event renders as ⏳ pending and the board
   keeps showing current truth until the engine applies it.
 - **`start_url` cannot carry a token.** One static manifest serves everyone, so
-  it is `"./"`; identity comes from the token in `localStorage` after the first
-  tokened visit. Add-to-home-screen only works after that first visit.
+  it is `"./"`; the home-screen app boots tokenless, and the page restores the
+  token from `localStorage` into the URL (D24). If iOS has purged that storage,
+  the app shows the gate — re-tap the tokened link once.
 - **Relative paths everywhere.** Pages serves at the domain root in production
   but under `/<repo>/` while testing pre-DNS. A leading slash breaks one of them.
 - **The service worker caches the shell only**, and does not register on
@@ -370,9 +371,11 @@ openssl rand -hex 16
 ```
 
 Issue/rotate by replacing the whole `tokens` map via `POST /api/admin/tokens`.
-Tokens live in KV and **never** in this repo. The page strips `?t=` from the
-address bar on first load and keeps the token in `localStorage`; API calls send
-it as `Authorization: Bearer`, never as a URL parameter.
+Tokens live in KV and **never** in this repo. The page keeps `?t=` in the
+address bar (the URL is the durable carrier — bookmarks must keep working) and
+mirrors it into `localStorage` as a backup; if a URL arrives without `?t=` but
+storage has one, the page puts it back into the URL (D24). API calls send the
+token as `Authorization: Bearer`.
 
 To revoke someone: remove them from the map and re-post it.
 

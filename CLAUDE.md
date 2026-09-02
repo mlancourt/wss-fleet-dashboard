@@ -154,8 +154,8 @@ Brand: WSS maroon `#B71C1C`, white, near-black. Clean, big tap targets, gloves-o
 
 ## Token + PWA plumbing (traps — read twice)
 
-- Boot: read `?t=` → save to `localStorage` → `history.replaceState` to strip it from the address bar → all API calls use the stored token. No token anywhere → friendly "ask Matt for your link" screen, no data fetched.
-- **`manifest.webmanifest` `start_url` cannot contain per-user tokens** (one static manifest for everyone). `start_url: "./"` + the localStorage token makes add-to-home-screen work after first tokened visit. Test the full install flow on iOS Safari specifically — that's what the crew carries.
+- Boot (D24): read `?t=` → save to `localStorage` — **do not strip it from the address bar; the URL is the durable carrier, storage is the backup.** If the URL lacks `?t=` but storage holds a token, `history.replaceState` the token back into the URL. All API calls send the token as a Bearer header. No token anywhere → friendly "ask Matt for your link" screen, no data fetched. (Stripping broke bookmarks of the stripped URL, and iOS purges a regular site's storage.)
+- **`manifest.webmanifest` `start_url` cannot contain per-user tokens** (one static manifest for everyone). `start_url: "./"` + the localStorage token (restored into the URL at boot, D24) makes add-to-home-screen work after first tokened visit. Test the full install flow on iOS Safari specifically — that's what the crew carries.
 - **Service worker: cache the shell only, network-first for `/api/*`.** An over-eager SW serving stale fleet data is worse than no SW. Version the cache; on activate, purge old versions.
 - GitHub Pages + custom domain serves at the domain **root**; while testing pre-DNS at `mlancourt.github.io/<repo>/` you're on a subpath — use **relative paths everywhere** (no leading-slash asset URLs) so both work.
 

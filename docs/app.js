@@ -69,16 +69,30 @@ const state = {
 
 /* ======================================================== 5. token + auth == */
 
+/**
+ * Token plumbing (D24): the URL is the durable carrier, localStorage the backup.
+ *   ?t= present  -> save it, leave it in the address bar (bookmarks keep working)
+ *   ?t= missing  -> if storage has one, put it back into the URL via replaceState
+ *   neither      -> null; the caller shows the "ask Matt for your link" gate
+ * Stripping it (the old behaviour) broke bookmarks of the stripped URL, and iOS
+ * purges a regular site's storage, so storage-only recovery was never durable.
+ */
 function bootToken() {
   const url = new URL(window.location.href);
-  const t = url.searchParams.get('t');
-  if (t) {
-    try { localStorage.setItem(TOKEN_KEY, t); } catch (_) { /* private mode */ }
-    // Strip the token from the address bar so it isn't shoulder-surfed or shared.
-    url.searchParams.delete('t');
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  const fromUrl = url.searchParams.get('t');
+  let stored = null;
+  try { stored = localStorage.getItem(TOKEN_KEY); } catch (_) { /* storage blocked */ }
+
+  if (fromUrl) {
+    if (fromUrl !== stored) { try { localStorage.setItem(TOKEN_KEY, fromUrl); } catch (_) { /* ignore */ } }
+    return fromUrl;
   }
-  try { return localStorage.getItem(TOKEN_KEY); } catch (_) { return t || null; }
+  if (stored) {
+    url.searchParams.set('t', stored);
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    return stored;
+  }
+  return null;
 }
 
 /* ================================================ 6. api (see docs/api.js) == */
