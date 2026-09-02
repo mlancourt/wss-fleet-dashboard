@@ -462,8 +462,8 @@ function viewBilling() {
     </div>`);
 
   return html`
-    <h1>Billing</h1>
-    <div class="info">Display only. Nothing here creates, sends, or moves money.</div>
+    <h1>Cycle (Periodic) Invoicing</h1>
+    <div class="sub">Units on rent for 1+ months.</div>
     <h2>Due next 7 days</h2>
     ${due.length ? raw(dueRows.join('')) : raw(emptyState('Nothing due in the next 7 days.'))}
     <h2>Created last run</h2>
