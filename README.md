@@ -22,7 +22,7 @@ the hard rules — read it before changing anything here.
 | **M0 — shell on mock** | ✅ done | every view renders both mock variants, zero console errors |
 | **M1 — Worker** | ✅ done | full publish → read → event → ack loop green locally, curl-scripted below |
 | **M2 — deploy real** | ✅ done | Matt opens his tokened URL on his phone and sees the real fleet |
-| M3 — domain + PWA | 🟡 waiting on DNS | `fleet.wisconsinscrubandsweep.com` installs as an app |
+| **M3 — domain + PWA** | ✅ live (Sep 2, 2026) | `fleet.wisconsinscrubandsweep.com` installs as an app |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -120,7 +120,7 @@ docs/                   GitHub Pages root — the app shell
   sw.js                 shell cache only; data is never cached
   icons/                generated PNGs
   mock/                 generated FAKE snapshots — never real data
-  CNAME                 on branch m3-cname until DNS resolves — see M3
+  CNAME                 fleet.wisconsinscrubandsweep.com
 
 worker/                 the Cloudflare Worker
   worker.js             entire Worker, single file (dashboard paste-deploy stays possible)
@@ -312,7 +312,13 @@ after a fresh deploy, not a fault.
 
 ### M3 — custom domain + PWA
 
-**Why `docs/CNAME` is on a branch, not on `main`.** The moment GitHub Pages has
+**Status (Sep 2, 2026):** DNS is live (GoDaddy-hosted; `CNAME fleet → mlancourt.github.io`),
+`docs/CNAME` is merged, the Pages custom domain is set, HTTPS enforced once GitHub
+issued the cert. Crew links are on `https://fleet.wisconsinscrubandsweep.com/?t=…`.
+The github.io URL now redirects there. The notes below are the record of how it
+was sequenced, for the next domain move.
+
+**Why `docs/CNAME` sat on a branch until DNS resolved.** The moment GitHub Pages has
 a custom domain, every `mlancourt.github.io/wss-fleet-dashboard/` URL redirects
 to it. Until Machinio's record exists that domain resolves to nothing, so
 merging the CNAME early takes the crew's links down for as long as Machinio
