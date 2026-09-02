@@ -346,6 +346,12 @@ takes. Order matters:
 
 #### Install check (do this on the final domain, not github.io)
 
+**Add the icon from a page whose address bar shows `?t=…`.** The manifest has
+no `start_url` on purpose: a home-screen web app on iOS has storage separate
+from Safari, so the token can only reach it through the launch URL, and iOS
+uses the URL the icon was added from. An icon added before Sep 2, 2026 launches
+tokenless — delete it and re-add.
+
 **iPhone — Safari only** (Chrome/in-app browsers can't add PWAs on iOS):
 1. Open the tokened link in Safari. Confirm the header shows *data as of …*.
 2. Share button → **Add to Home Screen** → Add.
