@@ -149,7 +149,7 @@ const CHEV = raw('<span class="chev" aria-hidden="true"><svg viewBox="0 0 24 24"
 /* =========================================================== 8. fragments == */
 
 const STATE_CLASS = {
-  AVAILABLE: 'ok', RESERVED: 'hold', 'ON-RENT': 'out', 'ON-DEMO': 'out',
+  AVAILABLE: 'ok', RESERVED: 'hold', 'ON-RENT': 'rent', 'ON-DEMO': 'out',
   'LOANER-OUT': 'out', 'IN-SHOP': 'warn', RETIRED: '',
 };
 const READY_CLASS = { READY: 'ok', 'NEEDS-PREP': 'warn', DOWN: 'bad' };
@@ -232,6 +232,9 @@ function kvRow(label, value, cls) {
     <dd class="${cls || ''}${empty ? ' muted' : ''}">${empty ? '—' : value}</dd></div>`;
 }
 
+/** rate_card rows (D17): null/missing renders as a muted "—", never blank. */
+const rateRow = (label, v) => kvRow(label, typeof v === 'number' ? fmtMoney(v) : '', 'num');
+
 function viewUnit(serial) {
   const u = unitBySerial(serial);
   if (!u) return html`<a class="crumb" href="#/">‹ Fleet</a>${raw(emptyState('Unit not found.', 'It may have left the snapshot.'))}`;
@@ -279,8 +282,10 @@ function viewUnit(serial) {
       ${raw(kvRow('Acquisition cost', fmtMoney(u.acquisition_cost), 'num'))}
       ${raw(kvRow('Book', fmtMoney(u.book), 'num'))}
       ${raw(kvRow('Ask', fmtMoney(u.ask), 'num'))}
-      ${raw(kvRow('Rate — monthly', rc.monthly != null ? fmtMoney(rc.monthly) : '', 'num'))}
-      ${raw(kvRow('Rate — full day', rc.full_day != null ? fmtMoney(rc.full_day) : '', 'num'))}
+      ${raw(rateRow('Rate — full day', rc.full_day))}
+      ${raw(rateRow('Rate — weekend', rc.weekend))}
+      ${raw(rateRow('Rate — weekly', rc.weekly))}
+      ${raw(rateRow('Rate — monthly', rc.monthly))}
     </dl></div>
 
     ${u.unit_state === 'RESERVED' || rv.customer ? raw(html`

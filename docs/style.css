@@ -23,6 +23,7 @@
   --ok: #15803D;      --ok-bg: #DCFCE7;
   --warn: #B45309;    --warn-bg: #FEF3C7;
   --bad: #B91C1C;     --bad-bg: #FEE2E2;
+  --rent: #1D4ED8;    --rent-bg: #DBEAFE;   /* ON-RENT: earning, not available. 6.3:1 on white */
 
   --ink: var(--slate-900);
   --ink-2: var(--slate-600);
@@ -183,6 +184,7 @@ h1 .dot { display: inline-block; width: 12px; height: 12px; margin: 0 12px 2px 4
 .chip.warn    { background: var(--warn-bg); color: var(--warn); }
 .chip.bad     { background: var(--bad-bg);  color: var(--bad); }
 .chip.hold    { background: var(--slate-700); color: var(--white); }
+.chip.rent    { background: var(--rent-bg); color: var(--rent); }
 .chip.out     { background: var(--white); color: var(--slate-600); border-color: var(--slate-300); }
 .chip.pending { background: var(--red-soft); color: var(--red-deep); }
 

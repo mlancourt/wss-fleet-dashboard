@@ -117,7 +117,7 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "readiness": "READY|NEEDS-PREP|DOWN", "readiness_note": null, "hours": null,
     "in_service": "YYYY-MM-DD", "acquisition_cost": 0,
     "book": 0, "ask": 0,                        // engine-computed fresh each run — display only; no floor (D16)
-    "rate_card": { "monthly": null, "full_day": null },
+    "rate_card": { "full_day": null, "weekend": null, "weekly": null, "monthly": null },   // D17; any may be null
     "job_site": null, "agreement": 4130,         // null when not out
     "reservation": { "held_by": null, "purpose": null, "customer": null, "until": null },
     "service_ticket": null

@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-01T20:42:24.641Z",
+    "ts": "2026-09-01T21:35:48.735Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,12 +9,12 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "until": "2026-09-07"
+      "until": "2026-09-08"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-01T23:02:24.641Z",
+    "ts": "2026-09-01T23:55:48.735Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",

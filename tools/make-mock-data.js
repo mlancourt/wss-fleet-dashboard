@@ -163,9 +163,11 @@ function build({ withServiceQueue }) {
         in_service: d(-Math.round(300 + rand() * 1500)),
         acquisition_cost: cost,
         book, ask,
-        rate_card: {
-          monthly: money(450, 2400, 25),
+        rate_card: {                       // D17 — any of the four may be null
           full_day: money(150, 600, 5),
+          weekend: units.length % 5 === 1 ? null : money(250, 900, 5),
+          weekly: units.length % 7 === 3 ? null : money(400, 1600, 25),
+          monthly: money(450, 2400, 25),
         },
         job_site,
         agreement,
