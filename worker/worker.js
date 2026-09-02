@@ -23,7 +23,7 @@ const ACTION_ROLES = {
   release: new Set(['owner', 'sales']),
   readiness: new Set(['owner', 'service']),
 };
-const READINESS = new Set(['READY', 'NEEDS-PREP', 'DOWN']);
+const READINESS = new Set(['READY', 'NEEDS-PREP', 'DOWN', 'NEEDS-PICKUP']);   // NEEDS-PICKUP: D32
 
 const SERIAL_RE = /^[A-Za-z0-9-]{1,32}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -206,7 +206,7 @@ function cleanPayload(action, p) {
     return hold_id ? { hold_id } : {};
   }
   if (action === 'readiness') {
-    if (!READINESS.has(obj.readiness)) throw httpError(400, 'readiness must be READY, NEEDS-PREP or DOWN');
+    if (!READINESS.has(obj.readiness)) throw httpError(400, 'readiness must be READY, NEEDS-PREP, DOWN or NEEDS-PICKUP');
     return { readiness: obj.readiness, note: str(obj.note, 500, 'note', false) };
   }
   return {}; // readiness handled above; nothing else reaches here

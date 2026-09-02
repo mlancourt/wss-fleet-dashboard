@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-02T17:54:50.523Z",
+    "generated_at": "2026-09-02T18:11:36.617Z",
     "run_id": "mock-empty-2026-09-02",
     "fleet_totals": {
       "units": 39,
@@ -1956,6 +1956,7 @@
       }
     ]
   },
+  "pickups": [],
   "service_queue": [],
   "billing": {
     "due_next_7_days": [

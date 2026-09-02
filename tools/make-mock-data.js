@@ -17,6 +17,8 @@
  *   - a split-cycle invoice ("R....-7.1") and a bare QBO invoice number
  *   - a LOANER-OUT unit with an agreement number and NO agreements row
  *   - category cards that land on each of the green / yellow / red lights
+ *   - D32: an ON-RENT unit with readiness NEEDS-PICKUP and a matching pickups[]
+ *     entry (full variant); the empty variant has none
  *   - Reservations v2 (schema 2): a unit with zero holds · one CURRENT hold
  *     (state RESERVED) · only-FUTURE holds while AVAILABLE (the trap) ·
  *     ON-RENT with two future holds · an EXPIRED hold still holding the unit ·
@@ -259,6 +261,21 @@ function build({ withServiceQueue }) {
     alerts: ['UNBILLED RENTAL — unit is out with no agreement'],
   };
 
+  // ------------------------------------------------------------- pick-ups (D32)
+  // The customer released an out unit; it's still ON-RENT until a truck fetches it.
+  const pickups = [];
+  if (withServiceQueue) {
+    const pu = units.filter((u) => u.unit_state === 'ON-RENT' && u.agreement != null).slice(1, 3);
+    pu.forEach((u, i) => {
+      u.readiness = 'NEEDS-PICKUP';
+      u.readiness_note = i === 0 ? 'Customer called 9/2 — released, unit at the dock' : 'Released Friday; site closes at 3';
+      const ag = agreements.find((a) => a.agreement === u.agreement);
+      pickups.push({ serial: u.serial, model: `${u.brand} ${u.model}`, category: u.category, unit_state: u.unit_state,
+        job_site: u.job_site, agreement: u.agreement, customer: ag ? ag.customer : null,
+        billed_through: ag ? ag.last_invoiced_period_end : null, note: u.readiness_note });
+    });
+  }
+
   // ---------------------------------------------------------------- holds (v2)
   // Statuses are engine-computed in real life; here from today's date.
   const TODAY_STR = d(0);
@@ -380,6 +397,7 @@ function build({ withServiceQueue }) {
     units,
     agreements,
     reservations,
+    pickups,
     service_queue,
     billing: { due_next_7_days, created_last_run },
   };

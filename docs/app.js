@@ -23,7 +23,7 @@ import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02g';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-02h';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -164,6 +164,7 @@ const showsReadiness = (u) => ON_HAND.has(u.unit_state);
  *   down     DOWN, on-hand states
  *   reserved unit_state RESERVED   — its own chip, never counted available
  *   onRent   unit_state ON-RENT    — D25, shown last in the sub-line, chip blue
+ *   pickup   readiness NEEDS-PICKUP — D32, appended only when > 0; still out, still on rent
  */
 function countCategory(cat) {
   const us = units().filter((u) => u.category === cat);
@@ -175,6 +176,7 @@ function countCategory(cat) {
     down: onHand.filter((u) => u.readiness === 'DOWN').length,
     reserved: us.filter((u) => u.unit_state === 'RESERVED').length,
     onRent: us.filter((u) => u.unit_state === 'ON-RENT').length,
+    pickup: us.filter((u) => u.unit_state !== 'RETIRED' && u.readiness === 'NEEDS-PICKUP').length,
   };
 }
 
@@ -192,7 +194,10 @@ const STATE_CLASS = {
   AVAILABLE: 'ok', RESERVED: 'hold', 'ON-RENT': 'rent', 'ON-DEMO': 'out',
   'LOANER-OUT': 'out', 'IN-SHOP': 'warn', RETIRED: '',
 };
-const READY_CLASS = { READY: 'ok', 'NEEDS-PREP': 'warn', DOWN: 'bad' };
+const READY_CLASS = { READY: 'ok', 'NEEDS-PREP': 'warn', DOWN: 'bad', 'NEEDS-PICKUP': 'pickup' };
+// D32: the customer released an out unit and it's waiting for a truck. Orange — nothing's broken.
+const READY_LABEL = { 'NEEDS-PICKUP': 'Needs pick-up' };
+const readyLabel = (r) => READY_LABEL[r] || r;
 
 const chip = (text, cls) => html`<span class="chip ${cls || ''}">${text}</span>`;
 
@@ -200,7 +205,7 @@ function unitChips(u) {
   const p = pendingFor(u.serial);
   return html`<div class="chips">
     ${raw(chip(u.unit_state, STATE_CLASS[u.unit_state]))}
-    ${showsReadiness(u) ? raw(chip(u.readiness, READY_CLASS[u.readiness])) : ''}
+    ${showsReadiness(u) || u.readiness === 'NEEDS-PICKUP' ? raw(chip(readyLabel(u.readiness), READY_CLASS[u.readiness])) : ''}
     ${p.length ? raw(chip(`⏳ ${p.length} pending`, 'pending')) : ''}
   </div>`;
 }
@@ -243,7 +248,7 @@ function viewCategories() {
         <span class="cat-body">
           <span class="cat-name">${cat}</span>
           <span class="cat-sub">
-            ${raw(n(c.ready, 'ready'))}<span class="sep">·</span>${raw(n(c.prep, 'in prep'))}<span class="sep">·</span>${raw(n(c.down, 'down'))}<span class="sep">·</span>${raw(n(c.reserved, 'reserved'))}<span class="sep">·</span><span class="rent">${raw(n(c.onRent, 'on rent'))}</span>
+            ${raw(n(c.ready, 'ready'))}<span class="sep">·</span>${raw(n(c.prep, 'in prep'))}<span class="sep">·</span>${raw(n(c.down, 'down'))}<span class="sep">·</span>${raw(n(c.reserved, 'reserved'))}<span class="sep">·</span><span class="rent">${raw(n(c.onRent, 'on rent'))}</span>${c.pickup ? raw(html`<span class="sep">·</span><span class="pickup">${raw(n(c.pickup, 'to pick up'))}</span>`) : ''}
           </span>
         </span>
         ${CHEV}
@@ -296,7 +301,7 @@ function viewCategory(cat) {
   return html`
     <a class="crumb" href="#/">‹ Fleet</a>
     <h1>${light(c.ready)}${cat}</h1>
-    <div class="sub">${c.ready} ready · ${c.prep} in prep · ${c.down} down · ${c.reserved} reserved · <span class="rent">${c.onRent} on rent</span></div>
+    <div class="sub">${c.ready} ready · ${c.prep} in prep · ${c.down} down · ${c.reserved} reserved · <span class="rent">${c.onRent} on rent</span>${c.pickup ? raw(html` · <span class="pickup">${c.pickup} to pick up</span>`) : ''}</div>
     ${us.length ? raw(rows.join('')) : raw(emptyState('No units in this category.'))}`;
 }
 
@@ -486,15 +491,15 @@ function updateWindowHint(form) {
 }
 
 function readinessForm(u) {
-  const opt = (v) => html`<option value="${v}"${v === u.readiness ? raw(' selected') : ''}>${v}</option>`;
+  const opt = (v) => html`<option value="${v}"${v === u.readiness ? raw(' selected') : ''}>${readyLabel(v)}</option>`;
   return html`
     <form class="write" data-action="readiness" data-serial="${u.serial}">
       <label for="f-ready">Readiness</label>
       <select id="f-ready" name="readiness">
-        ${raw(['READY', 'NEEDS-PREP', 'DOWN'].map(opt).join(''))}
+        ${raw(['READY', 'NEEDS-PREP', 'DOWN', 'NEEDS-PICKUP'].map(opt).join(''))}
       </select>
       <label for="f-note">Note</label>
-      <textarea id="f-note" name="note" placeholder="what's wrong / what it needs"></textarea>
+      <textarea id="f-note" name="note" placeholder="what's wrong / what it needs — for a pick-up: who called, when"></textarea>
       <div class="actions"><button class="btn" type="submit">Submit readiness</button></div>
       <div class="form-note">This is a proposal. It shows as pending until the next run applies it.</div>
     </form>`;
@@ -607,6 +612,33 @@ function viewBilling() {
 
 const STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
 
+/** The fetch list (D32): engine-computed pickups[], derived from units if a snapshot lacks it. */
+function pickupsList() {
+  const p = state.snapshot && state.snapshot.pickups;
+  if (Array.isArray(p)) return p;
+  return units().filter((u) => u.readiness === 'NEEDS-PICKUP' && u.unit_state !== 'RETIRED').map((u) => {
+    const ag = u.agreement != null ? agreements().find((a) => a.agreement === u.agreement) : null;
+    return { serial: u.serial, model: unitName(u), category: u.category, unit_state: u.unit_state, job_site: u.job_site,
+      agreement: u.agreement, customer: ag ? ag.customer : null, billed_through: ag ? ag.last_invoiced_period_end : null, note: u.readiness_note };
+  });
+}
+
+function pickupsView() {
+  const list = pickupsList();
+  const rows = list.map((p) => html`
+    <a class="prow" href="#/unit/${raw(encodeURIComponent(p.serial))}">
+      <div class="prow-top"><span class="unit-serial">#${p.serial}</span> ${p.model || ''}${p.unit_state ? raw(chip(p.unit_state, STATE_CLASS[p.unit_state])) : ''}</div>
+      <div class="prow-who">${p.customer || '—'}${p.agreement != null ? raw(html` · agreement ${p.agreement}`) : ''}</div>
+      ${p.job_site ? raw(html`<div class="prow-site">${p.job_site}</div>`) : ''}
+      <div class="prow-meta">${p.billed_through ? raw(html`billed through ${fmtDateFull(p.billed_through)}`) : ''}${p.note ? raw(html`${p.billed_through ? ' · ' : ''}${p.note}`) : ''}</div>
+    </a>`);
+  return html`
+    <h2>Pick-ups${list.length ? raw(html` <span class="count">${list.length}</span>`) : ''}</h2>
+    <div class="card pickups">
+      ${list.length ? raw(rows.join('')) : raw('<div class="hold-empty">Nothing waiting for a truck.</div>')}
+    </div>`;
+}
+
 /** Fleet status board (D20): six exclusive buckets of the non-retired fleet. Zero rows stay, greyed. */
 function boardView() {
   const b = statusBoard(units());
@@ -627,7 +659,7 @@ function boardView() {
 function viewService() {
   const q = serviceQueue();
   if (!q.length) {
-    return html`<h1>Service</h1>${raw(boardView())}${raw(emptyState('Service queue is empty.',
+    return html`<h1>Service</h1>${raw(boardView())}${raw(pickupsView())}${raw(emptyState('Service queue is empty.',
       'Tickets appear here once the service module starts publishing.'))}`;
   }
 
@@ -650,7 +682,7 @@ function viewService() {
     </section>`;
   });
 
-  return html`<h1>Service</h1>${raw(boardView())}<div class="kanban">${raw(cols.join(''))}</div>`;
+  return html`<h1>Service</h1>${raw(boardView())}${raw(pickupsView())}<h2>Queue</h2><div class="kanban">${raw(cols.join(''))}</div>`;
 }
 
 /* ---- holds view (v2): expired first and loud, then upcoming by date ---- */
@@ -758,6 +790,9 @@ function renderTabs(route) {
     : route.startsWith('#/billing') ? 'billing'
     : route.startsWith('#/service') ? 'service' : 'fleet';
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === tab));
+  // D32: count badge on the Service tab when a truck is needed.
+  const badge = $('#tab-service-badge');
+  if (badge) { const n = state.snapshot ? pickupsList().length : 0; badge.hidden = n === 0; badge.textContent = n; }
 }
 
 /* ============================================================= 11. router == */

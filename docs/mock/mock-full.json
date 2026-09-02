@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-02T17:54:50.521Z",
+    "generated_at": "2026-09-02T18:11:36.614Z",
     "run_id": "mock-full-2026-09-02",
     "fleet_totals": {
       "units": 39,
@@ -179,8 +179,8 @@
       "category": "Walk-Behind Sweeper",
       "status": "RENTAL",
       "unit_state": "ON-RENT",
-      "readiness": "READY",
-      "readiness_note": null,
+      "readiness": "NEEDS-PICKUP",
+      "readiness_note": "Customer called 9/2 — released, unit at the dock",
       "hours": 2426,
       "in_service": "2024-05-13",
       "acquisition_cost": 8900,
@@ -284,8 +284,8 @@
       "category": "Ride-On Sweeper",
       "status": "RENTAL",
       "unit_state": "ON-RENT",
-      "readiness": "READY",
-      "readiness_note": null,
+      "readiness": "NEEDS-PICKUP",
+      "readiness_note": "Released Friday; site closes at 3",
       "hours": 3208,
       "in_service": "2022-12-11",
       "acquisition_cost": 24300,
@@ -1956,6 +1956,30 @@
       }
     ]
   },
+  "pickups": [
+    {
+      "serial": "900128",
+      "model": "Meridian T-320",
+      "category": "Walk-Behind Sweeper",
+      "unit_state": "ON-RENT",
+      "job_site": "Ixonia WI",
+      "agreement": 4106,
+      "customer": "Pinnacle Cold Storage",
+      "billed_through": "2026-08-16",
+      "note": "Customer called 9/2 — released, unit at the dock"
+    },
+    {
+      "serial": "900149",
+      "model": "Halstead R-660",
+      "category": "Ride-On Sweeper",
+      "unit_state": "ON-RENT",
+      "job_site": "Watertown WI",
+      "agreement": 4109,
+      "customer": "Pinnacle Cold Storage",
+      "billed_through": "2026-08-27",
+      "note": "Released Friday; site closes at 3"
+    }
+  ],
   "service_queue": [
     {
       "ticket_id": "SVC-1200",

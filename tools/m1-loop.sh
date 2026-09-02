@@ -114,6 +114,10 @@ expect "release with hold_id -> 201, passed through" 201 "b.action==='release' &
   -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
   -d '{"action":"release","serial":"900107","payload":{"hold_id":"h2812b2"}}'
 EV_REL=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "service flags a pick-up -> 201 (D32)" 201 "b.payload.readiness==='NEEDS-PICKUP' && b.payload.note==='Customer called'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"readiness","serial":"900121","payload":{"readiness":"NEEDS-PICKUP","note":"Customer called"}}'
+EV_PU=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
 expect "service sets readiness -> 201"    201 "b.role==='service' && b.payload.readiness==='NEEDS-PREP'" \
   -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
   -d '{"action":"readiness","serial":"900114","payload":{"readiness":"NEEDS-PREP","note":"blades"}}'
@@ -123,7 +127,7 @@ echo "-- both events visible to crew + admin"
 expect "data: pending includes both"      200 \
   "b.pending.some(e=>e.id==='$EV1') && b.pending.some(e=>e.id==='$EV2')" \
   "$WORKER/api/data" -H "$(auth $T_OWNER)"
-expect "health: pending_count grew by 4"  200 "b.pending_count===$BEFORE+4" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+expect "health: pending_count grew by 5"  200 "b.pending_count===$BEFORE+5" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 expect "admin events lists both, oldest first" 200 \
   "b.events.some(e=>e.id==='$EV1' && e.key==='evt:$EV1') && b.events.some(e=>e.id==='$EV2') && b.events.findIndex(e=>e.id==='$EV1') < b.events.findIndex(e=>e.id==='$EV2')" \
   "$WORKER/api/admin/events" -H "X-Admin-Secret: $ADMIN_SECRET"
@@ -136,7 +140,7 @@ expect "EV1 gone, EV2 survives"           200 \
   "!b.events.some(e=>e.id==='$EV1') && b.events.some(e=>e.id==='$EV2')" \
   "$WORKER/api/admin/events" -H "X-Admin-Secret: $ADMIN_SECRET"
 expect "ack EV2 by full key -> deleted 1" 200 "b.deleted===1" -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"evt:$EV2\"]}"
-expect "ack the two v2 events -> deleted 2" 200 "b.deleted===2" -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"$EV_LEGACY\",\"$EV_REL\"]}"
+expect "ack the three extra events -> deleted 3" 200 "b.deleted===3" -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"$EV_LEGACY\",\"$EV_REL\",\"$EV_PU\"]}"
 expect "pending back to baseline"         200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- misc"
