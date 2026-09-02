@@ -211,6 +211,42 @@ h1 .dot { display: inline-block; width: 12px; height: 12px; margin: 0 12px 2px 4
 .chip.rent    { background: var(--rent-bg); color: var(--rent); }
 .chip.out     { background: var(--white); color: var(--slate-600); border-color: var(--slate-300); }
 .chip.pending { background: var(--red-soft); color: var(--red-deep); }
+.chip.cal     { background: var(--slate-100); color: var(--slate-700); text-transform: none; letter-spacing: 0; }
+
+/* hold status pills (v2) */
+.pill {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent;
+}
+.pill-now     { background: var(--red); color: var(--white); }
+.pill-future  { background: var(--white); color: var(--slate-700); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.pill-expired { background: var(--bad-bg); color: var(--bad); }
+.pill-bad     { background: var(--slate-100); color: var(--slate-500); text-transform: none; letter-spacing: 0; }
+
+/* hold rows */
+.holds { padding: 4px 16px; }
+.holds.danger { border-color: #FECACA; background: #FFF7F7; }
+.hold { padding: 11px 0; border-bottom: 1px solid var(--slate-100); }
+.hold:last-child { border-bottom: 0; }
+.hold-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hold-win { font-weight: 700; color: var(--slate-900); font-variant-numeric: tabular-nums; }
+.hold-who { font-size: 14.5px; color: var(--slate-800); margin-top: 3px; }
+.hold-who a { color: var(--slate-900); font-weight: 600; }
+.hold-meta { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+.hold-pending { font-size: 12.5px; color: var(--red-deep); font-weight: 600; margin-top: 6px; }
+.hold-expired .hold-win { color: var(--bad); }
+.hold-malformed .hold-win { color: var(--slate-500); text-decoration: line-through; }
+.hold-empty { padding: 10px 0; color: var(--ink-3); font-size: 14px; }
+.hold .btn.sm { margin-top: 8px; }
+h2.danger { color: var(--bad); }
+
+/* reserve form extras */
+.dates { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dates label { margin-top: 12px; }
+.quick { display: flex; gap: 8px; margin-top: 10px; }
+.btn.sm { width: auto; min-height: 36px; padding: 7px 14px; font-size: 13.5px; border-radius: 10px; }
+.hint { margin-top: 10px; font-size: 13px; padding: 9px 12px; border-radius: var(--radius-sm); background: var(--warn-bg); border: 1px solid #FDE68A; color: #78350F; }
+.hint.bad { background: var(--bad-bg); border-color: #FECACA; color: #991B1B; }
 
 /* -------------------------------------------------------------- unit rows */
 
@@ -364,7 +400,7 @@ form.write textarea { min-height: 80px; resize: vertical; }
   padding-bottom: env(safe-area-inset-bottom);
 }
 .tab {
-  flex: 1 1 0; max-width: 190px;
+  flex: 1 1 0; max-width: 160px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 3px; min-height: var(--tabs-h);
   font-size: 11px; font-weight: 650; letter-spacing: .2px; color: var(--slate-500);

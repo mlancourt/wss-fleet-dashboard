@@ -29,6 +29,7 @@ const SERIAL_RE = /^[A-Za-z0-9-]{1,32}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;      // openssl rand -hex 16 -> 32 chars
 const EVENT_KEY_RE = /^evt:\S{1,128}$/;
+const HOLD_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;         // per-hold id from the snapshot (v2)
 
 const MAX_EVENT_BYTES = 8 * 1024;
 const MAX_ACK_IDS = 1000;
@@ -183,19 +184,32 @@ function cleanPayload(action, p) {
   };
 
   if (action === 'reserve') {
-    const until = str(obj.until, 10, 'until', true);
-    if (!DATE_RE.test(until)) throw httpError(400, 'until must be YYYY-MM-DD');
+    // v2: an inclusive [start, end] window. Legacy `until` is accepted as `end`
+    // for any in-flight v1 client; new code never sends it. Shape only — whether
+    // the window collides with another hold is the engine's call.
+    const start = str(obj.start, 10, 'start', true);
+    if (!DATE_RE.test(start)) throw httpError(400, 'start must be YYYY-MM-DD');
+    const end = str(obj.end != null && obj.end !== '' ? obj.end : obj.until, 10, 'end', true);
+    if (!DATE_RE.test(end)) throw httpError(400, 'end must be YYYY-MM-DD');
     return {
       customer: str(obj.customer, 120, 'customer', true),
       purpose: str(obj.purpose, 200, 'purpose', false),
-      until,
+      start,
+      end,
     };
+  }
+  if (action === 'release') {
+    // hold_id names which hold to release. Optional in shape (a single-hold unit
+    // needs none); the engine rejects an ambiguous release without it.
+    const hold_id = str(obj.hold_id, 64, 'hold_id', false);
+    if (hold_id && !HOLD_ID_RE.test(hold_id)) throw httpError(400, 'bad hold_id');
+    return hold_id ? { hold_id } : {};
   }
   if (action === 'readiness') {
     if (!READINESS.has(obj.readiness)) throw httpError(400, 'readiness must be READY, NEEDS-PREP or DOWN');
     return { readiness: obj.readiness, note: str(obj.note, 500, 'note', false) };
   }
-  return {}; // release carries nothing
+  return {}; // readiness handled above; nothing else reaches here
 }
 
 async function crewHealth({ env }) {

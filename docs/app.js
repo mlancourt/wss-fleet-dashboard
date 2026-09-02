@@ -13,16 +13,17 @@
  */
 
 import {
-  fmtDate, fmtDateFull, todayCentral, addBusinessDays,
+  fmtDate, fmtDateFull, fmtRange, todayCentral, addBusinessDays,
   fmtInstantCentral, hoursSince, fmtMoney,
 } from './dates.js';
+import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
 import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
 import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02d';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-02e';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -133,6 +134,22 @@ const unitIds = (u) => [`#${u.serial}`, u.asset_item].filter(Boolean).join(' · 
 
 const unitBySerial = (s) => units().find((u) => String(u.serial) === String(s)) || null;
 const pendingFor = (serial) => state.pending.filter((e) => String(e.serial) === String(serial));
+const pendingReleases = (serial, holdId) => pendingFor(serial).filter((e) => e.action === 'release' && e.payload && e.payload.hold_id === holdId);
+const pendingReserves = (serial) => pendingFor(serial).filter((e) => e.action === 'reserve');
+
+/** Top-level holds rollup (v2). Derived from units when a snapshot lacks it. */
+function holdsRollup() {
+  const r = state.snapshot && state.snapshot.reservations;
+  if (r && (Array.isArray(r.upcoming) || Array.isArray(r.expired))) {
+    return { upcoming: r.upcoming || [], expired: r.expired || [] };
+  }
+  const out = { upcoming: [], expired: [] };
+  for (const u of units()) for (const h of holdsOf(u)) {
+    const row = { serial: u.serial, model: unitName(u), category: u.category, ...h };
+    (holdStatus(h, todayCentral()) === 'expired' ? out.expired : out.upcoming).push(row);
+  }
+  return out;
+}
 
 // Readiness is an on-hand concept (D18). For units that are out — ON-RENT,
 // ON-DEMO, LOANER-OUT — "[ON-RENT] [READY]" reads as a contradiction, so the
@@ -186,6 +203,24 @@ function unitChips(u) {
     ${showsReadiness(u) ? raw(chip(u.readiness, READY_CLASS[u.readiness])) : ''}
     ${p.length ? raw(chip(`⏳ ${p.length} pending`, 'pending')) : ''}
   </div>`;
+}
+
+/** "📅 2" — future holds on a unit that may well be AVAILABLE today. List rows only. */
+function calChip(u) {
+  const n = futureHolds(u, todayCentral()).length;
+  return n ? html`<span class="chip cal" title="${n} upcoming hold${n > 1 ? 's' : ''}">📅 ${n}</span>` : '';
+}
+
+const PILL = {
+  current: ['now', 'HELD NOW'],
+  future: ['future', null],            // label = start date
+  expired: ['expired', 'EXPIRED — release or extend'],
+  malformed: ['bad', '⚠ bad dates, tell Matt'],
+};
+function holdPill(h) {
+  const st = holdStatus(h, todayCentral());
+  const [cls, label] = PILL[st] || PILL.malformed;
+  return html`<span class="pill pill-${cls}">${label || fmtDate(h.start)}</span>`;
 }
 
 function emptyState(title, sub) {
@@ -244,15 +279,15 @@ function viewCategory(cat) {
     || String(a.serial).localeCompare(String(b.serial)));
 
   const rows = us.map((u) => {
-    // No job_site means it hasn't left the yard.
-    const loc = u.job_site || (u.unit_state === 'RESERVED' && u.reservation && u.reservation.customer
-      ? `held for ${u.reservation.customer}` : 'shop');
+    // No job_site means it hasn't left the yard. A current hold names who it's held for.
+    const cur = currentHold(u, todayCentral());
+    const loc = u.job_site || (cur && cur.customer ? `held for ${cur.customer}` : 'shop');
     return html`
       <a class="card unit-row" href="#/unit/${raw(encodeURIComponent(u.serial))}">
         <span class="unit-main">
           <span class="unit-title">${unitName(u)}</span>
           <span class="unit-loc"><span class="unit-serial">${unitIds(u)}</span> · ${loc}</span>
-          ${raw(unitChips(u))}
+          ${raw(unitChips(u).replace('</div>', calChip(u) + '</div>'))}
         </span>
         ${CHEV}
       </a>`;
@@ -280,13 +315,15 @@ function viewUnit(serial) {
 
   const ag = u.agreement != null ? agreements().find((a) => a.agreement === u.agreement) : null;
   const rc = u.rate_card || {};
-  const rv = u.reservation || {};
   const p = pendingFor(u.serial);
 
+  const pendingLine = (e) => e.action === 'reserve'
+    ? html`<div>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</div>`
+    : html`<div>${e.action} by ${e.actor || 'someone'}</div>`;
   const pendingBlock = p.length ? html`
     <div class="note">
       <strong>⏳ ${p.length} pending change${p.length > 1 ? 's' : ''}</strong>
-      ${raw(p.map((e) => html`<div>${e.action} by ${e.actor || 'someone'}</div>`).join(''))}
+      ${raw(p.map(pendingLine).join(''))}
       ${state.explainedPending ? '' : raw('<div style="margin-top:6px">Applies at the next run — the board still shows the current truth.</div>')}
     </div>` : '';
   if (p.length) state.explainedPending = true;
@@ -327,14 +364,7 @@ function viewUnit(serial) {
       ${raw(rateRow('Rate — monthly', rc.monthly))}
     </dl></div>
 
-    ${u.unit_state === 'RESERVED' || rv.customer ? raw(html`
-      <h2>Reservation</h2>
-      <div class="card"><dl class="kv">
-        ${raw(kvRow('Customer', rv.customer))}
-        ${raw(kvRow('Held by', rv.held_by))}
-        ${raw(kvRow('Purpose', rv.purpose))}
-        ${raw(kvRow('Until', fmtDateFull(rv.until)))}
-      </dl></div>`) : ''}
+    ${raw(holdsSection(u))}
 
     ${ag ? raw(html`
       <h2>Agreement</h2>
@@ -361,11 +391,40 @@ function viewUnit(serial) {
     ${raw(actionsFor(u))}`;
 }
 
+/* ---- holds (v2): the list is the calendar; the chip is the state ---- */
+
+const canReserveRole = () => ['sales', 'owner'].includes((state.me && state.me.role) || '');
+
+function holdsSection(u) {
+  const holds = holdsOf(u);
+  const canRelease = canReserveRole();
+  const rows = holds.map((h) => {
+    const rel = pendingReleases(u.serial, h.id);
+    return html`
+      <div class="hold hold-${holdStatus(h, todayCentral())}">
+        <div class="hold-top">
+          <span class="hold-win">${fmtRange(h.start, h.end)}</span>
+          ${raw(holdPill(h))}
+        </div>
+        <div class="hold-who">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''}</div>
+        <div class="hold-meta">held by ${h.held_by || '—'}${h.created ? raw(html` · placed ${fmtDate(h.created)}`) : ''}</div>
+        ${rel.length ? raw('<div class="hold-pending">⏳ release pending — applies at the next run</div>') : ''}
+        ${canRelease && !rel.length && h.id ? raw(html`<button class="btn sm ghost" type="button" data-release="${h.id}">Release</button>`) : ''}
+      </div>`;
+  });
+  return html`
+    <h2>Holds</h2>
+    <div class="card holds">
+      ${holds.length ? raw(rows.join('')) : raw('<div class="hold-empty">No holds.</div>')}
+    </div>`;
+}
+
 /* ---- writes (proposals only) ---- */
 
 function actionsFor(u) {
   const role = (state.me && state.me.role) || '';
-  const canReserve = (role === 'sales' || role === 'owner') && u.unit_state === 'AVAILABLE';
+  // v2: holds are legal on any non-retired unit in any state (future holds on an out unit).
+  const canReserve = canReserveRole() && u.unit_state !== 'RETIRED';
   const canReadiness = role === 'service' || role === 'owner';
   if (!canReserve && !canReadiness) return '';
 
@@ -376,7 +435,7 @@ function actionsFor(u) {
     <h2>Actions</h2>
     ${mock ? raw('<div class="info">Mock mode — the forms open, but submitting is refused until the Worker is live (M1).</div>') : ''}
     <div class="actions">
-      ${canReserve ? raw('<button class="btn" type="button" data-form="reserve">Reserve this unit</button>') : ''}
+      ${canReserve ? raw(html`<button class="btn" type="button" data-form="reserve">${u.unit_state === 'AVAILABLE' ? 'Reserve this unit' : 'Reserve for later'}</button>`) : ''}
       ${canReadiness ? raw('<button class="btn ghost" type="button" data-form="readiness">Set readiness</button>') : ''}
     </div>
     <div id="write-form"></div>
@@ -384,18 +443,43 @@ function actionsFor(u) {
 }
 
 function reserveForm(u) {
-  const until = addBusinessDays(todayCentral(), 5); // +5 business days, Sat/Sun skipped
+  const start = todayCentral();
+  const end = addBusinessDays(start, 5);   // +5 business days from START, Sat/Sun skipped
   return html`
     <form class="write" data-action="reserve" data-serial="${u.serial}">
       <label for="f-cust">Customer</label>
       <input id="f-cust" name="customer" required autocomplete="off">
       <label for="f-purp">Purpose</label>
-      <input id="f-purp" name="purpose" placeholder="quote hold, demo, replacement…" autocomplete="off">
-      <label for="f-until">Hold until</label>
-      <input id="f-until" name="until" type="date" value="${until}">
+      <input id="f-purp" name="purpose" placeholder="DEMO — Ixonia, quote hold…" autocomplete="off">
+      <div class="dates">
+        <div><label for="f-start">Start</label><input id="f-start" name="start" type="date" value="${start}" required></div>
+        <div><label for="f-end">End</label><input id="f-end" name="end" type="date" value="${end}" required></div>
+      </div>
+      <div class="quick">
+        <button class="btn sm ghost" type="button" data-quick="1">1 day</button>
+        <button class="btn sm ghost" type="button" data-quick="5">5 business days</button>
+      </div>
+      <div id="win-hint" class="hint" hidden></div>
       <div class="actions"><button class="btn" type="submit">Submit reservation</button></div>
-      <div class="form-note">This is a proposal. It shows as pending until the next run applies it.</div>
+      <div class="form-note">A proposal — it shows as pending until the next run applies it. Overlaps are refused by the engine, not here.</div>
     </form>`;
+}
+
+/** Inline window feedback: a validation message, or a non-blocking overlap warning. */
+function updateWindowHint(form) {
+  const u = unitBySerial(form.dataset.serial);
+  const hint = form.querySelector('#win-hint');
+  if (!u || !hint) return null;
+  const start = form.querySelector('[name=start]').value;
+  const end = form.querySelector('[name=end]').value;
+  const err = validateWindow(start, end, todayCentral());
+  if (err) { hint.hidden = false; hint.className = 'hint bad'; hint.textContent = err; return err; }
+  const clash = findOverlaps(holdsOf(u), start, end);
+  if (clash.length) {
+    hint.hidden = false; hint.className = 'hint';
+    hint.textContent = `Overlaps ${clash.map((h) => `${h.customer || 'a hold'}, ${fmtRange(h.start, h.end)}`).join('; ')} — the snapshot may be a day stale; you can still submit and the engine will decide.`;
+  } else { hint.hidden = true; hint.textContent = ''; }
+  return null;
 }
 
 function readinessForm(u) {
@@ -566,6 +650,33 @@ function viewService() {
   return html`<h1>Service</h1>${raw(boardView())}<div class="kanban">${raw(cols.join(''))}</div>`;
 }
 
+/* ---- holds view (v2): expired first and loud, then upcoming by date ---- */
+
+function viewHolds() {
+  const r = holdsRollup();
+  const unitLink = (h) => html`<a href="#/unit/${raw(encodeURIComponent(h.serial))}"><span class="unit-serial">#${h.serial}</span>${h.model ? raw(html` ${h.model}`) : ''}</a>`;
+  const row = (h, withPill) => html`
+    <div class="hold">
+      <div class="hold-top"><span class="hold-win">${fmtRange(h.start, h.end)}</span>${withPill ? raw(holdPill(h)) : ''}</div>
+      <div class="hold-who">${raw(unitLink(h))}</div>
+      <div class="hold-meta">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''} · held by ${h.held_by || '—'}</div>
+    </div>`;
+
+  if (!r.expired.length && !r.upcoming.length) return html`<h1>Holds</h1>${raw(emptyState('Nothing on hold.'))}`;
+
+  const expired = r.expired.length ? html`
+    <h2 class="danger">Expired holds — release or extend</h2>
+    <div class="card holds danger">${raw(r.expired.map((h) => row({ ...h, status: 'expired' }, true)).join(''))}</div>` : '';
+
+  const groups = groupByDate(r.upcoming).map((g) => html`
+    <h2>${g.date ? fmtDateFull(g.date) : 'Unknown date'}</h2>
+    <div class="card holds">${raw(g.items.map((h) => row(h, true)).join(''))}</div>`);
+
+  return html`<h1>Holds</h1>
+    <div class="sub">${r.upcoming.length} upcoming${r.expired.length ? raw(html` · <span class="none">${r.expired.length} expired</span>`) : ''}</div>
+    ${raw(expired)}${raw(groups.join(''))}`;
+}
+
 /* ---- gate / error screens ---- */
 
 function viewGate(code) {
@@ -640,6 +751,7 @@ function renderHeader() {
 
 function renderTabs(route) {
   const tab = route.startsWith('#/rentals') ? 'rentals'
+    : route.startsWith('#/holds') ? 'holds'
     : route.startsWith('#/billing') ? 'billing'
     : route.startsWith('#/service') ? 'service' : 'fleet';
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === tab));
@@ -661,6 +773,7 @@ function render() {
 
   let out;
   if (section === 'rentals') out = viewRentals();
+  else if (section === 'holds') out = viewHolds();
   else if (section === 'billing') out = viewBilling();
   else if (section === 'service') out = viewService();
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
@@ -696,7 +809,32 @@ async function refresh() {
 }
 
 // Delegated events — the view is re-rendered wholesale, so nothing binds directly.
-document.addEventListener('click', (ev) => {
+document.addEventListener('click', async (ev) => {
+  // Reserve form quick-set: "1 day" = end == start; "5 business days" = start + 5bd.
+  const quick = ev.target.closest('[data-quick]');
+  if (quick) {
+    const form = quick.closest('form.write');
+    const start = form.querySelector('[name=start]').value || todayCentral();
+    form.querySelector('[name=end]').value = quick.dataset.quick === '1' ? start : addBusinessDays(start, 5);
+    updateWindowHint(form);
+    return;
+  }
+  // Per-hold release: two taps (gloves), then a proposal like any other write.
+  const rel = ev.target.closest('[data-release]');
+  if (rel) {
+    if (!rel.dataset.armed) { rel.dataset.armed = '1'; rel.textContent = 'Confirm release'; rel.classList.remove('ghost'); return; }
+    rel.disabled = true;
+    const serial = decodeURIComponent(window.location.hash.split('/').pop());
+    try {
+      const stored = await postEvent(ctx(), 'release', serial, { hold_id: rel.dataset.release });
+      state.pending.push(stored);
+      render();
+    } catch (err) {
+      rel.disabled = false; rel.dataset.armed = ''; rel.textContent = 'Release'; rel.classList.add('ghost');
+      const msg = $('#write-msg'); if (msg) msg.innerHTML = html`<div class="alert">⚠️ ${err.message}</div>`;
+    }
+    return;
+  }
   const openForm = ev.target.closest('[data-form]');
   if (openForm) {
     const serial = window.location.hash.split('/').pop();
@@ -712,16 +850,22 @@ document.addEventListener('click', (ev) => {
   }
 });
 
+document.addEventListener('input', (ev) => {
+  const form = ev.target.closest('form.write[data-action=reserve]');
+  if (form && ['start', 'end'].includes(ev.target.name)) updateWindowHint(form);
+});
+
 document.addEventListener('submit', async (ev) => {
   const form = ev.target.closest('form.write');
   if (!form) return;
   ev.preventDefault();
   const btn = form.querySelector('button[type=submit]');
-  btn.disabled = true;
   const fd = new FormData(form);
   const action = form.dataset.action;
+  if (action === 'reserve' && updateWindowHint(form)) return;   // only end<start / past windows block; overlaps never do
+  btn.disabled = true;
   const payload = action === 'reserve'
-    ? { customer: fd.get('customer'), purpose: fd.get('purpose') || '', until: fd.get('until') }
+    ? { customer: fd.get('customer'), purpose: fd.get('purpose') || '', start: fd.get('start'), end: fd.get('end') }
     : { readiness: fd.get('readiness'), note: fd.get('note') || '' };
 
   try {

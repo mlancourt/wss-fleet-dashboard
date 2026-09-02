@@ -64,7 +64,7 @@ expect "tokens: 3-person map -> 200 (names only echoed)" 200 \
   -d "{\"$T_SALES\":{\"name\":\"Test Kevin\",\"role\":\"sales\"},
        \"$T_SERVICE\":{\"name\":\"Test Josh\",\"role\":\"service\"},
        \"$T_OWNER\":{\"name\":\"Test Matt\",\"role\":\"owner\"}}"
-expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===1" \
+expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===2" \
   -X POST "$WORKER/api/admin/publish" "${H_ADMIN[@]}" --data-binary "@$SNAPSHOT"
 
 echo "-- crew: read"
@@ -80,7 +80,7 @@ BEFORE=$(node -e "console.log(JSON.parse(process.argv[1]).pending_count)" "$LAST
 
 echo "-- crew: write refusals"
 expect "service cannot reserve -> 403"    403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
-  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme","until":"2026-09-08"}}'
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme","start":"2026-09-08","end":"2026-09-08"}}'
 expect "sales cannot set readiness -> 403" 403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
   -d '{"action":"readiness","serial":"900107","payload":{"readiness":"DOWN"}}'
 expect "unknown action -> 400"            400 "" -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
@@ -88,18 +88,32 @@ expect "unknown action -> 400"            400 "" -X POST "$WORKER/api/event" -H 
 expect "bad serial shape -> 400"          400 "" -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
   -d '{"action":"release","serial":"../evt","payload":{}}'
 expect "reserve without customer -> 400"  400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
-  -d '{"action":"reserve","serial":"900107","payload":{"until":"2026-09-08"}}'
+  -d '{"action":"reserve","serial":"900107","payload":{"start":"2026-09-08","end":"2026-09-08"}}'
+expect "reserve without start -> 400"     400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme","end":"2026-09-08"}}'
+expect "reserve without end/until -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme","start":"2026-09-08"}}'
 expect "reserve with bad date -> 400"     400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
-  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme","until":"9/8/26"}}'
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme","start":"2026-09-08","end":"9/8/26"}}'
+expect "release with bad hold_id -> 400"  400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"release","serial":"900107","payload":{"hold_id":"../x"}}'
 expect "bad readiness value -> 400"       400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
   -d '{"action":"readiness","serial":"900107","payload":{"readiness":"BROKEN"}}'
 
 echo "-- crew: write"
-expect "sales reserves -> 201, server-stamped" 201 \
-  "b.id && b.ts && b.actor==='Test Kevin' && b.role==='sales' && b.action==='reserve' && b.serial==='900107' && b.payload.customer==='Acme Foods'" \
+expect "sales reserves a window -> 201, server-stamped" 201 \
+  "b.id && b.ts && b.actor==='Test Kevin' && b.role==='sales' && b.action==='reserve' && b.serial==='900107' && b.payload.customer==='Acme Foods' && b.payload.start==='2026-09-08' && b.payload.end==='2026-09-10' && b.payload.until===undefined" \
   -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
-  -d '{"action":"reserve","serial":"900107","payload":{"customer":"  Acme Foods ","purpose":"quote hold","until":"2026-09-08","actor":"FORGED"}}'
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"  Acme Foods ","purpose":"quote hold","start":"2026-09-08","end":"2026-09-10","actor":"FORGED"}}'
 EV1=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "legacy until accepted as end -> 201" 201 "b.payload.start==='2026-09-08' && b.payload.end==='2026-09-08'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Acme","start":"2026-09-08","until":"2026-09-08"}}'
+EV_LEGACY=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "release with hold_id -> 201, passed through" 201 "b.action==='release' && b.payload.hold_id==='h2812b2'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"release","serial":"900107","payload":{"hold_id":"h2812b2"}}'
+EV_REL=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
 expect "service sets readiness -> 201"    201 "b.role==='service' && b.payload.readiness==='NEEDS-PREP'" \
   -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
   -d '{"action":"readiness","serial":"900114","payload":{"readiness":"NEEDS-PREP","note":"blades"}}'
@@ -109,7 +123,7 @@ echo "-- both events visible to crew + admin"
 expect "data: pending includes both"      200 \
   "b.pending.some(e=>e.id==='$EV1') && b.pending.some(e=>e.id==='$EV2')" \
   "$WORKER/api/data" -H "$(auth $T_OWNER)"
-expect "health: pending_count grew by 2"  200 "b.pending_count===$BEFORE+2" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+expect "health: pending_count grew by 4"  200 "b.pending_count===$BEFORE+4" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 expect "admin events lists both, oldest first" 200 \
   "b.events.some(e=>e.id==='$EV1' && e.key==='evt:$EV1') && b.events.some(e=>e.id==='$EV2') && b.events.findIndex(e=>e.id==='$EV1') < b.events.findIndex(e=>e.id==='$EV2')" \
   "$WORKER/api/admin/events" -H "X-Admin-Secret: $ADMIN_SECRET"
@@ -122,6 +136,7 @@ expect "EV1 gone, EV2 survives"           200 \
   "!b.events.some(e=>e.id==='$EV1') && b.events.some(e=>e.id==='$EV2')" \
   "$WORKER/api/admin/events" -H "X-Admin-Secret: $ADMIN_SECRET"
 expect "ack EV2 by full key -> deleted 1" 200 "b.deleted===1" -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"evt:$EV2\"]}"
+expect "ack the two v2 events -> deleted 2" 200 "b.deleted===2" -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"$EV_LEGACY\",\"$EV_REL\"]}"
 expect "pending back to baseline"         200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- misc"

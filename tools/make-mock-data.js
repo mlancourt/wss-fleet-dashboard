@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 1).
+ * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 2).
  *
  * EVERYTHING in this file is invented. Fake customers, fake serials, fake money.
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
@@ -17,6 +17,10 @@
  *   - a split-cycle invoice ("R....-7.1") and a bare QBO invoice number
  *   - a LOANER-OUT unit with an agreement number and NO agreements row
  *   - category cards that land on each of the green / yellow / red lights
+ *   - Reservations v2 (schema 2): a unit with zero holds · one CURRENT hold
+ *     (state RESERVED) · only-FUTURE holds while AVAILABLE (the trap) ·
+ *     ON-RENT with two future holds · an EXPIRED hold still holding the unit ·
+ *     four holds on one unit · one MALFORMED hold; top-level rollup to match
  *
  * Usage: node tools/make-mock-data.js [outdir]     (default: docs/mock)
  * No dependencies. Node 18+.
@@ -173,18 +177,10 @@ function build({ withServiceQueue }) {
         },
         job_site,
         agreement,
-        reservation: { held_by: null, purpose: null, customer: null, until: null },
+        reservations: [],                               // v2: the truth (filled below)
+        reservation: { held_by: null, purpose: null, customer: null, until: null },  // DEPRECATED mirror
         service_ticket: null,
       };
-
-      if (unit_state === 'RESERVED') {
-        unit.reservation = {
-          held_by: pick(['Kevin', 'Matt']),
-          purpose: pick(['quote hold', 'demo next week', 'replacement for down unit']),
-          customer: pick(CUSTOMERS),
-          until: d(Math.round(3 + rand() * 12)),
-        };
-      }
 
       units.push(unit);
 
@@ -252,6 +248,60 @@ function build({ withServiceQueue }) {
     alerts: ['UNBILLED RENTAL — unit is out with no agreement'],
   };
 
+  // ---------------------------------------------------------------- holds (v2)
+  // Statuses are engine-computed in real life; here from today's date.
+  const TODAY_STR = d(0);
+  const status = (h) => (!h.start || !h.end || h.end < h.start) ? 'malformed'
+    : h.end < TODAY_STR ? 'expired' : h.start > TODAY_STR ? 'future' : 'current';
+  let holdSeq = 0;
+  const hold = (u, startOff, endOff, extra = {}) => {
+    const h = {
+      id: `h${u.serial.slice(-4)}${String.fromCharCode(97 + holdSeq++ % 26)}`,
+      held_by: pick(['Kevin', 'Matt']),
+      customer: pick(CUSTOMERS),
+      purpose: pick(['DEMO — Ixonia', 'quote hold', 'replacement for down unit', 'trade-show loaner']),
+      start: d(startOff), end: d(endOff), created: d(Math.min(startOff, 0) - 2),
+      ...extra,
+    };
+    h.status = status(h);
+    u.reservations.push(h);
+  };
+  const reservedUnits = units.filter((u) => u.unit_state === 'RESERVED');
+  const availReady = units.filter((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY');
+  const onRent = units.filter((u) => u.unit_state === 'ON-RENT');
+  const inShop = units.filter((u) => u.unit_state === 'IN-SHOP');
+
+  hold(reservedUnits[0], -1, 3);                       // one CURRENT hold -> RESERVED
+  hold(reservedUnits[1], -9, -3);                      // EXPIRED, still holding the unit (RESERVED)
+  hold(reservedUnits[2], 0, 0);                        // four holds: current one-day + three future
+  hold(reservedUnits[2], 4, 4);
+  hold(reservedUnits[2], 7, 9);
+  hold(reservedUnits[2], 14, 14);
+  hold(availReady[0], 6, 6);                           // only FUTURE holds, unit stays AVAILABLE (the trap)
+  hold(availReady[0], 8, 10);
+  hold(onRent[0], 12, 12);                             // ON-RENT with two future holds (the 142812 case)
+  hold(onRent[0], 20, 22);
+  hold(inShop[0], 5, 3, { purpose: 'bad dates' });     // MALFORMED (end before start)
+  // everything else: zero holds
+
+  for (const u of units) {
+    u.reservations.sort((a, b) => a.start.localeCompare(b.start));
+    // DEPRECATED singular mirror: current hold, else the next future one, else nulls.
+    const cur = u.reservations.find((h) => h.status === 'current') || u.reservations.find((h) => h.status === 'future');
+    u.reservation = cur
+      ? { held_by: cur.held_by, purpose: cur.purpose, customer: cur.customer, until: cur.end }
+      : { held_by: null, purpose: null, customer: null, until: null };
+  }
+  const rollupRow = (u, h) => ({ serial: u.serial, model: `${u.brand} ${u.model}`, category: u.category,
+    id: h.id, held_by: h.held_by, customer: h.customer, purpose: h.purpose, start: h.start, end: h.end });
+  const reservations = { upcoming: [], expired: [] };
+  for (const u of units) for (const h of u.reservations) {
+    if (h.status === 'expired') reservations.expired.push(rollupRow(u, h));
+    else reservations.upcoming.push({ ...rollupRow(u, h), status: h.status });
+  }
+  reservations.upcoming.sort((a, b) => a.start.localeCompare(b.start));
+  reservations.expired.sort((a, b) => a.start.localeCompare(b.start));
+
   // ------------------------------------------------------------- service queue
   const STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
   let service_queue = [];
@@ -308,7 +358,7 @@ function build({ withServiceQueue }) {
 
   return {
     meta: {
-      schema_version: 1,
+      schema_version: 2,
       generated_at: new Date().toISOString(),
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
       fleet_totals: totals,
@@ -318,6 +368,7 @@ function build({ withServiceQueue }) {
     categories: CATEGORIES,
     units,
     agreements,
+    reservations,
     service_queue,
     billing: { due_next_7_days, created_last_run },
   };

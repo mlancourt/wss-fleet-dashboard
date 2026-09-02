@@ -94,20 +94,22 @@ Roles: `owner` (Matt — all writes) · `sales` (Kevin — reserve/release) · `
 Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest):
 
 ```json
-{"action":"reserve",  "serial":"150074", "payload":{"customer":"...", "purpose":"...", "until":"YYYY-MM-DD"}}
-{"action":"release",  "serial":"150074", "payload":{}}
+{"action":"reserve",  "serial":"150074", "payload":{"customer":"...", "purpose":"...", "start":"YYYY-MM-DD", "end":"YYYY-MM-DD"}}
+{"action":"release",  "serial":"150074", "payload":{"hold_id":"h2812b2"}}
 {"action":"readiness","serial":"150074", "payload":{"readiness":"READY|NEEDS-PREP|DOWN", "note":"..."}}
 ```
 
-UI rules: Reserve offered only on units showing `AVAILABLE` (server doesn't enforce state — vault wins anyway); `until` defaults to **+5 business days** (skip Sat/Sun); readiness toggle available on any unit for `service`/`owner`. After a POST, badge the unit "⏳ pending" from the `pending` array and show "applies at the next run" once.
+Reservations v2: `start`/`end` are an inclusive window (a one-day hold has `start == end`); the legacy `until` is still accepted by the engine as `end` but new code never sends it. `release` always sends the row's `hold_id` — the engine rejects an ambiguous release on a multi-hold unit. Worker validates shape only, never business state (overlaps are the engine's call, reported in the run report).
 
-## Snapshot contract — `dashboard-data.json` (schema_version 1)
+UI rules: Reserve offered on **any non-RETIRED unit in any state** (labelled "Reserve for later" on an out unit); `start` defaults to today, `end` to **start + 5 business days** (skip Sat/Sun), with a "1 day" quick-set; client validates only `end ≥ start` and `end ≥ today`, and shows a **non-blocking** overlap hint against holds already in the snapshot. Readiness toggle available on any unit for `service`/`owner`. After a POST, badge from the `pending` array: a `reserve` badges the unit "⏳ hold pending — applies at the next run"; a `release` badges that hold row (never removes it). Nothing a crew member types is truth until the engine says so.
+
+## Snapshot contract — `dashboard-data.json` (schema_version 2)
 
 The engine emits this; you consume it and also generate FAKE versions of it in `make-mock-data.js`. Never require fields beyond this contract; tolerate unknown extra fields silently (forward compatibility).
 
 ```jsonc
 {
-  "meta": { "schema_version": 1, "generated_at": "<UTC ISO>", "run_id": "…",
+  "meta": { "schema_version": 2, "generated_at": "<UTC ISO>", "run_id": "…",
             "fleet_totals": { "units": 39, "cost": 0, "book": 0, "ask": 0 } },   // no floor (D16)
   "categories": ["…9 rental-rate-matrix band names, display order…"],
   "units": [ {
@@ -119,9 +121,18 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "book": 0, "ask": 0,                        // engine-computed fresh each run — display only; no floor (D16)
     "rate_card": { "full_day": null, "weekend": null, "weekly": null, "monthly": null },   // D17; any may be null
     "job_site": null, "agreement": 4130,         // null when not out
-    "reservation": { "held_by": null, "purpose": null, "customer": null, "until": null },
+    "reservations": [                            // v2 — THE TRUTH. Sorted by start; [] when unheld.
+      { "id": "h2812b2", "held_by": "Kevin", "customer": "…", "purpose": "…",
+        "start": "YYYY-MM-DD", "end": "YYYY-MM-DD",   // inclusive; one-day hold has start == end
+        "created": "YYYY-MM-DD", "status": "current|future|expired|malformed" } ],   // engine-computed
+    "reservation": { "held_by": null, "purpose": null, "customer": null, "until": null },  // DEPRECATED mirror; never read it; gone at schema 3
     "service_ticket": null
   } ],
+  "reservations": {                              // v2 rollup for the Holds view
+    "upcoming": [ { "serial": "…", "model": "…", "category": "…", "id": "…", "held_by": "…", "customer": "…",
+                    "purpose": "…", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "status": "current|future" } ],
+    "expired":  [ { "…same, minus status": "" } ]
+  },
   "agreements": [ {
     "agreement": 4130,            // null = unbilled-rental alert (render with a loud ⚠️)
     "customer": "…", "serial": "150074", "cycle": "28D|ONE-SHOT",
@@ -140,6 +151,8 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
 }
 ```
 
+Hold state rules (engine-owned — never reimplement): `unit_state: RESERVED` means a hold is **current right now** on an otherwise-available unit; a unit with only future holds stays **AVAILABLE** (lights and counts must say so). Holds are legal on any non-RETIRED unit in any state — an ON-RENT machine can carry future holds; out-states win the chip, the hold list is the calendar. **`reservations.length > 0` never implies RESERVED.** Overlaps are impossible by construction (engine rejects, run report says so). An expired hold still holds the unit until a human releases or extends it — render expired holds loud.
+
 Notes you must honor: invoice numbers look like `R<agmt>-<cycle>` and occasionally `R4204-1.1` (split cycles) or a bare QBO number like `519665` — treat as opaque strings, never parse. Loaner placements appear as units with `unit_state: LOANER-OUT`, `agreement: <n>` and **no matching entry in `agreements`** — that's correct, render the unit's placement without a billing row. `service_queue` may be `[]` for a while (that module seeds later) — the tab still renders, empty-state included.
 
 ## UI spec (decisions D11/D12 — locked)
@@ -147,8 +160,9 @@ Notes you must honor: invoice numbers look like `R<agmt>-<cycle>` and occasional
 Brand: WSS maroon `#B71C1C`, white, near-black. Clean, big tap targets, gloves-on friendly. Responsive; design at 390×844 first, desktop is a bonus.
 
 1. **Landing = fleet-utilization bar + 9 category cards.** Utilization (D19, client-computed): ON-RENT ÷ (units with `status: RENTAL` and `unit_state != RETIRED`) — demos and loaner-outs are not in the numerator. One thin bar, whole-% and a mandatory word label, fill by band on the rounded %: <30 red "Low" · 30–60 yellow "Building" · 61–80 green "Healthy" · >80 red "Over-extended". Then the cards (from `categories`, that order). Each card: category name, an **availability light — 🟢 if (AVAILABLE ∧ READY) count ≥ 2, 🟡 if exactly 1, 🔴 if 0** — and a sub-line `N ready · N in prep · N down · N reserved · N on rent` (reserved = `unit_state: RESERVED`, its own chip, never counted available; on rent = `unit_state: ON-RENT`, rendered in the ON-RENT chip blue — D25; light math unchanged). Kevin reads the color; techs read the sub-line. Compute counts client-side from `units` — **on-hand math only: ready/prep/down count AVAILABLE, RESERVED, IN-SHOP (D18)**. **Category cards only — no fleet-totals block on the landing page (D15).**
-2. **Category → unit list** (top line = make & model, e.g. "Factory Cat Model 34"; sub-line = serial · asset # · location; chips for state + readiness — **readiness chip only for on-hand states AVAILABLE/RESERVED/IN-SHOP; out states ON-RENT/ON-DEMO/LOANER-OUT show the state chip alone, everywhere (D18)**) **→ unit detail** (everything: specs, cost/book/ask — **no floor price (D16)**, agreement + rate + last-invoiced period, reservation, readiness note, hours). Two levels, never more.
-3. **Rentals view:** the `agreements` array — customer, unit, rate, `next_due`, cycles billed/max; `agreement: null` and any `alerts` rendered loud. **Billing view** (titled "Cycle (Periodic) Invoicing"): recurring-revenue card on top (D21: Σ `cycle_rate` over `cycle == "28D"` rows still running — `cycles_max` null or `cycles_billed < cycles_max`; headline "Recurring revenue — per 28-day cycle", never "monthly"; "across N agreements"; "≈ $X / month" = total × 365 ÷ 28 ÷ 12, whole dollars), then `billing.due_next_7_days` + `billing.created_last_run` ("created last night — awaiting Matt").
+2. **Category → unit list** (top line = make & model, e.g. "Factory Cat Model 34"; sub-line = serial · asset # · location; chips for state + readiness — **readiness chip only for on-hand states AVAILABLE/RESERVED/IN-SHOP; out states ON-RENT/ON-DEMO/LOANER-OUT show the state chip alone, everywhere (D18)**; plus a small **📅 N** chip when the unit has N future holds — "available, but spoken for Tuesday") **→ unit detail** (everything: specs, cost/book/ask — **no floor price (D16)**, agreement + rate + last-invoiced period, a **Holds** section listing every entry in `reservations` with a status pill — solid maroon HELD NOW · outline start-date for future · red EXPIRED — release or extend · grey ⚠ bad dates — and a per-row Release button for sales/owner; "No holds." when empty; readiness note, hours). Two levels, never more.
+3. **Holds view** (tab next to Rentals): from the top-level `reservations` rollup — an **Expired holds — release or extend** block first (red, only when non-empty), then upcoming grouped by start date, each row = window · unit (serial + model, tap → unit detail) · customer · purpose · held by. Empty: "Nothing on hold."
+3b. **Rentals view:** the `agreements` array — customer, unit, rate, `next_due`, cycles billed/max; `agreement: null` and any `alerts` rendered loud. **Billing view** (titled "Cycle (Periodic) Invoicing"): recurring-revenue card on top (D21: Σ `cycle_rate` over `cycle == "28D"` rows still running — `cycles_max` null or `cycles_billed < cycles_max`; headline "Recurring revenue — per 28-day cycle", never "monthly"; "across N agreements"; "≈ $X / month" = total × 365 ÷ 28 ÷ 12, whole dollars), then `billing.due_next_7_days` + `billing.created_last_run` ("created last night — awaiting Matt").
 4. **Service view:** fleet status board on top (D20) — six mutually exclusive bar gauges over the non-retired fleet, summing to 100%: ON-RENT (blue) · ON-DEMO (lighter blue) · LOANER-OUT (slate) · READY / NEEDS-PREP / DOWN (green / yellow / red; on-hand states AVAILABLE/RESERVED/IN-SHOP by readiness). Each row: label · count · thin % bar; zero rows still render, greyed. Then kanban columns by `stage`.
 5. **Persistent header:** `published_at` as "data as of …" + pending-events count (from `/api/health`), so nobody trusts a stale board unknowingly. If the snapshot is > 36h old, show a subtle ⚠️.
 

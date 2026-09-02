@@ -75,3 +75,14 @@ const usd0 = new Intl.NumberFormat('en-US', {
 export function fmtMoney(n) {
   return typeof n === 'number' && isFinite(n) ? usd0.format(n) : '—';
 }
+
+/** Inclusive window: "Sep 8" when start == end, else "Sep 8 – Sep 11" (year on the end if it differs). */
+export function fmtRange(start, end) {
+  if (!start && !end) return '';
+  if (!start || !end || start === end) return fmtDate(start || end);
+  const sameYear = DATE_RE.test(start) && DATE_RE.test(end) && start.slice(0, 4) === end.slice(0, 4);
+  return `${fmtDate(start)} – ${sameYear ? fmtDate(end) : fmtDateFull(end)}`;
+}
+
+/** Date-only strings compare correctly as strings. Guarded so junk never "sorts". */
+export const isDateStr = (s) => typeof s === 'string' && DATE_RE.test(s);
