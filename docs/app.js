@@ -22,7 +22,7 @@ import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02c';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-02d';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -146,6 +146,7 @@ const showsReadiness = (u) => ON_HAND.has(u.unit_state);
  *   in prep  NEEDS-PREP, on-hand states
  *   down     DOWN, on-hand states
  *   reserved unit_state RESERVED   — its own chip, never counted available
+ *   onRent   unit_state ON-RENT    — D25, shown last in the sub-line, chip blue
  */
 function countCategory(cat) {
   const us = units().filter((u) => u.category === cat);
@@ -156,6 +157,7 @@ function countCategory(cat) {
     prep: onHand.filter((u) => u.readiness === 'NEEDS-PREP').length,
     down: onHand.filter((u) => u.readiness === 'DOWN').length,
     reserved: us.filter((u) => u.unit_state === 'RESERVED').length,
+    onRent: us.filter((u) => u.unit_state === 'ON-RENT').length,
   };
 }
 
@@ -198,14 +200,15 @@ function viewCategories() {
 
   const cards = cats.map((cat) => {
     const c = countCategory(cat);
-    const n = (v, label) => html`<span class="${v ? 'n' : 'zero'}">${v}</span> ${label}`;
+    // Non-breaking space: a segment ("2 on rent") wraps as a unit, only at the separators.
+    const n = (v, label) => html`<span class="${v ? 'n' : 'zero'}">${v}</span>&nbsp;${raw(label.replace(/ /g, '&nbsp;'))}`;
     return html`
       <a class="card cat-card" href="#/cat/${raw(encodeURIComponent(cat))}">
         ${light(c.ready)}
         <span class="cat-body">
           <span class="cat-name">${cat}</span>
           <span class="cat-sub">
-            ${raw(n(c.ready, 'ready'))}<span class="sep">·</span>${raw(n(c.prep, 'in prep'))}<span class="sep">·</span>${raw(n(c.down, 'down'))}<span class="sep">·</span>${raw(n(c.reserved, 'reserved'))}
+            ${raw(n(c.ready, 'ready'))}<span class="sep">·</span>${raw(n(c.prep, 'in prep'))}<span class="sep">·</span>${raw(n(c.down, 'down'))}<span class="sep">·</span>${raw(n(c.reserved, 'reserved'))}<span class="sep">·</span><span class="rent">${raw(n(c.onRent, 'on rent'))}</span>
           </span>
         </span>
         ${CHEV}
@@ -258,7 +261,7 @@ function viewCategory(cat) {
   return html`
     <a class="crumb" href="#/">‹ Fleet</a>
     <h1>${light(c.ready)}${cat}</h1>
-    <div class="sub">${c.ready} ready · ${c.prep} in prep · ${c.down} down · ${c.reserved} reserved</div>
+    <div class="sub">${c.ready} ready · ${c.prep} in prep · ${c.down} down · ${c.reserved} reserved · <span class="rent">${c.onRent} on rent</span></div>
     ${us.length ? raw(rows.join('')) : raw(emptyState('No units in this category.'))}`;
 }
 
