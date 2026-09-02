@@ -118,22 +118,27 @@ const unitIds = (u) => [`#${u.serial}`, u.asset_item].filter(Boolean).join(' · 
 const unitBySerial = (s) => units().find((u) => String(u.serial) === String(s)) || null;
 const pendingFor = (serial) => state.pending.filter((e) => String(e.serial) === String(serial));
 
+// Readiness is an on-hand concept (D18). For units that are out — ON-RENT,
+// ON-DEMO, LOANER-OUT — "[ON-RENT] [READY]" reads as a contradiction, so the
+// readiness chip is not rendered and readiness is not counted. The data keeps it.
+const ON_HAND = new Set(['AVAILABLE', 'RESERVED', 'IN-SHOP']);
+const showsReadiness = (u) => ON_HAND.has(u.unit_state);
+
 /**
- * Category counts.
+ * Category counts — on-hand math only (D18).
  *   ready    AVAILABLE and READY   — the only thing that can go out today
- *   in prep  NEEDS-PREP, any live state
- *   down     DOWN, any live state
+ *   in prep  NEEDS-PREP, on-hand states
+ *   down     DOWN, on-hand states
  *   reserved unit_state RESERVED   — its own chip, never counted available
- * RETIRED units are excluded from prep/down; they aren't coming back.
  */
 function countCategory(cat) {
   const us = units().filter((u) => u.category === cat);
-  const live = us.filter((u) => u.unit_state !== 'RETIRED');
+  const onHand = us.filter(showsReadiness);
   return {
     total: us.length,
     ready: us.filter((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY').length,
-    prep: live.filter((u) => u.readiness === 'NEEDS-PREP').length,
-    down: live.filter((u) => u.readiness === 'DOWN').length,
+    prep: onHand.filter((u) => u.readiness === 'NEEDS-PREP').length,
+    down: onHand.filter((u) => u.readiness === 'DOWN').length,
     reserved: us.filter((u) => u.unit_state === 'RESERVED').length,
   };
 }
@@ -160,7 +165,7 @@ function unitChips(u) {
   const p = pendingFor(u.serial);
   return html`<div class="chips">
     ${raw(chip(u.unit_state, STATE_CLASS[u.unit_state]))}
-    ${raw(chip(u.readiness, READY_CLASS[u.readiness]))}
+    ${showsReadiness(u) ? raw(chip(u.readiness, READY_CLASS[u.readiness])) : ''}
     ${p.length ? raw(chip(`⏳ ${p.length} pending`, 'pending')) : ''}
   </div>`;
 }
