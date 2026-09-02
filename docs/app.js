@@ -17,7 +17,7 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney,
 } from './dates.js';
 import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
-import { utilization } from './metrics.js';
+import { utilization, statusBoard } from './metrics.js';
 
 /* ============================================================ 1. config ==== */
 
@@ -489,10 +489,27 @@ function viewBilling() {
 
 const STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
 
+/** Fleet status board (D20): six exclusive buckets of the non-retired fleet. Zero rows stay, greyed. */
+function boardView() {
+  const b = statusBoard(units());
+  const rows = b.rows.map((r) => html`
+    <div class="brow brow-${r.color}${r.count ? '' : ' zero'}">
+      <span class="brow-l">${r.label}</span>
+      <span class="brow-n">${r.count}</span>
+      <span class="brow-track"><span class="brow-fill" style="width:${r.pct}%"></span></span>
+      <span class="brow-p">${r.pct}%</span>
+    </div>`);
+  return html`
+    <section class="board" aria-label="Fleet status board">
+      <div class="board-h"><span>Fleet status</span><span class="c">${b.total} units</span></div>
+      ${raw(rows.join(''))}
+    </section>`;
+}
+
 function viewService() {
   const q = serviceQueue();
   if (!q.length) {
-    return html`<h1>Service</h1>${raw(emptyState('Service queue is empty.',
+    return html`<h1>Service</h1>${raw(boardView())}${raw(emptyState('Service queue is empty.',
       'Tickets appear here once the service module starts publishing.'))}`;
   }
 
@@ -515,7 +532,7 @@ function viewService() {
     </section>`;
   });
 
-  return html`<h1>Service</h1><div class="kanban">${raw(cols.join(''))}</div>`;
+  return html`<h1>Service</h1>${raw(boardView())}<div class="kanban">${raw(cols.join(''))}</div>`;
 }
 
 /* ---- gate / error screens ---- */

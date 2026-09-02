@@ -6,8 +6,8 @@
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
  *
  * Emits two variants so every view can be exercised:
- *   mock-full.json   non-empty service queue
- *   mock-empty.json  service_queue: []  (that module seeds later)
+ *   mock-full.json   non-empty service queue; every status-board row non-zero
+ *   mock-empty.json  service_queue: [] (that module seeds later); ON-DEMO row = 0
  *
  * Coverage guaranteed by construction:
  *   - all 9 categories, in display order
@@ -122,7 +122,9 @@ function build({ withServiceQueue }) {
 
   PLAN.forEach((plan, catIdx) => {
     const category = CATEGORIES[catIdx];
-    plan.forEach(([unit_state, readiness]) => {
+    plan.forEach(([state0, readiness]) => {
+      // Empty variant: no demos out, so the board shows a zero row (D20).
+      const unit_state = !withServiceQueue && state0 === 'ON-DEMO' ? 'AVAILABLE' : state0;
       const serial = String(serialSeq += 7);
       const brand = pick(BRANDS);
       const model = pick(MODELS) + (units.length % 4 === 0 ? ' 2026' : '');   // some models carry a year

@@ -59,3 +59,38 @@ check('ON-RENT never exceeds 100% even if a LOANER-status unit is marked ON-RENT
 });
 
 console.log(`\n${passed} checks passed`);
+
+// ---- D20 status board ---------------------------------------------------
+const { statusBoard, BOARD_ROWS } = await import('../docs/metrics.js');
+const R = (state, readiness = 'READY', status = 'RENTAL') => ({ unit_state: state, readiness, status });
+
+check('board: six rows, mutually exclusive, counts sum to the non-retired fleet', () => {
+  const units = [
+    R('ON-RENT'), R('ON-RENT', 'DOWN'),            // readiness ignored for out states
+    R('ON-DEMO', 'NEEDS-PREP'),
+    R('LOANER-OUT', 'READY', 'LOANER'),
+    R('AVAILABLE', 'READY'), R('RESERVED', 'READY'), R('IN-SHOP', 'READY'),
+    R('AVAILABLE', 'NEEDS-PREP'), R('IN-SHOP', null),   // unknown readiness -> needs prep
+    R('IN-SHOP', 'DOWN'),
+    R('RETIRED', 'DOWN'),                               // excluded entirely
+  ];
+  const b = statusBoard(units);
+  assert.equal(b.total, 10);
+  assert.deepEqual(b.rows.map((r) => r.count), [2, 1, 1, 3, 2, 1]);
+  assert.equal(b.rows.reduce((a, r) => a + r.count, 0), b.total);
+  assert.deepEqual(b.rows.map((r) => r.key), BOARD_ROWS.map((r) => r.key));
+  assert.equal(b.rows[0].pct, 20);
+  assert.equal(b.rows[3].pct, 30);
+});
+
+check('board: zero-count rows are present with 0, and an empty fleet never yields NaN', () => {
+  const b = statusBoard([R('ON-RENT'), R('ON-RENT')]);
+  assert.equal(b.rows.length, 6);
+  assert.deepEqual(b.rows.map((r) => r.count), [2, 0, 0, 0, 0, 0]);
+  assert.deepEqual(b.rows.map((r) => r.pct), [100, 0, 0, 0, 0, 0]);
+  const e = statusBoard([]);
+  assert.equal(e.total, 0);
+  assert.ok(e.rows.every((r) => r.count === 0 && r.pct === 0));
+});
+
+console.log(`\n${passed} checks passed (incl. board)`);
