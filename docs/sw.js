@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v4';
+const CACHE = 'wss-fleet-shell-v5';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
@@ -15,6 +15,7 @@ const SHELL = [
   'app.js',
   'api.js',
   'dates.js',
+  'metrics.js',
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',

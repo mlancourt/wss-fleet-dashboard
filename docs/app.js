@@ -17,6 +17,7 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney,
 } from './dates.js';
 import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
+import { utilization } from './metrics.js';
 
 /* ============================================================ 1. config ==== */
 
@@ -196,8 +197,23 @@ function viewCategories() {
       </a>`;
   });
 
-  // Landing = category cards only (D15). No fleet-totals block here.
-  return html`<h1>Fleet</h1>${raw(cards.join(''))}`;
+  // Landing = utilization bar (D19) + category cards (D15). Nothing else.
+  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(cards.join(''))}`;
+}
+
+/** Fleet-utilization bar (D19). The word label is mandatory: two bands are red. */
+function utilBar() {
+  const u = utilization(units());
+  if (u.pct == null) return '';
+  return html`
+    <section class="util util-${u.color}" aria-label="Fleet utilization ${u.pct}% — ${u.label}">
+      <div class="util-row">
+        <span class="util-t">Fleet utilization</span>
+        <span class="util-v"><strong>${u.pct}%</strong><span class="util-l">${u.label}</span></span>
+      </div>
+      <div class="util-track"><div class="util-fill" style="width:${u.pct}%"></div></div>
+      <div class="util-s">${u.onRent} of ${u.denom} rental units on rent</div>
+    </section>`;
 }
 
 function viewCategory(cat) {
