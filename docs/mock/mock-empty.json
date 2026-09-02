@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-02T18:11:36.617Z",
+    "generated_at": "2026-09-02T18:33:29.139Z",
     "run_id": "mock-empty-2026-09-02",
     "fleet_totals": {
       "units": 39,
@@ -49,6 +49,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [
         {
           "id": "h0107g",
@@ -105,6 +106,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -140,6 +142,7 @@
       },
       "job_site": "Waukesha WI",
       "agreement": 4103,
+      "customer": "Maplewood Schools",
       "reservations": [
         {
           "id": "h0121i",
@@ -196,6 +199,7 @@
       },
       "job_site": "Oconomowoc WI",
       "agreement": 4106,
+      "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -231,6 +235,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -266,6 +271,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -301,6 +307,7 @@
       },
       "job_site": "Madison WI",
       "agreement": 4109,
+      "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -336,6 +343,7 @@
       },
       "job_site": "Oconomowoc WI",
       "agreement": 4112,
+      "customer": "Quarry Road Aggregates",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -371,6 +379,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [
         {
           "id": "h0163a",
@@ -417,6 +426,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -452,6 +462,7 @@
       },
       "job_site": "Jefferson WI",
       "agreement": 4115,
+      "customer": "Quarry Road Aggregates",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -487,6 +498,7 @@
       },
       "job_site": "Watertown WI",
       "agreement": 4118,
+      "customer": "Ironwood Packaging",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -522,6 +534,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [
         {
           "id": "h0191k",
@@ -568,6 +581,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [
         {
           "id": "h0198b",
@@ -614,6 +628,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -649,6 +664,7 @@
       },
       "job_site": "Ixonia WI",
       "agreement": 4121,
+      "customer": "Kestrel Print",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -684,6 +700,7 @@
       },
       "job_site": "Ixonia WI",
       "agreement": 4124,
+      "customer": "Bluebird Logistics",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -719,6 +736,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -754,6 +772,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -789,6 +808,7 @@
       },
       "job_site": "Milwaukee WI",
       "agreement": 4127,
+      "customer": "Maplewood Schools",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -824,6 +844,7 @@
       },
       "job_site": "Beloit WI",
       "agreement": 4130,
+      "customer": "Northgate Fulfillment",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -859,6 +880,7 @@
       },
       "job_site": "Waukesha WI",
       "agreement": null,
+      "customer": "Dorsey Plastics",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -894,6 +916,7 @@
       },
       "job_site": "Oconomowoc WI",
       "agreement": 4136,
+      "customer": "Oakhill Casting",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -929,6 +952,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -964,6 +988,7 @@
       },
       "job_site": "Ixonia WI",
       "agreement": 4139,
+      "customer": "Acme Foods",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -999,6 +1024,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1034,6 +1060,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1069,6 +1096,7 @@
       },
       "job_site": "Waukesha WI",
       "agreement": 4142,
+      "customer": "Kestrel Print",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1104,6 +1132,7 @@
       },
       "job_site": "Watertown WI",
       "agreement": 4145,
+      "customer": "Bluebird Logistics",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1139,6 +1168,7 @@
       },
       "job_site": "Ixonia WI",
       "agreement": null,
+      "customer": "Juniper Metalworks",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1174,6 +1204,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1209,6 +1240,7 @@
       },
       "job_site": "Waukesha WI",
       "agreement": 4148,
+      "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1244,6 +1276,7 @@
       },
       "job_site": "Sun Prairie WI",
       "agreement": 4151,
+      "customer": "Dorsey Plastics",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1279,6 +1312,7 @@
       },
       "job_site": "Waukesha WI",
       "agreement": 4154,
+      "customer": "Cedar Ridge Manufacturing",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1314,6 +1348,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [
         {
           "id": "h0345c",
@@ -1390,6 +1425,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1425,6 +1461,7 @@
       },
       "job_site": "Waukesha WI",
       "agreement": 4157,
+      "customer": "Acme Foods",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1460,6 +1497,7 @@
       },
       "job_site": "Oconomowoc WI",
       "agreement": 4160,
+      "customer": "Ironwood Packaging",
       "reservations": [],
       "reservation": {
         "held_by": null,
@@ -1495,6 +1533,7 @@
       },
       "job_site": null,
       "agreement": null,
+      "customer": null,
       "reservations": [],
       "reservation": {
         "held_by": null,

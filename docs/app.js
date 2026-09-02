@@ -23,7 +23,7 @@ import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02i';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-02j';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -286,13 +286,17 @@ function viewCategory(cat) {
 
   const rows = us.map((u) => {
     // No job_site means it hasn't left the yard. A current hold names who it's held for.
+    // D33: an out unit's customer (agreement / loaner placement) leads the location.
     const cur = currentHold(u, todayCentral());
     const loc = u.job_site || (cur && cur.customer ? `held for ${cur.customer}` : 'shop');
+    const where = u.customer
+      ? html`<span class="cust">${u.customer}</span>${u.job_site ? raw(html` · ${u.job_site}`) : ''}`
+      : html`${loc}`;
     return html`
       <a class="card unit-row" href="#/unit/${raw(encodeURIComponent(u.serial))}">
         <span class="unit-main">
           <span class="unit-title">${unitName(u)}</span>
-          <span class="unit-loc"><span class="unit-serial">${unitIds(u)}</span> · ${loc}</span>
+          <span class="unit-loc"><span class="unit-serial">${unitIds(u)}</span> · ${raw(where)}</span>
           ${raw(unitChips(u).replace('</div>', calChip(u) + '</div>'))}
         </span>
         ${CHEV}
@@ -355,6 +359,7 @@ function viewUnit(serial) {
       ${raw(kvRow('Status', u.status))}
       ${raw(kvRow('Hours', u.hours != null ? u.hours.toLocaleString('en-US') : '', 'num'))}
       ${raw(kvRow('In service', fmtDateFull(u.in_service)))}
+      ${u.customer ? raw(kvRow('Customer', u.customer)) : ''}
       ${raw(kvRow('Location', u.job_site))}
       ${raw(kvRow('Service ticket', u.service_ticket))}
     </dl></div>
@@ -392,7 +397,7 @@ function viewUnit(serial) {
       ${raw(rowAlerts(ag))}`) : ''}
 
     ${loanerPlacement ? raw(html`<h2>Placement</h2>
-      <div class="info">Loaner out on agreement ${u.agreement}. Loaners carry no billing row — that's expected, not a missing record.</div>`) : ''}
+      <div class="info">Loaner out${u.customer ? raw(html` to <strong>${u.customer}</strong>`) : ''} on agreement ${u.agreement}. Loaners carry no billing row — that's expected, not a missing record.</div>`) : ''}
 
     ${u.unit_state === 'ON-DEMO' ? raw(html`
       <h2>Placement</h2><div class="info">Out on demo. No agreement.</div>`) : ''}

@@ -278,6 +278,7 @@ h2.danger { color: var(--bad); }
 .unit-title { display: block; font-weight: 650; font-size: 15.5px; color: var(--slate-900); }
 .unit-loc { display: block; font-size: 13px; color: var(--ink-3); margin-top: 2px; }
 .unit-serial { font-family: var(--mono); font-size: 12.5px; color: var(--slate-700); letter-spacing: .2px; }
+.unit-loc .cust { color: var(--slate-800); font-weight: 600; }   /* D33: customer in normal text, address stays grey */
 
 /* ------------------------------------------------------------ detail sheet */
 

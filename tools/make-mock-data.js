@@ -190,6 +190,8 @@ function build({ withServiceQueue }) {
         },
         job_site,
         agreement,
+        // D33: agreement customer for ON-RENT, placement customer for LOANER-OUT, else null (ON-DEMO too).
+        customer: unit_state === 'ON-RENT' || isLoaner ? customer : null,
         reservations: [],                               // v2: the truth (filled below)
         reservation: { held_by: null, purpose: null, customer: null, until: null },  // DEPRECATED mirror
         service_ticket: null,
