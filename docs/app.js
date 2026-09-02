@@ -22,6 +22,7 @@ import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
+const BUILD = '2026-09-02b';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -565,6 +566,19 @@ function viewService() {
 /* ---- gate / error screens ---- */
 
 function viewGate(code) {
+  return gateBody(code) + diag(code);
+}
+
+/** Small diagnostic line under every gate screen: reason · build · where the token came from. */
+function diag(code) {
+  const hasT = new URL(window.location.href).searchParams.has('t');
+  let stored = 'n/a';
+  try { stored = localStorage.getItem(TOKEN_KEY) ? 'yes' : 'no'; } catch (_) { stored = 'blocked'; }
+  const detail = state.error && state.error.message && code === 'error' ? ` · ${state.error.message}` : '';
+  return html`<div class="form-note">reason: ${code} · token in url: ${hasT ? 'yes' : 'no'} · in storage: ${stored} · build ${BUILD}${detail}</div>`;
+}
+
+function gateBody(code) {
   if (code === 'no-token') {
     return html`<h1>WSS Fleet Tracker</h1>
       <div class="card">
