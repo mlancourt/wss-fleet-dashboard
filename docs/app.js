@@ -23,7 +23,7 @@ import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02e';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-02f';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -401,7 +401,7 @@ function holdsSection(u) {
   const rows = holds.map((h) => {
     const rel = pendingReleases(u.serial, h.id);
     return html`
-      <div class="hold hold-${holdStatus(h, todayCentral())}">
+      <div class="hrow hold-${holdStatus(h, todayCentral())}">
         <div class="hold-top">
           <span class="hold-win">${fmtRange(h.start, h.end)}</span>
           ${raw(holdPill(h))}
@@ -656,7 +656,7 @@ function viewHolds() {
   const r = holdsRollup();
   const unitLink = (h) => html`<a href="#/unit/${raw(encodeURIComponent(h.serial))}"><span class="unit-serial">#${h.serial}</span>${h.model ? raw(html` ${h.model}`) : ''}</a>`;
   const row = (h, withPill) => html`
-    <div class="hold">
+    <div class="hrow">
       <div class="hold-top"><span class="hold-win">${fmtRange(h.start, h.end)}</span>${withPill ? raw(holdPill(h)) : ''}</div>
       <div class="hold-who">${raw(unitLink(h))}</div>
       <div class="hold-meta">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''} · held by ${h.held_by || '—'}</div>

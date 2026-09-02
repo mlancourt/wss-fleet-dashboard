@@ -223,11 +223,11 @@ h1 .dot { display: inline-block; width: 12px; height: 12px; margin: 0 12px 2px 4
 .pill-expired { background: var(--bad-bg); color: var(--bad); }
 .pill-bad     { background: var(--slate-100); color: var(--slate-500); text-transform: none; letter-spacing: 0; }
 
-/* hold rows */
+/* hold rows (.hrow — NOT .hold, which is the RESERVED state chip's class) */
 .holds { padding: 4px 16px; }
 .holds.danger { border-color: #FECACA; background: #FFF7F7; }
-.hold { padding: 11px 0; border-bottom: 1px solid var(--slate-100); }
-.hold:last-child { border-bottom: 0; }
+.hrow { padding: 11px 0; border-bottom: 1px solid var(--slate-100); }
+.hrow:last-child { border-bottom: 0; }
 .hold-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .hold-win { font-weight: 700; color: var(--slate-900); font-variant-numeric: tabular-nums; }
 .hold-who { font-size: 14.5px; color: var(--slate-800); margin-top: 3px; }
@@ -237,7 +237,7 @@ h1 .dot { display: inline-block; width: 12px; height: 12px; margin: 0 12px 2px 4
 .hold-expired .hold-win { color: var(--bad); }
 .hold-malformed .hold-win { color: var(--slate-500); text-decoration: line-through; }
 .hold-empty { padding: 10px 0; color: var(--ink-3); font-size: 14px; }
-.hold .btn.sm { margin-top: 8px; }
+.hrow .btn.sm { margin-top: 8px; }
 h2.danger { color: var(--bad); }
 
 /* reserve form extras */
