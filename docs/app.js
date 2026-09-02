@@ -23,7 +23,7 @@ import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02h';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-02i';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -240,15 +240,16 @@ function viewCategories() {
 
   const cards = cats.map((cat) => {
     const c = countCategory(cat);
-    // Non-breaking space: a segment ("2 on rent") wraps as a unit, only at the separators.
-    const n = (v, label) => html`<span class="${v ? 'n' : 'zero'}">${v}</span>&nbsp;${raw(label.replace(/ /g, '&nbsp;'))}`;
+    // Each segment is one flex item ("2 on rent" never splits); the line wraps between
+    // segments and the separators are drawn by CSS, so nothing can run out of the card.
+    const n = (v, label, cls = '') => html`<span class="seg ${cls}"><span class="${v ? 'n' : 'zero'}">${v}</span>&nbsp;${raw(label.replace(/ /g, '&nbsp;'))}</span>`;
     return html`
       <a class="card cat-card" href="#/cat/${raw(encodeURIComponent(cat))}">
         ${light(c.ready)}
         <span class="cat-body">
           <span class="cat-name">${cat}</span>
           <span class="cat-sub">
-            ${raw(n(c.ready, 'ready'))}<span class="sep">·</span>${raw(n(c.prep, 'in prep'))}<span class="sep">·</span>${raw(n(c.down, 'down'))}<span class="sep">·</span>${raw(n(c.reserved, 'reserved'))}<span class="sep">·</span><span class="rent">${raw(n(c.onRent, 'on rent'))}</span>${c.pickup ? raw(html`<span class="sep">·</span><span class="pickup">${raw(n(c.pickup, 'to pick up'))}</span>`) : ''}
+            ${raw(n(c.ready, 'ready'))}${raw(n(c.prep, 'in prep'))}${raw(n(c.down, 'down'))}${raw(n(c.reserved, 'reserved'))}${raw(n(c.onRent, 'on rent', 'rent'))}${c.pickup ? raw(n(c.pickup, 'to pick up', 'pickup')) : ''}
           </span>
         </span>
         ${CHEV}
