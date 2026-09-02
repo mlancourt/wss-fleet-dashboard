@@ -226,6 +226,12 @@ function build({ withServiceQueue }) {
   agreements[7].cycles_max = agreements[7].cycles_billed - 1;
   agreements[7].alerts = ['past max cycles — confirm extension or pick up'];
 
+  // A 28D row with no billing seed yet: next_due unknown, but the rate still
+  // counts as recurring revenue (D21).
+  agreements[3].cycle = '28D';
+  agreements[3].next_due = null;
+  agreements[3].alerts = ['no billing seed — next due unknown'];
+
   // The unbilled-rental alert: a unit out with no agreement number at all.
   const orphanUnit = units.find((u) => u.unit_state === 'ON-RENT' && u.agreement === agreements[10].agreement);
   orphanUnit.agreement = null;
@@ -233,7 +239,7 @@ function build({ withServiceQueue }) {
     agreement: null,
     customer: orphanUnit.job_site ? pick(CUSTOMERS) : 'Unknown',
     serial: orphanUnit.serial,
-    cycle: '28D',
+    cycle: 'ONE-SHOT',
     cycle_rate: 0,
     cycles_billed: 0,
     cycles_max: null,

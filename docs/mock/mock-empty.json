@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 1,
-    "generated_at": "2026-09-02T01:16:52.911Z",
+    "generated_at": "2026-09-02T01:30:17.921Z",
     "run_id": "mock-empty-2026-09-02",
     "fleet_totals": {
       "units": 39,
@@ -1327,7 +1327,7 @@
       "agreement": 4112,
       "customer": "Maplewood Schools",
       "serial": "900156",
-      "cycle": "ONE-SHOT",
+      "cycle": "28D",
       "cycle_rate": 900,
       "cycles_billed": 13,
       "cycles_max": 1,
@@ -1337,7 +1337,9 @@
       "next_due": null,
       "job_site": "Sun Prairie WI",
       "customer_po": null,
-      "alerts": []
+      "alerts": [
+        "no billing seed — next due unknown"
+      ]
     },
     {
       "agreement": 4115,
@@ -1441,7 +1443,7 @@
       "agreement": null,
       "customer": "Cedar Ridge Manufacturing",
       "serial": "900254",
-      "cycle": "28D",
+      "cycle": "ONE-SHOT",
       "cycle_rate": 0,
       "cycles_billed": 0,
       "cycles_max": null,

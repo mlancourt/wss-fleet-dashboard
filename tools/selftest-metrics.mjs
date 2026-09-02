@@ -94,3 +94,36 @@ check('board: zero-count rows are present with 0, and an empty fleet never yield
 });
 
 console.log(`\n${passed} checks passed (incl. board)`);
+
+// ---- D21 recurring revenue ------------------------------------------------
+const { recurringRevenue } = await import('../docs/metrics.js');
+const A = (cycle, rate, billed = 1, max = null, extra = {}) => ({ agreement: 1, cycle, cycle_rate: rate, cycles_billed: billed, cycles_max: max, next_due: '2026-09-20', ...extra });
+
+check('recurring: 28D and still running only; ONE-SHOT, past-max and orphan excluded; null next_due included', () => {
+  const r = recurringRevenue([
+    A('28D', 1000),                       // open-ended            ✓
+    A('28D', 500, 2, 6),                  // 2 of 6                ✓
+    A('28D', 700, 6, 6),                  // at max                ✗
+    A('28D', 900, 7, 6),                  // past max              ✗
+    A('ONE-SHOT', 400, 1, 1),             // one-shot              ✗
+    A('ONE-SHOT', 0, 0, null, { agreement: null }),   // the orphan  ✗
+    A('28D', 300, 1, null, { next_due: null }),        // missing seed ✓
+  ]);
+  assert.equal(r.count, 3);
+  assert.equal(r.total, 1800);
+});
+
+check('recurring: per-month = total × 365 ÷ 28 ÷ 12, whole dollars', () => {
+  assert.equal(recurringRevenue([A('28D', 28)]).perMonth, Math.round((28 * 365) / 28 / 12)); // 30
+  assert.equal(recurringRevenue([A('28D', 26005)]).perMonth, 28249);   // 28,249.48 -> 28,249
+  assert.equal(recurringRevenue([]).total, 0);
+  assert.equal(recurringRevenue([]).perMonth, 0);
+  assert.equal(recurringRevenue(undefined).count, 0);
+});
+
+check('recurring: a non-numeric cycle_rate contributes nothing rather than NaN', () => {
+  const r = recurringRevenue([A('28D', null), A('28D', 100)]);
+  assert.equal(r.total, 100); assert.equal(r.count, 2);
+});
+
+console.log(`\n${passed} checks passed (incl. revenue)`);

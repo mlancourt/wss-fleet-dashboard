@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 1,
-    "generated_at": "2026-09-02T01:16:52.909Z",
+    "generated_at": "2026-09-02T01:30:17.919Z",
     "run_id": "mock-full-2026-09-02",
     "fleet_totals": {
       "units": 39,
@@ -1334,10 +1334,12 @@
       "last_invoiced_period_start": "2026-07-18",
       "last_invoiced_period_end": "2026-08-14",
       "last_invoice": "R4112-14",
-      "next_due": "2026-09-11",
+      "next_due": null,
       "job_site": "Sun Prairie WI",
       "customer_po": null,
-      "alerts": []
+      "alerts": [
+        "no billing seed — next due unknown"
+      ]
     },
     {
       "agreement": 4115,
@@ -1441,7 +1443,7 @@
       "agreement": null,
       "customer": "Ironwood Packaging",
       "serial": "900254",
-      "cycle": "28D",
+      "cycle": "ONE-SHOT",
       "cycle_rate": 0,
       "cycles_billed": 0,
       "cycles_max": null,
@@ -1702,36 +1704,28 @@
         "due": "2026-09-04"
       },
       {
-        "agreement": 4112,
-        "customer": "Kestrel Print",
-        "serial": "900156",
-        "amount": 1625,
-        "due": "2026-09-05"
-      },
-      {
         "agreement": 4115,
         "customer": "Cedar Ridge Manufacturing",
         "serial": "900177",
         "amount": 975,
-        "due": "2026-09-06"
+        "due": "2026-09-05"
       },
       {
         "agreement": 4118,
         "customer": "Pinnacle Cold Storage",
         "serial": "900184",
         "amount": 975,
+        "due": "2026-09-06"
+      },
+      {
+        "agreement": 4124,
+        "customer": "Evergreen Distribution",
+        "serial": "900219",
+        "amount": 2275,
         "due": "2026-09-07"
       }
     ],
     "created_last_run": [
-      {
-        "invoice": "R4124-13",
-        "agreement": 4124,
-        "customer": "Evergreen Distribution",
-        "amount": 2275,
-        "period_start": "2026-08-16",
-        "period_end": "2026-09-02"
-      },
       {
         "invoice": "R4130-14",
         "agreement": 4130,
@@ -1746,6 +1740,14 @@
         "customer": "Summit Fabrication",
         "amount": 850,
         "period_start": "2026-08-15",
+        "period_end": "2026-09-02"
+      },
+      {
+        "invoice": "R4142-12",
+        "agreement": 4142,
+        "customer": "Quarry Road Aggregates",
+        "amount": 1100,
+        "period_start": "2026-08-29",
         "period_end": "2026-09-02"
       }
     ]

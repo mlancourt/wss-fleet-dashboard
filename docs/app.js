@@ -17,7 +17,7 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney,
 } from './dates.js';
 import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
-import { utilization, statusBoard } from './metrics.js';
+import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 
 /* ============================================================ 1. config ==== */
 
@@ -447,6 +447,18 @@ function rowAlerts(a) {
   return alerts.map((x) => html`<div class="alert">⚠️ ${x}</div>`).join('');
 }
 
+/** Recurring revenue card (D21). Never says "monthly" in the headline — 13.04 cycles a year. */
+function revenueCard() {
+  const r = recurringRevenue(agreements());
+  return html`
+    <section class="rev" aria-label="Recurring revenue per 28-day cycle">
+      <div class="rev-h">Recurring revenue — per 28-day cycle</div>
+      <div class="rev-v">${fmtMoney(r.total)}</div>
+      <div class="rev-s">across ${r.count} agreement${r.count === 1 ? '' : 's'}</div>
+      <div class="rev-m">≈ ${fmtMoney(r.perMonth)} / month</div>
+    </section>`;
+}
+
 function viewBilling() {
   const b = billing();
   const due = b.due_next_7_days || [];
@@ -480,6 +492,7 @@ function viewBilling() {
   return html`
     <h1>Cycle (Periodic) Invoicing</h1>
     <div class="sub">Units on rent for 1+ months.</div>
+    ${raw(revenueCard())}
     <h2>Due next 7 days</h2>
     ${due.length ? raw(dueRows.join('')) : raw(emptyState('Nothing due in the next 7 days.'))}
     <h2>Created last run</h2>

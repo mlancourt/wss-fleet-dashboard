@@ -64,3 +64,18 @@ export function statusBoard(units) {
     })),
   };
 }
+
+/**
+ * Recurring revenue (D21): sum of cycle_rate over agreements with cycle "28D"
+ * that are still running — cycles_max null, or cycles_billed < cycles_max.
+ * ONE-SHOT rows never count (the agreement:null orphan is ONE-SHOT). A 28D row
+ * with next_due null (missing seed) still counts: the contracted rate is
+ * recurring whether or not the next invoice date is known.
+ * perMonth = total × 365 ÷ 28 ÷ 12, rounded to the whole dollar.
+ */
+export function recurringRevenue(agreements) {
+  const rows = (agreements || []).filter((a) =>
+    a && a.cycle === '28D' && (a.cycles_max == null || Number(a.cycles_billed) < Number(a.cycles_max)));
+  const total = rows.reduce((sum, a) => sum + (typeof a.cycle_rate === 'number' ? a.cycle_rate : 0), 0);
+  return { total, count: rows.length, perMonth: Math.round((total * 365) / 28 / 12) };
+}
