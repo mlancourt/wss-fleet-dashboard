@@ -117,6 +117,13 @@ const PLAN = [
 
 const OUT_STATES = new Set(['ON-RENT', 'ON-DEMO', 'LOANER-OUT']);
 
+// Per-category long-term rates (per 28-day cycle), as the matrix would publish them.
+const r5 = (n) => Math.round(n / 5) * 5;
+const LONG_TERM = CATEGORIES.map((_, i) => {
+  const base = 700 + i * 275;
+  return i === 5 ? { m6: null, m12: null } : { m6: r5(base * 0.75), m12: r5(base * 0.5) };
+});
+
 function build({ withServiceQueue }) {
   const units = [];
   const agreements = [];
@@ -174,6 +181,10 @@ function build({ withServiceQueue }) {
           weekend: units.length % 5 === 1 ? null : money(250, 900, 5),
           weekly: units.length % 7 === 3 ? null : money(400, 1600, 25),
           monthly: money(450, 2400, 25),
+          // Long-term commitment rates: category-uniform, published verbatim from the
+          // rate matrix (rounded to $5 there). One category carries nulls -> "—".
+          long_term_6mo: LONG_TERM[catIdx].m6,
+          long_term_12mo: LONG_TERM[catIdx].m12,
         },
         job_site,
         agreement,

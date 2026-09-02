@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-02T16:10:32.016Z",
+    "generated_at": "2026-09-02T17:54:50.521Z",
     "run_id": "mock-full-2026-09-02",
     "fleet_totals": {
       "units": 39,
@@ -43,7 +43,9 @@
         "full_day": 325,
         "weekend": 250,
         "weekly": 700,
-        "monthly": 1400
+        "monthly": 1400,
+        "long_term_6mo": 525,
+        "long_term_12mo": 350
       },
       "job_site": null,
       "agreement": null,
@@ -97,7 +99,9 @@
         "full_day": 470,
         "weekend": null,
         "weekly": 1175,
-        "monthly": 2225
+        "monthly": 2225,
+        "long_term_6mo": 525,
+        "long_term_12mo": 350
       },
       "job_site": null,
       "agreement": null,
@@ -130,7 +134,9 @@
         "full_day": 575,
         "weekend": 510,
         "weekly": 1575,
-        "monthly": 1300
+        "monthly": 1300,
+        "long_term_6mo": 525,
+        "long_term_12mo": 350
       },
       "job_site": "Jefferson WI",
       "agreement": 4103,
@@ -184,7 +190,9 @@
         "full_day": 435,
         "weekend": 890,
         "weekly": null,
-        "monthly": 1275
+        "monthly": 1275,
+        "long_term_6mo": 525,
+        "long_term_12mo": 350
       },
       "job_site": "Ixonia WI",
       "agreement": 4106,
@@ -217,7 +225,9 @@
         "full_day": 305,
         "weekend": 500,
         "weekly": 925,
-        "monthly": 1150
+        "monthly": 1150,
+        "long_term_6mo": 730,
+        "long_term_12mo": 490
       },
       "job_site": null,
       "agreement": null,
@@ -250,7 +260,9 @@
         "full_day": 225,
         "weekend": 510,
         "weekly": 850,
-        "monthly": 1350
+        "monthly": 1350,
+        "long_term_6mo": 730,
+        "long_term_12mo": 490
       },
       "job_site": null,
       "agreement": null,
@@ -283,7 +295,9 @@
         "full_day": 155,
         "weekend": null,
         "weekly": 500,
-        "monthly": 1150
+        "monthly": 1150,
+        "long_term_6mo": 730,
+        "long_term_12mo": 490
       },
       "job_site": "Watertown WI",
       "agreement": 4109,
@@ -316,7 +330,9 @@
         "full_day": 495,
         "weekend": 715,
         "weekly": 1275,
-        "monthly": 1625
+        "monthly": 1625,
+        "long_term_6mo": 730,
+        "long_term_12mo": 490
       },
       "job_site": "Sun Prairie WI",
       "agreement": 4112,
@@ -349,7 +365,9 @@
         "full_day": 465,
         "weekend": 785,
         "weekly": 1125,
-        "monthly": 1525
+        "monthly": 1525,
+        "long_term_6mo": 730,
+        "long_term_12mo": 490
       },
       "job_site": null,
       "agreement": null,
@@ -393,7 +411,9 @@
         "full_day": 405,
         "weekend": 650,
         "weekly": 950,
-        "monthly": 2075
+        "monthly": 2075,
+        "long_term_6mo": 940,
+        "long_term_12mo": 625
       },
       "job_site": null,
       "agreement": null,
@@ -426,7 +446,9 @@
         "full_day": 200,
         "weekend": 335,
         "weekly": null,
-        "monthly": 2100
+        "monthly": 2100,
+        "long_term_6mo": 940,
+        "long_term_12mo": 625
       },
       "job_site": "Jefferson WI",
       "agreement": 4115,
@@ -459,7 +481,9 @@
         "full_day": 340,
         "weekend": null,
         "weekly": 1400,
-        "monthly": 2250
+        "monthly": 2250,
+        "long_term_6mo": 940,
+        "long_term_12mo": 625
       },
       "job_site": "Oconomowoc WI",
       "agreement": 4118,
@@ -492,7 +516,9 @@
         "full_day": 195,
         "weekend": 490,
         "weekly": 1450,
-        "monthly": 1725
+        "monthly": 1725,
+        "long_term_6mo": 940,
+        "long_term_12mo": 625
       },
       "job_site": null,
       "agreement": null,
@@ -536,7 +562,9 @@
         "full_day": 445,
         "weekend": 290,
         "weekly": 625,
-        "monthly": 1125
+        "monthly": 1125,
+        "long_term_6mo": 940,
+        "long_term_12mo": 625
       },
       "job_site": null,
       "agreement": null,
@@ -580,7 +608,9 @@
         "full_day": 205,
         "weekend": 340,
         "weekly": 1025,
-        "monthly": 1475
+        "monthly": 1475,
+        "long_term_6mo": 1145,
+        "long_term_12mo": 765
       },
       "job_site": null,
       "agreement": null,
@@ -613,7 +643,9 @@
         "full_day": 310,
         "weekend": 395,
         "weekly": 800,
-        "monthly": 875
+        "monthly": 875,
+        "long_term_6mo": 1145,
+        "long_term_12mo": 765
       },
       "job_site": "Oconomowoc WI",
       "agreement": 4121,
@@ -646,7 +678,9 @@
         "full_day": 460,
         "weekend": null,
         "weekly": 1450,
-        "monthly": 850
+        "monthly": 850,
+        "long_term_6mo": 1145,
+        "long_term_12mo": 765
       },
       "job_site": "Ixonia WI",
       "agreement": 4124,
@@ -679,7 +713,9 @@
         "full_day": 390,
         "weekend": 890,
         "weekly": null,
-        "monthly": 1400
+        "monthly": 1400,
+        "long_term_6mo": 1145,
+        "long_term_12mo": 765
       },
       "job_site": "Sun Prairie WI",
       "agreement": null,
@@ -712,7 +748,9 @@
         "full_day": 550,
         "weekend": 325,
         "weekly": 850,
-        "monthly": 725
+        "monthly": 725,
+        "long_term_6mo": 1145,
+        "long_term_12mo": 765
       },
       "job_site": null,
       "agreement": null,
@@ -745,7 +783,9 @@
         "full_day": 590,
         "weekend": 795,
         "weekly": 475,
-        "monthly": 2075
+        "monthly": 2075,
+        "long_term_6mo": 1350,
+        "long_term_12mo": 900
       },
       "job_site": "Watertown WI",
       "agreement": 4127,
@@ -778,7 +818,9 @@
         "full_day": 325,
         "weekend": 410,
         "weekly": 1150,
-        "monthly": 1575
+        "monthly": 1575,
+        "long_term_6mo": 1350,
+        "long_term_12mo": 900
       },
       "job_site": "Jefferson WI",
       "agreement": 4130,
@@ -811,7 +853,9 @@
         "full_day": 255,
         "weekend": null,
         "weekly": 1000,
-        "monthly": 1025
+        "monthly": 1025,
+        "long_term_6mo": 1350,
+        "long_term_12mo": 900
       },
       "job_site": "Oconomowoc WI",
       "agreement": null,
@@ -844,7 +888,9 @@
         "full_day": 530,
         "weekend": 285,
         "weekly": 950,
-        "monthly": 975
+        "monthly": 975,
+        "long_term_6mo": 1350,
+        "long_term_12mo": 900
       },
       "job_site": "Waukesha WI",
       "agreement": 4136,
@@ -877,7 +923,9 @@
         "full_day": 370,
         "weekend": 275,
         "weekly": 1425,
-        "monthly": 1050
+        "monthly": 1050,
+        "long_term_6mo": null,
+        "long_term_12mo": null
       },
       "job_site": null,
       "agreement": null,
@@ -910,7 +958,9 @@
         "full_day": 330,
         "weekend": 460,
         "weekly": null,
-        "monthly": 2100
+        "monthly": 2100,
+        "long_term_6mo": null,
+        "long_term_12mo": null
       },
       "job_site": "Beloit WI",
       "agreement": 4139,
@@ -943,7 +993,9 @@
         "full_day": 260,
         "weekend": 725,
         "weekly": 1475,
-        "monthly": 1325
+        "monthly": 1325,
+        "long_term_6mo": null,
+        "long_term_12mo": null
       },
       "job_site": "Watertown WI",
       "agreement": null,
@@ -976,7 +1028,9 @@
         "full_day": 470,
         "weekend": null,
         "weekly": 1425,
-        "monthly": 2075
+        "monthly": 2075,
+        "long_term_6mo": null,
+        "long_term_12mo": null
       },
       "job_site": null,
       "agreement": null,
@@ -1009,7 +1063,9 @@
         "full_day": 465,
         "weekend": 835,
         "weekly": 775,
-        "monthly": 1925
+        "monthly": 1925,
+        "long_term_6mo": 1765,
+        "long_term_12mo": 1175
       },
       "job_site": "Sun Prairie WI",
       "agreement": 4142,
@@ -1042,7 +1098,9 @@
         "full_day": 230,
         "weekend": 325,
         "weekly": 500,
-        "monthly": 1025
+        "monthly": 1025,
+        "long_term_6mo": 1765,
+        "long_term_12mo": 1175
       },
       "job_site": "Waukesha WI",
       "agreement": 4145,
@@ -1075,7 +1133,9 @@
         "full_day": 480,
         "weekend": 865,
         "weekly": 1250,
-        "monthly": 750
+        "monthly": 750,
+        "long_term_6mo": 1765,
+        "long_term_12mo": 1175
       },
       "job_site": "Beloit WI",
       "agreement": null,
@@ -1108,7 +1168,9 @@
         "full_day": 310,
         "weekend": 350,
         "weekly": 1500,
-        "monthly": 1950
+        "monthly": 1950,
+        "long_term_6mo": 1765,
+        "long_term_12mo": 1175
       },
       "job_site": null,
       "agreement": null,
@@ -1141,7 +1203,9 @@
         "full_day": 485,
         "weekend": null,
         "weekly": null,
-        "monthly": 1475
+        "monthly": 1475,
+        "long_term_6mo": 1970,
+        "long_term_12mo": 1315
       },
       "job_site": "Milwaukee WI",
       "agreement": 4148,
@@ -1174,7 +1238,9 @@
         "full_day": 535,
         "weekend": 645,
         "weekly": 675,
-        "monthly": 1750
+        "monthly": 1750,
+        "long_term_6mo": 1970,
+        "long_term_12mo": 1315
       },
       "job_site": "Beloit WI",
       "agreement": 4151,
@@ -1207,7 +1273,9 @@
         "full_day": 270,
         "weekend": 765,
         "weekly": 1325,
-        "monthly": 1100
+        "monthly": 1100,
+        "long_term_6mo": 1970,
+        "long_term_12mo": 1315
       },
       "job_site": "Oconomowoc WI",
       "agreement": 4154,
@@ -1240,7 +1308,9 @@
         "full_day": 440,
         "weekend": 260,
         "weekly": 550,
-        "monthly": 1450
+        "monthly": 1450,
+        "long_term_6mo": 1970,
+        "long_term_12mo": 1315
       },
       "job_site": null,
       "agreement": null,
@@ -1314,7 +1384,9 @@
         "full_day": 400,
         "weekend": 750,
         "weekly": 550,
-        "monthly": 1425
+        "monthly": 1425,
+        "long_term_6mo": 2175,
+        "long_term_12mo": 1450
       },
       "job_site": null,
       "agreement": null,
@@ -1347,7 +1419,9 @@
         "full_day": 520,
         "weekend": null,
         "weekly": 500,
-        "monthly": 1975
+        "monthly": 1975,
+        "long_term_6mo": 2175,
+        "long_term_12mo": 1450
       },
       "job_site": "Sun Prairie WI",
       "agreement": 4157,
@@ -1380,7 +1454,9 @@
         "full_day": 265,
         "weekend": 605,
         "weekly": 1550,
-        "monthly": 1525
+        "monthly": 1525,
+        "long_term_6mo": 2175,
+        "long_term_12mo": 1450
       },
       "job_site": "Waukesha WI",
       "agreement": 4160,
@@ -1413,7 +1489,9 @@
         "full_day": 505,
         "weekend": 285,
         "weekly": null,
-        "monthly": 875
+        "monthly": 875,
+        "long_term_6mo": 2175,
+        "long_term_12mo": 1450
       },
       "job_site": null,
       "agreement": null,

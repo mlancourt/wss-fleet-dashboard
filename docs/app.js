@@ -23,7 +23,7 @@ import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02f';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-02g';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -307,7 +307,7 @@ function kvRow(label, value, cls) {
 }
 
 /** rate_card rows (D17): null/missing renders as a muted "—", never blank. */
-const rateRow = (label, v) => kvRow(label, typeof v === 'number' ? fmtMoney(v) : '', 'num');
+const rateRow = (label, v, suffix = '') => kvRow(label, typeof v === 'number' ? fmtMoney(v) + suffix : '', 'num');
 
 function viewUnit(serial) {
   const u = unitBySerial(serial);
@@ -362,6 +362,9 @@ function viewUnit(serial) {
       ${raw(rateRow('Rate — weekend', rc.weekend))}
       ${raw(rateRow('Rate — weekly', rc.weekly))}
       ${raw(rateRow('Rate — monthly', rc.monthly))}
+      <div class="kv-sub">Long-term (signed commitment)</div>
+      ${raw(rateRow('6-month', rc.long_term_6mo, ' /cycle'))}
+      ${raw(rateRow('12-month', rc.long_term_12mo, ' /cycle'))}
     </dl></div>
 
     ${raw(holdsSection(u))}
