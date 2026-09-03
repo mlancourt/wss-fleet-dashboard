@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-03T15:18:55.254Z",
+    "generated_at": "2026-09-03T15:33:43.651Z",
     "run_id": "mock-legacy-2026-09-03",
     "fleet_totals": {
       "units": 39,
@@ -2038,7 +2038,7 @@
       "unit_desc": "Nordvale SC-2400 (customer owned)",
       "stage": "INTAKE",
       "assigned": "Josh",
-      "opened": -1,
+      "opened": "2026-09-02",
       "quote": null,
       "machinio_ref": null
     },
@@ -2049,7 +2049,7 @@
       "unit_desc": "Ironline SC-1700 2026",
       "stage": "DIAGNOSED",
       "assigned": "Zac",
-      "opened": -9,
+      "opened": "2026-08-25",
       "quote": null,
       "machinio_ref": null
     },
@@ -2060,7 +2060,7 @@
       "unit_desc": "Halstead R-660 (customer owned)",
       "stage": "AWAITING-PARTS",
       "assigned": "Josh",
-      "opened": -12,
+      "opened": "2026-08-22",
       "quote": 2480,
       "machinio_ref": "MCH-74210"
     },
@@ -2071,7 +2071,7 @@
       "unit_desc": "Meridian T-500 (customer owned)",
       "stage": "IN-PROGRESS",
       "assigned": "Zac",
-      "opened": -18,
+      "opened": "2026-08-16",
       "quote": 1140,
       "machinio_ref": null
     },
@@ -2082,7 +2082,7 @@
       "unit_desc": "Cascade Clean BX-40",
       "stage": "READY-TO-INVOICE",
       "assigned": "Josh",
-      "opened": -3,
+      "opened": "2026-08-31",
       "quote": null,
       "machinio_ref": null
     },
@@ -2093,7 +2093,7 @@
       "unit_desc": "Ironline BX-40 (customer owned)",
       "stage": "DONE",
       "assigned": "Zac",
-      "opened": -21,
+      "opened": "2026-08-13",
       "quote": 860,
       "machinio_ref": null
     },
@@ -2104,7 +2104,7 @@
       "unit_desc": "Cascade Clean SW-900 (customer owned)",
       "stage": "INTAKE",
       "assigned": "Josh",
-      "opened": -26,
+      "opened": "2026-08-08",
       "quote": 1320,
       "machinio_ref": "MCH-73988"
     },
@@ -2115,7 +2115,7 @@
       "unit_desc": "Nordvale BX-27 (customer owned)",
       "stage": "DIAGNOSED",
       "assigned": "Josh",
-      "opened": -4,
+      "opened": "2026-08-30",
       "quote": null,
       "machinio_ref": null
     },
@@ -2126,7 +2126,7 @@
       "unit_desc": "Meridian R-880 (customer owned)",
       "stage": "AWAITING-PARTS",
       "assigned": "Zac",
-      "opened": -7,
+      "opened": "2026-08-27",
       "quote": null,
       "machinio_ref": null
     }

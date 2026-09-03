@@ -390,6 +390,11 @@ function build({ withServiceQueue }) {
         ...t,
       };
       delete row.unit;
+      // The day offsets above are NUMBERS for convenience at the call site; the
+      // spread would leave them in the snapshot as "-1". Convert after merging.
+      row.opened = d(opened);
+      row.stage_since = d(stage_since);
+      row.age_days = -opened;
       // A ticket on one of OUR machines points back at the unit, and the unit
       // points at the ticket (D35) — both directions, or the wrench chip lies.
       if (t.unit) {

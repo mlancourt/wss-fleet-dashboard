@@ -1,7 +1,8 @@
-
 # WSS Fleet Dashboard — CLAUDE.md
 
-You are building the employee-facing operations website for **Wisconsin Scrub & Sweep (WSS)** — an industrial floor-scrubber dealer in Ixonia, WI. Four users: **Matt** (owner), **Kevin** (sales), **Josh + Zac** (service techs). It shows the rental fleet (39 machines), active rental agreements (19), a service queue, and upcoming billing — one pane of glass, phone-first, replacing a $900/yr SaaS (IntegraRental).
+You are building the employee-facing operations website for **Wisconsin Scrub & Sweep (WSS)** — an industrial floor-scrubber dealer in Ixonia, WI. Four users: **Matt** (owner), **Kevin** (sales), **Josh + Zac** (service techs). It shows the rental fleet, active rental agreements, the service queue (customer-owned repairs **and** fleet repairs), and a Dispatch board of truck moves — one pane of glass, phone-first, replacing a $900/yr SaaS (IntegraRental) and, later, Machinio's service module.
+
+**v1.6 (2026-09-03) — schema 3:** Billing tab retired → **Dispatch**; Service tab real; six new write actions. Work order: [[Service-Dispatch-Site-Spec]]. Sections below are updated in place; where a v1.5 rule survives it's unchanged.
 
 **This repo is the presentation + transport layer ONLY.** A separate system (Matt's vault + a Python "run engine," owned elsewhere) is the source of truth. It publishes a JSON snapshot to your Worker and drains pending write-events from it. You never see that system; you build to the contracts in this file.
 
@@ -78,7 +79,7 @@ Auth: crew endpoints take the token (`?t=` or `Authorization: Bearer`); admin en
 | Endpoint | Auth | Behavior |
 |---|---|---|
 | `GET /api/data` | token | `{me:{name,role}, snapshot:<the JSON>, pending:[events]}` — pending included so the UI can badge unapplied writes |
-| `POST /api/event` | token | Validate role + shape (below), stamp `{id, ts, actor, role}` server-side, write `evt:` key. Return the stored event. Reject unknown `action`/`serial` shape; **do not** validate against business state (vault's job). |
+| `POST /api/event` | token | Validate role + shape (below), stamp `{id, ts, actor, role}` server-side, write `evt:` key. Return the stored event. Reject unknown `action` / malformed `serial` (`serial` is required for reserve/release/readiness, optional for the six schema-3 actions) and any enum value outside the fixed lists in this file; **do not** validate against business state (vault's job). |
 | `GET /api/health` | token | `{published_at, pending_count}` |
 | `POST /api/admin/publish` | secret | body = full snapshot JSON → validate it parses + has `meta.schema_version`, write `snapshot` |
 | `GET /api/admin/events` | secret | list + return all `evt:*` (id, key, event) |
@@ -87,9 +88,9 @@ Auth: crew endpoints take the token (`?t=` or `Authorization: Bearer`); admin en
 
 CORS: allow origins `https://fleet.wisconsinscrubandsweep.com` and `https://mlancourt.github.io` (pre-DNS testing), plus `http://localhost:*` in dev. Handle preflight.
 
-## Write model (v1 scope — exactly this, nothing more)
+## Write model (nine actions as of schema 3 — exactly these, nothing more)
 
-Roles: `owner` (Matt — all writes) · `sales` (Kevin — reserve/release) · `service` (Josh, Zac — readiness). Everyone **reads everything** including cost/book/ask (decision D12 — deliberate; don't "protect" fields).
+Roles: `owner` (Matt — all writes) · `sales` (Kevin — reserve/release) · `service` (Josh, Zac — readiness, ticket stages). **Schema 3 adds:** `ticket_open`, notes/assign/schedule via `ticket_update`, and `dispatch_add` / `dispatch_claim` / `dispatch_done` for **any role**; ticket *stage* changes for `service`/`owner`; `dispatch_cancel` for `owner`. `serial` is optional on the six new actions. Everyone **reads everything** including cost/book/ask (D12, as amended by D16: floor price no longer exists in the snapshot at all).
 
 Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest):
 
@@ -97,46 +98,58 @@ Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest
 {"action":"reserve",  "serial":"150074", "payload":{"customer":"...", "purpose":"...", "start":"YYYY-MM-DD", "end":"YYYY-MM-DD"}}
 {"action":"release",  "serial":"150074", "payload":{"hold_id":"h2812b2"}}
 {"action":"readiness","serial":"150074", "payload":{"readiness":"READY|NEEDS-PREP|DOWN|NEEDS-PICKUP", "note":"..."}}
+
+// schema 3 (full shapes + role gating in [[Service-Dispatch-Site-Spec]] §6):
+{"action":"ticket_open",     "payload":{"machine_owner":"CUSTOMER|WSS","serial":null,"equipment":"…","customer":"…","issue":"…","priority":"HIGH|MEDIUM|LOW","site":null,"location":"AT-CUSTOMER|IN-SHOP","intake_move":"NONE|PICKUP|CUSTOMER-DROP","return_move":"NONE|DELIVER|CUSTOMER-PICKUP"}}
+{"action":"ticket_update",   "payload":{"ticket":"S1001","stage":"…","note":"…","assigned":"…","scheduled":"YYYY-MM-DD","intake_move":"…","return_move":"…"}}   // only the keys being changed
+{"action":"dispatch_add",    "payload":{"kind":"PICKUP|DELIVER","serial":null,"ticket":null,"what":"…","customer":"…","address":"…","date":null,"note":null}}
+{"action":"dispatch_claim",  "payload":{"dispatch_id":"m-…","rig":"KEVIN-LIFTGATE|JOSH-LIFTGATE|TRAILER-6000|TRAILER-3000","date":"YYYY-MM-DD","driver":"Matt|Kevin|Josh|Zac"}}
+{"action":"dispatch_done",   "payload":{"dispatch_id":"m-…","note":null}}
+{"action":"dispatch_cancel", "payload":{"dispatch_id":"m-…"}}
 ```
 
-Reservations v2: `start`/`end` are an inclusive window (a one-day hold has `start == end`); the legacy `until` is still accepted by the engine as `end` but new code never sends it. `release` always sends the row's `hold_id` — the engine rejects an ambiguous release on a multi-hold unit. Worker validates shape only, never business state (overlaps are the engine's call, reported in the run report).
+UI rules: **Reserve is offered on any non-RETIRED unit** (D28 — a machine out on rent today can carry future holds; label it "Reserve for later" when it's out). `start` defaults to today, `end` to **start + 5 business days** (skip Sat/Sun). `release` **must carry the `hold_id`** of the row being released — the engine rejects an ambiguous release on a multi-hold unit. Readiness toggle available on any unit for `service`/`owner`; the picker offers all four values, with `NEEDS-PICKUP` labeled "Needs pick-up" (D32 — see [[Needs-Pickup-Site-Spec]]). After a POST, badge the unit "⏳ pending" from the `pending` array and show "applies at the next run" once. Full v2 reservation UI spec: **[[Reservations-v2-Site-Spec]]** (the work order Matt pastes for this rebuild).
 
-UI rules: Reserve offered on **any non-RETIRED unit in any state** (labelled "Reserve for later" on an out unit); `start` defaults to today, `end` to **start + 5 business days** (skip Sat/Sun), with a "1 day" quick-set; client validates only `end ≥ start` and `end ≥ today`, and shows a **non-blocking** overlap hint against holds already in the snapshot. Readiness toggle available on any unit for `service`/`owner`. After a POST, badge from the `pending` array: a `reserve` badges the unit "⏳ hold pending — applies at the next run"; a `release` badges that hold row (never removes it). Nothing a crew member types is truth until the engine says so.
-
-## Snapshot contract — `dashboard-data.json` (schema_version 2)
+## Snapshot contract — `dashboard-data.json` (schema_version 3)
 
 The engine emits this; you consume it and also generate FAKE versions of it in `make-mock-data.js`. Never require fields beyond this contract; tolerate unknown extra fields silently (forward compatibility).
 
 ```jsonc
 {
-  "meta": { "schema_version": 2, "generated_at": "<UTC ISO>", "run_id": "…",
-            "fleet_totals": { "units": 39, "cost": 0, "book": 0, "ask": 0 } },   // no floor (D16)
+  "meta": { "schema_version": 3, "generated_at": "<UTC ISO>", "run_id": "…",
+            "fleet_totals": { "units": 39, "cost": 0, "book": 0, "ask": 0 } },   // meta only — NOT rendered on the landing page (D15); no floor anywhere (D16)
   "categories": ["…9 rental-rate-matrix band names, display order…"],
   "units": [ {
     "serial": "150074", "asset_item": "…", "brand": "…", "model": "…", "description": "…",
     "category": "…", "status": "RENTAL|LOANER",
-    "unit_state": "AVAILABLE|RESERVED|ON-RENT|ON-DEMO|LOANER-OUT|IN-SHOP|RETIRED",
-    "readiness": "READY|NEEDS-PREP|DOWN|NEEDS-PICKUP", "readiness_note": null, "hours": null,   // NEEDS-PICKUP (D32): customer released an OUT unit, waiting for a truck; unit_state unchanged
+    "unit_state": "AVAILABLE|RESERVED|ON-RENT|ON-DEMO|LOANER-OUT|IN-SHOP",   // RETIRED units are NOT emitted (D34) — keep the enum value tolerated, never expect it
+    "readiness": "READY|NEEDS-PREP|DOWN|NEEDS-PICKUP", "readiness_note": null, "hours": null,   // NEEDS-PICKUP (D32): customer released an OUT unit — techs fetch it
     "in_service": "YYYY-MM-DD", "acquisition_cost": 0,
-    "book": 0, "ask": 0,                        // engine-computed fresh each run — display only; no floor (D16)
-    "rate_card": { "full_day": null, "weekend": null, "weekly": null, "monthly": null,   // D17; any may be null
-                   "long_term_6mo": null, "long_term_12mo": null },   // per 28-day cycle, signed commitment; category-uniform; published VERBATIM from the rate matrix — never compute from monthly
+    "book": 0, "ask": 0,                         // engine-computed fresh each run — display only. NO floor field (D16): floor is engine-internal and never ships in the snapshot.
+    "rate_card": { "monthly": null, "full_day": null, "weekend": null, "weekly": null,
+                   "long_term_6mo": null, "long_term_12mo": null },
+                  // D23: all rates are the category's published matrix rates, verbatim — category-uniform, populated
+                  // in practice; render "—" only as a guard. D31: long_term_* = per-28-day-cycle rate under a signed
+                  // 6-/12-month commitment (≈25%/50% off monthly, rounded to $5 in the vault — NEVER compute client-side).
+                  // Unit-page rate card only, under a "Long-term (signed commitment)" sub-block, no caveat text —
+                  // see [[Long-Term-Rates-Site-Spec]].
     "job_site": null, "agreement": 4130,         // null when not out
-    "customer": null,                            // D33: agreement customer (ON-RENT) / placement customer (LOANER-OUT); null otherwise, incl. ON-DEMO
-    "reservations": [                            // v2 — THE TRUTH. Sorted by start; [] when unheld.
-      { "id": "h2812b2", "held_by": "Kevin", "customer": "…", "purpose": "…",
-        "start": "YYYY-MM-DD", "end": "YYYY-MM-DD",   // inclusive; one-day hold has start == end
-        "created": "YYYY-MM-DD", "status": "current|future|expired|malformed" } ],   // engine-computed
-    "reservation": { "held_by": null, "purpose": null, "customer": null, "until": null },  // DEPRECATED mirror; never read it; gone at schema 3
-    "service_ticket": null
+    "customer": "…",                             // D33: who has it — agreement customer (ON-RENT) or loaner placement (LOANER-OUT); null when home or on demo
+    // D26 — the hold LIST is the truth; [] when unheld; sorted by start; inclusive dates.
+    // status is engine-computed: current | future | expired | malformed.
+    // RESERVED ⇔ a CURRENT hold on an otherwise-AVAILABLE unit (D28) — a unit with only
+    // future holds stays AVAILABLE, and an ON-RENT unit can carry holds. Never infer state
+    // from list length.
+    "reservations": [ { "id": "h2812b2", "held_by": "Kevin", "customer": "…", "purpose": "…",
+                        "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "created": "YYYY-MM-DD",
+                        "status": "current" } ],
+    "service_ticket": null                       // schema 3: "S1001" when the unit has an OPEN ticket (D35), else null. (The singular `reservation` object is GONE at schema 3.)
   } ],
-  "pickups": [ { "serial": "…", "model": "…", "category": "…", "unit_state": "ON-RENT", "job_site": "…",
-                 "agreement": 4171, "customer": "…", "billed_through": "YYYY-MM-DD", "note": "…" } ],   // D32 fetch list, engine-computed, [] when empty
-  "reservations": {                              // v2 rollup for the Holds view
-    "upcoming": [ { "serial": "…", "model": "…", "category": "…", "id": "…", "held_by": "…", "customer": "…",
-                    "purpose": "…", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "status": "current|future" } ],
-    "expired":  [ { "…same, minus status": "" } ]
-  },
+  "reservations": { "upcoming": [ { "serial","model","category","id","held_by","customer",
+                                    "purpose","start","end","status" } ],
+                    "expired":  [ { …same shape… } ] },   // D29: expiries are never silent
+  "pickups": [ { "serial","model","category","unit_state","job_site","agreement","customer",
+                 "billed_through","note" } ],             // D32: out units the customer released — [] when none
   "agreements": [ {
     "agreement": 4130,            // null = unbilled-rental alert (render with a loud ⚠️)
     "customer": "…", "serial": "150074", "cycle": "28D|ONE-SHOT",
@@ -145,9 +158,20 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "last_invoice": "R4130-10", "next_due": "YYYY-MM-DD",   // engine-computed; null = not billable
     "job_site": "…", "customer_po": null, "alerts": ["…"]
   } ],
-  "service_queue": [ { "ticket_id": "…", "customer": "…", "serial": null, "unit_desc": "…",
-    "stage": "INTAKE|DIAGNOSED|AWAITING-PARTS|IN-PROGRESS|READY-TO-INVOICE|DONE",
-    "assigned": "…", "opened": "YYYY-MM-DD", "quote": null, "machinio_ref": null } ],
+  // schema 3 (D35–D38) — full field list + semantics in [[Service-Dispatch-Site-Spec]] §2
+  "service_queue": [ { "ticket": "S1001", "status": "OPEN|CLOSED",
+    "stage": "INTAKE|INSPECTION|QUOTED|PARTS-ORDERED|IN-PROGRESS|READY-TO-INVOICE|COMPLETE",
+    "machine_owner": "CUSTOMER|WSS", "customer": "…", "serial": null, "equipment": "…", "issue": "…",   // machine_owner ≠ the `owner` ROLE
+    "priority": "HIGH|MEDIUM|LOW", "site": null, "location": "AT-CUSTOMER|IN-SHOP",
+    "intake_move": "NONE|PICKUP|CUSTOMER-DROP", "return_move": "NONE|DELIVER|CUSTOMER-PICKUP",
+    "assigned": null, "scheduled": null, "opened": "YYYY-MM-DD", "opened_by": "…",
+    "stage_since": "YYYY-MM-DD", "age_days": 0, "quote": null, "parts": null, "machinio_ref": null, "closed": null } ],
+  "service_summary": { "open_by_stage": { "INTAKE": 0, "…all seven stages…": 0, "COMPLETE": 0 }, "open_customer": 0, "open_wss": 0 },   // COMPLETE = closed in the last 7 days
+  "dispatch": [ { "id": "m-…", "kind": "PICKUP|DELIVER", "source": "RENTAL-RETURN|SERVICE-IN|SERVICE-OUT|MANUAL",
+    "serial": null, "ticket": null, "what": "…", "customer": "…", "address": "…", "date": null, "billed_through": null,
+    "driver": null, "rig": null, "status": "OPEN|SCHEDULED|DONE", "note": null, "done": null } ],
+  "dispatch_warnings": [ { "rig": "…", "date": "YYYY-MM-DD", "ids": ["m-…"] } ],   // same rig + date, >1 SCHEDULED row — warn, never block
+  // `billing` is NOT rendered as of v1.6 (D39) — it stays in the snapshot for the engine's own consumers. Ignore it.
   "billing": { "due_next_7_days": [ { "agreement": 4130, "customer": "…", "serial": "…",
                  "amount": 0, "due": "YYYY-MM-DD" } ],
                "created_last_run": [ { "invoice": "R4130-11", "agreement": 4130, "customer": "…",
@@ -155,25 +179,24 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
 }
 ```
 
-Hold state rules (engine-owned — never reimplement): `unit_state: RESERVED` means a hold is **current right now** on an otherwise-available unit; a unit with only future holds stays **AVAILABLE** (lights and counts must say so). Holds are legal on any non-RETIRED unit in any state — an ON-RENT machine can carry future holds; out-states win the chip, the hold list is the calendar. **`reservations.length > 0` never implies RESERVED.** Overlaps are impossible by construction (engine rejects, run report says so). An expired hold still holds the unit until a human releases or extends it — render expired holds loud.
-
-Notes you must honor: invoice numbers look like `R<agmt>-<cycle>` and occasionally `R4204-1.1` (split cycles) or a bare QBO number like `519665` — treat as opaque strings, never parse. Loaner placements appear as units with `unit_state: LOANER-OUT`, `agreement: <n>` and **no matching entry in `agreements`** — that's correct, render the unit's placement without a billing row. `service_queue` may be `[]` for a while (that module seeds later) — the tab still renders, empty-state included.
+Notes you must honor: invoice numbers look like `R<agmt>-<cycle>` and occasionally `R4204-1.1` (split cycles) or a bare QBO number like `519665` — treat as opaque strings, never parse. Loaner placements appear as units with `unit_state: LOANER-OUT`, `agreement: <n>` and **no matching entry in `agreements`** — that's correct, render the unit's placement without a billing row. `service_queue` may be `[]` (empty-state must render). CLOSED tickets and DONE dispatch rows linger 7 days in the snapshot so "done this week" is visible.
 
 ## UI spec (decisions D11/D12 — locked)
 
 Brand: WSS maroon `#B71C1C`, white, near-black. Clean, big tap targets, gloves-on friendly. Responsive; design at 390×844 first, desktop is a bonus.
 
-1. **Landing = fleet-utilization bar + 9 category cards.** Utilization (D19, client-computed): ON-RENT ÷ (units with `status: RENTAL` and `unit_state != RETIRED`) — demos and loaner-outs are not in the numerator. One thin bar, whole-% and a mandatory word label, fill by band on the rounded %: <30 red "Low" · 30–60 yellow "Building" · 61–80 green "Healthy" · >80 red "Over-extended". Then the cards (from `categories`, that order). Each card: category name, an **availability light — 🟢 if (AVAILABLE ∧ READY) count ≥ 2, 🟡 if exactly 1, 🔴 if 0** — and a sub-line `N ready · N in prep · N down · N reserved · N on rent` (reserved = `unit_state: RESERVED`, its own chip, never counted available; on rent = `unit_state: ON-RENT`, rendered in the ON-RENT chip blue — D25; light math unchanged), plus `· N to pick up` in orange only when N > 0 (D32; a NEEDS-PICKUP unit is still out and still counts as on rent). Kevin reads the color; techs read the sub-line. Compute counts client-side from `units` — **on-hand math only: ready/prep/down count AVAILABLE, RESERVED, IN-SHOP (D18)**. **Category cards only — no fleet-totals block on the landing page (D15).**
-2. **Category → unit list** (top line = make & model, e.g. "Factory Cat Model 34"; sub-line = serial · asset # · location — when `customer` is non-null: serial · asset # · **Customer** (normal text, not grey) · job site (D33); chips for state + readiness — **readiness chip only for on-hand states AVAILABLE/RESERVED/IN-SHOP; out states ON-RENT/ON-DEMO/LOANER-OUT show the state chip alone, everywhere (D18) — **except NEEDS-PICKUP, an orange "Needs pick-up" chip that renders on any state right after the state chip (D32)**; plus a small **📅 N** chip when the unit has N future holds — "available, but spoken for Tuesday") **→ unit detail** (everything: specs, cost/book/ask — **no floor price (D16)**, agreement + rate + last-invoiced period, the rate card's four rates plus a **Long-term (signed commitment)** sub-block with 6-month / 12-month rows suffixed `/cycle` (display-only, unit page only); a **Holds** section listing every entry in `reservations` with a status pill — solid maroon HELD NOW · outline start-date for future · red EXPIRED — release or extend · grey ⚠ bad dates — and a per-row Release button for sales/owner; "No holds." when empty; readiness note, hours). Two levels, never more.
-3. **Holds view** (tab next to Rentals): from the top-level `reservations` rollup — an **Expired holds — release or extend** block first (red, only when non-empty), then upcoming grouped by start date, each row = window · unit (serial + model, tap → unit detail) · customer · purpose · held by. Empty: "Nothing on hold."
-3b. **Rentals view:** the `agreements` array — customer, unit, rate, `next_due`, cycles billed/max; `agreement: null` and any `alerts` rendered loud. **Billing view** (titled "Cycle (Periodic) Invoicing"): recurring-revenue card on top (D21: Σ `cycle_rate` over `cycle == "28D"` rows still running — `cycles_max` null or `cycles_billed < cycles_max`; headline "Recurring revenue — per 28-day cycle", never "monthly"; "across N agreements"; "≈ $X / month" = total × 365 ÷ 28 ÷ 12, whole dollars), then `billing.due_next_7_days` + `billing.created_last_run` ("created last night — awaiting Matt").
-4. **Service view:** fleet status board on top (D20) — six mutually exclusive bar gauges over the non-retired fleet, summing to 100%: ON-RENT (blue) · ON-DEMO (lighter blue) · LOANER-OUT (slate) · READY / NEEDS-PREP / DOWN (green / yellow / red; on-hand states AVAILABLE/RESERVED/IN-SHOP by readiness). Each row: label · count · thin % bar; zero rows still render, greyed. Then a **Pick-ups** block (D32) from `pickups[]` — serial · model · customer · job site · "billed through {date}" · note; empty: "Nothing waiting for a truck."; a count badge on the Service tab when > 0. Then kanban columns by `stage`. NEEDS-PICKUP units stay in the out gauges of the status board.
+0. **Landing top: fleet-utilization bar (D19).** One thin horizontal bar, client-computed: ON-RENT units ÷ units with `status: "RENTAL"` and `unit_state != "RETIRED"`. Shows the % + a word label; fill color by band: 0–29 red "Low" · 30–60 yellow "Building" · 61–80 green "Healthy" · 81–100 red "Over-extended". Must read well at phone width and desktop.
+1. **Landing = 9 category cards** (from `categories`, that order). Each card: category name, an **availability light — 🟢 if (AVAILABLE ∧ READY) count ≥ 2, 🟡 if exactly 1, 🔴 if 0** — and a sub-line `N ready · N in prep · N down · N reserved · N on rent` **· `N to pick up` when non-zero (D32, from `pickups[]`)** (D25 — reserved = `unit_state: RESERVED`, never counted available; on-rent count rendered in the blue of its chip). Kevin reads the color; techs read the sub-line. Compute counts client-side from `units`. **D28: `RESERVED` means held TODAY** — future holds don't move these counts or the light; they surface as a 📅 chip on unit rows and in the Holds view.
+2. **Category → unit list** (chips: state always; readiness ONLY for on-hand states AVAILABLE/RESERVED/IN-SHOP — out states ON-RENT/ON-DEMO/LOANER-OUT show the blue state chip alone, D18 — **except `NEEDS-PICKUP`, which renders as an orange chip on any state (D32)**; serial, location) — **out units show `customer` before the job site on the row (D33)** **→ unit detail** (everything: specs, cost/book/ask, the rate card incl. the D31 long-term sub-block, agreement + rate + last-invoiced period, **the hold list with a Release button per hold**, readiness note, hours — **no floor price, D16**). Two levels, never more. A **Holds view** (chronological; expired block first, loud) hangs off the nav — see [[Reservations-v2-Site-Spec]]. **No fleet-totals block on the landing page (D15)** — category cards only.
+3. **Rentals view:** **top of the page (D21, moved here from the retired Billing view — D39):** recurring-revenue total — sum `cycle_rate` over agreements with `cycle == "28D"` and not at `cycles_max`; headline "Recurring revenue — per 28-day cycle", sub-line "≈ $X / month" (× 365⁄28 ÷ 12, rounded to the dollar). Client-computed. Below it, the `agreements` array — customer, unit, rate, `next_due`, cycles billed/max; `agreement: null` and any `alerts` rendered loud. (No Billing view exists as of v1.6.)
+3b. **Dispatch view (D38 — replaces Billing in the nav):** `dispatch[]` in three sections — Open → Scheduled (by date, driver + rig) → Done this week (collapsed). Claim (driver / rig / date) · Done · Add a run · Cancel (owner, MANUAL only). Same-rig-same-day = inline warning, never a block. The NEEDS-PICKUP block lives here now; nav badge = OPEN + SCHEDULED count. Full spec: [[Service-Dispatch-Site-Spec]] §4.
+4. **Service view:** top = the fleet status board (D20): six bar gauges, mutually exclusive, summing to 100% of non-retired units — ON-RENT (blue) · ON-DEMO (light blue) · LOANER-OUT (slate) · on-hand (AVAILABLE/RESERVED/IN-SHOP) split by readiness: READY (green) · NEEDS-PREP (yellow) · DOWN (red). Each row: label · count · % bar; zero rows still render (stable layout). Below it: **+ New ticket** (any role), then the kanban — seven columns by `stage`, filter All / Customer / Fleet; ticket detail with the stage picker (QUOTED + READY-TO-INVOICE hidden for `machine_owner: WSS`; COMPLETE on a `machine_owner: CUSTOMER` ticket is `owner`-ROLE only), notes, assign, schedule, and the ticket's dispatch rows. Full spec: [[Service-Dispatch-Site-Spec]] §3.
 5. **Persistent header:** `published_at` as "data as of …" + pending-events count (from `/api/health`), so nobody trusts a stale board unknowingly. If the snapshot is > 36h old, show a subtle ⚠️.
 
 ## Token + PWA plumbing (traps — read twice)
 
-- Boot (D24): read `?t=` → save to `localStorage` — **do not strip it from the address bar; the URL is the durable carrier, storage is the backup.** If the URL lacks `?t=` but storage holds a token, `history.replaceState` the token back into the URL. All API calls send the token as a Bearer header. No token anywhere → friendly "ask Matt for your link" screen, no data fetched. (Stripping broke bookmarks of the stripped URL, and iOS purges a regular site's storage.)
-- **`manifest.webmanifest` has NO `start_url` — deliberately.** A static `start_url: "./"` launches the home-screen app tokenless, and on iOS a home-screen web app has its **own storage, separate from Safari's**, so the token saved in Safari is never there to restore (this was the live bug behind D24). With `start_url` omitted, iOS launches the exact URL the icon was added from — which carries `?t=` (D24). Users must add to home screen from a page whose address bar shows `?t=`. Android Chrome then offers "Add to Home screen" (a shortcut to the tokened URL) rather than a full "Install app"; acceptable. Test the full install flow on iOS Safari specifically — that's what the crew carries.
+- Boot (D24 — supersedes the original strip design): read `?t=` → save to `localStorage`. **Do NOT strip it from the address bar.** If the URL has no `?t=` but localStorage has a token, `history.replaceState` the token INTO the URL — bookmarks made at any moment must capture it (iOS purges regular-site storage; the URL is the durable carrier, storage is the backup). No token anywhere → friendly "ask Matt for your link" screen, no data fetched.
+- **`manifest.webmanifest` `start_url` cannot contain per-user tokens** (one static manifest for everyone). `start_url: "./"` + the localStorage token makes add-to-home-screen work after first tokened visit. Test the full install flow on iOS Safari specifically — that's what the crew carries.
 - **Service worker: cache the shell only, network-first for `/api/*`.** An over-eager SW serving stale fleet data is worse than no SW. Version the cache; on activate, purge old versions.
 - GitHub Pages + custom domain serves at the domain **root**; while testing pre-DNS at `mlancourt.github.io/<repo>/` you're on a subpath — use **relative paths everywhere** (no leading-slash asset URLs) so both work.
 
@@ -189,4 +212,4 @@ Do them in order. Do not start M2 before M1's curl loop is in the README.
 
 ## Ask Matt vs. decide yourself
 
-**Ask Matt:** anything touching money display formats, category names/order, adding any write action beyond the three, anything requiring a new DNS record or a paid plan, repo visibility. **Decide yourself:** all layout/CSS details within the brand, code structure, icon design, copy tone (plain, terse, shop-floor). When the snapshot contract seems wrong or insufficient — **stop and say so**; the contract is owned by "the Architect" on Matt's side and changes there first.
+**Ask Matt:** anything touching money display formats, category names/order, adding any write action beyond the nine, anything requiring a new DNS record or a paid plan, repo visibility. **Decide yourself:** all layout/CSS details within the brand, code structure, icon design, copy tone (plain, terse, shop-floor). When the snapshot contract seems wrong or insufficient — **stop and say so**; the contract is owned by "the Architect" on Matt's side and changes there first.

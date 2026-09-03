@@ -1,6 +1,6 @@
 /* WSS Fleet — app shell.
  *
- * Reads a dashboard-data snapshot (schema_version 1) and renders it.
+ * Reads a dashboard-data snapshot (schema_version 3) and renders it.
  * ZERO data lives in this repo: the snapshot comes from the Worker at runtime,
  * or from docs/mock/*.json in mock mode (fake data only).
  *
@@ -10,20 +10,29 @@
  *      All date-only handling below is string surgery. See fmtDate/addBusinessDays.
  *   2. Writes are proposals. A submitted event renders as "pending", never as
  *      if the vault had already accepted it.
+ *
+ * v1.6 (schema 3): the Billing view is gone — its recurring-revenue block moved
+ * to the top of Rentals (D21/D39) and its nav slot became the Dispatch board.
+ * `snapshot.billing` still arrives for the engine's other consumers; we ignore it.
  */
 
 import {
   fmtDate, fmtDateFull, fmtRange, todayCentral, addBusinessDays,
-  fmtInstantCentral, hoursSince, fmtMoney,
+  fmtInstantCentral, hoursSince, fmtMoney, isDateStr,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
 import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
 import { utilization, statusBoard, recurringRevenue } from './metrics.js';
+import {
+  KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
+  stageOptions, columnize, sortTickets, missingMoves, openCount, dispatchFor, dispatchById,
+  sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
+} from './service.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-02j';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-03a';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -64,10 +73,27 @@ const state = {
   snapshot: null,
   pending: [],       // unapplied events from the Worker
   error: null,
-  source: null,      // 'mock:full' | 'mock:empty' | 'api'
+  source: null,      // 'mock:full' | 'mock:empty' | 'mock:legacy' | 'api'
   loading: false,
   explainedPending: false,
 };
+
+/**
+ * Transient view state. Lives outside `state` because none of it comes from the
+ * snapshot — it is which sheet is open and which filter is on. Kept at module
+ * scope so it survives render(), which rewrites the whole view on every change
+ * (including after a write lands in `pending`).
+ */
+const ui = {
+  ticketFilter: 'all',   // 'all' | 'CUSTOMER' | 'WSS'
+  form: null,            // { kind, id } — the one open sheet, if any
+  msg: null,             // { tone: 'ok'|'bad', text } — shown once at the top of the view
+  showDone: false,       // Dispatch: "Done this week" is collapsed by default
+};
+
+const openSheet = (kind, id = null) => { ui.form = { kind, id }; ui.msg = null; render(); };
+const closeSheet = () => { ui.form = null; render(); };
+const sheetOpen = (kind, id = null) => !!ui.form && ui.form.kind === kind && ui.form.id === id;
 
 /* ======================================================== 5. token + auth == */
 
@@ -121,8 +147,15 @@ function devApiOverride() {
 const units = () => (state.snapshot && state.snapshot.units) || [];
 const agreements = () => (state.snapshot && state.snapshot.agreements) || [];
 const serviceQueue = () => (state.snapshot && state.snapshot.service_queue) || [];
+const serviceSummary = () => (state.snapshot && state.snapshot.service_summary) || null;
+const dispatchRows = () => (state.snapshot && state.snapshot.dispatch) || [];
+const dispatchWarnings = () => (state.snapshot && state.snapshot.dispatch_warnings) || [];
 const categories = () => (state.snapshot && state.snapshot.categories) || [];
-const billing = () => (state.snapshot && state.snapshot.billing) || {};
+// `snapshot.billing` is deliberately NOT read: the Billing view was retired at
+// v1.6 (D39). The field stays in the contract for the engine's own consumers.
+
+const role = () => (state.me && state.me.role) || '';
+const ticketById = (id) => serviceQueue().find((t) => t.ticket === id) || null;
 
 /** Display name: brand + model ("Factory Cat Model 34"). asset_item is an identifier, shown on the sub-line.
  *  A trailing model year ("MODEL 34 2026") is dropped from the name only — the full
@@ -133,9 +166,18 @@ const unitName = (u) => [u.brand, stripYear(u.model)].filter(Boolean).join(' ') 
 const unitIds = (u) => [`#${u.serial}`, u.asset_item].filter(Boolean).join(' · ');
 
 const unitBySerial = (s) => units().find((u) => String(u.serial) === String(s)) || null;
-const pendingFor = (serial) => state.pending.filter((e) => String(e.serial) === String(serial));
+const pendingFor = (serial) => (serial == null ? [] : state.pending.filter((e) => e.serial != null && String(e.serial) === String(serial)));
 const pendingReleases = (serial, holdId) => pendingFor(serial).filter((e) => e.action === 'release' && e.payload && e.payload.hold_id === holdId);
-const pendingReserves = (serial) => pendingFor(serial).filter((e) => e.action === 'reserve');
+
+/* Pending writes keyed the schema-3 way (§8). Keys: `ticket` for ticket_update,
+ * `dispatch_id` for the dispatch_* actions, `serial` for the older three. A
+ * pending ticket_open has NO id of its own — the engine assigns the number —
+ * so it is drawn as a synthetic INTAKE card and never invents "S????". */
+const pl = (e) => (e && e.payload) || {};
+const pendingForTicket = (id) => (id ? state.pending.filter((e) => e.action === 'ticket_update' && pl(e).ticket === id) : []);
+const pendingForDispatch = (id) => (id ? state.pending.filter((e) => String(e.action).startsWith('dispatch_') && pl(e).dispatch_id === id) : []);
+const pendingTicketOpens = () => state.pending.filter((e) => e.action === 'ticket_open');
+const pendingDispatchAdds = () => state.pending.filter((e) => e.action === 'dispatch_add');
 
 /** Top-level holds rollup (v2). Derived from units when a snapshot lacks it. */
 function holdsRollup() {
@@ -206,6 +248,7 @@ function unitChips(u) {
   return html`<div class="chips">
     ${raw(chip(u.unit_state, STATE_CLASS[u.unit_state]))}
     ${showsReadiness(u) || u.readiness === 'NEEDS-PICKUP' ? raw(chip(readyLabel(u.readiness), READY_CLASS[u.readiness])) : ''}
+    ${u.service_ticket ? raw(chip(`🔧 ${u.service_ticket}`, 'wrench')) : ''}
     ${p.length ? raw(chip(`⏳ ${p.length} pending`, 'pending')) : ''}
   </div>`;
 }
@@ -361,8 +404,11 @@ function viewUnit(serial) {
       ${raw(kvRow('In service', fmtDateFull(u.in_service)))}
       ${u.customer ? raw(kvRow('Customer', u.customer)) : ''}
       ${raw(kvRow('Location', u.job_site))}
-      ${raw(kvRow('Service ticket', u.service_ticket))}
+      ${raw(kvRow('Service ticket', u.service_ticket
+        ? raw(html`<a href="#/ticket/${raw(encodeURIComponent(u.service_ticket))}">🔧 ${u.service_ticket}</a>`) : ''))}
     </dl></div>
+
+    ${raw(unitMoves(u))}
 
     <h2>Money</h2>
     <div class="card"><dl class="kv">
@@ -405,6 +451,26 @@ function viewUnit(serial) {
     ${raw(actionsFor(u))}`;
 }
 
+/**
+ * The unit's truck moves (§5). A NEEDS-PICKUP unit says where its run lives so
+ * a released machine is never a dead end — and says so even when the engine
+ * hasn't spawned the row yet.
+ */
+function unitMoves(u) {
+  const rows = dispatchRows().filter((r) => r.serial != null && String(r.serial) === String(u.serial));
+  const live = rows.filter((r) => r.status !== 'DONE');
+  const pickupLine = u.readiness === 'NEEDS-PICKUP'
+    ? (live.length
+      ? html`<div class="info">Waiting for a truck — <a href="#/dispatch/${raw(encodeURIComponent(live[0].id))}">on the Dispatch board</a>.</div>`
+      : html`<div class="info">Released by the customer. No run on the Dispatch board yet — the next engine run adds one, or add it yourself below.</div>`)
+    : '';
+  if (!rows.length) return pickupLine;
+  return html`
+    ${raw(pickupLine)}
+    <h2>Moves</h2>
+    <div class="card dlist">${raw(rows.map((r) => dispatchRow(r, { compact: true })).join(''))}</div>`;
+}
+
 /* ---- holds (v2): the list is the calendar; the chip is the state ---- */
 
 const canReserveRole = () => ['sales', 'owner'].includes((state.me && state.me.role) || '');
@@ -436,11 +502,12 @@ function holdsSection(u) {
 /* ---- writes (proposals only) ---- */
 
 function actionsFor(u) {
-  const role = (state.me && state.me.role) || '';
   // v2: holds are legal on any non-retired unit in any state (future holds on an out unit).
   const canReserve = canReserveRole() && u.unit_state !== 'RETIRED';
-  const canReadiness = role === 'service' || role === 'owner';
-  if (!canReserve && !canReadiness) return '';
+  const canReadiness = role() === 'service' || role() === 'owner';
+  // Booking a truck is everyone's job (§4) — a run is a proposal like any other.
+  const canMove = u.unit_state !== 'RETIRED';
+  if (!canReserve && !canReadiness && !canMove) return '';
 
   // In mock mode the forms still open — the UI is reviewable — but submitting
   // is refused in postEvent(). Nothing fake ever enters the pending list.
@@ -451,6 +518,7 @@ function actionsFor(u) {
     <div class="actions">
       ${canReserve ? raw(html`<button class="btn" type="button" data-form="reserve">${u.unit_state === 'AVAILABLE' ? 'Reserve this unit' : 'Reserve for later'}</button>`) : ''}
       ${canReadiness ? raw('<button class="btn ghost" type="button" data-form="readiness">Set readiness</button>') : ''}
+      ${canMove ? raw('<button class="btn ghost" type="button" data-form="dispatch">Schedule delivery</button>') : ''}
     </div>
     <div id="write-form"></div>
     <div id="write-msg"></div>`;
@@ -515,7 +583,9 @@ function readinessForm(u) {
 
 function viewRentals() {
   const rows = agreements();
-  if (!rows.length) return html`<h1>Rentals</h1>${raw(emptyState('No agreements in this snapshot.'))}`;
+  // D21 headline, moved here from the retired Billing view (D39). It leads the
+  // page: the first thing about rentals is what they are worth per cycle.
+  if (!rows.length) return html`<h1>Rentals</h1>${raw(revenueCard())}${raw(emptyState('No agreements in this snapshot.'))}`;
 
   // Unbilled rentals and alerts first — those are the ones that cost money.
   const sorted = rows.slice().sort((a, b) => {
@@ -548,7 +618,8 @@ function viewRentals() {
       </div>`;
   });
 
-  return html`<h1>Rentals</h1><div class="sub">${rows.length} agreements</div>${raw(cards.join(''))}`;
+  return html`<h1>Rentals</h1>${raw(revenueCard())}
+    <h2>Agreements</h2><div class="sub">${rows.length} agreements</div>${raw(cards.join(''))}`;
 }
 
 /**
@@ -575,49 +646,6 @@ function revenueCard() {
     </section>`;
 }
 
-function viewBilling() {
-  const b = billing();
-  const due = b.due_next_7_days || [];
-  const made = b.created_last_run || [];
-
-  const dueRows = due.map((x) => html`
-    <div class="card">
-      <div class="unit-row"><span class="unit-main">
-        <span class="unit-title">${x.customer || '—'}</span>
-        <span class="unit-loc">Agreement ${x.agreement ?? '—'} ·
-          <a href="#/unit/${raw(encodeURIComponent(x.serial))}">#${x.serial}</a></span>
-      </span></div>
-      <dl class="kv" style="margin-top:10px">
-        ${raw(kvRow('Amount', fmtMoney(x.amount), 'num'))}
-        ${raw(kvRow('Due', fmtDateFull(x.due)))}
-      </dl>
-    </div>`);
-
-  const madeRows = made.map((x) => html`
-    <div class="card">
-      <div class="unit-row"><span class="unit-main">
-        <span class="unit-title">${x.customer || '—'}</span>
-        <span class="unit-loc">Invoice ${x.invoice} · agreement ${x.agreement ?? '—'}</span>
-      </span></div>
-      <dl class="kv" style="margin-top:10px">
-        ${raw(kvRow('Amount', fmtMoney(x.amount), 'num'))}
-        ${raw(kvRow('Period', `${fmtDate(x.period_start)} – ${fmtDateFull(x.period_end)}`))}
-      </dl>
-    </div>`);
-
-  return html`
-    <h1>Cycle (Periodic) Invoicing</h1>
-    <div class="sub">Units on rent for 1+ months.</div>
-    ${raw(revenueCard())}
-    <h2>Due next 7 days</h2>
-    ${due.length ? raw(dueRows.join('')) : raw(emptyState('Nothing due in the next 7 days.'))}
-    <h2>Created last run</h2>
-    ${made.length ? raw(madeRows.join('')) : raw(emptyState('No invoices created on the last run.'))}
-    ${made.length ? raw('<div class="form-note">Created last night — awaiting Matt.</div>') : ''}`;
-}
-
-const STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
-
 /** The fetch list (D32): engine-computed pickups[], derived from units if a snapshot lacks it. */
 function pickupsList() {
   const p = state.snapshot && state.snapshot.pickups;
@@ -627,22 +655,6 @@ function pickupsList() {
     return { serial: u.serial, model: unitName(u), category: u.category, unit_state: u.unit_state, job_site: u.job_site,
       agreement: u.agreement, customer: ag ? ag.customer : null, billed_through: ag ? ag.last_invoiced_period_end : null, note: u.readiness_note };
   });
-}
-
-function pickupsView() {
-  const list = pickupsList();
-  const rows = list.map((p) => html`
-    <a class="prow" href="#/unit/${raw(encodeURIComponent(p.serial))}">
-      <div class="prow-top"><span class="unit-serial">#${p.serial}</span> ${p.model || ''}${p.unit_state ? raw(chip(p.unit_state, STATE_CLASS[p.unit_state])) : ''}</div>
-      <div class="prow-who">${p.customer || '—'}${p.agreement != null ? raw(html` · agreement ${p.agreement}`) : ''}</div>
-      ${p.job_site ? raw(html`<div class="prow-site">${p.job_site}</div>`) : ''}
-      <div class="prow-meta">${p.billed_through ? raw(html`billed through ${fmtDateFull(p.billed_through)}`) : ''}${p.note ? raw(html`${p.billed_through ? ' · ' : ''}${p.note}`) : ''}</div>
-    </a>`);
-  return html`
-    <h2>Pick-ups${list.length ? raw(html` <span class="count">${list.length}</span>`) : ''}</h2>
-    <div class="card pickups">
-      ${list.length ? raw(rows.join('')) : raw('<div class="hold-empty">Nothing waiting for a truck.</div>')}
-    </div>`;
 }
 
 /** Fleet status board (D20): six exclusive buckets of the non-retired fleet. Zero rows stay, greyed. */
@@ -662,33 +674,506 @@ function boardView() {
     </section>`;
 }
 
+/* ====================================== service: kanban + ticket detail ==== */
+
+const enc = (s) => encodeURIComponent(String(s == null ? '' : s));
+
+/** The one-shot confirmation line after a write. Cleared on the next navigation. */
+function msgBlock() {
+  if (!ui.msg) return '';
+  const m = ui.msg;
+  return m.tone === 'bad'
+    ? html`<div class="alert">⚠️ ${m.text}</div>`
+    : html`<div class="note"><strong>Submitted</strong>${m.text}</div>`;
+}
+
+/** "⏳ pending" line for a row that has unapplied writes against it. */
+function pendingLine(n) {
+  return n ? html`<div class="row-pending">⏳ ${n} pending — applies at the next run</div>` : '';
+}
+
+const PRI_LABEL = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' };
+
 function viewService() {
   const q = serviceQueue();
-  if (!q.length) {
-    return html`<h1>Service</h1>${raw(boardView())}${raw(pickupsView())}${raw(emptyState('Service queue is empty.',
-      'Tickets appear here once the service module starts publishing.'))}`;
+  const opens = pendingTicketOpens();
+  const filter = ui.ticketFilter;
+
+  const head = html`<h1>Service</h1>${raw(msgBlock())}${raw(boardView())}
+    <div class="actions"><button class="btn" type="button" data-sheet="new-ticket">+ New ticket</button></div>
+    ${sheetOpen('new-ticket') ? raw(newTicketForm()) : ''}`;
+
+  if (!q.length && !opens.length) {
+    return head + emptyState('Nothing in the shop.',
+      'Open a ticket above — it shows here as pending until the next run picks it up.');
   }
 
-  // Any stage the engine sends that we don't know about still gets a column.
-  const stages = STAGES.concat(q.map((t) => t.stage).filter((s) => s && !STAGES.includes(s)));
-  const cols = [...new Set(stages)].map((stage) => {
-    const tix = q.filter((t) => t.stage === stage);
-    const cards = tix.map((t) => html`
-      <div class="kan-card">
-        <div class="kan-t">${t.customer || '—'}</div>
-        <div class="kan-s">${t.unit_desc || '—'}</div>
-        <div class="kan-s">${t.ticket_id}${t.assigned ? raw(html` · ${t.assigned}`) : ''} · opened ${fmtDate(t.opened)}</div>
-        ${t.serial ? raw(html`<div class="kan-s"><a href="#/unit/${raw(encodeURIComponent(t.serial))}">#${t.serial}</a></div>`) : ''}
-        ${t.quote != null ? raw(html`<div class="kan-s">Quote ${fmtMoney(t.quote)}</div>`) : ''}
-        ${t.machinio_ref ? raw(html`<div class="kan-s">${t.machinio_ref}</div>`) : ''}
-      </div>`);
+  // All / Customer / Fleet, by machine_owner. `machine_owner` is whose MACHINE
+  // it is — not the `owner` role. Counts come from the summary when it's there.
+  const s = serviceSummary();
+  const counts = { all: (s ? s.open_customer + s.open_wss : q.filter((t) => t.status === 'OPEN').length),
+    CUSTOMER: s ? s.open_customer : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER').length,
+    WSS: s ? s.open_wss : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'WSS').length };
+  const chips = [['all', 'All'], ['CUSTOMER', 'Customer'], ['WSS', 'Fleet']].map(([v, label]) =>
+    html`<button type="button" class="fchip${filter === v ? ' on' : ''}" data-filter="${v}">${label}<span class="c">${counts[v]}</span></button>`);
+
+  const cols = columnize(q, { summary: s, filter }).map((c) => {
+    // A pending ticket_open has no number yet (§3.1) — it sits at the head of
+    // INTAKE as a synthetic card and never invents an id.
+    const synth = c.stage === 'INTAKE'
+      ? opens.filter((e) => filter === 'all' || pl(e).machine_owner === filter).map(pendingTicketCard)
+      : [];
+    const cards = synth.concat(sortTickets(c.tickets).map(ticketCard));
     return html`<section class="kan-col">
-      <div class="kan-head"><span>${stage}</span><span class="c">${tix.length}</span></div>
-      ${tix.length ? raw(cards.join('')) : raw('<div class="kan-empty">nothing here</div>')}
+      <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
+      <div class="kan-body">${cards.length ? raw(cards.join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
     </section>`;
   });
 
-  return html`<h1>Service</h1>${raw(boardView())}${raw(pickupsView())}<h2>Queue</h2><div class="kanban">${raw(cols.join(''))}</div>`;
+  return html`${raw(head)}
+    <div class="fchips" role="group" aria-label="Filter tickets">${raw(chips.join(''))}</div>
+    <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
+    <div class="form-note">Swipe the columns sideways. Tap a card for the whole ticket.</div>`;
+}
+
+function ticketCard(t) {
+  const moves = dispatchFor(dispatchRows(), t.ticket);
+  const hasMove = moves.some((r) => r.status !== 'DONE');
+  const pend = pendingForTicket(t.ticket);
+  const closed = t.status === 'CLOSED';
+  // A fleet machine is identified by its serial; a customer's by whatever they told us.
+  const what = t.machine_owner === 'WSS'
+    ? html`<span class="unit-serial">#${t.serial}</span> ${t.equipment || ''}`
+    : html`${t.equipment || '—'}`;
+  return html`
+    <a class="kan-card pri-${t.priority || 'MEDIUM'}${closed ? ' closed' : ''}" href="#/ticket/${raw(enc(t.ticket))}">
+      <div class="kan-row">
+        <span class="kan-t">${t.customer || '—'}</span>
+        <span class="kan-age">${t.age_days != null ? `${t.age_days}d` : ''}</span>
+      </div>
+      <div class="kan-eq">${raw(what)}</div>
+      <div class="kan-issue">${t.issue || ''}</div>
+      <div class="kan-foot">
+        <span class="kan-id">${t.ticket}</span>
+        ${t.assigned ? raw(html`<span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}
+        ${hasMove ? raw('<span class="truck" title="has a truck move">🚚</span>') : ''}
+        ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
+      </div>
+    </a>`;
+}
+
+/** The one write with no id of its own (§8). Badged, never counted as truth. */
+function pendingTicketCard(e) {
+  const p = pl(e);
+  return html`
+    <div class="kan-card pending-card">
+      <div class="kan-row"><span class="kan-t">⏳ NEW — ${p.customer || '—'}</span></div>
+      <div class="kan-eq">${p.equipment || (p.serial ? `#${p.serial}` : '')}</div>
+      <div class="kan-issue">${p.issue || ''}</div>
+      <div class="kan-foot"><span class="kan-pend">applies at the next run</span></div>
+    </div>`;
+}
+
+/* ---- + New ticket (any role) ---- */
+
+function unitOptions(selected) {
+  return units().filter((u) => u.unit_state !== 'RETIRED')
+    .sort((a, b) => String(a.serial).localeCompare(String(b.serial)))
+    .map((u) => html`<option value="${u.serial}"${String(u.serial) === String(selected || '') ? raw(' selected') : ''}>#${u.serial} — ${unitName(u)}${u.customer ? raw(html` (${u.customer})`) : ''}</option>`)
+    .join('');
+}
+
+/** A segmented control backed by a hidden input, so the value survives no JS state. */
+function toggle(field, options, value) {
+  const btns = options.map(([v, label]) =>
+    html`<button type="button" class="tg${v === value ? ' on' : ''}" data-val="${v}">${label}</button>`).join('');
+  return html`<div class="toggle" data-toggle="${field}">${raw(btns)}</div>
+    <input type="hidden" name="${field}" value="${value}">`;
+}
+
+function newTicketForm() {
+  return html`
+    <form class="write sheet" data-action="ticket_open">
+      <label>Whose machine?</label>
+      ${raw(toggle('machine_owner', [['CUSTOMER', "Customer's"], ['WSS', 'Ours (fleet)']], 'CUSTOMER'))}
+
+      <div data-when="machine_owner=CUSTOMER">
+        <label for="nt-cust">Customer</label>
+        <input id="nt-cust" name="customer" autocomplete="off">
+        <label for="nt-eq">Equipment</label>
+        <input id="nt-eq" name="equipment" placeholder="brand / model / serial if you have it" autocomplete="off">
+      </div>
+      <div data-when="machine_owner=WSS" hidden>
+        <label for="nt-unit">Which unit</label>
+        <select id="nt-unit" name="serial">${raw(unitOptions())}</select>
+        <div class="form-note">A unit out on rent can need a ticket too — the list holds everything but retired.</div>
+      </div>
+
+      <label for="nt-issue">What's wrong</label>
+      <textarea id="nt-issue" name="issue" required placeholder="what it's doing, what the customer said"></textarea>
+
+      <label>Where is it?</label>
+      ${raw(toggle('location', [['AT-CUSTOMER', 'At the customer'], ['IN-SHOP', 'In our shop']], 'IN-SHOP'))}
+
+      <div data-when="location=AT-CUSTOMER" hidden>
+        <label>Getting it here</label>
+        ${raw(toggle('intake_move', [['NONE', "We'll go to it"], ['PICKUP', 'We pick it up'], ['CUSTOMER-DROP', "They're dropping it off"]], 'NONE'))}
+      </div>
+
+      <label>Getting it back</label>
+      ${raw(toggle('return_move', [['NONE', 'Done on site / n.a.'], ['DELIVER', 'We deliver it back'], ['CUSTOMER-PICKUP', "They'll pick it up"]], 'NONE'))}
+
+      <label>Priority</label>
+      ${raw(toggle('priority', [['HIGH', 'High'], ['MEDIUM', 'Medium'], ['LOW', 'Low']], 'MEDIUM'))}
+
+      <label for="nt-site">Site address</label>
+      <input id="nt-site" name="site" placeholder="optional — needed if a truck is going" autocomplete="off">
+      <div class="hint" data-hint="site" hidden>A truck is going — put the address in so the driver isn't calling around.</div>
+
+      ${raw(sheetButtons('Open the ticket'))}
+      <div class="form-note">A proposal. The engine assigns the ticket number at the next run.</div>
+    </form>`;
+}
+
+const sheetButtons = (label) => html`
+  <div class="actions row">
+    <button class="btn" type="submit">${label}</button>
+    <button class="btn ghost" type="button" data-sheet-close="1">Cancel</button>
+  </div>`;
+
+/* ---- ticket detail ---- */
+
+function viewTicket(id) {
+  const t = ticketById(id);
+  if (!t) {
+    return html`<a class="crumb" href="#/service">‹ Service</a>
+      ${raw(emptyState('Ticket not found.', 'It may have closed and left the snapshot.'))}`;
+  }
+  const u = t.serial ? unitBySerial(t.serial) : null;
+  const moves = dispatchFor(dispatchRows(), t.ticket);
+  const pend = pendingForTicket(t.ticket);
+  const gaps = missingMoves(t, moves);
+  const canWork = role() === 'service' || role() === 'owner';
+
+  const q = t.quote && typeof t.quote === 'object' ? t.quote : null;
+
+  return html`
+    <a class="crumb" href="#/service">‹ Service</a>
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="h">${t.customer || '—'}</div>
+      <div class="s"><span class="unit-serial">${t.ticket}</span> · ${t.equipment || '—'}</div>
+      <div class="chips">
+        ${raw(chip(STAGE_LABEL[t.stage] || t.stage, 'stage'))}
+        ${raw(chip(PRI_LABEL[t.priority] || t.priority || '—', `pri-chip pri-${t.priority || 'MEDIUM'}`))}
+        ${raw(chip(t.machine_owner === 'WSS' ? 'Our machine' : "Customer's machine", t.machine_owner === 'WSS' ? 'rent' : 'out'))}
+        ${t.status === 'CLOSED' ? raw(chip('CLOSED', 'ok')) : ''}
+        ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
+      </div>
+    </div>
+
+    ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
+      ${raw(pend.map((e) => html`<div>${describeUpdate(e)} — by ${e.actor || 'someone'}</div>`).join(''))}
+      <div style="margin-top:6px">Applies at the next run — the board still shows the current truth.</div></div>`) : ''}
+
+    <h2>Ticket</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Issue', t.issue))}
+      ${raw(kvRow('Machine', u
+        ? raw(html`<a href="#/unit/${raw(enc(u.serial))}">#${u.serial} ${unitName(u)}</a>`)
+        : (t.equipment || '')))}
+      ${raw(kvRow('Where', t.location === 'AT-CUSTOMER' ? 'At the customer' : 'In our shop'))}
+      ${raw(kvRow('Site', t.site))}
+      ${raw(kvRow('Assigned', t.assigned))}
+      ${raw(kvRow('Scheduled', fmtDateFull(t.scheduled)))}
+      ${raw(kvRow('Opened', `${fmtDateFull(t.opened)}${t.opened_by ? ` by ${t.opened_by}` : ''}`))}
+      ${raw(kvRow('In this stage since', `${fmtDateFull(t.stage_since)}${t.age_days != null ? ` · ${t.age_days}d old` : ''}`))}
+      ${raw(kvRow('Getting it here', MOVE_LABEL[t.intake_move] || t.intake_move))}
+      ${raw(kvRow('Getting it back', MOVE_LABEL[t.return_move] || t.return_move))}
+      ${q ? raw(kvRow('Quote', `${q.number ? q.number + ' · ' : ''}${fmtMoney(q.amount)}${q.approved ? ' · approved ' + fmtDate(q.approved) : q.sent ? ' · sent ' + fmtDate(q.sent) : ''}`)) : ''}
+      ${!q && t.quote != null ? raw(kvRow('Quote', fmtMoney(t.quote), 'num')) : ''}
+      ${raw(kvRow('Parts', t.parts))}
+      ${raw(kvRow('Machinio', t.machinio_ref))}
+      ${t.closed ? raw(kvRow('Closed', fmtDateFull(t.closed))) : ''}
+    </dl></div>
+
+    ${raw(stagePicker(t, canWork))}
+    ${raw(ticketActions(t))}
+    ${raw(ticketMoves(t, moves, gaps))}`;
+}
+
+/** A one-line English rendering of a pending ticket_update, whatever it carried. */
+function describeUpdate(e) {
+  const p = pl(e);
+  const bits = [];
+  if (p.stage) bits.push(`stage → ${STAGE_LABEL[p.stage] || p.stage}`);
+  if (p.assigned) bits.push(`assigned to ${p.assigned}`);
+  if (p.scheduled) bits.push(`scheduled ${fmtDate(p.scheduled)}`);
+  if (p.intake_move) bits.push(`intake → ${MOVE_LABEL[p.intake_move] || p.intake_move}`);
+  if (p.return_move) bits.push(`return → ${MOVE_LABEL[p.return_move] || p.return_move}`);
+  if (p.note) bits.push('note added');
+  return bits.length ? bits.join(', ') : e.action;
+}
+
+function stagePicker(t, canWork) {
+  const opts = stageOptions(t, role());
+  if (!canWork) {
+    return html`<h2>Stage</h2>
+      <div class="info">${STAGE_LABEL[t.stage] || t.stage}. Techs and Matt move the stage.</div>`;
+  }
+  const btns = opts.map((o) => html`
+    <button type="button" class="stg${o.current ? ' on' : ''}" data-stage="${o.stage}"
+      ${o.enabled && !o.current ? '' : raw('disabled')} title="${o.caption || ''}">${o.label}</button>`);
+  const caption = opts.find((o) => o.caption && !o.enabled);
+  return html`
+    <h2>Stage</h2>
+    <div class="stages">${raw(btns.join(''))}</div>
+    ${caption ? raw(html`<div class="form-note">${caption.caption}</div>`) : ''}
+    ${ui.form && ui.form.kind === 'stage' && ui.form.id === t.ticket ? raw(stageForm(t, ui.form.arg)) : ''}`;
+}
+
+function stageForm(t, stage) {
+  return html`
+    <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="stage">
+      <input type="hidden" name="stage" value="${stage}">
+      <label for="sf-note">Move to ${STAGE_LABEL[stage] || stage} — note (optional)</label>
+      <textarea id="sf-note" name="note" placeholder="what you found, what you did"></textarea>
+      ${raw(sheetButtons(`Move to ${STAGE_LABEL[stage] || stage}`))}
+    </form>`;
+}
+
+/** Note / Assign / Schedule — any role (§3.3). */
+function ticketActions(t) {
+  const open = ui.form && ui.form.id === t.ticket ? ui.form.kind : null;
+  return html`
+    <h2>Update</h2>
+    <div class="actions row">
+      <button class="btn ghost" type="button" data-sheet="note" data-id="${t.ticket}">Add a note</button>
+      <button class="btn ghost" type="button" data-sheet="assign" data-id="${t.ticket}">Assign</button>
+      <button class="btn ghost" type="button" data-sheet="schedule" data-id="${t.ticket}">Schedule</button>
+    </div>
+    ${open === 'note' ? raw(html`
+      <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="note">
+        <label for="tn-note">Note</label>
+        <textarea id="tn-note" name="note" required placeholder="what happened"></textarea>
+        ${raw(sheetButtons('Add the note'))}
+      </form>`) : ''}
+    ${open === 'assign' ? raw(html`
+      <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="assign">
+        <label>Who's on it</label>
+        ${raw(toggle('assigned', DRIVERS.map((n) => [n, n]), t.assigned && DRIVERS.includes(t.assigned) ? t.assigned : DRIVERS[0]))}
+        ${raw(sheetButtons('Assign'))}
+      </form>`) : ''}
+    ${open === 'schedule' ? raw(html`
+      <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="schedule">
+        <label for="ts-date">Day</label>
+        <input id="ts-date" name="scheduled" type="date" value="${t.scheduled && isDateStr(t.scheduled) ? t.scheduled : todayCentral()}" required>
+        ${raw(sheetButtons('Schedule it'))}
+      </form>`) : ''}`;
+}
+
+/** The ticket's truck moves, plus the offer to book one the ticket says it lacks. */
+function ticketMoves(t, moves, gaps) {
+  const rows = moves.map((r) => dispatchRow(r, { compact: true }));
+  const offers = [];
+  if (gaps.intake) offers.push(html`<button class="btn ghost" type="button" data-move="intake" data-id="${t.ticket}">Add a pick-up</button>`);
+  if (gaps.ret) offers.push(html`<button class="btn ghost" type="button" data-move="return" data-id="${t.ticket}">Add a return delivery</button>`);
+  return html`
+    <h2>Moves</h2>
+    <div class="card dlist">
+      ${rows.length ? raw(rows.join('')) : raw('<div class="hold-empty">No truck runs on this ticket.</div>')}
+    </div>
+    ${offers.length ? raw(html`<div class="actions row">${raw(offers.join(''))}</div>`) : ''}
+    ${ui.form && ui.form.kind === 'move' && ui.form.id === t.ticket ? raw(moveForm(t, ui.form.arg)) : ''}`;
+}
+
+/** Booking a missing move is a ticket_update — the engine spawns the row (§3.3). */
+function moveForm(t, which) {
+  const intake = which === 'intake';
+  const field = intake ? 'intake_move' : 'return_move';
+  const opts = intake ? [['PICKUP', 'We pick it up'], ['CUSTOMER-DROP', "They're dropping it off"]]
+    : [['DELIVER', 'We deliver it back'], ['CUSTOMER-PICKUP', "They'll pick it up"]];
+  return html`
+    <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="move">
+      <label>${intake ? 'Getting it here' : 'Getting it back'}</label>
+      ${raw(toggle(field, opts, opts[0][0]))}
+      ${raw(sheetButtons('Book it'))}
+      <div class="form-note">The engine puts the run on the Dispatch board at the next run.</div>
+    </form>`;
+}
+
+/* ============================================================== dispatch == */
+
+function viewDispatch(highlight) {
+  const all = dispatchRows();
+  const s = dispatchSections(all);
+  const adds = pendingDispatchAdds();
+  const unbooked = unbookedPickups(pickupsList(), all);
+
+  const head = html`<h1>Dispatch</h1>${raw(msgBlock())}
+    <div class="actions"><button class="btn" type="button" data-sheet="add-run">+ Add a run</button></div>
+    ${sheetOpen('add-run') ? raw(addRunForm((ui.form && ui.form.arg) || {})) : ''}
+    ${adds.length ? raw(html`<div class="note"><strong>⏳ ${adds.length} new run${adds.length > 1 ? 's' : ''} pending</strong>
+      ${raw(adds.map((e) => html`<div>${pl(e).kind === 'DELIVER' ? 'Deliver' : 'Pick up'} — ${pl(e).what || ''}${pl(e).customer ? ` · ${pl(e).customer}` : ''}</div>`).join(''))}
+      <div style="margin-top:6px">On the board after the next run.</div></div>`) : ''}`;
+
+  if (!all.length && !adds.length && !unbooked.length) {
+    return head + emptyState('Nothing to move.', 'Pick-ups, service runs and deliveries land here.');
+  }
+
+  const openSec = html`
+    <h2>Open${s.open.length ? raw(html` <span class="count">${s.open.length}</span>`) : ''}</h2>
+    <div class="card dlist">
+      ${s.open.length ? raw(s.open.map((r) => dispatchRow(r, { highlight })).join('')) : raw('<div class="hold-empty">Nothing unclaimed.</div>')}
+    </div>`;
+
+  // Only ever non-empty when a released unit has no run yet. Loud, because the
+  // alternative is a machine sitting on a customer's dock with nobody assigned.
+  const gapSec = unbooked.length ? html`
+    <h2 class="danger">Released, not on the board${raw(html` <span class="count">${unbooked.length}</span>`)}</h2>
+    <div class="card dlist danger">
+      ${raw(unbooked.map((p) => html`
+        <div class="drow">
+          <div class="drow-top"><span class="chip pickup">PICKUP</span>
+            <span class="drow-what"><a href="#/unit/${raw(enc(p.serial))}">#${p.serial} ${p.model || ''}</a></span></div>
+          <div class="drow-who">${p.customer || '—'}${p.job_site ? raw(html` · ${p.job_site}`) : ''}</div>
+          <div class="drow-meta">${p.billed_through ? raw(html`billed through ${fmtDateFull(p.billed_through)}`) : ''}${p.note ? raw(html`${p.billed_through ? ' · ' : ''}${p.note}`) : ''}</div>
+          <div class="drow-btns"><button class="btn sm ghost" type="button" data-sheet="add-run" data-serial="${p.serial}">Add the run</button></div>
+        </div>`).join(''))}
+    </div>` : '';
+
+  const schedSec = html`
+    <h2>Scheduled${s.scheduledCount ? raw(html` <span class="count">${s.scheduledCount}</span>`) : ''}</h2>
+    ${s.scheduledCount ? raw(s.scheduled.map((g) => html`
+      <div class="daygroup"><div class="dayhead">${g.date ? fmtDateFull(g.date) : 'No date'}</div>
+      <div class="card dlist">${raw(g.rows.map((r) => dispatchRow(r, { highlight })).join(''))}</div></div>`).join(''))
+      : raw('<div class="card dlist"><div class="hold-empty">Nothing on a truck yet.</div></div>')}`;
+
+  const doneSec = html`
+    <h2><button type="button" class="disclose" data-done-toggle="1" aria-expanded="${ui.showDone ? 'true' : 'false'}">
+      ${ui.showDone ? '▾' : '▸'} Done this week${s.done.length ? raw(html` <span class="count">${s.done.length}</span>`) : ''}</button></h2>
+    ${ui.showDone ? raw(html`<div class="card dlist">
+      ${s.done.length ? raw(s.done.map((r) => dispatchRow(r, { highlight })).join('')) : raw('<div class="hold-empty">Nothing finished this week.</div>')}
+    </div>`) : ''}`;
+
+  return head + openSec + gapSec + schedSec + doneSec;
+}
+
+const KIND_LABEL = { PICKUP: 'PICKUP', DELIVER: 'DELIVER' };
+
+/**
+ * One run. `compact` (unit page, ticket detail) drops the buttons and links out
+ * to the board instead — one place owns the actions.
+ * Addresses are tap-to-copy on purpose: no map links (this supersedes the
+ * earlier pick-ups order's tap-to-map line).
+ */
+function dispatchRow(r, opts = {}) {
+  const pend = pendingForDispatch(r.id);
+  const compact = !!opts.compact;
+  const mine = opts.highlight && opts.highlight === r.id;
+  const claim = sheetOpen('claim', r.id);
+  const done = sheetOpen('done', r.id);
+
+  const btns = [];
+  if (!compact && r.status === 'OPEN') btns.push(html`<button class="btn sm" type="button" data-sheet="claim" data-id="${r.id}">Claim</button>`);
+  if (!compact && r.status === 'SCHEDULED') {
+    btns.push(html`<button class="btn sm" type="button" data-sheet="done" data-id="${r.id}">Done</button>`);
+    btns.push(html`<button class="btn sm ghost" type="button" data-sheet="claim" data-id="${r.id}">Reassign</button>`);
+  }
+  if (!compact && r.status !== 'DONE' && canCancel(r, role())) {
+    btns.push(html`<button class="btn sm ghost danger-btn" type="button" data-cancel="${r.id}">Cancel</button>`);
+  }
+
+  return html`
+    <div class="drow${r.status === 'DONE' ? ' is-done' : ''}${mine ? ' hot' : ''}" id="d-${r.id}">
+      <div class="drow-top">
+        ${raw(chip(KIND_LABEL[r.kind] || r.kind, r.kind === 'PICKUP' ? 'pickup' : 'rent'))}
+        <span class="drow-what">${r.what || '—'}</span>
+        <span class="drow-src" title="${r.source}">${SOURCE_GLYPH[r.source] || ''}</span>
+      </div>
+      ${r.customer ? raw(html`<div class="drow-who">${r.customer}</div>`) : ''}
+      ${r.address ? raw(html`<button type="button" class="addr" data-copy="${r.address}" title="Tap to copy">${r.address}</button>`) : ''}
+      <div class="drow-meta">
+        <span class="when">${r.date && isDateStr(r.date) ? fmtDateFull(r.date) : 'any time'}</span>
+        ${r.billed_through ? raw(html` · billed through ${fmtDateFull(r.billed_through)}`) : ''}
+        ${r.serial ? raw(html` · <a href="#/unit/${raw(enc(r.serial))}">#${r.serial}</a>`) : ''}
+        ${r.ticket ? raw(html` · <a href="#/ticket/${raw(enc(r.ticket))}">${r.ticket}</a>`) : ''}
+      </div>
+      ${r.rig || r.driver ? raw(html`<div class="chips">
+        ${r.driver ? raw(chip(r.driver, 'driver')) : ''}${r.rig ? raw(chip(r.rig, 'rig')) : ''}
+        ${r.status === 'DONE' && r.done ? raw(chip(`done ${fmtDate(r.done)}`, 'ok')) : ''}</div>`) : ''}
+      ${r.note ? raw(html`<div class="drow-note">${r.note}</div>`) : ''}
+      ${raw(pendingLine(pend.length))}
+      ${compact ? raw(html`<div class="drow-btns"><a class="btn sm ghost" href="#/dispatch/${raw(enc(r.id))}">On the board</a></div>`)
+        : (btns.length ? raw(html`<div class="drow-btns">${raw(btns.join(''))}</div>`) : '')}
+      ${claim ? raw(claimForm(r)) : ''}
+      ${done ? raw(doneForm(r)) : ''}
+    </div>`;
+}
+
+function claimForm(r) {
+  const drivers = driverChoices(state.me);
+  const date = r.date && isDateStr(r.date) ? r.date : todayCentral();
+  return html`
+    <form class="write sheet" data-action="dispatch_claim" data-id="${r.id}">
+      <label>Who's driving</label>
+      ${raw(toggle('driver', drivers.map((n) => [n, n]), r.driver && drivers.includes(r.driver) ? r.driver : defaultDriver(state.me)))}
+      <label for="cf-rig">Rig</label>
+      <select id="cf-rig" name="rig" required>
+        ${raw(RIGS.map((x) => html`<option value="${x}"${x === r.rig ? raw(' selected') : ''}>${x}</option>`).join(''))}
+      </select>
+      <label for="cf-date">Day</label>
+      <input id="cf-date" name="date" type="date" value="${date}" required>
+      <div class="hint" data-hint="rig" hidden></div>
+      ${raw(sheetButtons(r.status === 'SCHEDULED' ? 'Reassign' : 'Claim it'))}
+      <div class="form-note">A proposal — the row stays where it is until the next run moves it.</div>
+    </form>`;
+}
+
+function doneForm(r) {
+  return html`
+    <form class="write sheet" data-action="dispatch_done" data-id="${r.id}">
+      ${r.source === 'RENTAL-RETURN' ? raw(html`<div class="note"><strong>Bringing it home</strong>This brings ${r.serial ? `#${r.serial}` : 'the unit'} home and ends the agreement at the next run.</div>`) : ''}
+      <label for="df-note">Note (optional)</label>
+      <textarea id="df-note" name="note" placeholder="hours on the meter, damage, who signed"></textarea>
+      ${raw(sheetButtons('Mark it done'))}
+    </form>`;
+}
+
+/** + Add a run. Reached from Dispatch, a unit page, or a hold row (§4). */
+function addRunForm(prefill = {}) {
+  const p = { kind: 'DELIVER', serial: '', what: '', customer: '', address: '', ticket: null, ...prefill };
+  return html`
+    <form class="write sheet" data-action="dispatch_add"${p.ticket ? raw(html` data-ticket="${p.ticket}"`) : ''}>
+      <label>What kind of run</label>
+      ${raw(toggle('kind', KINDS.map((k) => [k, k === 'PICKUP' ? 'Pick something up' : 'Deliver something']), p.kind))}
+      <label for="ar-what">What's moving</label>
+      <input id="ar-what" name="what" required value="${p.what}" placeholder="unit, parts, whatever it is" autocomplete="off">
+      <label for="ar-cust">Customer</label>
+      <input id="ar-cust" name="customer" value="${p.customer}" autocomplete="off">
+      <label for="ar-addr">Address</label>
+      <input id="ar-addr" name="address" value="${p.address}" autocomplete="off">
+      <label for="ar-date">Day (optional)</label>
+      <input id="ar-date" name="date" type="date">
+      <label for="ar-serial">Unit (optional)</label>
+      <select id="ar-serial" name="serial"><option value="">— none —</option>${raw(unitOptions(p.serial))}</select>
+      <label for="ar-note">Note</label>
+      <textarea id="ar-note" name="note" placeholder="gate code, who to ask for"></textarea>
+      ${raw(sheetButtons('Add the run'))}
+      <div class="form-note">A proposal — it appears on the board after the next run.</div>
+    </form>`;
+}
+
+/** Pre-fill for "Schedule delivery" from a unit page or a hold row. */
+function runPrefillForUnit(u, hold) {
+  const ag = u.agreement != null ? agreements().find((a) => a.agreement === u.agreement) : null;
+  return {
+    kind: u.readiness === 'NEEDS-PICKUP' ? 'PICKUP' : 'DELIVER',
+    serial: u.serial,
+    what: `${unitName(u)} #${u.serial}`,
+    customer: (hold && hold.customer) || u.customer || (ag && ag.customer) || '',
+    address: u.job_site || (ag && ag.job_site) || '',
+  };
 }
 
 /* ---- holds view (v2): expired first and loud, then upcoming by date ---- */
@@ -793,12 +1278,17 @@ function renderHeader() {
 function renderTabs(route) {
   const tab = route.startsWith('#/rentals') ? 'rentals'
     : route.startsWith('#/holds') ? 'holds'
-    : route.startsWith('#/billing') ? 'billing'
-    : route.startsWith('#/service') ? 'service' : 'fleet';
+    : route.startsWith('#/dispatch') ? 'dispatch'
+    : route.startsWith('#/service') || route.startsWith('#/ticket') ? 'service' : 'fleet';
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === tab));
-  // D32: count badge on the Service tab when a truck is needed.
-  const badge = $('#tab-service-badge');
-  if (badge) { const n = state.snapshot ? pickupsList().length : 0; badge.hidden = n === 0; badge.textContent = n; }
+  // The count badge moved from Service to Dispatch at v1.6 (§1): everything
+  // still needing a truck, OPEN + SCHEDULED. DONE rows linger and don't count.
+  const badge = $('#tab-dispatch-badge');
+  if (badge) {
+    const n = state.snapshot ? openCount(dispatchRows()) : 0;
+    badge.hidden = n === 0;
+    badge.textContent = n;
+  }
 }
 
 /* ============================================================= 11. router == */
@@ -815,17 +1305,28 @@ function render() {
   const section = parts[0] || '';
   const arg = parts.slice(1).join('/');
 
+  // The Billing view is gone (D39). Old bookmarks and home-screen icons still
+  // point at it, so send them to the tab that took its slot rather than a blank.
+  if (section === 'billing') { window.location.replace('#/dispatch'); return; }
+
   let out;
   if (section === 'rentals') out = viewRentals();
   else if (section === 'holds') out = viewHolds();
-  else if (section === 'billing') out = viewBilling();
+  else if (section === 'dispatch') out = viewDispatch(arg ? decodeURIComponent(arg) : null);
   else if (section === 'service') out = viewService();
+  else if (section === 'ticket') out = viewTicket(decodeURIComponent(arg || ''));
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
   else out = viewCategories();
 
   view.innerHTML = out;
+  ui.msg = null;                 // the confirmation line shows once, then clears
   renderHeader();
+
+  // Deep link from a ticket or a unit page: put the named run on screen rather
+  // than dumping the reader at the top of a long board.
+  const hot = arg && section === 'dispatch' ? $(`#d-${CSS.escape(decodeURIComponent(arg))}`) : null;
+  if (hot) { hot.scrollIntoView({ block: 'center' }); return; }
   view.scrollTop = 0;
   window.scrollTo(0, 0);
 }
@@ -852,8 +1353,156 @@ async function refresh() {
   }
 }
 
+/* ---- schema-3 interaction: sheets, segmented toggles, tap-to-copy ---- */
+
+/**
+ * Show or hide the parts of a form that depend on a segmented control, and
+ * keep the dependent values honest:
+ *   location IN-SHOP  -> intake_move NONE (it's already here; no truck to book)
+ *   a truck is going  -> nudge for the site address
+ */
+function applyConditionals(form) {
+  const val = (name) => {
+    const el = form.querySelector(`[name="${name}"]`);
+    return el ? el.value : null;
+  };
+  form.querySelectorAll('[data-when]').forEach((el) => {
+    const [field, want] = String(el.dataset.when).split('=');
+    el.hidden = val(field) !== want;
+  });
+
+  if (form.dataset.action === 'ticket_open') {
+    if (val('location') === 'IN-SHOP') setToggle(form, 'intake_move', 'NONE');
+    const hint = form.querySelector('[data-hint="site"]');
+    if (hint) {
+      const truck = val('intake_move') === 'PICKUP' || val('return_move') === 'DELIVER';
+      const site = form.querySelector('[name="site"]');
+      hint.hidden = !(truck && site && !site.value.trim());
+    }
+  }
+}
+
+/** Set a segmented control's value from code (the buttons and the hidden input). */
+function setToggle(form, field, value) {
+  const group = form.querySelector(`.toggle[data-toggle="${field}"]`);
+  const input = form.querySelector(`input[name="${field}"]`);
+  if (input) input.value = value;
+  if (group) group.querySelectorAll('.tg').forEach((b) => b.classList.toggle('on', b.dataset.val === value));
+}
+
+/** The same-rig-same-day warning, live as the driver picks (§4). Warns, never blocks. */
+function updateRigHint(form) {
+  const hint = form.querySelector('[data-hint="rig"]');
+  if (!hint) return;
+  const clash = rigClash({
+    dispatch: dispatchRows(), warnings: dispatchWarnings(),
+    rig: form.querySelector('[name=rig]').value,
+    date: form.querySelector('[name=date]').value,
+    excludeId: form.dataset.id,
+  });
+  hint.hidden = !clash;
+  hint.textContent = clash
+    ? `${clash.rig} already has a run on ${fmtDateFull(clash.date)}. That may be the plan — you can still claim it.`
+    : '';
+}
+
+async function copyText(text, el) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
+    else throw new Error('no clipboard');
+    if (el) { el.classList.add('copied'); setTimeout(() => el.classList.remove('copied'), 1200); }
+  } catch (_) {
+    // No clipboard (http, old browser): select it so a long-press can copy.
+    if (el && window.getSelection) {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }
+}
+
 // Delegated events — the view is re-rendered wholesale, so nothing binds directly.
 document.addEventListener('click', async (ev) => {
+  // Segmented control: set the hidden input, then re-evaluate the form's
+  // conditional blocks. No re-render — the typed-in fields must survive.
+  const tg = ev.target.closest('.toggle .tg');
+  if (tg) {
+    const form = tg.closest('form');
+    setToggle(form, tg.closest('.toggle').dataset.toggle, tg.dataset.val);
+    applyConditionals(form);
+    if (form.dataset.action === 'dispatch_claim') updateRigHint(form);
+    return;
+  }
+
+  // Open one of the schema-3 sheets. `data-serial` pre-fills a run from a
+  // released unit; `data-id` names the ticket or dispatch row it belongs to.
+  const sheet = ev.target.closest('[data-sheet]');
+  if (sheet) {
+    const kind = sheet.dataset.sheet;
+    const id = sheet.dataset.id || null;
+    if (sheetOpen(kind, id)) { closeSheet(); return; }
+    ui.form = { kind, id, arg: null };
+    if (kind === 'add-run' && sheet.dataset.serial) {
+      const u = unitBySerial(sheet.dataset.serial);
+      if (u) ui.form.arg = runPrefillForUnit(u, null);
+    }
+    ui.msg = null;
+    render();
+    return;
+  }
+  if (ev.target.closest('[data-sheet-close]')) { closeSheet(); return; }
+
+  // A stage tap asks for an optional note before it proposes anything (§3.3).
+  const stg = ev.target.closest('[data-stage]');
+  if (stg && !stg.disabled) {
+    const ticket = decodeURIComponent(window.location.hash.split('/').pop());
+    ui.form = { kind: 'stage', id: ticket, arg: stg.dataset.stage };
+    ui.msg = null;
+    render();
+    return;
+  }
+
+  // "Add a pick-up" / "Add a return delivery" from a ticket.
+  const mv = ev.target.closest('[data-move]');
+  if (mv) {
+    ui.form = { kind: 'move', id: mv.dataset.id, arg: mv.dataset.move };
+    ui.msg = null;
+    render();
+    return;
+  }
+
+  if (ev.target.closest('[data-done-toggle]')) { ui.showDone = !ui.showDone; render(); return; }
+
+  const fchip = ev.target.closest('[data-filter]');
+  if (fchip) { ui.ticketFilter = fchip.dataset.filter; render(); return; }
+
+  // Addresses copy, they do not navigate. No map links (§4).
+  const addr = ev.target.closest('[data-copy]');
+  if (addr) { copyText(addr.dataset.copy, addr); return; }
+
+  // Cancel a manual run: two taps, then a proposal like any other write.
+  const cancel = ev.target.closest('[data-cancel]');
+  if (cancel) {
+    if (!cancel.dataset.armed) {
+      cancel.dataset.armed = '1';
+      cancel.textContent = 'Confirm cancel';
+      return;
+    }
+    cancel.disabled = true;
+    try {
+      const stored = await postEvent(ctx(), 'dispatch_cancel', null, { dispatch_id: cancel.dataset.cancel });
+      state.pending.push(stored);
+      ui.form = null;
+      ui.msg = { tone: 'ok', text: 'The run comes off the board at the next run.' };
+    } catch (err) {
+      ui.msg = { tone: 'bad', text: err.message };
+    }
+    render();
+    return;
+  }
+
   // Reserve form quick-set: "1 day" = end == start; "5 business days" = start + 5bd.
   const quick = ev.target.closest('[data-quick]');
   if (quick) {
@@ -884,7 +1533,15 @@ document.addEventListener('click', async (ev) => {
     const serial = window.location.hash.split('/').pop();
     const u = unitBySerial(decodeURIComponent(serial));
     if (!u) return;
-    $('#write-form').innerHTML = openForm.dataset.form === 'reserve' ? reserveForm(u) : readinessForm(u);
+    const kind = openForm.dataset.form;
+    // "Schedule delivery" is the same add-a-run sheet the Dispatch board uses,
+    // pre-filled from the unit's placement (§4).
+    const form = kind === 'reserve' ? reserveForm(u)
+      : kind === 'dispatch' ? addRunForm(runPrefillForUnit(u, currentHold(u, todayCentral())))
+      : readinessForm(u);
+    $('#write-form').innerHTML = form;
+    const el = $('#write-form form');
+    if (el) applyConditionals(el);
     return;
   }
   if (ev.target.id === 'retry') refresh();
@@ -895,9 +1552,105 @@ document.addEventListener('click', async (ev) => {
 });
 
 document.addEventListener('input', (ev) => {
-  const form = ev.target.closest('form.write[data-action=reserve]');
-  if (form && ['start', 'end'].includes(ev.target.name)) updateWindowHint(form);
+  const form = ev.target.closest('form.write');
+  if (!form) return;
+  if (form.dataset.action === 'reserve' && ['start', 'end'].includes(ev.target.name)) updateWindowHint(form);
+  if (form.dataset.action === 'ticket_open') applyConditionals(form);
+  if (form.dataset.action === 'dispatch_claim' && ['rig', 'date'].includes(ev.target.name)) updateRigHint(form);
 });
+document.addEventListener('change', (ev) => {
+  const form = ev.target.closest('form.write');
+  if (form && form.dataset.action === 'dispatch_claim' && ['rig', 'date'].includes(ev.target.name)) updateRigHint(form);
+});
+
+/**
+ * Build the event body for a form. Returns { serial, payload } — `serial` rides
+ * at the top level whenever the write concerns a unit, so the existing
+ * pending-badge-by-serial logic keeps working (§6).
+ */
+function eventBody(action, form, fd) {
+  const s = (k) => {
+    const v = fd.get(k);
+    return v == null ? '' : String(v).trim();
+  };
+  const orNull = (k) => s(k) || null;
+
+  if (action === 'reserve') {
+    return { serial: form.dataset.serial,
+      payload: { customer: s('customer'), purpose: s('purpose'), start: s('start'), end: s('end') } };
+  }
+  if (action === 'readiness') {
+    return { serial: form.dataset.serial, payload: { readiness: s('readiness'), note: s('note') } };
+  }
+  if (action === 'ticket_open') {
+    const wss = s('machine_owner') === 'WSS';
+    const serial = wss ? orNull('serial') : null;
+    const u = serial ? unitBySerial(serial) : null;
+    return {
+      serial,
+      payload: {
+        machine_owner: s('machine_owner'),
+        serial,
+        // Ours: name the machine from the snapshot so two techs describe it the
+        // same way. Theirs: whatever they typed.
+        equipment: wss ? (u ? `${u.brand || ''} ${u.model || ''}`.trim() : null) : (orNull('equipment')),
+        // Pre-fill the customer from the unit when it's out; otherwise it's ours.
+        customer: wss ? ((u && u.customer) || 'WSS') : s('customer'),
+        issue: s('issue'),
+        priority: s('priority'),
+        site: orNull('site'),
+        location: s('location'),
+        intake_move: s('intake_move'),
+        return_move: s('return_move'),
+      },
+    };
+  }
+  if (action === 'ticket_update') {
+    // Only the keys being changed travel (§6). `data-mode` says which sheet it was.
+    const payload = { ticket: form.dataset.id };
+    for (const k of ['stage', 'note', 'assigned', 'scheduled', 'intake_move', 'return_move']) {
+      const v = s(k);
+      if (v) payload[k] = v;
+    }
+    const t = ticketById(form.dataset.id);
+    return { serial: t && t.serial ? t.serial : null, payload };
+  }
+  if (action === 'dispatch_add') {
+    const serial = orNull('serial');
+    return {
+      serial,
+      payload: {
+        kind: s('kind'), serial, ticket: form.dataset.ticket || null,
+        what: s('what'), customer: orNull('customer'), address: orNull('address'),
+        date: orNull('date'), note: orNull('note'),
+      },
+    };
+  }
+  if (action === 'dispatch_claim') {
+    const r = dispatchById(dispatchRows(), form.dataset.id);
+    return { serial: r && r.serial ? r.serial : null,
+      payload: { dispatch_id: form.dataset.id, rig: s('rig'), date: s('date'), driver: s('driver') } };
+  }
+  if (action === 'dispatch_done') {
+    const r = dispatchById(dispatchRows(), form.dataset.id);
+    return { serial: r && r.serial ? r.serial : null,
+      payload: { dispatch_id: form.dataset.id, note: orNull('note') } };
+  }
+  return { serial: null, payload: {} };
+}
+
+const SUBMIT_MSG = {
+  ticket_open: 'The engine assigns the ticket number at the next run.',
+  ticket_update: 'Applies at the next run.',
+  dispatch_add: 'The run appears on the board at the next run.',
+  dispatch_claim: 'The row moves to Scheduled at the next run.',
+  dispatch_done: 'It clears at the next run.',
+};
+
+// Writes opened from the unit page report into that page's #write-msg; the ones
+// living inside a re-rendered Service/Dispatch view report through ui.msg.
+const INLINE_MSG = new Set(['reserve', 'readiness']);
+const isInline = (action, form) => INLINE_MSG.has(action) || !!form.closest('#write-form');
 
 document.addEventListener('submit', async (ev) => {
   const form = ev.target.closest('form.write');
@@ -907,25 +1660,45 @@ document.addEventListener('submit', async (ev) => {
   const fd = new FormData(form);
   const action = form.dataset.action;
   if (action === 'reserve' && updateWindowHint(form)) return;   // only end<start / past windows block; overlaps never do
+
+  // A customer ticket needs a customer; a fleet one takes it from the unit.
+  if (action === 'ticket_open' && fd.get('machine_owner') === 'CUSTOMER' && !String(fd.get('customer') || '').trim()) {
+    const el = form.querySelector('[name=customer]');
+    if (el) el.focus();
+    ui.msg = { tone: 'bad', text: 'Who is it for? Put a customer on it.' };
+    render();
+    return;
+  }
+
   btn.disabled = true;
-  const payload = action === 'reserve'
-    ? { customer: fd.get('customer'), purpose: fd.get('purpose') || '', start: fd.get('start'), end: fd.get('end') }
-    : { readiness: fd.get('readiness'), note: fd.get('note') || '' };
+  const inline = isInline(action, form);
+  const { serial, payload } = eventBody(action, form, fd);
 
   try {
-    const stored = await postEvent(ctx(), action, form.dataset.serial, payload);
+    const stored = await postEvent(ctx(), action, serial, payload);
     state.pending.push(stored);
-    render();
-    const msg = $('#write-msg');
-    if (msg) msg.innerHTML = '<div class="note"><strong>Submitted</strong>Applies at the next run.</div>';
+    if (inline) {
+      render();
+      const msg = $('#write-msg');
+      if (msg) msg.innerHTML = '<div class="note"><strong>Submitted</strong>Applies at the next run.</div>';
+    } else {
+      ui.form = null;
+      ui.msg = { tone: 'ok', text: SUBMIT_MSG[action] || 'Applies at the next run.' };
+      render();
+    }
   } catch (err) {
-    const msg = $('#write-msg');
-    if (msg) msg.innerHTML = html`<div class="alert">⚠️ ${err.message}</div>`;
-    btn.disabled = false;
+    if (inline) {
+      const msg = $('#write-msg');
+      if (msg) msg.innerHTML = html`<div class="alert">⚠️ ${err.message}</div>`;
+      btn.disabled = false;
+    } else {
+      ui.msg = { tone: 'bad', text: err.message };
+      render();
+    }
   }
 });
 
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => { ui.form = null; ui.msg = null; render(); });
 
 // Service worker on real hosts only. On localhost a cached shell just makes you
 // debug yesterday's CSS; iOS requires HTTPS for install anyway, so dev loses nothing.
@@ -943,3 +1716,10 @@ if ('serviceWorker' in navigator && location.protocol === 'https:' && !IS_LOCAL)
 }
 
 refresh();
+
+/* ------------------------------------------------------------ test seam --
+ * tools/selftest-render.mjs imports this module and drives the REAL views in a
+ * stub DOM, so a view that throws or renders "undefined" fails `npm test`
+ * instead of a phone in a warehouse. Nothing in the page reads these. */
+export { render as __render, refresh as __refresh };
+export const __state = () => state;

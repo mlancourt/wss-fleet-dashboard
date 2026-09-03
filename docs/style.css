@@ -394,28 +394,144 @@ form.write textarea { min-height: 80px; resize: vertical; }
 .brow.zero { --fill: var(--slate-300); }
 .brow.zero .brow-l, .brow.zero .brow-n, .brow.zero .brow-p { color: var(--slate-400); }
 
-/* ---------------------------------------------------------------- kanban */
+/* ----------------------------------------------- kanban (seven stages) --
+   Phone: one column at a time, swiped sideways with scroll-snap and a sticky
+   header. Wide screens: the wrapper breaks out of the 760px column so all
+   seven fit side by side. */
 
-.kanban { display: grid; gap: 14px; }
+.kan-wrap { margin: 0 -16px; }
+.kanban {
+  display: flex; gap: 12px; overflow-x: auto; padding: 2px 16px 10px;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
 .kan-col {
+  flex: 0 0 min(84vw, 300px); scroll-snap-align: start;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 12px 16px;
+  box-shadow: var(--shadow); padding: 0 14px 12px; align-self: flex-start; min-width: 0;
 }
 .kan-head {
-  display: flex; justify-content: space-between; align-items: center;
-  font-weight: 700; font-size: 12px; letter-spacing: .8px; text-transform: uppercase; color: var(--red);
-  padding-bottom: 8px; border-bottom: 2px solid var(--slate-100);
+  position: sticky; top: 0; z-index: 1; background: var(--card);
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  font-weight: 700; font-size: 11.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--red);
+  padding: 12px 0 8px; border-bottom: 2px solid var(--slate-100);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 .kan-head .c {
   background: var(--slate-100); color: var(--slate-700); font-size: 12px;
-  border-radius: 999px; padding: 1px 9px; letter-spacing: 0;
+  border-radius: 999px; padding: 1px 9px; letter-spacing: 0; flex: 0 0 auto;
 }
-.kan-card { border-top: 1px solid var(--slate-100); padding: 10px 0 8px; font-size: 14px; }
-.kan-card:first-of-type { border-top: 0; }
-.kan-card:last-child { padding-bottom: 2px; }
-.kan-t { font-weight: 650; color: var(--slate-900); }
-.kan-s { color: var(--ink-2); font-size: 13px; }
+.kan-card {
+  display: block; border-top: 1px solid var(--slate-100); padding: 10px 0 9px;
+  font-size: 14px; border-left: 3px solid transparent; padding-left: 9px; margin-left: -9px;
+}
+.kan-card:first-child { border-top: 0; }
+.kan-card.pri-HIGH { border-left-color: var(--red); }        /* HIGH gets a maroon edge */
+.kan-card.closed { opacity: .55; }
+.kan-card.pending-card { background: var(--red-soft); border-radius: var(--radius-sm); padding: 10px; margin: 8px 0 0; border-top: 0; border-left-color: var(--red); }
+.kan-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.kan-t { font-weight: 650; color: var(--slate-900); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kan-age { font-size: 12px; color: var(--ink-3); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.kan-eq { font-size: 13px; color: var(--ink-2); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kan-issue {
+  font-size: 13px; color: var(--slate-700); margin-top: 3px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.kan-foot { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 12px; color: var(--ink-3); }
+.kan-id { font-family: var(--mono); font-size: 11.5px; color: var(--slate-500); }
+.kan-foot .who {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--slate-700); color: var(--white);
+  font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: 0 0 auto;
+}
+.kan-pend { color: var(--red-deep); font-weight: 650; }
 .kan-empty { padding: 12px 0 4px; color: var(--slate-400); font-size: 13px; }
+
+/* filter chips: All / Customer / Fleet */
+.fchips { display: flex; gap: 8px; margin: 14px 0 10px; }
+.fchip {
+  flex: 1 1 0; min-height: 40px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--slate-300); background: var(--white); color: var(--slate-700);
+  font-weight: 650; font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.fchip.on { background: var(--red); border-color: var(--red); color: var(--white); }
+.fchip .c { font-size: 11.5px; font-weight: 700; opacity: .8; font-variant-numeric: tabular-nums; }
+
+/* stage picker */
+.stages { display: flex; flex-wrap: wrap; gap: 8px; }
+.stg {
+  flex: 1 1 auto; min-height: 44px; padding: 8px 12px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--slate-300); background: var(--white); color: var(--slate-800);
+  font-weight: 650; font-size: 14px; white-space: nowrap;
+}
+.stg.on { background: var(--red); border-color: var(--red); color: var(--white); }
+.stg[disabled] { color: var(--slate-400); background: var(--slate-50); cursor: default; }
+.stg.on[disabled] { background: var(--red); color: var(--white); opacity: .85; }
+
+/* ------------------------------------------------------- dispatch board */
+
+.dlist { padding: 4px 16px; }
+.dlist.danger { border-color: #FECACA; background: #FFF7F7; }
+.drow { padding: 12px 0; border-bottom: 1px solid var(--slate-100); }
+.drow:last-child { border-bottom: 0; }
+.drow.is-done { opacity: .6; }
+.drow.hot { background: #FFFBEB; box-shadow: 0 0 0 8px #FFFBEB; border-radius: 4px; }
+.drow-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* `what` always takes its own line under the kind chip, so a long description
+   and a short one produce the same shape. */
+.drow-what { font-weight: 650; color: var(--slate-900); flex: 1 1 100%; min-width: 0; }
+.drow-src { flex: 0 0 auto; font-size: 14px; margin-left: auto; }
+.drow-who { font-size: 14px; color: var(--slate-800); margin-top: 3px; }
+.drow-meta { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+.drow-meta .when { font-weight: 600; color: var(--slate-700); }
+.drow-note { font-size: 12.5px; color: var(--ink-2); margin-top: 4px; font-style: italic; }
+.drow-btns { display: flex; gap: 8px; margin-top: 9px; flex-wrap: wrap; }
+.drow .chips { margin-top: 6px; }
+.row-pending { font-size: 12.5px; color: var(--red-deep); font-weight: 600; margin-top: 6px; }
+
+/* addresses copy, they never navigate — no map links by decision */
+.addr {
+  display: inline-block; margin-top: 4px; padding: 3px 8px 3px 0; border: 0; background: none;
+  color: var(--slate-700); font-size: 13px; text-align: left; cursor: pointer;
+  text-decoration: underline dotted var(--slate-300); text-underline-offset: 3px;
+}
+.addr::before { content: '📋 '; }
+.addr.copied { color: var(--ok); }
+.addr.copied::after { content: ' copied'; font-size: 11.5px; font-weight: 700; }
+
+.chip.driver { background: var(--slate-800); color: var(--white); text-transform: none; letter-spacing: 0; }
+.chip.rig    { background: var(--slate-100); color: var(--slate-700); }
+.chip.wrench { background: #EDE9FE; color: #6D28D9; text-transform: none; letter-spacing: 0; }
+.chip.stage  { background: var(--red-soft); color: var(--red-deep); }
+.chip.pri-HIGH   { background: var(--bad-bg); color: var(--bad); }
+.chip.pri-MEDIUM { background: var(--slate-100); color: var(--slate-600); }
+.chip.pri-LOW    { background: var(--slate-100); color: var(--slate-500); }
+
+.daygroup { margin-bottom: 6px; }
+.dayhead {
+  font-size: 13px; font-weight: 700; color: var(--slate-800);
+  margin: 12px 0 6px; font-variant-numeric: tabular-nums;
+}
+h2 .disclose {
+  border: 0; background: none; padding: 0; cursor: pointer; color: inherit;
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+}
+h2 .count { background: var(--slate-100); color: var(--slate-700); }
+h2.danger .count { background: var(--bad-bg); color: var(--bad); }
+
+/* --------------------------------------------- sheets + segmented toggles */
+
+form.write.sheet { margin-bottom: 14px; }
+.actions.row { flex-direction: row; flex-wrap: wrap; }
+.actions.row .btn { width: auto; flex: 1 1 auto; min-width: 120px; }
+.toggle { display: flex; flex-wrap: wrap; gap: 8px; }
+.tg {
+  flex: 1 1 auto; min-height: 44px; padding: 8px 12px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--slate-300); background: var(--white); color: var(--slate-800);
+  font-weight: 650; font-size: 14.5px;
+}
+.tg.on { background: var(--red); border-color: var(--red); color: var(--white); }
+.btn.danger-btn { color: var(--bad); border-color: #FECACA; }
 
 /* ------------------------------------------------------------------- tabs */
 
@@ -444,6 +560,12 @@ form.write textarea { min-height: 80px; resize: vertical; }
 /* ---------------------------------------------------------------- desktop */
 
 @media (min-width: 720px) {
-  .kanban { grid-template-columns: repeat(3, 1fr); }
   .view { padding-top: 22px; }
+}
+
+/* All seven stages side by side once there is room for them. */
+@media (min-width: 1040px) {
+  .kan-wrap { width: 100vw; margin-left: calc(50% - 50vw); }
+  .kanban { scroll-snap-type: none; padding-left: max(16px, calc(50vw - 620px)); padding-right: 16px; }
+  .kan-col { flex: 1 1 0; }
 }
