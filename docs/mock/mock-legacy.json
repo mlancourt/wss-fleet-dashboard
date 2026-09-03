@@ -1,11 +1,11 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-03T17:33:14.516Z",
+    "generated_at": "2026-09-03T18:02:49.508Z",
     "run_id": "mock-legacy-2026-09-03",
     "fleet_totals": {
       "units": 39,
-      "cost": 648600,
+      "cost": 633600,
       "book": 433060,
       "ask": 604000
     },
@@ -36,7 +36,7 @@
       "readiness_note": null,
       "hours": 2710,
       "in_service": "2024-11-04",
-      "acquisition_cost": 15000,
+      "acquisition_cost": null,
       "book": 6893,
       "ask": 8900,
       "rate_card": {

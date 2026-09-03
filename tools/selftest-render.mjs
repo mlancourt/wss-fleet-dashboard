@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STAGES, STAGE_LABEL, PIPELINE_STAGES, columnsFor } from '../docs/service.js';
+import { utilization } from '../docs/metrics.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(HERE, '..', 'docs');
@@ -184,6 +185,48 @@ async function serviceUnder(filter) {
   for (const fn of fire) await fn({ target: { closest: (sel) => (sel === '[data-filter]' ? btn : null) } });
   return view._html;
 }
+
+await check('the landing shows both utilization bars, Units then Dollars (D44)', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  const out = await renderRoute('#/');
+  assert.ok(out.includes('Fleet utilization'), 'the card keeps its header');
+  const caps = [...out.matchAll(/class="util-cap">([^<]+)</g)].map((m) => m[1]);
+  assert.deepEqual(caps, ['Units', 'Dollars'], 'two captioned bars, units first');
+  assert.equal([...out.matchAll(/class="util-track"/g)].length, 2, 'two bars, one card');
+  assert.equal([...out.matchAll(/<section class="util"/g)].length, 1, 'one card, not two');
+
+  // The dollar sub-line is whole dollars with separators — no cents, no "≈".
+  const money = /\$[\d,]+ on rent of \$[\d,]+/.exec(out);
+  assert.ok(money, 'the dollar sub-line is missing');
+  assert.ok(!/\.\d\d/.test(money[0]), `no cents, got ${money[0]}`);
+
+  // Both bars must agree with the pure math, and the band class must sit on the
+  // bar rather than the card — the two can land in different bands.
+  const u = utilization(app.__state().snapshot.units);
+  assert.ok(out.includes(`>${u.units.pct}%<`) && out.includes(`>${u.dollars.pct}%<`));
+  assert.ok(out.includes(`util-bar util-${u.units.color}`));
+  assert.ok(out.includes(`util-bar util-${u.dollars.color}`));
+
+  // mock-full carries one costless unit, so the footnote must show and read singular.
+  assert.equal(u.dollars.excluded, 1, 'mock-full should hold exactly one costless unit');
+  assert.ok(out.includes('1 unit without a cost excluded'), 'the excluded footnote is missing');
+});
+
+await check('no costless units -> no footnote (the empty variant)', async () => {
+  window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
+  window.location.search = '?mock=empty&role=owner';
+  await app.__refresh();
+  const out = await renderRoute('#/');
+  assert.equal(utilization(app.__state().snapshot.units).dollars.excluded, 0);
+  assert.ok(!out.includes('without a cost excluded'), 'the footnote must hide when nothing was skipped');
+  assert.equal([...out.matchAll(/class="util-track"/g)].length, 2, 'both bars still draw');
+
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+});
 
 await check('the chip zone is All · Fleet · Customer, in that order (D43)', async () => {
   window.location.href = 'http://localhost:8787/?mock=full&role=owner';

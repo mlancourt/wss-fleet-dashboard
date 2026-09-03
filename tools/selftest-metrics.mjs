@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-/** selftest-metrics.mjs — pins the D19 utilization math and band edges. Run: npm test */
+/** selftest-metrics.mjs — pins the D19 (units) and D44 (dollars) utilization
+ *  math and the band edges both bars share. Run: npm test */
 import assert from 'node:assert/strict';
 import { utilization, band } from '../docs/metrics.js';
 
 let passed = 0;
 const check = (name, fn) => { fn(); passed++; console.log(`  ok  ${name}`); };
-const U = (state, status = 'RENTAL') => ({ unit_state: state, status });
+const U = (state, status = 'RENTAL', acquisition_cost = 1000) => ({ unit_state: state, status, acquisition_cost });
 
 console.log('utilization self-test');
 
@@ -25,15 +26,15 @@ check('denominator = RENTAL and not RETIRED; numerator = ON-RENT only', () => {
     U('LOANER-OUT', 'LOANER'), U('AVAILABLE', 'LOANER'),             // loaner status: excluded
     U('RETIRED'),                                                    // retired: excluded
   ];
-  const r = utilization(units);
-  assert.equal(r.denom, 5);
+  const r = utilization(units).units;
+  assert.equal(r.total, 5);
   assert.equal(r.onRent, 2);
   assert.equal(r.pct, 40);
   assert.equal(r.label, 'Building');
 });
 
 check('rounds to a whole percent, and the rounded value picks the band', () => {
-  const mk = (on, total) => utilization([...Array(on)].map(() => U('ON-RENT')).concat([...Array(total - on)].map(() => U('AVAILABLE'))));
+  const mk = (on, total) => utilization([...Array(on)].map(() => U('ON-RENT')).concat([...Array(total - on)].map(() => U('AVAILABLE')))).units;
   assert.equal(mk(2, 7).pct, 29);   // 28.57 -> 29 Low
   assert.equal(mk(2, 7).label, 'Low');
   assert.equal(mk(3, 5).pct, 60);   // exactly 60 -> Building
@@ -48,14 +49,107 @@ check('rounds to a whole percent, and the rounded value picks the band', () => {
 });
 
 check('empty fleet / no rental units -> no percentage, never NaN', () => {
-  assert.equal(utilization([]).pct, null);
-  assert.equal(utilization([U('RETIRED'), U('AVAILABLE', 'LOANER')]).pct, null);
-  assert.equal(utilization(undefined).label, '—');
+  for (const empty of [utilization([]), utilization([U('RETIRED'), U('AVAILABLE', 'LOANER')]), utilization(undefined)]) {
+    assert.equal(empty.units.pct, null);
+    assert.equal(empty.dollars.pct, null);
+    assert.equal(empty.units.label, '—');
+    assert.equal(empty.dollars.label, '—');
+    assert.equal(empty.dollars.total, 0);
+  }
 });
 
 check('ON-RENT never exceeds 100% even if a LOANER-status unit is marked ON-RENT', () => {
-  const r = utilization([U('ON-RENT'), U('ON-RENT', 'LOANER')]);
+  const r = utilization([U('ON-RENT'), U('ON-RENT', 'LOANER')]).units;
   assert.equal(r.pct, 100);
+});
+
+/* ------------------------------------------------ utilization by dollars (D44) */
+
+check('dollar % is on-rent cost over rentable cost, on the same population as units', () => {
+  const r = utilization([
+    U('ON-RENT', 'RENTAL', 30000), U('ON-RENT', 'RENTAL', 20000),   // $50k earning
+    U('AVAILABLE', 'RENTAL', 10000),                                 // $10k idle
+    U('ON-DEMO', 'RENTAL', 25000),                                   // out, not on rent
+    U('LOANER-OUT', 'RENTAL', 15000),                                // out, not on rent
+    U('RETIRED', 'RENTAL', 99999),                                   // never counted
+    U('AVAILABLE', 'LOANER', 88888),                                 // not rentable
+  ]);
+  assert.equal(r.dollars.onRent, 50000);
+  assert.equal(r.dollars.total, 100000);      // 30+20+10+25+15
+  assert.equal(r.dollars.pct, 50);
+  assert.equal(r.dollars.label, 'Building');
+  assert.equal(r.dollars.excluded, 0);
+  // the same call answers the unit question over the same five machines
+  assert.equal(r.units.total, 5);
+  assert.equal(r.units.onRent, 2);
+  assert.equal(r.units.pct, 40);
+});
+
+check('a demo or loaner counts as capital NOT on rent, never as on rent', () => {
+  const r = utilization([U('ON-DEMO', 'RENTAL', 40000), U('LOANER-OUT', 'RENTAL', 60000)]);
+  assert.equal(r.dollars.onRent, 0);
+  assert.equal(r.dollars.total, 100000);
+  assert.equal(r.dollars.pct, 0);
+  assert.equal(r.dollars.label, 'Low');
+});
+
+check('a missing cost is excluded from BOTH sides and counted — never treated as $0', () => {
+  const noCost = { unit_state: 'ON-RENT', status: 'RENTAL', acquisition_cost: null };
+  const absent = { unit_state: 'AVAILABLE', status: 'RENTAL' };
+  const r = utilization([U('ON-RENT', 'RENTAL', 60000), U('AVAILABLE', 'RENTAL', 40000), noCost, absent]);
+  assert.equal(r.dollars.excluded, 2);
+  assert.equal(r.dollars.onRent, 60000, 'the costless ON-RENT unit adds nothing to the numerator');
+  assert.equal(r.dollars.total, 100000, 'nor to the denominator');
+  assert.equal(r.dollars.pct, 60);
+  // Counting them as $0 would have given 60/100 on a 4-unit denominator — the
+  // trap this test exists for. The UNIT bar still counts all four.
+  assert.equal(r.units.total, 4);
+  assert.equal(r.units.onRent, 2);
+  // A non-finite cost is missing too, not zero.
+  assert.equal(utilization([U('ON-RENT', 'RENTAL', NaN), U('AVAILABLE', 'RENTAL', 100)]).dollars.excluded, 1);
+});
+
+check('every cost missing -> no dollar percentage, never NaN or a divide-by-zero', () => {
+  const r = utilization([{ unit_state: 'ON-RENT', status: 'RENTAL' }, { unit_state: 'AVAILABLE', status: 'RENTAL' }]);
+  assert.equal(r.dollars.pct, null);
+  assert.equal(r.dollars.label, '—');
+  assert.equal(r.dollars.excluded, 2);
+  assert.equal(r.units.pct, 50, 'the unit bar is unaffected by missing money');
+});
+
+check('both bars read the same band vocabulary for the same percentage', () => {
+  for (const pct of [0, 29, 30, 60, 61, 80, 81, 100]) {
+    const onUnits = utilization([...Array(pct)].map(() => U('ON-RENT'))
+      .concat([...Array(100 - pct)].map(() => U('AVAILABLE')))).units;
+    // one $1 unit per percentage point makes the dollar ratio identical
+    const onDollars = utilization([...Array(pct)].map(() => U('ON-RENT', 'RENTAL', 1))
+      .concat([...Array(100 - pct)].map(() => U('AVAILABLE', 'RENTAL', 1)))).dollars;
+    assert.equal(onUnits.pct, pct);
+    assert.equal(onDollars.pct, pct);
+    assert.equal(onDollars.label, onUnits.label, `${pct}% must read the same on both bars`);
+    assert.equal(onDollars.color, onUnits.color);
+  }
+});
+
+check('the live example: 18/35 units = 51%, $251,624/$421,578 = 60% Building', () => {
+  // Two bars, one fleet, legitimately different numbers — a few expensive
+  // riders out on rent move the money bar further than the unit bar.
+  const fleet = [];
+  // 18 on rent totalling 251,624; 17 idle totalling 169,954 (= 421,578 - 251,624)
+  const spread = (n, total, state) => {
+    const each = Math.floor(total / n);
+    for (let i = 0; i < n; i++) fleet.push(U(state, 'RENTAL', i === n - 1 ? total - each * (n - 1) : each));
+  };
+  spread(18, 251624, 'ON-RENT');
+  spread(17, 169954, 'AVAILABLE');
+  const r = utilization(fleet);
+  assert.equal(r.units.total, 35);
+  assert.equal(r.units.onRent, 18);
+  assert.equal(r.units.pct, 51);          // 51.43 -> 51
+  assert.equal(r.dollars.onRent, 251624);
+  assert.equal(r.dollars.total, 421578);
+  assert.equal(r.dollars.pct, 60);        // 59.69 -> 60
+  assert.equal(r.dollars.label, 'Building');
 });
 
 console.log(`\n${passed} checks passed`);

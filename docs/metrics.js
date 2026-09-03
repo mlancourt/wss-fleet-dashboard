@@ -2,20 +2,57 @@
  * can pin the band edges. */
 
 /**
- * Fleet utilization (D19).
- *   numerator    units ON-RENT
- *   denominator  units with status "RENTAL" and unit_state != "RETIRED"
- * Demos and loaner-outs are not on rent. The numerator is taken inside the
- * denominator set, so the ratio can never exceed 100%.
- * Bands on the rounded whole-percent: <30 Low · 30–60 Building · 61–80 Healthy · >80 Over-extended.
+ * Fleet utilization (D19 by units, D44 by dollars) — one rentable population,
+ * measured two ways.
+ *
+ *   population   units with status "RENTAL" and unit_state != "RETIRED"
+ *                (RETIRED never ships anyway — D34)
+ *   by units     ON-RENT count ÷ population count
+ *   by dollars   ON-RENT acquisition_cost ÷ population acquisition_cost
+ *
+ * Demos and loaner-outs are out but not earning rent, so they sit in the
+ * denominator of both. Each numerator is taken inside its own denominator set,
+ * so neither ratio can exceed 100%.
+ *
+ * ACQUISITION COST ONLY (D44). Never book or ask: book drifts every anniversary
+ * and would move the bar with no machine moving. Cost is what is actually tied
+ * up in the yard. There is deliberately no toggle.
+ *
+ * A unit with no acquisition_cost is skipped on BOTH sides of the dollar ratio
+ * and counted in `excluded` — treating a missing cost as $0 would quietly drag
+ * the percentage down and make the fleet look worse than it is.
+ *
+ * Bands on the rounded whole-percent, identical for both bars:
+ *   <30 Low · 30–60 Building · 61–80 Healthy · >80 Over-extended.
  * The word label is mandatory in the UI — two bands are red.
+ *
+ * -> { units: {onRent, total, pct, band, label, color},
+ *      dollars: {onRent, total, pct, excluded, band, label, color} }
  */
 export function utilization(units) {
   const pool = (units || []).filter((u) => u.status === 'RENTAL' && u.unit_state !== 'RETIRED');
-  const onRent = pool.filter((u) => u.unit_state === 'ON-RENT').length;
-  const denom = pool.length;
-  const pct = denom ? Math.round((onRent / denom) * 100) : null;
-  return { pct, onRent, denom, ...band(pct) };
+  const isOut = (u) => u.unit_state === 'ON-RENT';
+
+  const onRent = pool.filter(isOut).length;
+  const total = pool.length;
+  const pct = total ? Math.round((onRent / total) * 100) : null;
+
+  const costed = pool.filter((u) => typeof u.acquisition_cost === 'number' && isFinite(u.acquisition_cost));
+  const sum = (list) => list.reduce((n, u) => n + u.acquisition_cost, 0);
+  const dollarTotal = sum(costed);
+  const dollarOnRent = sum(costed.filter(isOut));
+  const dollarPct = dollarTotal ? Math.round((dollarOnRent / dollarTotal) * 100) : null;
+
+  return {
+    units: { onRent, total, pct, ...band(pct) },
+    dollars: {
+      onRent: dollarOnRent,
+      total: dollarTotal,
+      pct: dollarPct,
+      excluded: pool.length - costed.length,
+      ...band(dollarPct),
+    },
+  };
 }
 
 /** -> { band: 'low'|'building'|'healthy'|'over'|'none', label, color: 'red'|'yellow'|'green'|'none' } */

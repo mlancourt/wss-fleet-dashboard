@@ -17,6 +17,8 @@
  *   - every unit_state: AVAILABLE RESERVED ON-RENT ON-DEMO LOANER-OUT IN-SHOP RETIRED
  *   - every readiness: READY NEEDS-PREP DOWN NEEDS-PICKUP
  *   - an agreements row with "agreement": null  (unbilled-rental alert)
+ *   - D44: one rentable unit with acquisition_cost null (full variant only) so
+ *     the dollar-utilization bar's "excluded" footnote is exercised
  *   - a split-cycle invoice ("R....-7.1") and a bare QBO invoice number
  *   - a LOANER-OUT unit with an agreement number and NO agreements row
  *   - category cards that land on each of the green / yellow / red lights
@@ -274,6 +276,14 @@ function build({ withServiceQueue }) {
     customer_po: null,
     alerts: ['UNBILLED RENTAL — unit is out with no agreement'],
   };
+
+  // D44: one rentable unit with NO acquisition cost, in the full variant only.
+  // The dollar-utilization bar must skip it on both sides and footnote it — the
+  // empty variant keeps every cost so the no-footnote path is covered too.
+  if (withServiceQueue) {
+    const costless = units.find((u) => u.status === 'RENTAL' && u.unit_state === 'AVAILABLE');
+    if (costless) costless.acquisition_cost = null;
+  }
 
   // ------------------------------------------------------------- pick-ups (D32)
   // The customer released an out unit; it's still ON-RENT until a truck fetches it.
@@ -582,7 +592,7 @@ function build({ withServiceQueue }) {
 
   const totals = units.reduce((acc, u) => {
     acc.units += 1;
-    acc.cost += u.acquisition_cost;
+    acc.cost += u.acquisition_cost || 0;   // a costless unit contributes nothing, never NaN
     acc.book += u.book;
     acc.ask += u.ask;
     return acc;

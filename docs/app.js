@@ -32,7 +32,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-04a';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-04b';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -314,17 +314,38 @@ function viewCategories() {
 }
 
 /** Fleet-utilization bar (D19). The word label is mandatory: two bands are red. */
+/**
+ * Fleet utilization: one card, two bars (D19 units + D44 dollars).
+ *
+ * The same fleet measured two ways, because they answer different questions —
+ * how many machines are out, and how much of the money in the yard is earning.
+ * A few expensive riders out on rent can put the dollar bar a band above the
+ * unit bar, which is the point of showing both.
+ *
+ * The band colour lives on each bar, not the card: the two can legitimately
+ * disagree.
+ */
 function utilBar() {
   const u = utilization(units());
-  if (u.pct == null) return '';
-  return html`
-    <section class="util util-${u.color}" aria-label="Fleet utilization ${u.pct}% — ${u.label}">
+  if (u.units.pct == null && u.dollars.pct == null) return '';
+
+  const bar = (caption, m, subline) => (m.pct == null ? '' : html`
+    <div class="util-bar util-${m.color}" aria-label="${caption} — ${m.pct}% ${m.label}">
       <div class="util-row">
-        <span class="util-t">Fleet utilization</span>
-        <span class="util-v"><strong>${u.pct}%</strong><span class="util-l">${u.label}</span></span>
+        <span class="util-cap">${caption}</span>
+        <span class="util-v"><strong>${m.pct}%</strong><span class="util-l">${m.label}</span></span>
       </div>
-      <div class="util-track"><div class="util-fill" style="width:${u.pct}%"></div></div>
-      <div class="util-s">${u.onRent} of ${u.denom} rental units on rent</div>
+      <div class="util-track"><div class="util-fill" style="width:${m.pct}%"></div></div>
+      <div class="util-s">${raw(subline)}</div>
+    </div>`);
+
+  const n = u.dollars.excluded;
+  return html`
+    <section class="util" aria-label="Fleet utilization">
+      <div class="util-t">Fleet utilization</div>
+      ${raw(bar('Units', u.units, html`${u.units.onRent} of ${u.units.total} rental units on rent`))}
+      ${raw(bar('Dollars', u.dollars, html`${fmtMoney(u.dollars.onRent)} on rent of ${fmtMoney(u.dollars.total)}`))}
+      ${n ? raw(html`<div class="util-fn">${n} unit${n === 1 ? '' : 's'} without a cost excluded</div>`) : ''}
     </section>`;
 }
 
