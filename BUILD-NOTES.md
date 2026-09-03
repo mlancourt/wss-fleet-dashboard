@@ -194,3 +194,104 @@ When the Architect says schema 3 is live, in this order:
 
 Then delete `mock-legacy.json` and its wiring (README says where), and set the
 v1.6 row in the README status table to live.
+
+---
+
+# D43 — Service Pipeline widget + filter-driven Service tab (2026-09-04)
+
+Built from `Service-Pipeline-Widget-Site-Spec.md` (below its cut line) against
+`CLAUDE.md` v1.7. **Site-only, as the order says** — no snapshot, Worker or
+event changes, and no `wrangler deploy`. Everything is computed on the client
+from `service_queue[]` and `service_summary`, the way the Fleet Status board is
+computed from `units[]`.
+
+## What shipped
+
+**Service tab, top to bottom:** `+ New ticket` · filter chips · widget zone ·
+kanban.
+
+- **Chips reordered to `All · Fleet · Customer`**, All default, counts as
+  before. The choice is remembered per device (`localStorage`, try/catch,
+  falling back to All on anything unexpected) so a tech who lives in Fleet
+  lands there. Verified across a full page reload in a real browser.
+- **Widget zone by chip** — All: Fleet Status then Service Pipeline, with the
+  muted caption "Customer machines · fleet repairs are on the board above";
+  Fleet: the board alone; Customer: the pipeline alone.
+- **Kanban** — under Fleet it drops WAITING-ON-CUSTOMER and READY-TO-INVOICE
+  (six columns); All and Customer show all eight.
+- **Service Pipeline widget** — a sibling of the fleet board: same card, same
+  row anatomy, same typography. Seven rows in stage order over **open CUSTOMER
+  tickets**, one shared 100% scale, zero rows still drawn. Header pill `N open`
+  plus a muted `N closed this week` that hides at zero. COMPLETE is the pill,
+  never a row. Rows are buttons: tapping one scrolls the kanban to that column
+  and never changes the chip.
+- **`docs/service.js`** gained `pipeline(queue)` and `columnsFor(filter)`, both
+  pure. `BUILD` stamp and SW cache bumped (v11 → v12).
+
+## Tests
+
+`npm test` — 80 checks green, also under `TZ=Pacific/Pago_Pago`. Seven new
+assertions in `selftest-service.mjs` (row order, counts and pct on a mixed
+queue, fleet tickets excluded, closed-this-week from `status`, `columnsFor`
+dropping exactly the two stages, empty queue → seven zero rows) and six in
+`selftest-render.mjs` (chip order, each chip's widgets and column count, only
+the right tickets drawn under each, seven tappable rows with a live pill, chip
+persistence across a re-boot, and the card never hiding on an empty snapshot).
+
+Browser-verified at 390×844: chip order, widgets per chip, six-vs-eight
+columns, persistence across a full reload, row tap scrolling without
+re-filtering, and zero console exceptions.
+
+## Decisions I made
+
+1. **`columnsFor('WSS')` is `stagesFor('WSS')`.** The kanban's six columns and
+   the ticket-detail stage picker are the same rule; deriving one from the
+   other means they cannot drift if the hidden set ever changes.
+
+2. **A hidden column still appears if a ticket is actually in it.** Under Fleet,
+   if the engine ever parks a WSS ticket in WAITING-ON-CUSTOMER, that column is
+   appended rather than the ticket vanishing. Hiding a column is a display
+   choice; dropping a ticket is data loss, and `columnize` already promised
+   never to do it.
+
+3. **The widgets survive an empty queue; only the kanban is replaced.** The old
+   code returned early on an empty `service_queue` and drew nothing but the
+   empty state. The spec says the pipeline card must never hide, so the empty
+   state now replaces the kanban alone and the shop's shape still reads.
+
+4. **The pipeline's label column is wider than the fleet board's.** At 390px,
+   "Waiting on customer" ran into the count. The bar gives up those pixels
+   rather than the label being truncated — the seven bars share one scale, so
+   they're read against each other, not measured. Row heights stay uniform
+   (40px), which is what "stable layout" is protecting.
+
+5. **The `closed this week` pill hides at zero** rather than reading "0 closed
+   this week" — the order left this to me.
+
+6. **Row tap never changes the chip**, under any chip. The spec only requires
+   this for All and Fleet; making it unconditional means the widget is a way to
+   read the board and never a second, hidden filter.
+
+7. **Chip persistence is separate from the token/API storage keys**
+   (`wss_fleet_service_filter`), and every read and write is wrapped — a device
+   with storage blocked simply gets All every time, no error path.
+
+## Things worth flagging
+
+**None blocking.**
+
+- **`columnize`'s "unknown stage" behaviour narrowed slightly.** It used to scan
+  the whole queue for stages it didn't recognise; it now scans the tickets the
+  current filter actually renders. Same guarantee (no ticket is ever dropped),
+  but a stage occupied only by tickets the filter hides no longer produces an
+  empty column — which is the point of the Fleet six-column view.
+
+- **The `N open` chip counts and the pipeline's `N open` come from different
+  places** — the chips prefer `service_summary.open_customer`, the widget counts
+  the rows it draws. They agreed on mock. If they ever disagree on real data
+  that is a `service_summary` bug worth reporting to the Architect, not
+  something to paper over on the client.
+
+- **No test covers the scroll itself**, only that the handler targets the right
+  column id and leaves the chip alone; `scrollIntoView` is browser behaviour.
+  It was exercised by hand in Chrome (scrollLeft moved 0 → 1461).
