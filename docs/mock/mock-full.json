@@ -1,13 +1,21 @@
 {
   "meta": {
-    "schema_version": 3,
-    "generated_at": "2026-09-03T18:02:49.508Z",
+    "schema_version": 4,
+    "generated_at": "2026-09-03T18:16:48.273Z",
     "run_id": "mock-full-2026-09-03",
     "fleet_totals": {
-      "units": 39,
-      "cost": 633600,
-      "book": 433060,
-      "ask": 604000
+      "units": 39
+    },
+    "utilization": {
+      "units": {
+        "on_rent": 19,
+        "total": 35,
+        "pct": 54
+      },
+      "dollars": {
+        "pct": 55,
+        "excluded": 1
+      }
     },
     "mock": true
   },
@@ -36,8 +44,6 @@
       "readiness_note": null,
       "hours": 2710,
       "in_service": "2024-11-04",
-      "acquisition_cost": null,
-      "book": 6893,
       "ask": 8900,
       "rate_card": {
         "full_day": 325,
@@ -87,8 +93,6 @@
       "readiness_note": null,
       "hours": 3096,
       "in_service": "2024-06-23",
-      "acquisition_cost": 6400,
-      "book": 4290,
       "ask": 6050,
       "rate_card": {
         "full_day": 470,
@@ -117,8 +121,6 @@
       "readiness_note": null,
       "hours": 695,
       "in_service": "2024-11-25",
-      "acquisition_cost": 22200,
-      "book": 12543,
       "ask": 17950,
       "rate_card": {
         "full_day": 575,
@@ -168,8 +170,6 @@
       "readiness_note": "Customer called — released, unit at the dock",
       "hours": 2426,
       "in_service": "2024-05-14",
-      "acquisition_cost": 8900,
-      "book": 6640,
       "ask": 9200,
       "rate_card": {
         "full_day": 435,
@@ -198,8 +198,6 @@
       "readiness_note": null,
       "hours": 481,
       "in_service": "2023-08-11",
-      "acquisition_cost": 21800,
-      "book": 15563,
       "ask": 19600,
       "rate_card": {
         "full_day": 305,
@@ -228,8 +226,6 @@
       "readiness_note": null,
       "hours": 1856,
       "in_service": "2024-12-13",
-      "acquisition_cost": 23100,
-      "book": 14145,
       "ask": 21900,
       "rate_card": {
         "full_day": 225,
@@ -258,8 +254,6 @@
       "readiness_note": "Released Friday; site closes at 3",
       "hours": 3208,
       "in_service": "2022-12-12",
-      "acquisition_cost": 24300,
-      "book": 11442,
       "ask": 16250,
       "rate_card": {
         "full_day": 155,
@@ -288,8 +282,6 @@
       "readiness_note": "Job wrapped early — call the plant before you roll",
       "hours": 2671,
       "in_service": "2023-11-15",
-      "acquisition_cost": 23100,
-      "book": 14430,
       "ask": 19550,
       "rate_card": {
         "full_day": 495,
@@ -318,8 +310,6 @@
       "readiness_note": null,
       "hours": 2384,
       "in_service": "2023-10-24",
-      "acquisition_cost": 10100,
-      "book": 7532,
       "ask": 9750,
       "rate_card": {
         "full_day": 465,
@@ -359,8 +349,6 @@
       "readiness_note": null,
       "hours": 2297,
       "in_service": "2024-11-12",
-      "acquisition_cost": 13100,
-      "book": 10751,
       "ask": 14200,
       "rate_card": {
         "full_day": 405,
@@ -389,8 +377,6 @@
       "readiness_note": null,
       "hours": 3393,
       "in_service": "2023-09-07",
-      "acquisition_cost": 11200,
-      "book": 8346,
       "ask": 12000,
       "rate_card": {
         "full_day": 200,
@@ -419,8 +405,6 @@
       "readiness_note": null,
       "hours": 3245,
       "in_service": "2023-04-16",
-      "acquisition_cost": 10600,
-      "book": 6168,
       "ask": 9250,
       "rate_card": {
         "full_day": 340,
@@ -449,8 +433,6 @@
       "readiness_note": "awaiting pump assembly",
       "hours": 2173,
       "in_service": "2025-06-26",
-      "acquisition_cost": 8500,
-      "book": 6896,
       "ask": 9400,
       "rate_card": {
         "full_day": 195,
@@ -490,8 +472,6 @@
       "readiness_note": "brush worn, swap before ship",
       "hours": 2319,
       "in_service": "2023-10-15",
-      "acquisition_cost": 12800,
-      "book": 10845,
       "ask": 16800,
       "rate_card": {
         "full_day": 445,
@@ -531,8 +511,6 @@
       "readiness_note": "squeegee blades ordered",
       "hours": 3229,
       "in_service": "2024-08-18",
-      "acquisition_cost": 20000,
-      "book": 13274,
       "ask": 17650,
       "rate_card": {
         "full_day": 205,
@@ -561,8 +539,6 @@
       "readiness_note": null,
       "hours": 1130,
       "in_service": "2022-01-23",
-      "acquisition_cost": 4200,
-      "book": 2679,
       "ask": 3700,
       "rate_card": {
         "full_day": 310,
@@ -591,8 +567,6 @@
       "readiness_note": null,
       "hours": 304,
       "in_service": "2024-07-14",
-      "acquisition_cost": 14500,
-      "book": 10275,
       "ask": 15050,
       "rate_card": {
         "full_day": 460,
@@ -621,8 +595,6 @@
       "readiness_note": null,
       "hours": 241,
       "in_service": "2024-06-17",
-      "acquisition_cost": 25400,
-      "book": 20990,
       "ask": 31300,
       "rate_card": {
         "full_day": 390,
@@ -651,8 +623,6 @@
       "readiness_note": "brush worn, swap before ship",
       "hours": 1906,
       "in_service": "2025-07-30",
-      "acquisition_cost": 17400,
-      "book": 9948,
       "ask": 14050,
       "rate_card": {
         "full_day": 550,
@@ -681,8 +651,6 @@
       "readiness_note": null,
       "hours": 1316,
       "in_service": "2022-03-18",
-      "acquisition_cost": 10700,
-      "book": 8779,
       "ask": 11600,
       "rate_card": {
         "full_day": 590,
@@ -711,8 +679,6 @@
       "readiness_note": null,
       "hours": 2308,
       "in_service": "2022-04-22",
-      "acquisition_cost": 25200,
-      "book": 20023,
       "ask": 25850,
       "rate_card": {
         "full_day": 325,
@@ -741,8 +707,6 @@
       "readiness_note": null,
       "hours": 2027,
       "in_service": "2025-10-06",
-      "acquisition_cost": 23100,
-      "book": 18073,
       "ask": 25050,
       "rate_card": {
         "full_day": 255,
@@ -771,8 +735,6 @@
       "readiness_note": null,
       "hours": 1897,
       "in_service": "2025-01-02",
-      "acquisition_cost": 20600,
-      "book": 12057,
       "ask": 15950,
       "rate_card": {
         "full_day": 530,
@@ -801,8 +763,6 @@
       "readiness_note": null,
       "hours": 1968,
       "in_service": "2025-08-17",
-      "acquisition_cost": 20400,
-      "book": 10121,
       "ask": 14950,
       "rate_card": {
         "full_day": 370,
@@ -831,8 +791,6 @@
       "readiness_note": null,
       "hours": 3212,
       "in_service": "2022-03-08",
-      "acquisition_cost": 9500,
-      "book": 4651,
       "ask": 6000,
       "rate_card": {
         "full_day": 330,
@@ -861,8 +819,6 @@
       "readiness_note": null,
       "hours": 1753,
       "in_service": "2023-10-31",
-      "acquisition_cost": 8500,
-      "book": 4905,
       "ask": 7000,
       "rate_card": {
         "full_day": 260,
@@ -891,8 +847,6 @@
       "readiness_note": "awaiting pump assembly",
       "hours": null,
       "in_service": "2022-03-06",
-      "acquisition_cost": 12800,
-      "book": 5793,
       "ask": 8550,
       "rate_card": {
         "full_day": 470,
@@ -921,8 +875,6 @@
       "readiness_note": null,
       "hours": 1706,
       "in_service": "2025-07-29",
-      "acquisition_cost": 21000,
-      "book": 16770,
       "ask": 23400,
       "rate_card": {
         "full_day": 465,
@@ -951,8 +903,6 @@
       "readiness_note": null,
       "hours": 1823,
       "in_service": "2022-03-09",
-      "acquisition_cost": 8800,
-      "book": 5115,
       "ask": 7500,
       "rate_card": {
         "full_day": 230,
@@ -981,8 +931,6 @@
       "readiness_note": null,
       "hours": 2074,
       "in_service": "2023-05-08",
-      "acquisition_cost": 23000,
-      "book": 17275,
       "ask": 21850,
       "rate_card": {
         "full_day": 480,
@@ -1011,8 +959,6 @@
       "readiness_note": "controller fault F14",
       "hours": 1441,
       "in_service": "2025-04-18",
-      "acquisition_cost": 23700,
-      "book": 13431,
       "ask": 18250,
       "rate_card": {
         "full_day": 310,
@@ -1041,8 +987,6 @@
       "readiness_note": null,
       "hours": 1420,
       "in_service": "2022-06-30",
-      "acquisition_cost": 15200,
-      "book": 11479,
       "ask": 17200,
       "rate_card": {
         "full_day": 485,
@@ -1071,8 +1015,6 @@
       "readiness_note": null,
       "hours": 2527,
       "in_service": "2025-08-06",
-      "acquisition_cost": 21000,
-      "book": 17239,
       "ask": 21800,
       "rate_card": {
         "full_day": 535,
@@ -1101,8 +1043,6 @@
       "readiness_note": null,
       "hours": 929,
       "in_service": "2023-10-11",
-      "acquisition_cost": 22500,
-      "book": 13669,
       "ask": 20450,
       "rate_card": {
         "full_day": 270,
@@ -1131,8 +1071,6 @@
       "readiness_note": null,
       "hours": 2987,
       "in_service": "2024-12-03",
-      "acquisition_cost": 19500,
-      "book": 11704,
       "ask": 15800,
       "rate_card": {
         "full_day": 440,
@@ -1202,8 +1140,6 @@
       "readiness_note": "battery watering due",
       "hours": 1258,
       "in_service": "2025-07-17",
-      "acquisition_cost": 23700,
-      "book": 19944,
       "ask": 30600,
       "rate_card": {
         "full_day": 400,
@@ -1232,8 +1168,6 @@
       "readiness_note": null,
       "hours": 3167,
       "in_service": "2024-07-04",
-      "acquisition_cost": 20500,
-      "book": 12655,
       "ask": 17850,
       "rate_card": {
         "full_day": 520,
@@ -1262,8 +1196,6 @@
       "readiness_note": null,
       "hours": 2568,
       "in_service": "2025-05-23",
-      "acquisition_cost": 12800,
-      "book": 6850,
       "ask": 10200,
       "rate_card": {
         "full_day": 265,
@@ -1292,8 +1224,6 @@
       "readiness_note": "squeegee blades ordered",
       "hours": null,
       "in_service": "2025-07-03",
-      "acquisition_cost": 13500,
-      "book": 8877,
       "ask": 11600,
       "rate_card": {
         "full_day": 505,

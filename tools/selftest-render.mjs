@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STAGES, STAGE_LABEL, PIPELINE_STAGES, columnsFor } from '../docs/service.js';
-import { utilization } from '../docs/metrics.js';
+import { utilization, utilizationFrom } from '../docs/metrics.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(HERE, '..', 'docs');
@@ -186,7 +186,7 @@ async function serviceUnder(filter) {
   return view._html;
 }
 
-await check('the landing shows both utilization bars, Units then Dollars (D44)', async () => {
+await check('the landing shows both utilization bars, Units then Dollars (D44/D45)', async () => {
   window.location.href = 'http://localhost:8787/?mock=full&role=owner';
   window.location.search = '?mock=full&role=owner';
   await app.__refresh();
@@ -197,20 +197,17 @@ await check('the landing shows both utilization bars, Units then Dollars (D44)',
   assert.equal([...out.matchAll(/class="util-track"/g)].length, 2, 'two bars, one card');
   assert.equal([...out.matchAll(/<section class="util"/g)].length, 1, 'one card, not two');
 
-  // The dollar sub-line is whole dollars with separators — no cents, no "≈".
-  const money = /\$[\d,]+ on rent of \$[\d,]+/.exec(out);
-  assert.ok(money, 'the dollar sub-line is missing');
-  assert.ok(!/\.\d\d/.test(money[0]), `no cents, got ${money[0]}`);
-
-  // Both bars must agree with the pure math, and the band class must sit on the
-  // bar rather than the card — the two can land in different bands.
-  const u = utilization(app.__state().snapshot.units);
+  // The percentages come from meta.utilization on a schema-4 snapshot.
+  const snap = app.__state().snapshot;
+  assert.equal(snap.meta.schema_version, 4, 'mock-full should be schema 4 now');
+  const u = utilizationFrom(snap);
+  assert.equal(u.units.pct, snap.meta.utilization.units.pct, 'engine number, not a recomputation');
   assert.ok(out.includes(`>${u.units.pct}%<`) && out.includes(`>${u.dollars.pct}%<`));
   assert.ok(out.includes(`util-bar util-${u.units.color}`));
   assert.ok(out.includes(`util-bar util-${u.dollars.color}`));
 
-  // mock-full carries one costless unit, so the footnote must show and read singular.
-  assert.equal(u.dollars.excluded, 1, 'mock-full should hold exactly one costless unit');
+  // mock-full leaves one unit out of the cost ledger, so the footnote shows.
+  assert.equal(u.dollars.excluded, 1, 'mock-full should exclude exactly one unit');
   assert.ok(out.includes('1 unit without a cost excluded'), 'the excluded footnote is missing');
 });
 
@@ -219,13 +216,76 @@ await check('no costless units -> no footnote (the empty variant)', async () => 
   window.location.search = '?mock=empty&role=owner';
   await app.__refresh();
   const out = await renderRoute('#/');
-  assert.equal(utilization(app.__state().snapshot.units).dollars.excluded, 0);
+  assert.equal(utilizationFrom(app.__state().snapshot).dollars.excluded, 0);
   assert.ok(!out.includes('without a cost excluded'), 'the footnote must hide when nothing was skipped');
   assert.equal([...out.matchAll(/class="util-track"/g)].length, 2, 'both bars still draw');
 
   window.location.href = 'http://localhost:8787/?mock=full&role=owner';
   window.location.search = '?mock=full&role=owner';
   await app.__refresh();
+});
+
+/* ------------------------------------------ cost + book leave the site (D45) */
+
+await check('no dollar AMOUNT appears anywhere on the landing page', async () => {
+  const out = await renderRoute('#/');
+  // Percentages yes; currency no. The old "$X on rent of $Y" sub-line is gone
+  // and nothing else on the landing may print money.
+  const money = out.match(/\$[\d,]+/g);
+  assert.equal(money, null, `the landing must show no dollar amounts, found ${money}`);
+  assert.ok(!/on rent of/.test(out), 'the dollar sub-line must be gone');
+  // the units bar keeps its own count sub-line — that is a machine count, not money
+  assert.ok(/\d+ of \d+ rental units on rent/.test(out), 'the units sub-line stays');
+});
+
+await check('the unit page shows Ask but never Cost or Book', async () => {
+  const snap = app.__state().snapshot;
+  for (const u of snap.units.slice(0, 8)) {
+    const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+    assert.ok(!/Acquisition cost/.test(out), `#${u.serial} still shows Acquisition cost`);
+    assert.ok(!/<dt>Book<\/dt>/.test(out), `#${u.serial} still shows Book`);
+    assert.ok(/<dt>Ask<\/dt>/.test(out), `#${u.serial} lost Ask, which stays`);
+    assert.ok(!/undefined|\$NaN/.test(out), `#${u.serial} rendered a placeholder`);
+  }
+});
+
+await check('a schema-3 snapshot still renders — and its costs stay off the screen', async () => {
+  // mock-legacy is an authentic pre-schema-4 file: it carries acquisition_cost
+  // and book on every unit and has NO meta.utilization. The page must fall back
+  // to computing the bars, and must still refuse to print those figures.
+  window.location.href = 'http://localhost:8787/?mock=legacy&role=owner';
+  window.location.search = '?mock=legacy&role=owner';
+  await app.__refresh();
+  const snap = app.__state().snapshot;
+  assert.ok(snap.units.some((u) => typeof u.acquisition_cost === 'number'), 'legacy fixture lost its costs');
+  assert.equal(snap.meta.utilization, undefined, 'legacy must have no meta.utilization');
+
+  const landing = await renderRoute('#/');
+  const u = utilizationFrom(snap);
+  assert.equal(u.units.pct, utilization(snap.units).units.pct, 'the fallback path must be the one used');
+  assert.ok(landing.includes(`>${u.units.pct}%<`), 'the fallback still draws the units bar');
+  assert.ok(landing.includes(`>${u.dollars.pct}%<`), 'and the dollars bar');
+  assert.equal(landing.match(/\$[\d,]+/g), null, 'no amounts, even when the snapshot has them');
+
+  const withCost = snap.units.find((x) => typeof x.acquisition_cost === 'number');
+  const unitPage = await renderRoute(`#/unit/${encodeURIComponent(withCost.serial)}`);
+  assert.ok(!/Acquisition cost/.test(unitPage) && !/<dt>Book<\/dt>/.test(unitPage),
+    'an old snapshot still carries cost and book — the page must ignore them, not display them');
+
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+});
+
+await check('a unit stripped of every money field renders clean', async () => {
+  const snap = app.__state().snapshot;
+  const u = snap.units[0];
+  const saved = { ask: u.ask };
+  delete u.ask;                       // schema 4 keeps ask, but tolerate its absence
+  const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(!/undefined|\$NaN|NaN/.test(out), 'a money-less unit must render clean');
+  assert.ok(/<dt>Ask<\/dt>/.test(out), 'the row stays, showing an em dash');
+  Object.assign(u, saved);
 });
 
 await check('the chip zone is All · Fleet · Customer, in that order (D43)', async () => {

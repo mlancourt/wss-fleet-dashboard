@@ -22,7 +22,7 @@ import {
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
 import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
-import { utilization, statusBoard, recurringRevenue } from './metrics.js';
+import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
   stageOptions, columnize, pipeline, sortTickets, missingMoves, openCount, dispatchFor, dispatchById,
@@ -32,7 +32,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-04b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-04c';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -326,7 +326,9 @@ function viewCategories() {
  * disagree.
  */
 function utilBar() {
-  const u = utilization(units());
+  // Schema 4 hands us the percentages already computed and ships no costs at
+  // all; schema 3 gets computed here. utilizationFrom() picks (D45).
+  const u = utilizationFrom(state.snapshot);
   if (u.units.pct == null && u.dollars.pct == null) return '';
 
   const bar = (caption, m, subline) => (m.pct == null ? '' : html`
@@ -336,15 +338,20 @@ function utilBar() {
         <span class="util-v"><strong>${m.pct}%</strong><span class="util-l">${m.label}</span></span>
       </div>
       <div class="util-track"><div class="util-fill" style="width:${m.pct}%"></div></div>
-      <div class="util-s">${raw(subline)}</div>
+      ${subline ? raw(html`<div class="util-s">${raw(subline)}</div>`) : ''}
     </div>`);
 
+  // The dollar bar deliberately carries NO sub-line: schema 4 ships no amounts,
+  // and on schema 3 we decline to show the ones we could still add up (D45).
+  // A percentage is all the money anybody reads on this site.
   const n = u.dollars.excluded;
+  const unitsSub = u.units.onRent != null && u.units.total != null
+    ? html`${u.units.onRent} of ${u.units.total} rental units on rent` : '';
   return html`
     <section class="util" aria-label="Fleet utilization">
       <div class="util-t">Fleet utilization</div>
-      ${raw(bar('Units', u.units, html`${u.units.onRent} of ${u.units.total} rental units on rent`))}
-      ${raw(bar('Dollars', u.dollars, html`${fmtMoney(u.dollars.onRent)} on rent of ${fmtMoney(u.dollars.total)}`))}
+      ${raw(bar('Units', u.units, unitsSub))}
+      ${raw(bar('Dollars', u.dollars, ''))}
       ${n ? raw(html`<div class="util-fn">${n} unit${n === 1 ? '' : 's'} without a cost excluded</div>`) : ''}
     </section>`;
 }
@@ -443,8 +450,6 @@ function viewUnit(serial) {
 
     <h2>Money</h2>
     <div class="card"><dl class="kv">
-      ${raw(kvRow('Acquisition cost', fmtMoney(u.acquisition_cost), 'num'))}
-      ${raw(kvRow('Book', fmtMoney(u.book), 'num'))}
       ${raw(kvRow('Ask', fmtMoney(u.ask), 'num'))}
       ${raw(rateRow('Rate — full day', rc.full_day))}
       ${raw(rateRow('Rate — weekend', rc.weekend))}

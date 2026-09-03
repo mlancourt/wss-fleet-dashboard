@@ -32,6 +32,8 @@
 export function utilization(units) {
   const pool = (units || []).filter((u) => u.status === 'RENTAL' && u.unit_state !== 'RETIRED');
   const isOut = (u) => u.unit_state === 'ON-RENT';
+  // Schema 4 strips acquisition_cost from units, so this branch only ever has
+  // costs to add up on a schema-3 snapshot. See utilizationFrom().
 
   const onRent = pool.filter(isOut).length;
   const total = pool.length;
@@ -52,6 +54,43 @@ export function utilization(units) {
       excluded: pool.length - costed.length,
       ...band(dollarPct),
     },
+  };
+}
+
+/**
+ * Utilization for a whole snapshot (D45).
+ *
+ * Schema 4 ships `meta.utilization` already computed by the engine and no
+ * longer ships `acquisition_cost` at all, so the dollar ratio CANNOT be
+ * recomputed here — the percentages are the only form the money takes on this
+ * site. Prefer the engine's numbers whenever they are present.
+ *
+ * Schema 3 has no `meta.utilization`, so fall back to computing both bars from
+ * `units[]` exactly as before. That path disappears once every published
+ * snapshot is schema 4.
+ *
+ * Note there are no amounts in the schema-4 shape and none are invented here:
+ * `dollars` carries a percentage and an exclusion count, never a total.
+ */
+export function utilizationFrom(snapshot) {
+  const m = snapshot && snapshot.meta && snapshot.meta.utilization;
+  if (m && typeof m === 'object') return fromMeta(m);
+  return utilization(snapshot && snapshot.units);
+}
+
+/** The engine's percentages, taken verbatim; only the band words are ours. */
+function fromMeta(m) {
+  const u = m.units || {};
+  const d = m.dollars || {};
+  const pct = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v) : null);
+  const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+  const uPct = pct(u.pct);
+  const dPct = pct(d.pct);
+  return {
+    units: { onRent: num(u.on_rent), total: num(u.total), pct: uPct, ...band(uPct) },
+    // No `total` and no `onRent`: schema 4 carries no dollar amounts, ever, and
+    // this site must not be the place one gets reconstructed.
+    dollars: { pct: dPct, excluded: num(d.excluded) || 0, ...band(dPct) },
   };
 }
 

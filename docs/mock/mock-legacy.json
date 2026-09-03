@@ -1,12 +1,12 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-03T18:02:49.508Z",
+    "generated_at": "2026-09-03T18:16:48.273Z",
     "run_id": "mock-legacy-2026-09-03",
     "fleet_totals": {
       "units": 39,
       "cost": 633600,
-      "book": 433060,
+      "book": 426167,
       "ask": 604000
     },
     "mock": true
@@ -36,8 +36,6 @@
       "readiness_note": null,
       "hours": 2710,
       "in_service": "2024-11-04",
-      "acquisition_cost": null,
-      "book": 6893,
       "ask": 8900,
       "rate_card": {
         "full_day": 325,
@@ -73,6 +71,8 @@
         }
       ],
       "service_ticket": null,
+      "acquisition_cost": null,
+      "book": null,
       "reservation": {
         "held_by": "Kevin",
         "purpose": "quote hold",
@@ -93,8 +93,6 @@
       "readiness_note": null,
       "hours": 3096,
       "in_service": "2024-06-23",
-      "acquisition_cost": 6400,
-      "book": 4290,
       "ask": 6050,
       "rate_card": {
         "full_day": 470,
@@ -109,6 +107,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 6400,
+      "book": 4290,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -129,8 +129,6 @@
       "readiness_note": null,
       "hours": 695,
       "in_service": "2024-11-25",
-      "acquisition_cost": 22200,
-      "book": 12543,
       "ask": 17950,
       "rate_card": {
         "full_day": 575,
@@ -166,6 +164,8 @@
         }
       ],
       "service_ticket": "SVC-1204",
+      "acquisition_cost": 22200,
+      "book": 12543,
       "reservation": {
         "held_by": "Kevin",
         "purpose": "DEMO — Ixonia",
@@ -186,8 +186,6 @@
       "readiness_note": "Customer called — released, unit at the dock",
       "hours": 2426,
       "in_service": "2024-05-14",
-      "acquisition_cost": 8900,
-      "book": 6640,
       "ask": 9200,
       "rate_card": {
         "full_day": 435,
@@ -202,6 +200,8 @@
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 8900,
+      "book": 6640,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -222,8 +222,6 @@
       "readiness_note": null,
       "hours": 481,
       "in_service": "2023-08-11",
-      "acquisition_cost": 21800,
-      "book": 15563,
       "ask": 19600,
       "rate_card": {
         "full_day": 305,
@@ -238,6 +236,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 21800,
+      "book": 15563,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -258,8 +258,6 @@
       "readiness_note": null,
       "hours": 1856,
       "in_service": "2024-12-13",
-      "acquisition_cost": 23100,
-      "book": 14145,
       "ask": 21900,
       "rate_card": {
         "full_day": 225,
@@ -274,6 +272,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 23100,
+      "book": 14145,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -294,8 +294,6 @@
       "readiness_note": "Released Friday; site closes at 3",
       "hours": 3208,
       "in_service": "2022-12-12",
-      "acquisition_cost": 24300,
-      "book": 11442,
       "ask": 16250,
       "rate_card": {
         "full_day": 155,
@@ -310,6 +308,8 @@
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 24300,
+      "book": 11442,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -330,8 +330,6 @@
       "readiness_note": "Job wrapped early — call the plant before you roll",
       "hours": 2671,
       "in_service": "2023-11-15",
-      "acquisition_cost": 23100,
-      "book": 14430,
       "ask": 19550,
       "rate_card": {
         "full_day": 495,
@@ -346,6 +344,8 @@
       "customer": "Kestrel Print",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 23100,
+      "book": 14430,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -366,8 +366,6 @@
       "readiness_note": null,
       "hours": 2384,
       "in_service": "2023-10-24",
-      "acquisition_cost": 10100,
-      "book": 7532,
       "ask": 9750,
       "rate_card": {
         "full_day": 465,
@@ -393,6 +391,8 @@
         }
       ],
       "service_ticket": null,
+      "acquisition_cost": 10100,
+      "book": 7532,
       "reservation": {
         "held_by": "Kevin",
         "purpose": "DEMO — Ixonia",
@@ -413,8 +413,6 @@
       "readiness_note": null,
       "hours": 2297,
       "in_service": "2024-11-12",
-      "acquisition_cost": 13100,
-      "book": 10751,
       "ask": 14200,
       "rate_card": {
         "full_day": 405,
@@ -429,6 +427,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 13100,
+      "book": 10751,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -449,8 +449,6 @@
       "readiness_note": null,
       "hours": 3393,
       "in_service": "2023-09-07",
-      "acquisition_cost": 11200,
-      "book": 8346,
       "ask": 12000,
       "rate_card": {
         "full_day": 200,
@@ -465,6 +463,8 @@
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 11200,
+      "book": 8346,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -485,8 +485,6 @@
       "readiness_note": null,
       "hours": 3245,
       "in_service": "2023-04-16",
-      "acquisition_cost": 10600,
-      "book": 6168,
       "ask": 9250,
       "rate_card": {
         "full_day": 340,
@@ -501,6 +499,8 @@
       "customer": "Cedar Ridge Manufacturing",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 10600,
+      "book": 6168,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -521,8 +521,6 @@
       "readiness_note": "awaiting pump assembly",
       "hours": 2173,
       "in_service": "2025-06-26",
-      "acquisition_cost": 8500,
-      "book": 6896,
       "ask": 9400,
       "rate_card": {
         "full_day": 195,
@@ -548,6 +546,8 @@
         }
       ],
       "service_ticket": "SVC-1201",
+      "acquisition_cost": 8500,
+      "book": 6896,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -568,8 +568,6 @@
       "readiness_note": "brush worn, swap before ship",
       "hours": 2319,
       "in_service": "2023-10-15",
-      "acquisition_cost": 12800,
-      "book": 10845,
       "ask": 16800,
       "rate_card": {
         "full_day": 445,
@@ -595,6 +593,8 @@
         }
       ],
       "service_ticket": null,
+      "acquisition_cost": 12800,
+      "book": 10845,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -615,8 +615,6 @@
       "readiness_note": "squeegee blades ordered",
       "hours": 3229,
       "in_service": "2024-08-18",
-      "acquisition_cost": 20000,
-      "book": 13274,
       "ask": 17650,
       "rate_card": {
         "full_day": 205,
@@ -631,6 +629,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 20000,
+      "book": 13274,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -651,8 +651,6 @@
       "readiness_note": null,
       "hours": 1130,
       "in_service": "2022-01-23",
-      "acquisition_cost": 4200,
-      "book": 2679,
       "ask": 3700,
       "rate_card": {
         "full_day": 310,
@@ -667,6 +665,8 @@
       "customer": "Northgate Fulfillment",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 4200,
+      "book": 2679,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -687,8 +687,6 @@
       "readiness_note": null,
       "hours": 304,
       "in_service": "2024-07-14",
-      "acquisition_cost": 14500,
-      "book": 10275,
       "ask": 15050,
       "rate_card": {
         "full_day": 460,
@@ -703,6 +701,8 @@
       "customer": "Acme Foods",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 14500,
+      "book": 10275,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -723,8 +723,6 @@
       "readiness_note": null,
       "hours": 241,
       "in_service": "2024-06-17",
-      "acquisition_cost": 25400,
-      "book": 20990,
       "ask": 31300,
       "rate_card": {
         "full_day": 390,
@@ -739,6 +737,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 25400,
+      "book": 20990,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -759,8 +759,6 @@
       "readiness_note": "brush worn, swap before ship",
       "hours": 1906,
       "in_service": "2025-07-30",
-      "acquisition_cost": 17400,
-      "book": 9948,
       "ask": 14050,
       "rate_card": {
         "full_day": 550,
@@ -775,6 +773,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 17400,
+      "book": 9948,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -795,8 +795,6 @@
       "readiness_note": null,
       "hours": 1316,
       "in_service": "2022-03-18",
-      "acquisition_cost": 10700,
-      "book": 8779,
       "ask": 11600,
       "rate_card": {
         "full_day": 590,
@@ -811,6 +809,8 @@
       "customer": "Quarry Road Aggregates",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 10700,
+      "book": 8779,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -831,8 +831,6 @@
       "readiness_note": null,
       "hours": 2308,
       "in_service": "2022-04-22",
-      "acquisition_cost": 25200,
-      "book": 20023,
       "ask": 25850,
       "rate_card": {
         "full_day": 325,
@@ -847,6 +845,8 @@
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 25200,
+      "book": 20023,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -867,8 +867,6 @@
       "readiness_note": null,
       "hours": 2027,
       "in_service": "2025-10-06",
-      "acquisition_cost": 23100,
-      "book": 18073,
       "ask": 25050,
       "rate_card": {
         "full_day": 255,
@@ -883,6 +881,8 @@
       "customer": "Fairmont Dairy",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 23100,
+      "book": 18073,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -903,8 +903,6 @@
       "readiness_note": null,
       "hours": 1897,
       "in_service": "2025-01-02",
-      "acquisition_cost": 20600,
-      "book": 12057,
       "ask": 15950,
       "rate_card": {
         "full_day": 530,
@@ -919,6 +917,8 @@
       "customer": "Granite Peak Warehouse",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 20600,
+      "book": 12057,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -939,8 +939,6 @@
       "readiness_note": null,
       "hours": 1968,
       "in_service": "2025-08-17",
-      "acquisition_cost": 20400,
-      "book": 10121,
       "ask": 14950,
       "rate_card": {
         "full_day": 370,
@@ -955,6 +953,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 20400,
+      "book": 10121,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -975,8 +975,6 @@
       "readiness_note": null,
       "hours": 3212,
       "in_service": "2022-03-08",
-      "acquisition_cost": 9500,
-      "book": 4651,
       "ask": 6000,
       "rate_card": {
         "full_day": 330,
@@ -991,6 +989,8 @@
       "customer": "Acme Foods",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 9500,
+      "book": 4651,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1011,8 +1011,6 @@
       "readiness_note": null,
       "hours": 1753,
       "in_service": "2023-10-31",
-      "acquisition_cost": 8500,
-      "book": 4905,
       "ask": 7000,
       "rate_card": {
         "full_day": 260,
@@ -1027,6 +1025,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 8500,
+      "book": 4905,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1047,8 +1047,6 @@
       "readiness_note": "awaiting pump assembly",
       "hours": null,
       "in_service": "2022-03-06",
-      "acquisition_cost": 12800,
-      "book": 5793,
       "ask": 8550,
       "rate_card": {
         "full_day": 470,
@@ -1063,6 +1061,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 12800,
+      "book": 5793,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1083,8 +1083,6 @@
       "readiness_note": null,
       "hours": 1706,
       "in_service": "2025-07-29",
-      "acquisition_cost": 21000,
-      "book": 16770,
       "ask": 23400,
       "rate_card": {
         "full_day": 465,
@@ -1099,6 +1097,8 @@
       "customer": "Fairmont Dairy",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 21000,
+      "book": 16770,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1119,8 +1119,6 @@
       "readiness_note": null,
       "hours": 1823,
       "in_service": "2022-03-09",
-      "acquisition_cost": 8800,
-      "book": 5115,
       "ask": 7500,
       "rate_card": {
         "full_day": 230,
@@ -1135,6 +1133,8 @@
       "customer": "Evergreen Distribution",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 8800,
+      "book": 5115,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1155,8 +1155,6 @@
       "readiness_note": null,
       "hours": 2074,
       "in_service": "2023-05-08",
-      "acquisition_cost": 23000,
-      "book": 17275,
       "ask": 21850,
       "rate_card": {
         "full_day": 480,
@@ -1171,6 +1169,8 @@
       "customer": "Maplewood Schools",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 23000,
+      "book": 17275,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1191,8 +1191,6 @@
       "readiness_note": "controller fault F14",
       "hours": 1441,
       "in_service": "2025-04-18",
-      "acquisition_cost": 23700,
-      "book": 13431,
       "ask": 18250,
       "rate_card": {
         "full_day": 310,
@@ -1207,6 +1205,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 23700,
+      "book": 13431,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1227,8 +1227,6 @@
       "readiness_note": null,
       "hours": 1420,
       "in_service": "2022-06-30",
-      "acquisition_cost": 15200,
-      "book": 11479,
       "ask": 17200,
       "rate_card": {
         "full_day": 485,
@@ -1243,6 +1241,8 @@
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 15200,
+      "book": 11479,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1263,8 +1263,6 @@
       "readiness_note": null,
       "hours": 2527,
       "in_service": "2025-08-06",
-      "acquisition_cost": 21000,
-      "book": 17239,
       "ask": 21800,
       "rate_card": {
         "full_day": 535,
@@ -1279,6 +1277,8 @@
       "customer": "Oakhill Casting",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 21000,
+      "book": 17239,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1299,8 +1299,6 @@
       "readiness_note": null,
       "hours": 929,
       "in_service": "2023-10-11",
-      "acquisition_cost": 22500,
-      "book": 13669,
       "ask": 20450,
       "rate_card": {
         "full_day": 270,
@@ -1315,6 +1313,8 @@
       "customer": "Maplewood Schools",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 22500,
+      "book": 13669,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1335,8 +1335,6 @@
       "readiness_note": null,
       "hours": 2987,
       "in_service": "2024-12-03",
-      "acquisition_cost": 19500,
-      "book": 11704,
       "ask": 15800,
       "rate_card": {
         "full_day": 440,
@@ -1392,6 +1390,8 @@
         }
       ],
       "service_ticket": null,
+      "acquisition_cost": 19500,
+      "book": 11704,
       "reservation": {
         "held_by": "Kevin",
         "purpose": "replacement for down unit",
@@ -1412,8 +1412,6 @@
       "readiness_note": "battery watering due",
       "hours": 1258,
       "in_service": "2025-07-17",
-      "acquisition_cost": 23700,
-      "book": 19944,
       "ask": 30600,
       "rate_card": {
         "full_day": 400,
@@ -1428,6 +1426,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 23700,
+      "book": 19944,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1448,8 +1448,6 @@
       "readiness_note": null,
       "hours": 3167,
       "in_service": "2024-07-04",
-      "acquisition_cost": 20500,
-      "book": 12655,
       "ask": 17850,
       "rate_card": {
         "full_day": 520,
@@ -1464,6 +1462,8 @@
       "customer": "Evergreen Distribution",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 20500,
+      "book": 12655,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1484,8 +1484,6 @@
       "readiness_note": null,
       "hours": 2568,
       "in_service": "2025-05-23",
-      "acquisition_cost": 12800,
-      "book": 6850,
       "ask": 10200,
       "rate_card": {
         "full_day": 265,
@@ -1500,6 +1498,8 @@
       "customer": "Dorsey Plastics",
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 12800,
+      "book": 6850,
       "reservation": {
         "held_by": null,
         "purpose": null,
@@ -1520,8 +1520,6 @@
       "readiness_note": "squeegee blades ordered",
       "hours": null,
       "in_service": "2025-07-03",
-      "acquisition_cost": 13500,
-      "book": 8877,
       "ask": 11600,
       "rate_card": {
         "full_day": 505,
@@ -1536,6 +1534,8 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "acquisition_cost": 13500,
+      "book": 8877,
       "reservation": {
         "held_by": null,
         "purpose": null,

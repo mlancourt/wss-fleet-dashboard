@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 3).
+ * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 4).
  *
  * EVERYTHING in this file is invented. Fake customers, fake serials, fake money.
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
  *
  * Emits three variants so every view can be exercised:
- *   mock-full.json    schema 3 — service queue, dispatch board, pick-ups, holds
- *   mock-empty.json   schema 3 — service_queue: [] and dispatch: [] (empty states);
+ *   mock-full.json    schema 4 — service queue, dispatch board, pick-ups, holds
+ *   mock-empty.json   schema 4 — service_queue: [] and dispatch: [] (empty states);
  *                     ON-DEMO row = 0 on the status board
  *   mock-legacy.json  schema 2 — the pre-Dispatch snapshot, kept for one release
  *                     so the board still renders during the cutover
@@ -17,8 +17,10 @@
  *   - every unit_state: AVAILABLE RESERVED ON-RENT ON-DEMO LOANER-OUT IN-SHOP RETIRED
  *   - every readiness: READY NEEDS-PREP DOWN NEEDS-PICKUP
  *   - an agreements row with "agreement": null  (unbilled-rental alert)
- *   - D44: one rentable unit with acquisition_cost null (full variant only) so
- *     the dollar-utilization bar's "excluded" footnote is exercised
+ *   - D45: NO acquisition_cost and NO book on any unit, fleet_totals is a count
+ *     only, and meta.utilization carries percentages with no amounts. One
+ *     rentable unit is left out of the generator's cost ledger (full variant
+ *     only) so utilization.dollars.excluded is non-zero and the footnote shows
  *   - a split-cycle invoice ("R....-7.1") and a bare QBO invoice number
  *   - a LOANER-OUT unit with an agreement number and NO agreements row
  *   - category cards that land on each of the green / yellow / red lights
@@ -144,6 +146,10 @@ const LONG_TERM = CATEGORIES.map((_, i) => {
 function build({ withServiceQueue }) {
   const units = [];
   const agreements = [];
+  // serial -> { cost, book }. Returned BESIDE the snapshot, never inside it, so
+  // there is no path by which these get serialised into a published file (D45).
+  // The engine holds the equivalent in the vault.
+  const ledger = new Map();
   let serialSeq = 900100;
   let agmtSeq = 4100;
   let loanerCount = 0;
@@ -167,9 +173,13 @@ function build({ withServiceQueue }) {
       if (unit_state === 'ON-RENT') agreement = (agmtSeq += 3);
       else if (loanerPlacement) agreement = (agmtSeq += 3);
 
+      // Cost and book are generated but NEVER emitted (schema 4, D45). Cost is
+      // kept on the side purely so the generator can compute meta.utilization
+      // the way the engine does — the same numbers, none of them published.
       const cost = money(4000, 26000, 100);
       const book = Math.round(cost * (0.45 + rand() * 0.4));
       const ask = Math.round(book * (1.25 + rand() * 0.3) / 50) * 50;
+      ledger.set(serial, { cost, book });
 
       const note =
         readiness === 'NEEDS-PREP' ? pick(NOTES_PREP) :
@@ -191,8 +201,7 @@ function build({ withServiceQueue }) {
         readiness_note: note,
         hours: unit_state === 'RETIRED' ? null : Math.round(200 + rand() * 3400),
         in_service: d(-Math.round(300 + rand() * 1500)),
-        acquisition_cost: cost,
-        book, ask,
+        ask,   // schema 4 (D45): acquisition_cost and book do NOT ship. `ask` stays.
         rate_card: {                       // D17 — any of the four may be null
           full_day: money(150, 600, 5),
           weekend: units.length % 5 === 1 ? null : money(250, 900, 5),
@@ -282,7 +291,7 @@ function build({ withServiceQueue }) {
   // empty variant keeps every cost so the no-footnote path is covered too.
   if (withServiceQueue) {
     const costless = units.find((u) => u.status === 'RENTAL' && u.unit_state === 'AVAILABLE');
-    if (costless) costless.acquisition_cost = null;
+    if (costless) ledger.delete(costless.serial);
   }
 
   // ------------------------------------------------------------- pick-ups (D32)
@@ -590,20 +599,34 @@ function build({ withServiceQueue }) {
     period_end: d(0),
   }));
 
-  const totals = units.reduce((acc, u) => {
-    acc.units += 1;
-    acc.cost += u.acquisition_cost || 0;   // a costless unit contributes nothing, never NaN
-    acc.book += u.book;
-    acc.ask += u.ask;
-    return acc;
-  }, { units: 0, cost: 0, book: 0, ask: 0 });
+  // schema 4: a count and nothing else. No cost, no book, no ask (D45).
+  const totals = { units: units.length };
 
-  return {
+  // meta.utilization, computed the way the engine computes it — from costs the
+  // snapshot never carries. Percentages and an exclusion count only: no amount
+  // appears here, so no amount can be reconstructed from the published file.
+  const rentable = units.filter((u) => u.status === 'RENTAL' && u.unit_state !== 'RETIRED');
+  const rentedOut = rentable.filter((u) => u.unit_state === 'ON-RENT');
+  const costOf = (u) => (ledger.get(u.serial) || {}).cost;
+  const withCost = rentable.filter((u) => typeof costOf(u) === 'number');
+  const sumCost = (list) => list.reduce((n, u) => n + costOf(u), 0);
+  const dollarTotal = sumCost(withCost);
+  const utilization = {
+    units: { on_rent: rentedOut.length, total: rentable.length,
+      pct: rentable.length ? Math.round((rentedOut.length / rentable.length) * 100) : null },
+    dollars: {
+      pct: dollarTotal ? Math.round((sumCost(withCost.filter((u) => u.unit_state === 'ON-RENT')) / dollarTotal) * 100) : null,
+      excluded: rentable.length - withCost.length,
+    },
+  };
+
+  const snapshot = {
     meta: {
-      schema_version: 3,
+      schema_version: 4,
       generated_at: new Date().toISOString(),
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
       fleet_totals: totals,
+      utilization,
       // Deliberate unknown field — the app must ignore it silently.
       mock: true,
     },
@@ -619,6 +642,8 @@ function build({ withServiceQueue }) {
     // Still emitted for the engine's own consumers; the app must NOT render it (D39).
     billing: { due_next_7_days, created_last_run },
   };
+
+  return { snapshot, ledger };
 }
 
 /**
@@ -627,7 +652,7 @@ function build({ withServiceQueue }) {
  * the old six-stage service queue with `ticket_id` / `unit_desc`, the singular
  * `units[].reservation` mirror, and none of the schema-3 arrays.
  */
-function downgradeToSchema2(s3) {
+function downgradeToSchema2(s3, ledger) {
   // The PRE-schema-3 vocabulary, verbatim. These are not our stage names any
   // more and must not be renamed with them — the whole point of this file is to
   // be an authentic old snapshot. 'INTAKE' here is correct; leave it alone.
@@ -636,6 +661,24 @@ function downgradeToSchema2(s3) {
 
   snap.meta.schema_version = 2;
   snap.meta.run_id = `mock-legacy-${new Date().toISOString().slice(0, 10)}`;
+
+  // Schema 2 carried acquisition_cost and book on every unit and a four-part
+  // fleet_totals. Put them back from the ledger: this file's only job is to be
+  // an authentic OLD snapshot, and it doubles as proof that the page ignores
+  // those fields now rather than merely not being sent them. It also has no
+  // meta.utilization, so rendering it exercises the client-side fallback.
+  delete snap.meta.utilization;
+  const totals = { units: 0, cost: 0, book: 0, ask: 0 };
+  for (const u of snap.units) {
+    const money = (ledger && ledger.get(u.serial)) || {};
+    u.acquisition_cost = typeof money.cost === 'number' ? money.cost : null;
+    u.book = typeof money.book === 'number' ? money.book : null;
+    totals.units += 1;
+    totals.cost += u.acquisition_cost || 0;
+    totals.book += u.book || 0;
+    totals.ask += u.ask || 0;
+  }
+  snap.meta.fleet_totals = totals;
 
   for (const u of snap.units) {
     const cur = u.reservations.find((h) => h.status === 'current') || u.reservations.find((h) => h.status === 'future');
@@ -673,9 +716,9 @@ const full = build({ withServiceQueue: true });
 const empty = build({ withServiceQueue: false });
 
 for (const [name, snapshot] of [
-  ['mock-full.json', full],
-  ['mock-empty.json', empty],
-  ['mock-legacy.json', downgradeToSchema2(full)],
+  ['mock-full.json', full.snapshot],
+  ['mock-empty.json', empty.snapshot],
+  ['mock-legacy.json', downgradeToSchema2(full.snapshot, full.ledger)],
 ]) {
   const file = path.join(outdir, name);
   fs.writeFileSync(file, JSON.stringify(snapshot, null, 2) + '\n');
@@ -689,7 +732,7 @@ for (const [name, snapshot] of [
 // Sample UNAPPLIED events, shaped exactly as the Worker stores them. This is not
 // part of the snapshot contract — the Worker returns pending separately — so it
 // gets its own file, loaded only by ?mock=full&pending=1.
-const avail = full.units.filter((u) => u.unit_state === 'AVAILABLE');
+const avail = full.snapshot.units.filter((u) => u.unit_state === 'AVAILABLE');
 const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 const pending = [
   {

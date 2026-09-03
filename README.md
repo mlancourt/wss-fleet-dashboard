@@ -4,6 +4,12 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
+**v1.9 (schema 4, D45)** — `acquisition_cost` and `book` no longer ship in the
+snapshot and are shown nowhere on the site; `ask` stays. `meta.fleet_totals` is
+a unit count only, and the engine publishes `meta.utilization` (percentages and
+an exclusion count — **never amounts**). The utilization card reads those when
+present and falls back to computing them from `units[]` on a schema-3 snapshot.
+
 **v1.6 (schema 3)** — the Billing tab is retired: its recurring-revenue block
 moved to the top of Rentals and its nav slot became **Dispatch**. The Service
 tab is real (eight-stage kanban, ticket detail, `+ New ticket`). Six new write
@@ -46,13 +52,13 @@ Then open:
 
 | URL | What you get |
 |---|---|
-| `http://localhost:8787/?mock=full` | schema 3 — full service queue + dispatch board |
-| `http://localhost:8787/?mock=empty` | schema 3 — `service_queue: []`, `dispatch: []` (empty states) |
-| `http://localhost:8787/?mock=legacy` | schema 2 — the pre-Dispatch snapshot, to rehearse the cutover |
+| `http://localhost:8787/?mock=full` | schema 4 — full service queue + dispatch board |
+| `http://localhost:8787/?mock=empty` | schema 4 — `service_queue: []`, `dispatch: []` (empty states) |
+| `http://localhost:8787/?mock=legacy` | schema 2 — the pre-Dispatch snapshot; carries `acquisition_cost`/`book` and no `meta.utilization`, so it also exercises the client-side utilization fallback |
 | `http://localhost:8787/` | the no-token gate ("ask Matt for your link") |
 
 `mock-legacy.json` exists for **one release**. Once the engine is publishing
-schema 3 for real and Matt has signed off, delete it, drop `'legacy'` from
+schema 4 for real and Matt has signed off, delete it, drop `'legacy'` from
 `MOCK_VARIANTS` in `docs/api.js`, and drop the legacy case from
 `selftest-render.mjs`.
 
@@ -150,7 +156,7 @@ worker/                 the Cloudflare Worker
   .dev.vars             local ADMIN_SECRET + ALLOW_LOCALHOST=1 (gitignored)
 
 tools/
-  make-mock-data.js     fake snapshot generator (schema 3 + a schema-2 downgrade)
+  make-mock-data.js     fake snapshot generator (schema 4 + a schema-2 downgrade)
   make-icons.js         icon generator
   serve.js              dev static server (sends Cache-Control: no-store)
   m1-loop.sh            the Worker loop, curl-scripted (npm run m1)
@@ -206,6 +212,13 @@ plain CNAME from any host. Do not "simplify" this.
   blocks — two runs on one trailer in a day is often the plan.
 - **`billing` is in the snapshot and must not be rendered** (D39). It stays for
   the engine's own consumers. `selftest-render.mjs` asserts we don't draw it.
+- **No dollar AMOUNT belongs on the landing page** (D45). The utilization card
+  shows percentages and a band word; the money it is computed from never ships
+  at schema 4 and is deliberately not printed even when an older snapshot still
+  carries it. `selftest-render.mjs` asserts the landing matches no `$…` at all.
+- **`acquisition_cost` and `book` are gone from the contract** at schema 4 and
+  are read nowhere but the schema-3 fallback in `metrics.js`. Do not reintroduce
+  a read of either; `ask` is the only per-unit figure the crew sees.
 - **`start_url` cannot carry a token.** One static manifest serves everyone, so
   it is `"./"`; the home-screen app boots tokenless, and the page restores the
   token from `localStorage` into the URL (D24). If iOS has purged that storage,

@@ -2,7 +2,7 @@
 /** selftest-metrics.mjs — pins the D19 (units) and D44 (dollars) utilization
  *  math and the band edges both bars share. Run: npm test */
 import assert from 'node:assert/strict';
-import { utilization, band } from '../docs/metrics.js';
+import { utilization, utilizationFrom, band } from '../docs/metrics.js';
 
 let passed = 0;
 const check = (name, fn) => { fn(); passed++; console.log(`  ok  ${name}`); };
@@ -129,6 +129,69 @@ check('both bars read the same band vocabulary for the same percentage', () => {
     assert.equal(onDollars.label, onUnits.label, `${pct}% must read the same on both bars`);
     assert.equal(onDollars.color, onUnits.color);
   }
+});
+
+/* --------------------------------- schema 4: the engine hands us the numbers (D45) */
+
+check('schema 4: percentages come from meta.utilization, untouched', () => {
+  const r = utilizationFrom({ meta: { schema_version: 4, utilization: {
+    units: { on_rent: 18, total: 35, pct: 51 },
+    dollars: { pct: 60, excluded: 2 },
+  } } });
+  assert.equal(r.units.onRent, 18);
+  assert.equal(r.units.total, 35);
+  assert.equal(r.units.pct, 51);
+  assert.equal(r.units.label, 'Building');
+  assert.equal(r.dollars.pct, 60);
+  assert.equal(r.dollars.excluded, 2);
+  assert.equal(r.dollars.label, 'Building');
+  // Schema 4 ships no amounts, and none may be invented from the percentages.
+  assert.equal(r.dollars.total, undefined, 'no dollar total may appear');
+  assert.equal(r.dollars.onRent, undefined, 'no dollar amount may appear');
+});
+
+check('schema 4 wins even when units[] still carries costs', () => {
+  // Belt and braces: if a transitional snapshot had both, the engine's number
+  // is the authority — the client must not quietly recompute a different one.
+  const r = utilizationFrom({
+    meta: { utilization: { units: { on_rent: 1, total: 4, pct: 25 }, dollars: { pct: 25, excluded: 0 } } },
+    units: [U('ON-RENT', 'RENTAL', 90000), U('AVAILABLE', 'RENTAL', 10000)],
+  });
+  assert.equal(r.units.pct, 25);
+  assert.equal(r.dollars.pct, 25, 'must not recompute 90% from the stale costs');
+});
+
+check('schema 3 fallback: no meta.utilization -> computed from units[] as before', () => {
+  const snap = { meta: { schema_version: 3 }, units: [
+    U('ON-RENT', 'RENTAL', 60000), U('AVAILABLE', 'RENTAL', 40000),
+  ] };
+  const r = utilizationFrom(snap);
+  assert.equal(r.units.pct, 50);
+  assert.equal(r.dollars.pct, 60);
+  assert.equal(r.dollars.label, 'Building');
+  // identical to calling the fallback directly
+  assert.deepEqual(r, utilization(snap.units));
+});
+
+check('a snapshot with neither meta.utilization nor costs degrades, never throws', () => {
+  const r = utilizationFrom({ meta: {}, units: [{ status: 'RENTAL', unit_state: 'ON-RENT' }] });
+  assert.equal(r.units.pct, 100);
+  assert.equal(r.dollars.pct, null);
+  assert.equal(r.dollars.label, '—');
+  // and the degenerate inputs
+  for (const bad of [undefined, null, {}, { meta: null }]) {
+    const x = utilizationFrom(bad);
+    assert.equal(x.units.pct, null);
+    assert.equal(x.dollars.pct, null);
+  }
+});
+
+check('a malformed meta.utilization yields no percentage rather than NaN', () => {
+  const r = utilizationFrom({ meta: { utilization: { units: { pct: 'lots' }, dollars: {} } } });
+  assert.equal(r.units.pct, null);
+  assert.equal(r.units.label, '—');
+  assert.equal(r.dollars.pct, null);
+  assert.equal(r.dollars.excluded, 0);
 });
 
 check('the live example: 18/35 units = 51%, $251,624/$421,578 = 60% Building', () => {
