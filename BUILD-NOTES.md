@@ -515,3 +515,125 @@ bars, no dollar amount anywhere on the landing, the unit Money card reading
   removes the only fixture exercising the schema-3 utilization fallback. Delete
   the fallback and its unit tests at the same time, or keep the fixture until
   both go.
+
+---
+
+# D46 — Undo a pending event · Dispatch ordering · dollar-bar caption (2026-09-04)
+
+Built from `Undo-Pending-Site-Spec.md` (below its cut line) against `CLAUDE.md`
+v2.0 (schema 4). Items 1–2 are site-only; item 3 adds one Worker endpoint,
+written and tested against `wrangler dev` but **not deployed** — the Architect
+deploys after this push. No DNS, token or secret was touched.
+
+## What shipped
+
+**1. Dollar-bar caption.** The Dollars utilization bar carries the muted
+caption `Fleet value on rent` in the same sub-line slot the Units bar uses for
+its count. No number of its own, so D45's rule that no amount appears on this
+site still holds. The excluded-units footnote sits under it.
+
+**2. Dispatch leads with deliveries.** `sortByKind()` layers a kind rank over
+the existing rule in Open and inside each Scheduled date group. Within a kind
+nothing changed — dated ascending, undated last, then id — which comes free
+because `Array#sort` is stable. Day groups are still built from the date-sorted
+list, so the headings are untouched and only rows inside them reorder. "Done
+this week" is a log rather than a queue and keeps its date order.
+
+**3. Undo a pending tap.**
+- **Worker:** `DELETE /api/event/<id>`, token auth. 404 when the key is gone or
+  never existed, 403 when the stored `actor` is not the caller, otherwise it
+  deletes exactly that one key and returns `{ok, id}`. It never touches
+  `snapshot` and never bulk-deletes. CORS now advertises DELETE.
+- **Page:** an Undo control on every individually-badged pending event, only
+  when it is yours. Tap → inline confirm → DELETE → badge removed and `pending`
+  re-read from `/api/data`. 404 reads "Already applied — change it with a new
+  tap"; 403 reads "Not yours to undo".
+- `api.js` gained `deleteEvent(id)`, which throws with `.status` set so 403 and
+  404 can be told apart — they mean very different things to whoever tapped.
+
+`BUILD` stamp and SW cache bumped (v14 → v15). README documents the endpoint
+and its refusals.
+
+## Tests
+
+`npm test` — 121 checks green, also under `TZ=Pacific/Pago_Pago`.
+`npm run m1` — **76 passed, 0 failed** against `wrangler dev`, including the
+undo cases: no token → 401, unknown token → 401, someone else's → 403, **owner
+override → 403**, the event surviving every refusal, own → 200, the inbox
+losing exactly that key, a second undo → 404, an unknown id → 404, a malformed
+id → 400, `snapshot` untouched, GET on the id path → 405.
+
+Browser-checked at 390×844: the caption under the dollar bar with the footnote
+beneath it, Open leading with a delivery dated four days *later* than the
+pick-ups under it, the confirm sheet's exact copy, and per-role Undo counts
+(Matt 1 on Dispatch / 0 on Service, Kevin 1 / 0, Josh 0 / 1) with all pending
+badges still drawn for everyone. No console exceptions.
+
+## Decisions I made
+
+1. **Aggregate badges get no Undo.** The ⏳ count chip on a unit row, the
+   kanban card's ⏳ glyph and the header total each stand for several events at
+   once, so there is no single id to address. The control goes only where an
+   individual event is named: the unit's pending block, a hold's pending
+   release, a ticket's pending changes, a dispatch row, the pending "new run"
+   notice, and the synthetic NEW ticket card. That is the spec's list plus the
+   dispatch-add notice, which badges events the same way.
+
+2. **The confirm is an inline panel, not a modal.** Every other sheet in this
+   app (claim, done, add-a-run, stage) is inline, and a modal would be the only
+   one. The button is replaced in place by the question and two buttons.
+
+3. **On 404 the local badge is dropped as well as the message shown.** The
+   event genuinely is gone; leaving the badge up while saying "already applied"
+   would contradict itself. Both paths then `refresh()`.
+
+4. **Mock identity became a real person per role** — owner Matt, sales Kevin,
+   service Josh. "Is this mine?" is unanswerable while every mock user is
+   called "Mock User", so the feature could not be reviewed or tested on mock
+   at all. This also narrows the mock driver picker the way a real token does,
+   closing a mock-only wart flagged in the D43 notes.
+
+5. **`mock-pending` keeps an event by Zac, who is nobody's mock identity.** It
+   makes the tests prove the control is per-ACTOR rather than per-role — a role
+   check would have handed Zac's tap to Josh, who shares his role. That is the
+   bug this fixture exists to catch.
+
+6. **The id shape is validated before the KV lookup.** KV keys are flat strings,
+   so `evt:../../snapshot` was never a traversal and would simply have missed;
+   rejecting the shape with a 400 is clearer than a 404 that implies the id was
+   merely stale. Real ids are `<utc-iso>:<rand6>`, so the character class is
+   digits, letters, `:` `.` `-` `_`.
+
+7. **The variable-segment path is matched ahead of the exact-path table** rather
+   than teaching every row of `ROUTES` about patterns. One route needs it.
+
+8. **An event with no `id` is never undoable** — `canUndo` requires one, so a
+   badge can't offer a control it cannot address. Asserted.
+
+## Things worth flagging
+
+**None blocking.**
+
+- **`owner` deliberately has no override, and the m1 loop asserts the refusal.**
+  The spec is explicit and I agree with it, but it is worth Matt knowing
+  plainly: he cannot undo Kevin's or Josh's pending tap from his own phone. The
+  ways to change a colleague's unapplied write are to ask them to undo it or to
+  make a superseding tap of your own. If that ever feels wrong in practice it is
+  a spec change, not a bug.
+
+- **Fixed a stale assertion in `m1-loop.sh` from D45:** it still required the
+  published mock snapshot to be `schema_version: 3`. It had been failing since
+  the mock moved to schema 4 and was only caught now because this order runs
+  the loop. Worth noting that `npm run m1` is not part of `npm test`, so nothing
+  else would have caught it.
+
+- **Undo is a genuinely new kind of action for this site.** Everything else the
+  crew taps is a proposal that the engine decides on. This one reaches into KV
+  and removes a proposal before the engine ever sees it — no event records that
+  it happened, so an undone tap leaves no trace anywhere. That is exactly what
+  the order asks for ("an undone event simply never reaches the engine"), and
+  it is the right shape for a wrong-button valve. Flagging it only so the
+  absence of an audit trail is a known property rather than a surprise.
+
+- **The two utilization bars still nearly agree on mock**, for the reason in the
+  D44/D45 notes. Unchanged here.
