@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-02T15:33:29.139Z",
+    "ts": "2026-09-03T12:18:55.258Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,12 +9,13 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "until": "2026-09-08"
+      "start": "2026-09-06",
+      "end": "2026-09-09"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-02T17:53:29.139Z",
+    "ts": "2026-09-03T14:38:55.258Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -22,6 +23,53 @@
     "payload": {
       "readiness": "NEEDS-PREP",
       "note": "squeegee blades ordered"
+    }
+  },
+  {
+    "id": "evt-mock-3",
+    "ts": "2026-09-03T15:06:55.258Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "ticket_open",
+    "serial": null,
+    "payload": {
+      "machine_owner": "CUSTOMER",
+      "serial": null,
+      "equipment": "Halstead T-320 (customer owned)",
+      "customer": "Northgate Fulfillment",
+      "issue": "Batteries not holding a charge overnight",
+      "priority": "HIGH",
+      "site": "Sun Prairie WI",
+      "location": "AT-CUSTOMER",
+      "intake_move": "PICKUP",
+      "return_move": "DELIVER"
+    }
+  },
+  {
+    "id": "evt-mock-4",
+    "ts": "2026-09-03T15:12:55.258Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "dispatch_claim",
+    "serial": null,
+    "payload": {
+      "dispatch_id": "m-si-2201",
+      "rig": "TRAILER-6000",
+      "date": "2026-09-04",
+      "driver": "Kevin"
+    }
+  },
+  {
+    "id": "evt-mock-5",
+    "ts": "2026-09-03T15:15:55.258Z",
+    "actor": "Zac",
+    "role": "service",
+    "action": "ticket_update",
+    "serial": null,
+    "payload": {
+      "ticket": "S1004",
+      "stage": "IN-PROGRESS",
+      "note": "Pump landed early"
     }
   }
 ]

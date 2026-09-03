@@ -1,28 +1,41 @@
 #!/usr/bin/env node
 /**
- * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 2).
+ * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 3).
  *
  * EVERYTHING in this file is invented. Fake customers, fake serials, fake money.
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
  *
- * Emits two variants so every view can be exercised:
- *   mock-full.json   non-empty service queue; every status-board row non-zero
- *   mock-empty.json  service_queue: [] (that module seeds later); ON-DEMO row = 0
+ * Emits three variants so every view can be exercised:
+ *   mock-full.json    schema 3 — service queue, dispatch board, pick-ups, holds
+ *   mock-empty.json   schema 3 — service_queue: [] and dispatch: [] (empty states);
+ *                     ON-DEMO row = 0 on the status board
+ *   mock-legacy.json  schema 2 — the pre-Dispatch snapshot, kept for one release
+ *                     so the board still renders during the cutover
  *
  * Coverage guaranteed by construction:
  *   - all 9 categories, in display order
  *   - every unit_state: AVAILABLE RESERVED ON-RENT ON-DEMO LOANER-OUT IN-SHOP RETIRED
- *   - every readiness: READY NEEDS-PREP DOWN
+ *   - every readiness: READY NEEDS-PREP DOWN NEEDS-PICKUP
  *   - an agreements row with "agreement": null  (unbilled-rental alert)
  *   - a split-cycle invoice ("R....-7.1") and a bare QBO invoice number
  *   - a LOANER-OUT unit with an agreement number and NO agreements row
  *   - category cards that land on each of the green / yellow / red lights
- *   - D32: an ON-RENT unit with readiness NEEDS-PICKUP and a matching pickups[]
- *     entry (full variant); the empty variant has none
- *   - Reservations v2 (schema 2): a unit with zero holds · one CURRENT hold
- *     (state RESERVED) · only-FUTURE holds while AVAILABLE (the trap) ·
- *     ON-RENT with two future holds · an EXPIRED hold still holding the unit ·
- *     four holds on one unit · one MALFORMED hold; top-level rollup to match
+ *   - D32: ON-RENT units with readiness NEEDS-PICKUP and matching pickups[]
+ *     entries (full variant); the empty variant has none
+ *   - Reservations v2: a unit with zero holds · one CURRENT hold (state RESERVED) ·
+ *     only-FUTURE holds while AVAILABLE (the trap) · ON-RENT with two future holds ·
+ *     an EXPIRED hold still holding the unit · four holds on one unit ·
+ *     one MALFORMED hold; top-level rollup to match
+ *   - schema 3 service: a ticket in every one of the seven stages · both
+ *     machine_owners (a WSS ticket on a DOWN in-shop unit, and one on a unit
+ *     that's out on rent) · a HIGH customer ticket with intake_move PICKUP and
+ *     its SERVICE-IN row · a READY-TO-INVOICE ticket with a SERVICE-OUT DELIVER
+ *     row · a CLOSED ticket · a ticket needing no truck at all
+ *   - schema 3 dispatch: all three statuses, all four sources, a RENTAL-RETURN
+ *     row tied to a NEEDS-PICKUP unit that is also in pickups[], one pick-up NOT
+ *     yet on the board, and a dispatch_warnings entry naming two SCHEDULED rows
+ *     on the same rig the same day
+ *   - NO `reservation` singular anywhere at schema 3 (the legacy file has it)
  *
  * Usage: node tools/make-mock-data.js [outdir]     (default: docs/mock)
  * No dependencies. Node 18+.
@@ -192,9 +205,8 @@ function build({ withServiceQueue }) {
         agreement,
         // D33: agreement customer for ON-RENT, placement customer for LOANER-OUT, else null (ON-DEMO too).
         customer: unit_state === 'ON-RENT' || isLoaner ? customer : null,
-        reservations: [],                               // v2: the truth (filled below)
-        reservation: { held_by: null, purpose: null, customer: null, until: null },  // DEPRECATED mirror
-        service_ticket: null,
+        reservations: [],                               // v2: the hold list is the truth (filled below)
+        service_ticket: null,                           // schema 3: "S1001" when a ticket is open on this unit
       };
 
       units.push(unit);
@@ -266,12 +278,19 @@ function build({ withServiceQueue }) {
   // ------------------------------------------------------------- pick-ups (D32)
   // The customer released an out unit; it's still ON-RENT until a truck fetches it.
   const pickups = [];
+  const pickupUnits = [];
   if (withServiceQueue) {
-    const pu = units.filter((u) => u.unit_state === 'ON-RENT' && u.agreement != null).slice(1, 3);
+    const PU_NOTES = [
+      'Customer called — released, unit at the dock',
+      'Released Friday; site closes at 3',
+      'Job wrapped early — call the plant before you roll',
+    ];
+    const pu = units.filter((u) => u.unit_state === 'ON-RENT' && u.agreement != null).slice(1, 4);
     pu.forEach((u, i) => {
       u.readiness = 'NEEDS-PICKUP';
-      u.readiness_note = i === 0 ? 'Customer called 9/2 — released, unit at the dock' : 'Released Friday; site closes at 3';
+      u.readiness_note = PU_NOTES[i];
       const ag = agreements.find((a) => a.agreement === u.agreement);
+      pickupUnits.push(u);
       pickups.push({ serial: u.serial, model: `${u.brand} ${u.model}`, category: u.category, unit_state: u.unit_state,
         job_site: u.job_site, agreement: u.agreement, customer: ag ? ag.customer : null,
         billed_through: ag ? ag.last_invoiced_period_end : null, note: u.readiness_note });
@@ -314,14 +333,8 @@ function build({ withServiceQueue }) {
   hold(inShop[0], 5, 3, { purpose: 'bad dates' });     // MALFORMED (end before start)
   // everything else: zero holds
 
-  for (const u of units) {
-    u.reservations.sort((a, b) => a.start.localeCompare(b.start));
-    // DEPRECATED singular mirror: current hold, else the next future one, else nulls.
-    const cur = u.reservations.find((h) => h.status === 'current') || u.reservations.find((h) => h.status === 'future');
-    u.reservation = cur
-      ? { held_by: cur.held_by, purpose: cur.purpose, customer: cur.customer, until: cur.end }
-      : { held_by: null, purpose: null, customer: null, until: null };
-  }
+  // Schema 3: the list is the ONLY source. No `reservation` singular is emitted.
+  for (const u of units) u.reservations.sort((a, b) => a.start.localeCompare(b.start));
   const rollupRow = (u, h) => ({ serial: u.serial, model: `${u.brand} ${u.model}`, category: u.category,
     id: h.id, held_by: h.held_by, customer: h.customer, purpose: h.purpose, start: h.start, end: h.end });
   const reservations = { upcoming: [], expired: [] };
@@ -332,33 +345,206 @@ function build({ withServiceQueue }) {
   reservations.upcoming.sort((a, b) => a.start.localeCompare(b.start));
   reservations.expired.sort((a, b) => a.start.localeCompare(b.start));
 
-  // ------------------------------------------------------------- service queue
-  const STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
-  let service_queue = [];
+  // -------------------------------------------------- service queue (schema 3)
+  // Hand-built, not generated: §9 of the work order names the exact cases the
+  // Service tab has to survive, and a random walk can't promise them.
+  const service_queue = [];
+  const dispatch = [];
+  const dispatch_warnings = [];
+
   if (withServiceQueue) {
-    const inShop = units.filter((u) => u.unit_state === 'IN-SHOP');
-    service_queue = STAGES.flatMap((stage, i) => {
-      const n = stage === 'DONE' ? 1 : (i % 2 === 0 ? 2 : 1);
-      return Array.from({ length: n }, (_, k) => {
-        const ticket_id = `SVC-${1200 + i * 10 + k}`;
-        // A couple of tickets are customer-owned machines: serial null, desc only.
-        const own = inShop[(i + k) % Math.max(inShop.length, 1)];
-        const attach = own && (i + k) % 3 !== 2;
-        if (attach) own.service_ticket = own.service_ticket || ticket_id;
-        return {
-          ticket_id,
-          customer: pick(CUSTOMERS),
-          serial: attach ? own.serial : null,
-          unit_desc: attach ? `${own.brand} ${own.model}` : `${pick(BRANDS)} ${pick(MODELS)} (customer owned)`,
-          stage,
-          assigned: pick(['Josh', 'Zac']),
-          opened: d(-Math.round(1 + rand() * 25)),
-          quote: rand() < 0.5 ? money(180, 2600, 10) : null,
-          machinio_ref: rand() < 0.4 ? `MCH-${Math.round(70000 + rand() * 9999)}` : null,
-        };
-      });
+    // The two fleet machines that carry tickets: one DOWN in the shop, one that
+    // failed in the field while it's still out on rent.
+    const shopDown = units.find((u) => u.unit_state === 'IN-SHOP' && u.readiness === 'DOWN');
+    const outOnRent = units.find((u) => u.unit_state === 'ON-RENT' && u.readiness === 'READY' && u.agreement != null);
+
+    let seq = 1000;
+    const ticket = (t) => {
+      const id = `S${++seq}`;
+      const opened = t.opened != null ? t.opened : -Math.round(2 + rand() * 20);
+      const stage_since = t.stage_since != null ? t.stage_since : Math.min(0, opened + Math.round(rand() * 4));
+      const row = {
+        ticket: id,
+        status: 'OPEN',
+        stage: 'INTAKE',
+        machine_owner: 'CUSTOMER',
+        customer: pick(CUSTOMERS),
+        serial: null,
+        equipment: `${pick(BRANDS)} ${pick(MODELS)}`,
+        issue: 'needs a look',
+        priority: 'MEDIUM',
+        site: pick(SITES),
+        location: 'IN-SHOP',
+        intake_move: 'CUSTOMER-DROP',
+        return_move: 'CUSTOMER-PICKUP',
+        assigned: null,
+        scheduled: null,
+        opened: d(opened),
+        opened_by: pick(['Matt', 'Kevin', 'Josh', 'Zac']),
+        stage_since: d(stage_since),
+        age_days: -opened,
+        quote: null,
+        parts: null,
+        machinio_ref: null,
+        closed: null,
+        ...t,
+      };
+      delete row.unit;
+      // A ticket on one of OUR machines points back at the unit, and the unit
+      // points at the ticket (D35) — both directions, or the wrench chip lies.
+      if (t.unit) {
+        row.machine_owner = 'WSS';
+        row.serial = t.unit.serial;
+        row.equipment = `${t.unit.brand} ${t.unit.model}`;
+        if (row.status === 'OPEN') t.unit.service_ticket = id;
+      }
+      service_queue.push(row);
+      return row;
+    };
+
+    // 1 — INTAKE, HIGH, customer machine still at their plant: we go get it. (SERVICE-IN below)
+    const t1 = ticket({
+      stage: 'INTAKE', priority: 'HIGH', customer: 'Ironwood Packaging',
+      equipment: 'Nordvale SC-2400 (customer owned)', issue: 'Scrubber dead — no power at key switch, whole line is mopping by hand',
+      location: 'AT-CUSTOMER', site: 'Watertown WI', intake_move: 'PICKUP', return_move: 'DELIVER',
+      opened: -1, assigned: 'Josh',
     });
+
+    // 2 — INSPECTION on one of ours, DOWN in the shop.
+    ticket({
+      stage: 'INSPECTION', unit: shopDown, customer: 'WSS',
+      issue: 'Traction motor pulled — checking the controller before we order',
+      location: 'IN-SHOP', intake_move: 'NONE', return_move: 'NONE',
+      priority: 'MEDIUM', assigned: 'Zac', opened: -9,
+    });
+
+    // 3 — QUOTED: customer machine, quote sent, waiting on their yes.
+    ticket({
+      stage: 'QUOTED', customer: 'Fairmont Dairy', equipment: 'Halstead R-660 (customer owned)',
+      issue: 'Squeegee frame bent, deck actuator leaking', location: 'IN-SHOP',
+      intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', assigned: 'Josh', opened: -12,
+      quote: { number: 'Q-2211', amount: 2480, sent: d(-6), approved: null },
+      machinio_ref: 'MCH-74210',
+    });
+
+    // 4 — PARTS-ORDERED: the wait state that eats a shop.
+    ticket({
+      stage: 'PARTS-ORDERED', customer: 'Lakeshore Beverage', equipment: 'Meridian T-500 (customer owned)',
+      issue: 'Pump assembly failed', location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP',
+      return_move: 'DELIVER', assigned: 'Zac', opened: -18, scheduled: d(4),
+      quote: { number: 'Q-2198', amount: 1140, sent: d(-15), approved: d(-13) },
+      parts: 'Pump assy 41-2207 — ETA Thursday, backordered once already',
+    });
+
+    // 5 — IN-PROGRESS on one of ours that is OUT ON RENT: a field call, no truck move.
+    ticket({
+      stage: 'IN-PROGRESS', unit: outOnRent, customer: outOnRent ? outOnRent.customer : 'WSS',
+      issue: 'Brush motor cutting out under load — customer kept it, we go to it',
+      location: 'AT-CUSTOMER', site: outOnRent ? outOnRent.job_site : null,
+      intake_move: 'NONE', return_move: 'NONE', assigned: 'Josh', opened: -3, scheduled: d(1),
+      priority: 'HIGH',
+    });
+
+    // 6 — READY-TO-INVOICE: done on the bench, we drive it back. (SERVICE-OUT below)
+    const t6 = ticket({
+      stage: 'READY-TO-INVOICE', customer: 'Cedar Ridge Manufacturing',
+      equipment: 'Ironline BX-40 (customer owned)', issue: 'Annual service + new squeegees',
+      location: 'IN-SHOP', site: 'Oconomowoc WI', intake_move: 'PICKUP', return_move: 'DELIVER',
+      assigned: 'Zac', opened: -21,
+      quote: { number: 'Q-2185', amount: 860, sent: d(-19), approved: d(-18) },
+    });
+
+    // 7 — COMPLETE + CLOSED. Lingers 7 days so "done this week" is visible.
+    ticket({
+      stage: 'COMPLETE', status: 'CLOSED', customer: 'Dorsey Plastics',
+      equipment: 'Cascade Clean SW-900 (customer owned)', issue: 'Charger fault, replaced onboard charger',
+      location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP',
+      assigned: 'Josh', opened: -26, closed: d(-2), stage_since: -2,
+      quote: { number: 'Q-2170', amount: 1320, sent: d(-24), approved: d(-23) },
+      machinio_ref: 'MCH-73988',
+    });
+
+    // 8 — a second INTAKE card, LOW, no truck involved at any point.
+    ticket({
+      stage: 'INTAKE', priority: 'LOW', customer: 'Maplewood Schools',
+      equipment: 'Nordvale BX-27 (customer owned)', issue: 'Dropping water on the right side',
+      location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', opened: -4,
+    });
+
+    // 9 — a second IN-PROGRESS card so a column isn't always one deep.
+    ticket({
+      stage: 'IN-PROGRESS', customer: 'Granite Peak Warehouse', equipment: 'Meridian R-880 (customer owned)',
+      issue: 'Wheel drive noise; teardown started', location: 'IN-SHOP',
+      intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', assigned: 'Zac', opened: -7,
+    });
+
+    // ------------------------------------------------------------- dispatch board
+    const move = (m) => {
+      dispatch.push({
+        id: m.id, kind: m.kind, source: m.source,
+        serial: m.serial != null ? m.serial : null,
+        ticket: m.ticket != null ? m.ticket : null,
+        what: m.what, customer: m.customer, address: m.address,
+        date: m.date != null ? m.date : null,
+        billed_through: m.billed_through != null ? m.billed_through : null,
+        driver: m.driver != null ? m.driver : null,
+        rig: m.rig != null ? m.rig : null,
+        status: m.status, note: m.note != null ? m.note : null,
+        done: m.done != null ? m.done : null,
+      });
+    };
+
+    // RENTAL-RETURN, OPEN — the first released unit, straight off pickups[].
+    if (pickupUnits[0]) {
+      const p = pickups[0];
+      move({ id: `m-pu-${p.serial}`, kind: 'PICKUP', source: 'RENTAL-RETURN', serial: p.serial,
+        what: `${p.model} #${p.serial} off-rent`, customer: p.customer, address: p.job_site,
+        date: null, billed_through: p.billed_through, status: 'OPEN', note: p.note });
+    }
+    // RENTAL-RETURN, SCHEDULED — the second, already claimed.
+    if (pickupUnits[1]) {
+      const p = pickups[1];
+      move({ id: `m-pu-${p.serial}`, kind: 'PICKUP', source: 'RENTAL-RETURN', serial: p.serial,
+        what: `${p.model} #${p.serial} off-rent`, customer: p.customer, address: p.job_site,
+        date: d(1), billed_through: p.billed_through, driver: 'Josh', rig: 'JOSH-LIFTGATE',
+        status: 'SCHEDULED', note: p.note });
+    }
+    // pickups[2] is deliberately NOT on the board: the engine hasn't spawned its
+    // row yet. The Dispatch view has to say so rather than let it go quiet.
+
+    // SERVICE-IN, OPEN — ticket 1 said "we pick it up".
+    move({ id: 'm-si-2201', kind: 'PICKUP', source: 'SERVICE-IN', ticket: t1.ticket,
+      what: `${t1.equipment} in for repair`, customer: t1.customer, address: t1.site,
+      date: d(0), status: 'OPEN', note: 'Dock closes at 2, ask for Ray' });
+
+    // SERVICE-OUT, SCHEDULED — ticket 6 goes home. Shares a rig+day with the manual run below.
+    move({ id: 'm-so-2202', kind: 'DELIVER', source: 'SERVICE-OUT', ticket: t6.ticket,
+      what: `${t6.equipment} back to customer`, customer: t6.customer, address: t6.site,
+      date: d(2), driver: 'Kevin', rig: 'TRAILER-6000', status: 'SCHEDULED' });
+
+    // MANUAL, SCHEDULED — same rig, same day. This is the dispatch_warnings pair.
+    move({ id: 'm-a1b2c3', kind: 'DELIVER', source: 'MANUAL', serial: units.find((u) => u.unit_state === 'AVAILABLE').serial,
+      what: 'Demo unit out to the Beloit plant', customer: 'Quarry Road Aggregates', address: 'Beloit WI',
+      date: d(2), driver: 'Kevin', rig: 'TRAILER-6000', status: 'SCHEDULED', note: 'Kevin riding along for the walkthrough' });
+
+    dispatch_warnings.push({ rig: 'TRAILER-6000', date: d(2), ids: ['m-so-2202', 'm-a1b2c3'] });
+
+    // MANUAL, DONE — a parts run, no unit and no ticket. Lingers 7 days.
+    move({ id: 'm-d4e5f6', kind: 'PICKUP', source: 'MANUAL',
+      what: 'Parts pickup — Milwaukee supplier', customer: 'Halstead Parts Depot', address: 'Milwaukee WI',
+      date: d(-2), driver: 'Zac', rig: 'JOSH-LIFTGATE', status: 'DONE', done: d(-2),
+      note: 'Picked up both pump assemblies' });
   }
+
+  // The seven-stage rollup the Service tab draws its column counts from.
+  // COMPLETE is "closed in the last 7 days", not an open-work count (CLAUDE.md).
+  const SERVICE_STAGES = ['INTAKE', 'INSPECTION', 'QUOTED', 'PARTS-ORDERED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
+  const service_summary = {
+    open_by_stage: Object.fromEntries(SERVICE_STAGES.map((s) => [s, service_queue.filter(
+      (t) => t.stage === s && (s === 'COMPLETE' ? true : t.status === 'OPEN')).length])),
+    open_customer: service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER').length,
+    open_wss: service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'WSS').length,
+  };
 
   // -------------------------------------------------------------------- billing
   const billable = agreements.filter((a) => a.next_due && a.agreement);
@@ -388,7 +574,7 @@ function build({ withServiceQueue }) {
 
   return {
     meta: {
-      schema_version: 2,
+      schema_version: 3,
       generated_at: new Date().toISOString(),
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
       fleet_totals: totals,
@@ -401,47 +587,125 @@ function build({ withServiceQueue }) {
     reservations,
     pickups,
     service_queue,
+    service_summary,
+    dispatch,
+    dispatch_warnings,
+    // Still emitted for the engine's own consumers; the app must NOT render it (D39).
     billing: { due_next_7_days, created_last_run },
   };
+}
+
+/**
+ * The pre-Dispatch snapshot, rebuilt from a schema-3 one. Kept for one release
+ * so a board pointed at a stale KV value still renders during the cutover:
+ * the old six-stage service queue with `ticket_id` / `unit_desc`, the singular
+ * `units[].reservation` mirror, and none of the schema-3 arrays.
+ */
+function downgradeToSchema2(s3) {
+  const OLD_STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
+  const snap = JSON.parse(JSON.stringify(s3));
+
+  snap.meta.schema_version = 2;
+  snap.meta.run_id = `mock-legacy-${new Date().toISOString().slice(0, 10)}`;
+
+  for (const u of snap.units) {
+    const cur = u.reservations.find((h) => h.status === 'current') || u.reservations.find((h) => h.status === 'future');
+    u.reservation = cur
+      ? { held_by: cur.held_by, purpose: cur.purpose, customer: cur.customer, until: cur.end }
+      : { held_by: null, purpose: null, customer: null, until: null };
+  }
+
+  snap.service_queue = s3.service_queue.map((t, i) => ({
+    ticket_id: `SVC-${1200 + i}`,
+    customer: t.customer,
+    serial: t.serial,
+    unit_desc: t.equipment,
+    stage: OLD_STAGES[i % OLD_STAGES.length],
+    assigned: t.assigned || 'Josh',
+    opened: t.opened,
+    quote: t.quote ? t.quote.amount : null,
+    machinio_ref: t.machinio_ref,
+  }));
+  // The old snapshot pointed units at the old ticket ids.
+  const bySerial = new Map(snap.service_queue.filter((t) => t.serial).map((t) => [String(t.serial), t.ticket_id]));
+  for (const u of snap.units) u.service_ticket = bySerial.get(String(u.serial)) || null;
+
+  delete snap.service_summary;
+  delete snap.dispatch;
+  delete snap.dispatch_warnings;
+  return snap;
 }
 
 // ------------------------------------------------------------------------ main
 const outdir = process.argv[2] || path.join(HERE, '..', 'docs', 'mock');
 fs.mkdirSync(outdir, { recursive: true });
 
-let firstSnapshot = null;
-for (const [name, opts] of [
-  ['mock-full.json', { withServiceQueue: true }],
-  ['mock-empty.json', { withServiceQueue: false }],
+const full = build({ withServiceQueue: true });
+const empty = build({ withServiceQueue: false });
+
+for (const [name, snapshot] of [
+  ['mock-full.json', full],
+  ['mock-empty.json', empty],
+  ['mock-legacy.json', downgradeToSchema2(full)],
 ]) {
-  const snapshot = build(opts);
-  if (!firstSnapshot) firstSnapshot = snapshot;
   const file = path.join(outdir, name);
   fs.writeFileSync(file, JSON.stringify(snapshot, null, 2) + '\n');
   console.log(
-    `${name}: ${snapshot.units.length} units, ${snapshot.agreements.length} agreements, ` +
-    `${snapshot.service_queue.length} tickets -> ${path.relative(process.cwd(), file)}`
+    `${name}: schema ${snapshot.meta.schema_version} · ${snapshot.units.length} units, ` +
+    `${snapshot.agreements.length} agreements, ${snapshot.service_queue.length} tickets, ` +
+    `${(snapshot.dispatch || []).length} dispatch rows -> ${path.relative(process.cwd(), file)}`
   );
 }
 
 // Sample UNAPPLIED events, shaped exactly as the Worker stores them. This is not
 // part of the snapshot contract — the Worker returns pending separately — so it
 // gets its own file, loaded only by ?mock=full&pending=1.
-const avail = firstSnapshot.units.filter((u) => u.unit_state === 'AVAILABLE');
+const avail = full.units.filter((u) => u.unit_state === 'AVAILABLE');
+const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 const pending = [
   {
     id: 'evt-mock-1',
-    ts: new Date(Date.now() - 3 * 3600000).toISOString(),
+    ts: ago(180),
     actor: 'Kevin', role: 'sales',
     action: 'reserve', serial: avail[0].serial,
-    payload: { customer: 'Ironwood Packaging', purpose: 'quote hold', until: d(6) },
+    payload: { customer: 'Ironwood Packaging', purpose: 'quote hold', start: d(3), end: d(6) },
   },
   {
     id: 'evt-mock-2',
-    ts: new Date(Date.now() - 40 * 60000).toISOString(),
+    ts: ago(40),
     actor: 'Josh', role: 'service',
     action: 'readiness', serial: avail[1].serial,
     payload: { readiness: 'NEEDS-PREP', note: 'squeegee blades ordered' },
+  },
+  // The one write with no id of its own: the engine assigns the ticket number.
+  // The Service tab has to badge it as a synthetic INTAKE card (§3.1, §8).
+  {
+    id: 'evt-mock-3',
+    ts: ago(12),
+    actor: 'Josh', role: 'service',
+    action: 'ticket_open', serial: null,
+    payload: {
+      machine_owner: 'CUSTOMER', serial: null, equipment: 'Halstead T-320 (customer owned)',
+      customer: 'Northgate Fulfillment', issue: 'Batteries not holding a charge overnight',
+      priority: 'HIGH', site: 'Sun Prairie WI', location: 'AT-CUSTOMER',
+      intake_move: 'PICKUP', return_move: 'DELIVER',
+    },
+  },
+  // A claim on an existing row -> the row badges pending and stays in Open.
+  {
+    id: 'evt-mock-4',
+    ts: ago(6),
+    actor: 'Kevin', role: 'sales',
+    action: 'dispatch_claim', serial: null,
+    payload: { dispatch_id: 'm-si-2201', rig: 'TRAILER-6000', date: d(1), driver: 'Kevin' },
+  },
+  // A stage move on a ticket -> the ticket badges pending, the card does not move.
+  {
+    id: 'evt-mock-5',
+    ts: ago(3),
+    actor: 'Zac', role: 'service',
+    action: 'ticket_update', serial: null,
+    payload: { ticket: 'S1004', stage: 'IN-PROGRESS', note: 'Pump landed early' },
   },
 ];
 const pfile = path.join(outdir, 'mock-pending.json');

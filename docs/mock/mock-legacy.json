@@ -1,8 +1,8 @@
 {
   "meta": {
-    "schema_version": 3,
+    "schema_version": 2,
     "generated_at": "2026-09-03T15:18:55.254Z",
-    "run_id": "mock-full-2026-09-03",
+    "run_id": "mock-legacy-2026-09-03",
     "fleet_totals": {
       "units": 39,
       "cost": 648600,
@@ -72,7 +72,13 @@
           "status": "future"
         }
       ],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": "Kevin",
+        "purpose": "quote hold",
+        "customer": "Lakeshore Beverage",
+        "until": "2026-09-09"
+      }
     },
     {
       "serial": "900114",
@@ -102,7 +108,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900121",
@@ -153,7 +165,13 @@
           "status": "future"
         }
       ],
-      "service_ticket": "S1005"
+      "service_ticket": "SVC-1204",
+      "reservation": {
+        "held_by": "Kevin",
+        "purpose": "DEMO — Ixonia",
+        "customer": "Lakeshore Beverage",
+        "until": "2026-09-15"
+      }
     },
     {
       "serial": "900128",
@@ -183,7 +201,13 @@
       "agreement": 4106,
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900135",
@@ -213,7 +237,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900142",
@@ -243,7 +273,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900149",
@@ -273,7 +309,13 @@
       "agreement": 4109,
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900156",
@@ -303,7 +345,13 @@
       "agreement": 4112,
       "customer": "Kestrel Print",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900163",
@@ -344,7 +392,13 @@
           "status": "current"
         }
       ],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": "Kevin",
+        "purpose": "DEMO — Ixonia",
+        "customer": "Summit Fabrication",
+        "until": "2026-09-06"
+      }
     },
     {
       "serial": "900170",
@@ -374,7 +428,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900177",
@@ -404,7 +464,13 @@
       "agreement": 4115,
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900184",
@@ -434,7 +500,13 @@
       "agreement": 4118,
       "customer": "Cedar Ridge Manufacturing",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900191",
@@ -475,7 +547,13 @@
           "status": "malformed"
         }
       ],
-      "service_ticket": "S1002"
+      "service_ticket": "SVC-1201",
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900198",
@@ -516,7 +594,13 @@
           "status": "expired"
         }
       ],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900205",
@@ -546,7 +630,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900212",
@@ -576,7 +666,13 @@
       "agreement": 4121,
       "customer": "Northgate Fulfillment",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900219",
@@ -606,7 +702,13 @@
       "agreement": 4124,
       "customer": "Acme Foods",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900226",
@@ -636,7 +738,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900233",
@@ -666,7 +774,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900240",
@@ -696,7 +810,13 @@
       "agreement": 4127,
       "customer": "Quarry Road Aggregates",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900247",
@@ -726,7 +846,13 @@
       "agreement": 4130,
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900254",
@@ -756,7 +882,13 @@
       "agreement": null,
       "customer": "Fairmont Dairy",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900261",
@@ -786,7 +918,13 @@
       "agreement": 4136,
       "customer": "Granite Peak Warehouse",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900268",
@@ -816,7 +954,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900275",
@@ -846,7 +990,13 @@
       "agreement": 4139,
       "customer": "Acme Foods",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900282",
@@ -876,7 +1026,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900289",
@@ -906,7 +1062,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900296",
@@ -936,7 +1098,13 @@
       "agreement": 4142,
       "customer": "Fairmont Dairy",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900303",
@@ -966,7 +1134,13 @@
       "agreement": 4145,
       "customer": "Evergreen Distribution",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900310",
@@ -996,7 +1170,13 @@
       "agreement": null,
       "customer": "Maplewood Schools",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900317",
@@ -1026,7 +1206,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900324",
@@ -1056,7 +1242,13 @@
       "agreement": 4148,
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900331",
@@ -1086,7 +1278,13 @@
       "agreement": 4151,
       "customer": "Oakhill Casting",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900338",
@@ -1116,7 +1314,13 @@
       "agreement": 4154,
       "customer": "Maplewood Schools",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900345",
@@ -1187,7 +1391,13 @@
           "status": "future"
         }
       ],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": "Kevin",
+        "purpose": "replacement for down unit",
+        "customer": "Oakhill Casting",
+        "until": "2026-09-03"
+      }
     },
     {
       "serial": "900352",
@@ -1217,7 +1427,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900359",
@@ -1247,7 +1463,13 @@
       "agreement": 4157,
       "customer": "Evergreen Distribution",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900366",
@@ -1277,7 +1499,13 @@
       "agreement": 4160,
       "customer": "Dorsey Plastics",
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     },
     {
       "serial": "900373",
@@ -1307,7 +1535,13 @@
       "agreement": null,
       "customer": null,
       "reservations": [],
-      "service_ticket": null
+      "service_ticket": null,
+      "reservation": {
+        "held_by": null,
+        "purpose": null,
+        "customer": null,
+        "until": null
+      }
     }
   ],
   "agreements": [
@@ -1798,376 +2032,103 @@
   ],
   "service_queue": [
     {
-      "ticket": "S1001",
-      "status": "OPEN",
-      "stage": "INTAKE",
-      "machine_owner": "CUSTOMER",
+      "ticket_id": "SVC-1200",
       "customer": "Ironwood Packaging",
       "serial": null,
-      "equipment": "Nordvale SC-2400 (customer owned)",
-      "issue": "Scrubber dead — no power at key switch, whole line is mopping by hand",
-      "priority": "HIGH",
-      "site": "Watertown WI",
-      "location": "AT-CUSTOMER",
-      "intake_move": "PICKUP",
-      "return_move": "DELIVER",
+      "unit_desc": "Nordvale SC-2400 (customer owned)",
+      "stage": "INTAKE",
       "assigned": "Josh",
-      "scheduled": null,
       "opened": -1,
-      "opened_by": "Zac",
-      "stage_since": "2026-09-03",
-      "age_days": 1,
       "quote": null,
-      "parts": null,
-      "machinio_ref": null,
-      "closed": null
+      "machinio_ref": null
     },
     {
-      "ticket": "S1002",
-      "status": "OPEN",
-      "stage": "INSPECTION",
-      "machine_owner": "WSS",
+      "ticket_id": "SVC-1201",
       "customer": "WSS",
       "serial": "900191",
-      "equipment": "Ironline SC-1700 2026",
-      "issue": "Traction motor pulled — checking the controller before we order",
-      "priority": "MEDIUM",
-      "site": "Beloit WI",
-      "location": "IN-SHOP",
-      "intake_move": "NONE",
-      "return_move": "NONE",
+      "unit_desc": "Ironline SC-1700 2026",
+      "stage": "DIAGNOSED",
       "assigned": "Zac",
-      "scheduled": null,
       "opened": -9,
-      "opened_by": "Matt",
-      "stage_since": "2026-08-25",
-      "age_days": 9,
       "quote": null,
-      "parts": null,
-      "machinio_ref": null,
-      "closed": null
+      "machinio_ref": null
     },
     {
-      "ticket": "S1003",
-      "status": "OPEN",
-      "stage": "QUOTED",
-      "machine_owner": "CUSTOMER",
+      "ticket_id": "SVC-1202",
       "customer": "Fairmont Dairy",
       "serial": null,
-      "equipment": "Halstead R-660 (customer owned)",
-      "issue": "Squeegee frame bent, deck actuator leaking",
-      "priority": "MEDIUM",
-      "site": "Beloit WI",
-      "location": "IN-SHOP",
-      "intake_move": "CUSTOMER-DROP",
-      "return_move": "CUSTOMER-PICKUP",
+      "unit_desc": "Halstead R-660 (customer owned)",
+      "stage": "AWAITING-PARTS",
       "assigned": "Josh",
-      "scheduled": null,
       "opened": -12,
-      "opened_by": "Matt",
-      "stage_since": "2026-08-25",
-      "age_days": 12,
-      "quote": {
-        "number": "Q-2211",
-        "amount": 2480,
-        "sent": "2026-08-28",
-        "approved": null
-      },
-      "parts": null,
-      "machinio_ref": "MCH-74210",
-      "closed": null
+      "quote": 2480,
+      "machinio_ref": "MCH-74210"
     },
     {
-      "ticket": "S1004",
-      "status": "OPEN",
-      "stage": "PARTS-ORDERED",
-      "machine_owner": "CUSTOMER",
+      "ticket_id": "SVC-1203",
       "customer": "Lakeshore Beverage",
       "serial": null,
-      "equipment": "Meridian T-500 (customer owned)",
-      "issue": "Pump assembly failed",
-      "priority": "MEDIUM",
-      "site": "Milwaukee WI",
-      "location": "IN-SHOP",
-      "intake_move": "CUSTOMER-DROP",
-      "return_move": "DELIVER",
+      "unit_desc": "Meridian T-500 (customer owned)",
+      "stage": "IN-PROGRESS",
       "assigned": "Zac",
-      "scheduled": "2026-09-07",
       "opened": -18,
-      "opened_by": "Zac",
-      "stage_since": "2026-08-19",
-      "age_days": 18,
-      "quote": {
-        "number": "Q-2198",
-        "amount": 1140,
-        "sent": "2026-08-19",
-        "approved": "2026-08-21"
-      },
-      "parts": "Pump assy 41-2207 — ETA Thursday, backordered once already",
-      "machinio_ref": null,
-      "closed": null
+      "quote": 1140,
+      "machinio_ref": null
     },
     {
-      "ticket": "S1005",
-      "status": "OPEN",
-      "stage": "IN-PROGRESS",
-      "machine_owner": "WSS",
+      "ticket_id": "SVC-1204",
       "customer": "Granite Peak Warehouse",
       "serial": "900121",
-      "equipment": "Cascade Clean BX-40",
-      "issue": "Brush motor cutting out under load — customer kept it, we go to it",
-      "priority": "HIGH",
-      "site": "Jefferson WI",
-      "location": "AT-CUSTOMER",
-      "intake_move": "NONE",
-      "return_move": "NONE",
+      "unit_desc": "Cascade Clean BX-40",
+      "stage": "READY-TO-INVOICE",
       "assigned": "Josh",
-      "scheduled": "2026-09-04",
       "opened": -3,
-      "opened_by": "Kevin",
-      "stage_since": "2026-09-03",
-      "age_days": 3,
       "quote": null,
-      "parts": null,
-      "machinio_ref": null,
-      "closed": null
+      "machinio_ref": null
     },
     {
-      "ticket": "S1006",
-      "status": "OPEN",
-      "stage": "READY-TO-INVOICE",
-      "machine_owner": "CUSTOMER",
+      "ticket_id": "SVC-1205",
       "customer": "Cedar Ridge Manufacturing",
       "serial": null,
-      "equipment": "Ironline BX-40 (customer owned)",
-      "issue": "Annual service + new squeegees",
-      "priority": "MEDIUM",
-      "site": "Oconomowoc WI",
-      "location": "IN-SHOP",
-      "intake_move": "PICKUP",
-      "return_move": "DELIVER",
+      "unit_desc": "Ironline BX-40 (customer owned)",
+      "stage": "DONE",
       "assigned": "Zac",
-      "scheduled": null,
       "opened": -21,
-      "opened_by": "Matt",
-      "stage_since": "2026-08-15",
-      "age_days": 21,
-      "quote": {
-        "number": "Q-2185",
-        "amount": 860,
-        "sent": "2026-08-15",
-        "approved": "2026-08-16"
-      },
-      "parts": null,
-      "machinio_ref": null,
-      "closed": null
+      "quote": 860,
+      "machinio_ref": null
     },
     {
-      "ticket": "S1007",
-      "status": "CLOSED",
-      "stage": "COMPLETE",
-      "machine_owner": "CUSTOMER",
+      "ticket_id": "SVC-1206",
       "customer": "Dorsey Plastics",
       "serial": null,
-      "equipment": "Cascade Clean SW-900 (customer owned)",
-      "issue": "Charger fault, replaced onboard charger",
-      "priority": "MEDIUM",
-      "site": "Jefferson WI",
-      "location": "IN-SHOP",
-      "intake_move": "CUSTOMER-DROP",
-      "return_move": "CUSTOMER-PICKUP",
+      "unit_desc": "Cascade Clean SW-900 (customer owned)",
+      "stage": "INTAKE",
       "assigned": "Josh",
-      "scheduled": null,
       "opened": -26,
-      "opened_by": "Zac",
-      "stage_since": -2,
-      "age_days": 26,
-      "quote": {
-        "number": "Q-2170",
-        "amount": 1320,
-        "sent": "2026-08-10",
-        "approved": "2026-08-11"
-      },
-      "parts": null,
-      "machinio_ref": "MCH-73988",
-      "closed": "2026-09-01"
+      "quote": 1320,
+      "machinio_ref": "MCH-73988"
     },
     {
-      "ticket": "S1008",
-      "status": "OPEN",
-      "stage": "INTAKE",
-      "machine_owner": "CUSTOMER",
+      "ticket_id": "SVC-1207",
       "customer": "Maplewood Schools",
       "serial": null,
-      "equipment": "Nordvale BX-27 (customer owned)",
-      "issue": "Dropping water on the right side",
-      "priority": "LOW",
-      "site": "Waukesha WI",
-      "location": "IN-SHOP",
-      "intake_move": "CUSTOMER-DROP",
-      "return_move": "CUSTOMER-PICKUP",
-      "assigned": null,
-      "scheduled": null,
+      "unit_desc": "Nordvale BX-27 (customer owned)",
+      "stage": "DIAGNOSED",
+      "assigned": "Josh",
       "opened": -4,
-      "opened_by": "Zac",
-      "stage_since": "2026-09-01",
-      "age_days": 4,
       "quote": null,
-      "parts": null,
-      "machinio_ref": null,
-      "closed": null
+      "machinio_ref": null
     },
     {
-      "ticket": "S1009",
-      "status": "OPEN",
-      "stage": "IN-PROGRESS",
-      "machine_owner": "CUSTOMER",
+      "ticket_id": "SVC-1208",
       "customer": "Granite Peak Warehouse",
       "serial": null,
-      "equipment": "Meridian R-880 (customer owned)",
-      "issue": "Wheel drive noise; teardown started",
-      "priority": "MEDIUM",
-      "site": "Oconomowoc WI",
-      "location": "IN-SHOP",
-      "intake_move": "CUSTOMER-DROP",
-      "return_move": "CUSTOMER-PICKUP",
+      "unit_desc": "Meridian R-880 (customer owned)",
+      "stage": "AWAITING-PARTS",
       "assigned": "Zac",
-      "scheduled": null,
       "opened": -7,
-      "opened_by": "Kevin",
-      "stage_since": "2026-08-28",
-      "age_days": 7,
       "quote": null,
-      "parts": null,
-      "machinio_ref": null,
-      "closed": null
-    }
-  ],
-  "service_summary": {
-    "open_by_stage": {
-      "INTAKE": 2,
-      "INSPECTION": 1,
-      "QUOTED": 1,
-      "PARTS-ORDERED": 1,
-      "IN-PROGRESS": 2,
-      "READY-TO-INVOICE": 1,
-      "COMPLETE": 1
-    },
-    "open_customer": 6,
-    "open_wss": 2
-  },
-  "dispatch": [
-    {
-      "id": "m-pu-900128",
-      "kind": "PICKUP",
-      "source": "RENTAL-RETURN",
-      "serial": "900128",
-      "ticket": null,
-      "what": "Meridian T-320 #900128 off-rent",
-      "customer": "Pinnacle Cold Storage",
-      "address": "Ixonia WI",
-      "date": null,
-      "billed_through": "2026-08-17",
-      "driver": null,
-      "rig": null,
-      "status": "OPEN",
-      "note": "Customer called — released, unit at the dock",
-      "done": null
-    },
-    {
-      "id": "m-pu-900149",
-      "kind": "PICKUP",
-      "source": "RENTAL-RETURN",
-      "serial": "900149",
-      "ticket": null,
-      "what": "Halstead R-660 #900149 off-rent",
-      "customer": "Pinnacle Cold Storage",
-      "address": "Watertown WI",
-      "date": "2026-09-04",
-      "billed_through": "2026-08-28",
-      "driver": "Josh",
-      "rig": "JOSH-LIFTGATE",
-      "status": "SCHEDULED",
-      "note": "Released Friday; site closes at 3",
-      "done": null
-    },
-    {
-      "id": "m-si-2201",
-      "kind": "PICKUP",
-      "source": "SERVICE-IN",
-      "serial": null,
-      "ticket": "S1001",
-      "what": "Nordvale SC-2400 (customer owned) in for repair",
-      "customer": "Ironwood Packaging",
-      "address": "Watertown WI",
-      "date": "2026-09-03",
-      "billed_through": null,
-      "driver": null,
-      "rig": null,
-      "status": "OPEN",
-      "note": "Dock closes at 2, ask for Ray",
-      "done": null
-    },
-    {
-      "id": "m-so-2202",
-      "kind": "DELIVER",
-      "source": "SERVICE-OUT",
-      "serial": null,
-      "ticket": "S1006",
-      "what": "Ironline BX-40 (customer owned) back to customer",
-      "customer": "Cedar Ridge Manufacturing",
-      "address": "Oconomowoc WI",
-      "date": "2026-09-05",
-      "billed_through": null,
-      "driver": "Kevin",
-      "rig": "TRAILER-6000",
-      "status": "SCHEDULED",
-      "note": null,
-      "done": null
-    },
-    {
-      "id": "m-a1b2c3",
-      "kind": "DELIVER",
-      "source": "MANUAL",
-      "serial": "900107",
-      "ticket": null,
-      "what": "Demo unit out to the Beloit plant",
-      "customer": "Quarry Road Aggregates",
-      "address": "Beloit WI",
-      "date": "2026-09-05",
-      "billed_through": null,
-      "driver": "Kevin",
-      "rig": "TRAILER-6000",
-      "status": "SCHEDULED",
-      "note": "Kevin riding along for the walkthrough",
-      "done": null
-    },
-    {
-      "id": "m-d4e5f6",
-      "kind": "PICKUP",
-      "source": "MANUAL",
-      "serial": null,
-      "ticket": null,
-      "what": "Parts pickup — Milwaukee supplier",
-      "customer": "Halstead Parts Depot",
-      "address": "Milwaukee WI",
-      "date": "2026-09-01",
-      "billed_through": null,
-      "driver": "Zac",
-      "rig": "JOSH-LIFTGATE",
-      "status": "DONE",
-      "note": "Picked up both pump assemblies",
-      "done": "2026-09-01"
-    }
-  ],
-  "dispatch_warnings": [
-    {
-      "rig": "TRAILER-6000",
-      "date": "2026-09-05",
-      "ids": [
-        "m-so-2202",
-        "m-a1b2c3"
-      ]
+      "machinio_ref": null
     }
   ],
   "billing": {

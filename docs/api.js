@@ -31,14 +31,19 @@ export function resolveApiBase(url, override) {
   return API_BASE;
 }
 
+// The fake snapshots in docs/mock. `legacy` is the schema-2 file, kept for one
+// release so the cutover can be rehearsed against the old shape.
+const MOCK_VARIANTS = new Set(['full', 'empty', 'legacy']);
+
 /**
- * 'full' | 'empty' | null. The gate: with an API wired and a non-local host,
- * this is always null, so nothing downstream can be steered from the URL.
+ * 'full' | 'empty' | 'legacy' | null. The gate: with an API wired and a
+ * non-local host this is always null, so nothing downstream can be steered
+ * from the URL.
  */
 export function mockVariant(url, apiBase = API_BASE) {
   if (apiBase && !isLocalHost(url)) return null;
   const v = new URL(url).searchParams.get('mock');
-  return v === 'full' || v === 'empty' ? v : null;
+  return MOCK_VARIANTS.has(v) ? v : null;
 }
 
 function fail(code, message) {
