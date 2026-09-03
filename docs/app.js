@@ -32,7 +32,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-03b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-03c';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -172,7 +172,7 @@ const pendingReleases = (serial, holdId) => pendingFor(serial).filter((e) => e.a
 /* Pending writes keyed the schema-3 way (§8). Keys: `ticket` for ticket_update,
  * `dispatch_id` for the dispatch_* actions, `serial` for the older three. A
  * pending ticket_open has NO id of its own — the engine assigns the number —
- * so it is drawn as a synthetic INTAKE card and never invents "S????". */
+ * so it is drawn as a synthetic RECEIVED card and never invents "S????". */
 const pl = (e) => (e && e.payload) || {};
 const pendingForTicket = (id) => (id ? state.pending.filter((e) => e.action === 'ticket_update' && pl(e).ticket === id) : []);
 const pendingForDispatch = (id) => (id ? state.pending.filter((e) => String(e.action).startsWith('dispatch_') && pl(e).dispatch_id === id) : []);
@@ -719,8 +719,8 @@ function viewService() {
 
   const cols = columnize(q, { summary: s, filter }).map((c) => {
     // A pending ticket_open has no number yet (§3.1) — it sits at the head of
-    // INTAKE as a synthetic card and never invents an id.
-    const synth = c.stage === 'INTAKE'
+    // RECEIVED as a synthetic card and never invents an id.
+    const synth = c.stage === 'RECEIVED'
       ? opens.filter((e) => filter === 'all' || pl(e).machine_owner === filter).map(pendingTicketCard)
       : [];
     const cards = synth.concat(sortTickets(c.tickets).map(ticketCard));

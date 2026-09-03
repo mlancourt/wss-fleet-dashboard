@@ -366,7 +366,7 @@ function build({ withServiceQueue }) {
       const row = {
         ticket: id,
         status: 'OPEN',
-        stage: 'INTAKE',
+        stage: 'RECEIVED',
         machine_owner: 'CUSTOMER',
         customer: pick(CUSTOMERS),
         serial: null,
@@ -407,34 +407,34 @@ function build({ withServiceQueue }) {
       return row;
     };
 
-    // 1 — INTAKE, HIGH, customer machine still at their plant: we go get it. (SERVICE-IN below)
+    // 1 — RECEIVED, HIGH, customer machine still at their plant: we go get it. (SERVICE-IN below)
     const t1 = ticket({
-      stage: 'INTAKE', priority: 'HIGH', customer: 'Ironwood Packaging',
+      stage: 'RECEIVED', priority: 'HIGH', customer: 'Ironwood Packaging',
       equipment: 'Nordvale SC-2400 (customer owned)', issue: 'Scrubber dead — no power at key switch, whole line is mopping by hand',
       location: 'AT-CUSTOMER', site: 'Watertown WI', intake_move: 'PICKUP', return_move: 'DELIVER',
       opened: -1, assigned: 'Josh',
     });
 
-    // 2 — INSPECTION on one of ours, DOWN in the shop.
+    // 2 — CONTACTED on one of ours, DOWN in the shop.
     ticket({
-      stage: 'INSPECTION', unit: shopDown, customer: 'WSS',
+      stage: 'CONTACTED', unit: shopDown, customer: 'WSS',
       issue: 'Traction motor pulled — checking the controller before we order',
       location: 'IN-SHOP', intake_move: 'NONE', return_move: 'NONE',
       priority: 'MEDIUM', assigned: 'Zac', opened: -9,
     });
 
-    // 3 — QUOTED: customer machine, quote sent, waiting on their yes.
+    // 3 — WAITING-ON-CUSTOMER: customer machine, quote sent, waiting on their yes.
     ticket({
-      stage: 'QUOTED', customer: 'Fairmont Dairy', equipment: 'Halstead R-660 (customer owned)',
+      stage: 'WAITING-ON-CUSTOMER', customer: 'Fairmont Dairy', equipment: 'Halstead R-660 (customer owned)',
       issue: 'Squeegee frame bent, deck actuator leaking', location: 'IN-SHOP',
       intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', assigned: 'Josh', opened: -12,
       quote: { number: 'Q-2211', amount: 2480, sent: d(-6), approved: null },
       machinio_ref: 'MCH-74210',
     });
 
-    // 4 — PARTS-ORDERED: the wait state that eats a shop.
+    // 4 — WAITING-ON-PARTS: the wait state that eats a shop.
     ticket({
-      stage: 'PARTS-ORDERED', customer: 'Lakeshore Beverage', equipment: 'Meridian T-500 (customer owned)',
+      stage: 'WAITING-ON-PARTS', customer: 'Lakeshore Beverage', equipment: 'Meridian T-500 (customer owned)',
       issue: 'Pump assembly failed', location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP',
       return_move: 'DELIVER', assigned: 'Zac', opened: -18, scheduled: d(4),
       quote: { number: 'Q-2198', amount: 1140, sent: d(-15), approved: d(-13) },
@@ -469,9 +469,9 @@ function build({ withServiceQueue }) {
       machinio_ref: 'MCH-73988',
     });
 
-    // 8 — a second INTAKE card, LOW, no truck involved at any point.
+    // 8 — a second RECEIVED card, LOW, no truck involved at any point.
     ticket({
-      stage: 'INTAKE', priority: 'LOW', customer: 'Maplewood Schools',
+      stage: 'RECEIVED', priority: 'LOW', customer: 'Maplewood Schools',
       equipment: 'Nordvale BX-27 (customer owned)', issue: 'Dropping water on the right side',
       location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', opened: -4,
     });
@@ -543,7 +543,7 @@ function build({ withServiceQueue }) {
 
   // The seven-stage rollup the Service tab draws its column counts from.
   // COMPLETE is "closed in the last 7 days", not an open-work count (CLAUDE.md).
-  const SERVICE_STAGES = ['INTAKE', 'INSPECTION', 'QUOTED', 'PARTS-ORDERED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
+  const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
   const service_summary = {
     open_by_stage: Object.fromEntries(SERVICE_STAGES.map((s) => [s, service_queue.filter(
       (t) => t.stage === s && (s === 'COMPLETE' ? true : t.status === 'OPEN')).length])),
@@ -607,7 +607,7 @@ function build({ withServiceQueue }) {
  * `units[].reservation` mirror, and none of the schema-3 arrays.
  */
 function downgradeToSchema2(s3) {
-  const OLD_STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
+  const OLD_STAGES = ['RECEIVED', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
   const snap = JSON.parse(JSON.stringify(s3));
 
   snap.meta.schema_version = 2;
@@ -683,7 +683,7 @@ const pending = [
     payload: { readiness: 'NEEDS-PREP', note: 'squeegee blades ordered' },
   },
   // The one write with no id of its own: the engine assigns the ticket number.
-  // The Service tab has to badge it as a synthetic INTAKE card (§3.1, §8).
+  // The Service tab has to badge it as a synthetic RECEIVED card (§3.1, §8).
   {
     id: 'evt-mock-3',
     ts: ago(12),

@@ -43,7 +43,7 @@ const READINESS = new Set(['READY', 'NEEDS-PREP', 'DOWN', 'NEEDS-PICKUP']);   //
 // only — whether the value makes sense for the ticket's current state is the
 // vault's call, never this file's.
 const MACHINE_OWNERS = new Set(['CUSTOMER', 'WSS']);
-const STAGES = new Set(['INTAKE', 'INSPECTION', 'QUOTED', 'PARTS-ORDERED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE']);
+const STAGES = new Set(['RECEIVED', 'CONTACTED', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE']);
 const PRIORITIES = new Set(['HIGH', 'MEDIUM', 'LOW']);
 const LOCATIONS = new Set(['AT-CUSTOMER', 'IN-SHOP']);
 const INTAKE_MOVES = new Set(['NONE', 'PICKUP', 'CUSTOMER-DROP']);

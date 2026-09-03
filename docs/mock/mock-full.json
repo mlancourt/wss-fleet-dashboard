@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 3,
-    "generated_at": "2026-09-03T15:33:43.651Z",
+    "generated_at": "2026-09-03T17:09:09.082Z",
     "run_id": "mock-full-2026-09-03",
     "fleet_totals": {
       "units": 39,
@@ -1800,7 +1800,7 @@
     {
       "ticket": "S1001",
       "status": "OPEN",
-      "stage": "INTAKE",
+      "stage": "RECEIVED",
       "machine_owner": "CUSTOMER",
       "customer": "Ironwood Packaging",
       "serial": null,
@@ -1825,7 +1825,7 @@
     {
       "ticket": "S1002",
       "status": "OPEN",
-      "stage": "INSPECTION",
+      "stage": "CONTACTED",
       "machine_owner": "WSS",
       "customer": "WSS",
       "serial": "900191",
@@ -1850,7 +1850,7 @@
     {
       "ticket": "S1003",
       "status": "OPEN",
-      "stage": "QUOTED",
+      "stage": "WAITING-ON-CUSTOMER",
       "machine_owner": "CUSTOMER",
       "customer": "Fairmont Dairy",
       "serial": null,
@@ -1880,7 +1880,7 @@
     {
       "ticket": "S1004",
       "status": "OPEN",
-      "stage": "PARTS-ORDERED",
+      "stage": "WAITING-ON-PARTS",
       "machine_owner": "CUSTOMER",
       "customer": "Lakeshore Beverage",
       "serial": null,
@@ -1995,7 +1995,7 @@
     {
       "ticket": "S1008",
       "status": "OPEN",
-      "stage": "INTAKE",
+      "stage": "RECEIVED",
       "machine_owner": "CUSTOMER",
       "customer": "Maplewood Schools",
       "serial": null,
@@ -2045,10 +2045,11 @@
   ],
   "service_summary": {
     "open_by_stage": {
-      "INTAKE": 2,
-      "INSPECTION": 1,
-      "QUOTED": 1,
-      "PARTS-ORDERED": 1,
+      "RECEIVED": 2,
+      "CONTACTED": 1,
+      "WAITING-ON-CUSTOMER": 1,
+      "WAITING-ON-PARTS": 1,
+      "SCHEDULED": 0,
       "IN-PROGRESS": 2,
       "READY-TO-INVOICE": 1,
       "COMPLETE": 1

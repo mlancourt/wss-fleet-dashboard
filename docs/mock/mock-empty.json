@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 3,
-    "generated_at": "2026-09-03T15:33:43.651Z",
+    "generated_at": "2026-09-03T17:09:09.082Z",
     "run_id": "mock-empty-2026-09-03",
     "fleet_totals": {
       "units": 39,
@@ -1765,10 +1765,11 @@
   "service_queue": [],
   "service_summary": {
     "open_by_stage": {
-      "INTAKE": 0,
-      "INSPECTION": 0,
-      "QUOTED": 0,
-      "PARTS-ORDERED": 0,
+      "RECEIVED": 0,
+      "CONTACTED": 0,
+      "WAITING-ON-CUSTOMER": 0,
+      "WAITING-ON-PARTS": 0,
+      "SCHEDULED": 0,
       "IN-PROGRESS": 0,
       "READY-TO-INVOICE": 0,
       "COMPLETE": 0

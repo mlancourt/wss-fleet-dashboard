@@ -197,7 +197,7 @@ plain CNAME from any host. Do not "simplify" this.
 - **Writes are proposals.** A submitted event renders as ⏳ pending and the board
   keeps showing current truth until the engine applies it.
 - **A pending `ticket_open` has no ticket number.** The engine assigns it. The
-  Service tab draws it as a synthetic INTAKE card badged "⏳ NEW"; never invent
+  Service tab draws it as a synthetic RECEIVED card badged "⏳ NEW"; never invent
   an id client-side, not even a placeholder.
 - **The Worker cannot enforce "only Matt closes a customer ticket."** Knowing
   whose machine `S1001` is means reading the snapshot, which is business state
@@ -331,7 +331,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `dispatch_cancel` | **owner** | optional | `dispatch_id` |
 
 Enums the Worker checks membership of, and nothing more:
-`machine_owner` CUSTOMER·WSS · `stage` INTAKE·INSPECTION·QUOTED·PARTS-ORDERED·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·
+`machine_owner` CUSTOMER·WSS · `stage` RECEIVED·CONTACTED·WAITING-ON-CUSTOMER·WAITING-ON-PARTS·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·
 `priority` HIGH·MEDIUM·LOW · `location` AT-CUSTOMER·IN-SHOP ·
 `intake_move` NONE·PICKUP·CUSTOMER-DROP · `return_move` NONE·DELIVER·CUSTOMER-PICKUP ·
 `kind` PICKUP·DELIVER · `rig` KEVIN-LIFTGATE·JOSH-LIFTGATE·TRAILER-6000·TRAILER-3000 ·

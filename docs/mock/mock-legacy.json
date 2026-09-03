@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-03T15:33:43.651Z",
+    "generated_at": "2026-09-03T17:09:09.082Z",
     "run_id": "mock-legacy-2026-09-03",
     "fleet_totals": {
       "units": 39,
@@ -2036,7 +2036,7 @@
       "customer": "Ironwood Packaging",
       "serial": null,
       "unit_desc": "Nordvale SC-2400 (customer owned)",
-      "stage": "INTAKE",
+      "stage": "RECEIVED",
       "assigned": "Josh",
       "opened": "2026-09-02",
       "quote": null,
@@ -2102,7 +2102,7 @@
       "customer": "Dorsey Plastics",
       "serial": null,
       "unit_desc": "Cascade Clean SW-900 (customer owned)",
-      "stage": "INTAKE",
+      "stage": "RECEIVED",
       "assigned": "Josh",
       "opened": "2026-08-08",
       "quote": 1320,

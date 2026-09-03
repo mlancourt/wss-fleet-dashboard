@@ -148,7 +148,7 @@ echo "-- crew: schema 3 (service + dispatch) refusals"
 expect "sales cannot cancel a run -> 403"  403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
   -d '{"action":"dispatch_cancel","payload":{"dispatch_id":"m-a1b2c3"}}'
 expect "sales cannot move a stage -> 403"  403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
-  -d '{"action":"ticket_update","payload":{"ticket":"S1001","stage":"INSPECTION"}}'
+  -d '{"action":"ticket_update","payload":{"ticket":"S1001","stage":"CONTACTED"}}'
 expect "ticket_open bad priority -> 400"   400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
   -d '{"action":"ticket_open","payload":{"machine_owner":"CUSTOMER","customer":"Acme","issue":"dead","priority":"URGENT","location":"IN-SHOP","intake_move":"NONE","return_move":"NONE"}}'
 expect "ticket_open bad machine_owner -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
@@ -185,9 +185,9 @@ expect "sales may add a note (any role) -> 201, only that key travels" 201 \
   -d '{"action":"ticket_update","payload":{"ticket":"S1001","note":"Called, no answer"}}'
 S3C=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
 expect "service moves the stage -> 201" 201 \
-  "b.payload.stage==='INSPECTION' && b.payload.assigned==='Zac' && b.payload.scheduled==='2026-09-11'" \
+  "b.payload.stage==='CONTACTED' && b.payload.assigned==='Zac' && b.payload.scheduled==='2026-09-11'" \
   -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
-  -d '{"action":"ticket_update","payload":{"ticket":"S1002","stage":"INSPECTION","assigned":"Zac","scheduled":"2026-09-11"}}'
+  -d '{"action":"ticket_update","payload":{"ticket":"S1002","stage":"CONTACTED","assigned":"Zac","scheduled":"2026-09-11"}}'
 S3D=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
 expect "anyone adds a run -> 201" 201 \
   "b.action==='dispatch_add' && b.payload.kind==='DELIVER' && b.payload.serial==='900107' && b.payload.ticket===null && b.payload.date==='2026-09-11'" \

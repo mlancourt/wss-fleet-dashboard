@@ -14,7 +14,7 @@ import { isDateStr } from './dates.js';
  * Fixed lists from CLAUDE.md / the Service-Dispatch spec. The Worker validates
  * against the same values; keep the two in step. */
 
-export const STAGES = ['INTAKE', 'INSPECTION', 'QUOTED', 'PARTS-ORDERED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
+export const STAGES = ['RECEIVED', 'CONTACTED', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
 export const PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'];
 export const LOCATIONS = ['AT-CUSTOMER', 'IN-SHOP'];
 export const INTAKE_MOVES = ['NONE', 'PICKUP', 'CUSTOMER-DROP'];
@@ -29,7 +29,7 @@ export const DISPATCH_STATUSES = ['OPEN', 'SCHEDULED', 'DONE'];
 
 /* Shop-floor wording. The enum is the wire value; these are what a glove reads. */
 export const STAGE_LABEL = {
-  INTAKE: 'Intake', INSPECTION: 'Inspection', QUOTED: 'Quoted', 'PARTS-ORDERED': 'Parts ordered',
+  RECEIVED: 'Received', CONTACTED: 'Contacted', 'WAITING-ON-CUSTOMER': 'Waiting on customer', 'WAITING-ON-PARTS': 'Waiting on parts', SCHEDULED: 'Scheduled',
   'IN-PROGRESS': 'In progress', 'READY-TO-INVOICE': 'Ready to invoice', COMPLETE: 'Complete',
 };
 export const MOVE_LABEL = {
@@ -40,11 +40,11 @@ export const SOURCE_GLYPH = { 'RENTAL-RETURN': '📦', 'SERVICE-IN': '🔧', 'SE
 
 /* --------------------------------------------------------------- tickets -- */
 
-/** The stages a ticket can show. QUOTED / READY-TO-INVOICE are customer-billing
+/** The stages a ticket can show. WAITING-ON-CUSTOMER / READY-TO-INVOICE are customer-billing
  *  stages — a fleet machine of ours never gets quoted or invoiced. */
 export function stagesFor(machineOwner) {
   return machineOwner === 'WSS'
-    ? STAGES.filter((s) => s !== 'QUOTED' && s !== 'READY-TO-INVOICE')
+    ? STAGES.filter((s) => s !== 'WAITING-ON-CUSTOMER' && s !== 'READY-TO-INVOICE')
     : STAGES.slice();
 }
 

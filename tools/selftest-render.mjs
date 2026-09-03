@@ -150,12 +150,12 @@ await check('Dispatch shows all three sections and the released-not-booked guard
   assert.ok(!/maps\.|geo:|google\.com\/maps/.test(out), 'a map link leaked into Dispatch');
 });
 
-await check('Service renders the seven stages, both filters and the pending ticket_open card', async () => {
+await check('Service renders the eight stages, both filters and the pending ticket_open card', async () => {
   window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
   window.location.search = '?mock=full&role=service&pending=1';
   await app.__refresh();
   const out = await renderRoute('#/service');
-  for (const s of ['Intake', 'Inspection', 'Quoted', 'Parts ordered', 'In progress', 'Ready to invoice', 'Complete']) {
+  for (const s of ['Received', 'Contacted', 'Waiting on customer', 'Waiting on parts', 'Scheduled', 'In progress', 'Ready to invoice', 'Complete']) {
     assert.ok(out.includes(s), `stage column ${s} missing`);
   }
   assert.ok(out.includes('⏳ NEW —'), 'the pending ticket_open card is missing');
@@ -175,7 +175,7 @@ await check('a tech sees COMPLETE disabled on a customer ticket, Matt does not',
   assert.ok(asTech.includes('Matt closes after invoicing.'), 'the caption must explain the disabled button');
 
   const asTechWss = await renderRoute(`#/ticket/${wss.ticket}`);
-  assert.ok(!asTechWss.includes('Quoted'), 'QUOTED must be hidden on one of our own machines');
+  assert.ok(!asTechWss.includes('Waiting on customer'), 'WAITING-ON-CUSTOMER must be hidden on one of our own machines');
   assert.ok(!asTechWss.includes('Ready to invoice'), 'READY-TO-INVOICE must be hidden on a WSS ticket');
 
   window.location.href = 'http://localhost:8787/?mock=full&role=owner';

@@ -19,21 +19,21 @@ console.log('service + dispatch self-test');
 
 /* ------------------------------------------------------------------ stages */
 
-check('WSS tickets hide QUOTED and READY-TO-INVOICE; customer tickets show all seven', () => {
+check('WSS tickets hide WAITING-ON-CUSTOMER and READY-TO-INVOICE; customer tickets show all eight', () => {
   assert.deepEqual(stagesFor('CUSTOMER'), STAGES);
   assert.deepEqual(stagesFor('WSS'),
-    ['INTAKE', 'INSPECTION', 'PARTS-ORDERED', 'IN-PROGRESS', 'COMPLETE']);
-  assert.equal(stagesFor('WSS').includes('QUOTED'), false);
+    ['RECEIVED', 'CONTACTED', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'COMPLETE']);
+  assert.equal(stagesFor('WSS').includes('WAITING-ON-CUSTOMER'), false);
 });
 
 check('stage changes are service/owner only — sales never moves a ticket', () => {
-  const t = T('S1', 'INTAKE');
+  const t = T('S1', 'RECEIVED');
   for (const stage of STAGES) {
     assert.equal(canStage(t, stage, 'sales'), false, `sales ${stage}`);
     assert.equal(canStage(t, stage, ''), false, `no role ${stage}`);
   }
-  assert.equal(canStage(t, 'INSPECTION', 'service'), true);
-  assert.equal(canStage(t, 'INSPECTION', 'owner'), true);
+  assert.equal(canStage(t, 'CONTACTED', 'service'), true);
+  assert.equal(canStage(t, 'CONTACTED', 'owner'), true);
 });
 
 check('COMPLETE on a CUSTOMER ticket is owner-only; on a WSS ticket a tech may close it', () => {
@@ -43,20 +43,20 @@ check('COMPLETE on a CUSTOMER ticket is owner-only; on a WSS ticket a tech may c
 });
 
 check('a stage hidden for WSS can never be set on a WSS ticket', () => {
-  const wss = T('S2', 'INTAKE', 'WSS');
-  assert.equal(canStage(wss, 'QUOTED', 'owner'), false);
+  const wss = T('S2', 'RECEIVED', 'WSS');
+  assert.equal(canStage(wss, 'WAITING-ON-CUSTOMER', 'owner'), false);
   assert.equal(canStage(wss, 'READY-TO-INVOICE', 'owner'), false);
 });
 
 check('stageOptions marks the current stage and captions the disabled COMPLETE', () => {
-  const opts = stageOptions(T('S1', 'QUOTED', 'CUSTOMER'), 'service');
-  assert.equal(opts.length, 7);
-  assert.equal(opts.find((o) => o.stage === 'QUOTED').current, true);
+  const opts = stageOptions(T('S1', 'WAITING-ON-CUSTOMER', 'CUSTOMER'), 'service');
+  assert.equal(opts.length, 8);
+  assert.equal(opts.find((o) => o.stage === 'WAITING-ON-CUSTOMER').current, true);
   const done = opts.find((o) => o.stage === 'COMPLETE');
   assert.equal(done.enabled, false);
   assert.equal(done.caption, 'Matt closes after invoicing.');
   // Matt sees no caption and a live button.
-  const mattsDone = stageOptions(T('S1', 'QUOTED'), 'owner').find((o) => o.stage === 'COMPLETE');
+  const mattsDone = stageOptions(T('S1', 'WAITING-ON-CUSTOMER'), 'owner').find((o) => o.stage === 'COMPLETE');
   assert.equal(mattsDone.enabled, true);
   assert.equal(mattsDone.caption, null);
 });
@@ -64,8 +64,8 @@ check('stageOptions marks the current stage and captions the disabled COMPLETE',
 /* ------------------------------------------------------------------ kanban */
 
 const QUEUE = [
-  T('S1', 'INTAKE', 'CUSTOMER', { priority: 'HIGH', age_days: 2 }),
-  T('S2', 'INTAKE', 'WSS'),
+  T('S1', 'RECEIVED', 'CUSTOMER', { priority: 'HIGH', age_days: 2 }),
+  T('S2', 'RECEIVED', 'WSS'),
   T('S3', 'IN-PROGRESS', 'CUSTOMER'),
   T('S4', 'COMPLETE', 'CUSTOMER', { status: 'CLOSED' }),
   T('S5', 'TRIAGE', 'CUSTOMER'),              // a stage we've never heard of
@@ -78,18 +78,18 @@ check('filterTickets: all / Customer / Fleet', () => {
   assert.deepEqual(filterTickets(null, 'all'), []);
 });
 
-check('columnize: seven stages in order, unknown stages appended, nothing dropped', () => {
+check('columnize: eight stages in order, unknown stages appended, nothing dropped', () => {
   const cols = columnize(QUEUE);
-  assert.deepEqual(cols.slice(0, 7).map((c) => c.stage), STAGES);
-  assert.equal(cols[7].stage, 'TRIAGE');
+  assert.deepEqual(cols.slice(0, 8).map((c) => c.stage), STAGES);
+  assert.equal(cols[8].stage, 'TRIAGE');
   assert.equal(cols.reduce((n, c) => n + c.tickets.length, 0), QUEUE.length);
 });
 
 check('columnize counts come from service_summary only when unfiltered', () => {
-  const summary = { open_by_stage: { INTAKE: 9 } };
-  assert.equal(columnize(QUEUE, { summary }).find((c) => c.stage === 'INTAKE').count, 9);
+  const summary = { open_by_stage: { RECEIVED: 9 } };
+  assert.equal(columnize(QUEUE, { summary }).find((c) => c.stage === 'RECEIVED').count, 9);
   // Filtered, the summary would be a lie — count what is drawn.
-  assert.equal(columnize(QUEUE, { summary, filter: 'WSS' }).find((c) => c.stage === 'INTAKE').count, 1);
+  assert.equal(columnize(QUEUE, { summary, filter: 'WSS' }).find((c) => c.stage === 'RECEIVED').count, 1);
 });
 
 check('sortTickets: open before closed, HIGH first, then oldest', () => {
