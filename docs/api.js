@@ -101,12 +101,36 @@ async function loadMock(url, variant, fetch) {
     snapshot.meta.generated_at = new Date(Date.now() - age * 3600000).toISOString();
   }
 
+  // A real name per role. "Mock User" used to stand in here, which made every
+  // "is this mine?" question unanswerable in mock mode (D46) and quietly widened
+  // the driver picker, since the name matched nobody in DRIVERS.
+  const role = params.get('role') || 'owner';
+  const MOCK_NAME = { owner: 'Matt', sales: 'Kevin', service: 'Josh' };
   return {
-    me: { name: 'Mock User', role: params.get('role') || 'owner' },
+    me: { name: MOCK_NAME[role] || 'Matt', role },
     snapshot,
     pending,
     source: `mock:${variant}`,
   };
+}
+
+/**
+ * DELETE /api/event/<id> — undo an unapplied event of your own (D46).
+ * Throws with `.status` set so the caller can tell 403 from 404: they mean very
+ * different things to the person who tapped.
+ */
+export async function deleteEvent({ url, token, apiBase = API_BASE, fetch = defaultFetch }, id) {
+  if (mockVariant(url, apiBase)) throw fail('mock', 'Mock mode — writes are disabled.');
+  if (!token) throw fail('no-token', 'No token.');
+  if (!id) throw fail('error', 'No event id.');
+  const res = await fetch(`${apiBase}/api/event/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok) return res.json();
+  const e = fail('error', `Undo failed (${res.status})`);
+  e.status = res.status;
+  throw e;
 }
 
 /** POST /api/event. Returns the stored event as the Worker stamped it. */

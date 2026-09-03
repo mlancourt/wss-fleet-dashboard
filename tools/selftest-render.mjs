@@ -425,6 +425,98 @@ await check('the pipeline card never hides — zero open tickets still draws sev
   await serviceUnder('all');
 });
 
+/* ------------------------------------------- undo your own pending tap (D46) */
+
+/** Every Undo control drawn across the views that badge pending events. */
+async function undoableIds(role) {
+  window.location.href = `http://localhost:8787/?mock=full&role=${role}&pending=1`;
+  window.location.search = `?mock=full&role=${role}&pending=1`;
+  await app.__refresh();
+  const seen = new Set();
+  const snap = app.__state().snapshot;
+  const routes = ['#/', '#/dispatch', '#/service', '#/holds']
+    .concat(snap.units.map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
+    .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`));
+  for (const r of routes) {
+    const out = await renderRoute(r);
+    for (const [, id] of out.matchAll(/data-sheet="undo" data-id="([^"]+)"/g)) seen.add(id);
+  }
+  return { me: app.__state().me, ids: seen, pending: app.__state().pending };
+}
+
+await check('mock identity is a real person per role, so "is this mine?" is answerable', async () => {
+  for (const [role, name] of [['owner', 'Matt'], ['sales', 'Kevin'], ['service', 'Josh']]) {
+    window.location.href = `http://localhost:8787/?mock=full&role=${role}`;
+    window.location.search = `?mock=full&role=${role}`;
+    await app.__refresh();
+    assert.equal(app.__state().me.name, name, `${role} should be ${name} in mock`);
+  }
+});
+
+await check('Undo appears on my own pending taps and on nobody else\'s', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    const { me, ids, pending } = await undoableIds(role);
+    const mine = pending.filter((e) => e.actor === me.name).map((e) => e.id);
+    const theirs = pending.filter((e) => e.actor !== me.name).map((e) => e.id);
+
+    assert.ok(mine.length, `${role} (${me.name}) should have at least one pending tap in the fixture`);
+    assert.ok(theirs.length, `${role} should also see somebody else's pending tap`);
+    for (const id of mine) assert.ok(ids.has(id), `${me.name} must be offered Undo on their own ${id}`);
+    for (const id of theirs) assert.ok(!ids.has(id), `${me.name} must NOT be offered Undo on ${id}`);
+  }
+});
+
+await check('Undo is per-actor, not per-role — Zac\'s tap is undoable by nobody on the board', async () => {
+  // evt-mock-5 is Zac's, and Zac is not one of the three mock identities. A
+  // role-based check would have handed it to Josh, who shares his role.
+  const zac = (await undoableIds('service')).pending.find((e) => e.actor === 'Zac');
+  assert.ok(zac, 'the fixture must hold an event by a fourth person');
+  for (const role of ['owner', 'sales', 'service']) {
+    const { ids } = await undoableIds(role);
+    assert.ok(!ids.has(zac.id), `${role} must not be offered Undo on Zac's tap`);
+  }
+});
+
+await check('the confirm sheet carries the promised copy, and only for my own tap', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
+  window.location.search = '?mock=full&role=service&pending=1';
+  await app.__refresh();
+  // Josh's own ticket_open draws as the synthetic NEW card on the Service view.
+  const mine = app.__state().pending.find((e) => e.actor === 'Josh' && e.action === 'ticket_open');
+  // Zac's ticket_update is badged on that ticket's detail page.
+  const theirs = app.__state().pending.find((e) => e.actor === 'Zac' && e.action === 'ticket_update');
+  assert.ok(mine && theirs, 'the fixture must hold both events');
+
+  // arm it the way a tap does
+  app.__ui().form = { kind: 'undo', id: mine.id, arg: null };
+  const armed = await renderRoute('#/service');
+  assert.ok(armed.includes("Undo this tap? It hasn't been applied yet."), 'confirm copy missing');
+  assert.ok(armed.includes(`data-undo="${mine.id}"`), 'the confirm must name the event');
+
+  // The same sheet keyed to someone else's event draws nothing, on the very
+  // page that event IS badged on — so this is about the actor, not the route.
+  const ticket = theirs.payload.ticket;
+  app.__ui().form = { kind: 'undo', id: theirs.id, arg: null };
+  const other = await renderRoute(`#/ticket/${encodeURIComponent(ticket)}`);
+  assert.ok(other.includes('by Zac'), 'the page must still badge the pending change');
+  assert.ok(!other.includes(`data-undo="${theirs.id}"`), "someone else's event must never arm");
+  assert.ok(!other.includes("Undo this tap?"), 'and no confirm copy leaks onto it');
+  app.__ui().form = null;
+});
+
+await check('a pending event with no id is never undoable', async () => {
+  // Defensive: the badge must not offer a control it cannot address.
+  const st = app.__state();
+  st.pending.push({ actor: 'Josh', role: 'service', action: 'ticket_open', serial: null, payload: { customer: 'No Id Co', machine_owner: 'CUSTOMER' } });
+  const out = await renderRoute('#/service');
+  assert.ok(!/data-sheet="undo" data-id="(undefined)?"/.test(out), 'an id-less event must draw no Undo');
+  st.pending.pop();
+
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+});
+
 await check('a tech sees COMPLETE disabled on a customer ticket, Matt does not', async () => {
   const q = app.__state().snapshot.service_queue;
   const cust = q.find((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN');

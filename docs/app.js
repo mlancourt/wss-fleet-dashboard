@@ -21,7 +21,7 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney, isDateStr,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
-import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
+import { loadData, postEvent, deleteEvent, mockVariant, resolveApiBase } from './api.js';
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
@@ -32,7 +32,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-04c';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-04d';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -409,9 +409,12 @@ function viewUnit(serial) {
   const rc = u.rate_card || {};
   const p = pendingFor(u.serial);
 
-  const pendingLine = (e) => e.action === 'reserve'
-    ? html`<div>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</div>`
-    : html`<div>${e.action} by ${e.actor || 'someone'}</div>`;
+  const pendingLine = (e) => html`<div class="pend-row">
+    ${e.action === 'reserve'
+      ? raw(html`<span>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</span>`)
+      : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
+    ${raw(undoControl(e))}
+  </div>`;
   const pendingBlock = p.length ? html`
     <div class="note">
       <strong>⏳ ${p.length} pending change${p.length > 1 ? 's' : ''}</strong>
@@ -424,6 +427,7 @@ function viewUnit(serial) {
 
   return html`
     <a class="crumb" href="#/cat/${raw(encodeURIComponent(u.category || ''))}">‹ ${u.category || 'Fleet'}</a>
+    ${raw(msgBlock())}
     <div class="detail-head">
       <div class="h">${unitName(u)}</div>
       <div class="s"><span class="unit-serial">${unitIds(u)}</span> · ${u.category || '—'}</div>
@@ -525,7 +529,8 @@ function holdsSection(u) {
         </div>
         <div class="hold-who">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''}</div>
         <div class="hold-meta">held by ${h.held_by || '—'}${h.created ? raw(html` · placed ${fmtDate(h.created)}`) : ''}</div>
-        ${rel.length ? raw('<div class="hold-pending">⏳ release pending — applies at the next run</div>') : ''}
+        ${rel.length ? raw(html`<div class="hold-pending">⏳ release pending — applies at the next run
+          ${raw(rel.map(undoControl).join(''))}</div>`) : ''}
         ${canRelease && !rel.length && h.id ? raw(html`<button class="btn sm ghost" type="button" data-release="${h.id}">Release</button>`) : ''}
       </div>`;
   });
@@ -729,6 +734,30 @@ function pendingLine(n) {
   return n ? html`<div class="row-pending">⏳ ${n} pending — applies at the next run</div>` : '';
 }
 
+/* ---- undo a pending event (D46) ----------------------------------------
+ * You may take back your OWN tap, and only while it is still pending. This is
+ * a "wrong button" valve, not moderation: somebody else's pending write renders
+ * exactly as it did before, with no control at all. The Worker enforces the
+ * same rule — this is only about which buttons get drawn. */
+
+const canUndo = (e) => !!e && !!e.id && !!state.me && e.actor === state.me.name;
+
+/** The Undo button, or the confirm sheet when it is armed. '' for others' events. */
+function undoControl(e) {
+  if (!canUndo(e)) return '';
+  if (!sheetOpen('undo', e.id)) {
+    return html`<button class="btn sm ghost undo" type="button" data-sheet="undo" data-id="${e.id}">Undo</button>`;
+  }
+  return html`
+    <div class="undo-confirm">
+      <div class="undo-q">Undo this tap? It hasn't been applied yet.</div>
+      <div class="actions row">
+        <button class="btn sm" type="button" data-undo="${e.id}">Yes, undo it</button>
+        <button class="btn sm ghost" type="button" data-sheet-close="1">Keep it</button>
+      </div>
+    </div>`;
+}
+
 const PRI_LABEL = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' };
 
 /**
@@ -854,6 +883,7 @@ function pendingTicketCard(e) {
       <div class="kan-eq">${p.equipment || (p.serial ? `#${p.serial}` : '')}</div>
       <div class="kan-issue">${p.issue || ''}</div>
       <div class="kan-foot"><span class="kan-pend">applies at the next run</span></div>
+      ${raw(undoControl(e))}
     </div>`;
 }
 
@@ -956,7 +986,7 @@ function viewTicket(id) {
     </div>
 
     ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
-      ${raw(pend.map((e) => html`<div>${describeUpdate(e)} — by ${e.actor || 'someone'}</div>`).join(''))}
+      ${raw(pend.map((e) => html`<div class="pend-row"><span>${describeUpdate(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
       <div style="margin-top:6px">Applies at the next run — the board still shows the current truth.</div></div>`) : ''}
 
     <h2>Ticket</h2>
@@ -1097,7 +1127,7 @@ function viewDispatch(highlight) {
     <div class="actions"><button class="btn" type="button" data-sheet="add-run">+ Add a run</button></div>
     ${sheetOpen('add-run') ? raw(addRunForm((ui.form && ui.form.arg) || {})) : ''}
     ${adds.length ? raw(html`<div class="note"><strong>⏳ ${adds.length} new run${adds.length > 1 ? 's' : ''} pending</strong>
-      ${raw(adds.map((e) => html`<div>${pl(e).kind === 'DELIVER' ? 'Deliver' : 'Pick up'} — ${pl(e).what || ''}${pl(e).customer ? ` · ${pl(e).customer}` : ''}</div>`).join(''))}
+      ${raw(adds.map((e) => html`<div class="pend-row"><span>${pl(e).kind === 'DELIVER' ? 'Deliver' : 'Pick up'} — ${pl(e).what || ''}${pl(e).customer ? ` · ${pl(e).customer}` : ''}</span>${raw(undoControl(e))}</div>`).join(''))}
       <div style="margin-top:6px">On the board after the next run.</div></div>`) : ''}`;
 
   if (!all.length && !adds.length && !unbooked.length) {
@@ -1187,6 +1217,7 @@ function dispatchRow(r, opts = {}) {
         ${r.status === 'DONE' && r.done ? raw(chip(`done ${fmtDate(r.done)}`, 'ok')) : ''}</div>`) : ''}
       ${r.note ? raw(html`<div class="drow-note">${r.note}</div>`) : ''}
       ${raw(pendingLine(pend.length))}
+      ${raw(pend.map(undoControl).join(''))}
       ${compact ? raw(html`<div class="drow-btns"><a class="btn sm ghost" href="#/dispatch/${raw(enc(r.id))}">On the board</a></div>`)
         : (btns.length ? raw(html`<div class="drow-btns">${raw(btns.join(''))}</div>`) : '')}
       ${claim ? raw(claimForm(r)) : ''}
@@ -1584,6 +1615,38 @@ document.addEventListener('click', async (ev) => {
   // Addresses copy, they do not navigate. No map links (§4).
   const addr = ev.target.closest('[data-copy]');
   if (addr) { copyText(addr.dataset.copy, addr); return; }
+
+  // Undo: take back your own still-pending tap (D46). Unlike every other button
+  // here this is NOT a proposal — the event never reaches the engine at all.
+  const undo = ev.target.closest('[data-undo]');
+  if (undo) {
+    undo.disabled = true;
+    const id = undo.dataset.undo;
+    try {
+      await deleteEvent(ctx(), id);
+      // Drop it locally so the badge goes at once, then re-read /api/data so
+      // what is on screen is the server's list and not our guess at it.
+      state.pending = state.pending.filter((e) => e.id !== id);
+      ui.form = null;
+      ui.msg = { tone: 'ok', text: 'Taken back. It never reaches the engine.' };
+      render();
+      await refresh();
+    } catch (err) {
+      ui.form = null;
+      if (err.status === 404) {
+        // It drained between the tap and the confirm. Saying "already applied"
+        // is the honest reading, and a new tap is the only way to change it.
+        state.pending = state.pending.filter((e) => e.id !== id);
+        ui.msg = { tone: 'bad', text: 'Already applied — change it with a new tap.' };
+        render();
+        await refresh();
+      } else {
+        ui.msg = { tone: 'bad', text: err.status === 403 ? 'Not yours to undo.' : err.message };
+        render();
+      }
+    }
+    return;
+  }
 
   // Cancel a manual run: two taps, then a proposal like any other write.
   const cancel = ev.target.closest('[data-cancel]');

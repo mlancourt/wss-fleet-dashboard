@@ -780,12 +780,25 @@ const pending = [
     payload: { dispatch_id: 'm-si-2201', rig: 'TRAILER-6000', date: d(1), driver: 'Kevin' },
   },
   // A stage move on a ticket -> the ticket badges pending, the card does not move.
+  // Zac is deliberately NOT one of the three mock identities (owner=Matt,
+  // sales=Kevin, service=Josh), so this event is undoable by nobody on the
+  // board — which is how the render test proves the Undo control is per-actor
+  // and not merely per-role (D46).
   {
     id: 'evt-mock-5',
     ts: ago(3),
     actor: 'Zac', role: 'service',
     action: 'ticket_update', serial: null,
     payload: { ticket: 'S1004', stage: 'IN-PROGRESS', note: 'Pump landed early' },
+  },
+  // Matt's own tap, so the owner has something to undo — and something to be
+  // refused on (evt-mock-5 above).
+  {
+    id: 'evt-mock-6',
+    ts: ago(2),
+    actor: 'Matt', role: 'owner',
+    action: 'dispatch_done', serial: null,
+    payload: { dispatch_id: 'm-pu-900149', note: 'Back in the yard' },
   },
 ];
 const pfile = path.join(outdir, 'mock-pending.json');

@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-03T15:29:50.775Z",
+    "ts": "2026-09-03T15:33:51.631Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-03T17:49:50.775Z",
+    "ts": "2026-09-03T17:53:51.631Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-03T18:17:50.775Z",
+    "ts": "2026-09-03T18:21:51.631Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-03T18:23:50.775Z",
+    "ts": "2026-09-03T18:27:51.631Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-03T18:26:50.775Z",
+    "ts": "2026-09-03T18:30:51.631Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -70,6 +70,18 @@
       "ticket": "S1004",
       "stage": "IN-PROGRESS",
       "note": "Pump landed early"
+    }
+  },
+  {
+    "id": "evt-mock-6",
+    "ts": "2026-09-03T18:31:51.631Z",
+    "actor": "Matt",
+    "role": "owner",
+    "action": "dispatch_done",
+    "serial": null,
+    "payload": {
+      "dispatch_id": "m-pu-900149",
+      "note": "Back in the yard"
     }
   }
 ]

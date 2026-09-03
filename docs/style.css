@@ -568,6 +568,22 @@ h2 .disclose {
 h2 .count { background: var(--slate-100); color: var(--slate-700); }
 h2.danger .count { background: var(--bad-bg); color: var(--bad); }
 
+/* ----------------------------------------------------- undo a tap (D46) --
+   Deliberately quiet: it sits beside a pending badge, and only ever on your
+   own tap. It is not a primary action, it is a way out of a mis-tap. */
+
+.pend-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pend-row > span { flex: 1 1 auto; min-width: 0; }
+.btn.sm.undo { min-height: 32px; padding: 4px 12px; font-size: 13px; flex: 0 0 auto; }
+.hold-pending .btn.sm.undo, .drow .btn.sm.undo, .kan-card .btn.sm.undo { margin-top: 6px; }
+.undo-confirm {
+  margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--white); border: 1px solid var(--slate-300);
+}
+.undo-q { font-size: 13.5px; color: var(--slate-800); margin-bottom: 8px; }
+.undo-confirm .actions { margin-top: 0; }
+.undo-confirm .btn.sm { min-width: 0; }
+
 /* --------------------------------------------- sheets + segmented toggles */
 
 form.write.sheet { margin-bottom: 14px; }

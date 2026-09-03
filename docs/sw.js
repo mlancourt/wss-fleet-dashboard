@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v14';
+const CACHE = 'wss-fleet-shell-v15';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
