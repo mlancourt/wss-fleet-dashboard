@@ -1,8 +1,14 @@
 # WSS Fleet Dashboard — ops runbook
 
 Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
-active agreements, service queue, upcoming billing. Phone-first, four users
-(Matt, Kevin, Josh, Zac).
+active agreements, the service queue, and a Dispatch board of truck moves.
+Phone-first, four users (Matt, Kevin, Josh, Zac).
+
+**v1.6 (schema 3)** — the Billing tab is retired: its recurring-revenue block
+moved to the top of Rentals and its nav slot became **Dispatch**. The Service
+tab is real (seven-stage kanban, ticket detail, `+ New ticket`). Six new write
+actions bring the total to nine. `snapshot.billing` still arrives and is
+deliberately never rendered.
 
 **This repo is the presentation + transport layer only.** The vault + run engine
 (owned elsewhere) is the source of truth. It publishes a snapshot to the Worker
@@ -23,6 +29,7 @@ the hard rules — read it before changing anything here.
 | **M1 — Worker** | ✅ done | full publish → read → event → ack loop green locally, curl-scripted below |
 | **M2 — deploy real** | ✅ done | Matt opens his tokened URL on his phone and sees the real fleet |
 | **M3 — domain + PWA** | ✅ live (Sep 2, 2026) | `fleet.wisconsinscrubandsweep.com` installs as an app |
+| **v1.6 — Service + Dispatch** | ✅ built on mock (Sep 3, 2026) | all nine actions round-trip locally; see `BUILD-NOTES.md` |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -39,9 +46,15 @@ Then open:
 
 | URL | What you get |
 |---|---|
-| `http://localhost:8787/?mock=full` | fake fleet, non-empty service queue |
-| `http://localhost:8787/?mock=empty` | same fleet, `service_queue: []` |
+| `http://localhost:8787/?mock=full` | schema 3 — full service queue + dispatch board |
+| `http://localhost:8787/?mock=empty` | schema 3 — `service_queue: []`, `dispatch: []` (empty states) |
+| `http://localhost:8787/?mock=legacy` | schema 2 — the pre-Dispatch snapshot, to rehearse the cutover |
 | `http://localhost:8787/` | the no-token gate ("ask Matt for your link") |
+
+`mock-legacy.json` exists for **one release**. Once the engine is publishing
+schema 3 for real and Matt has signed off, delete it, drop `'legacy'` from
+`MOCK_VARIANTS` in `docs/api.js`, and drop the legacy case from
+`selftest-render.mjs`.
 
 There is **no build step**. Vanilla HTML/CSS/JS, ES modules. `node` is used only
 for the generators and tests; nothing compiles the page.
@@ -78,7 +91,13 @@ whenever you re-run — that's expected.
 npm test
 ```
 
-Two suites. `selftest-api.mjs` proves the mock knobs are inert in production
+Six suites, ~85 checks. `selftest-render.mjs` boots the **real** `app.js` in a
+stub DOM and renders every route against all three mock variants as all three
+roles, failing on a thrown view, a leaked `undefined`, or a date-only string
+that got `Date`-parsed. `selftest-service.mjs` pins the schema-3 rules: stage
+gating, kanban columns, dispatch ordering, the same-rig-same-day warning.
+`selftest-holds.mjs` covers Reservations v2 and `selftest-metrics.mjs` the D19
+/ D20 / D21 math. `selftest-api.mjs` proves the mock knobs are inert in production
 (role from the server only, no mock file fetched, snapshot untouched, token in
 the header not the URL). `selftest-dates.mjs` guards the one bug class
 `CLAUDE.md` calls disqualifying: business dates are
@@ -112,9 +131,12 @@ package.json            scripts; wrangler is the sole dev dependency
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
-  app.js                routing, views, write forms
+  app.js                routing, views, write forms, the nine write actions
   api.js                data source: Worker or mock (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
+  holds.js              hold-list logic (pure)
+  metrics.js            utilization, status board, recurring revenue (pure)
+  service.js            service + dispatch logic, schema 3 (pure)
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
   sw.js                 shell cache only; data is never cached
@@ -128,13 +150,17 @@ worker/                 the Cloudflare Worker
   .dev.vars             local ADMIN_SECRET + ALLOW_LOCALHOST=1 (gitignored)
 
 tools/
-  make-mock-data.js     fake snapshot generator
+  make-mock-data.js     fake snapshot generator (schema 3 + a schema-2 downgrade)
   make-icons.js         icon generator
   serve.js              dev static server (sends Cache-Control: no-store)
   m1-loop.sh            the Worker loop, curl-scripted (npm run m1)
   m3-check.sh           DNS / Pages / HTTPS readiness for the custom domain (npm run m3)
   selftest-api.mjs      mock-gate + api-layer test
   selftest-dates.mjs    the date-rule test
+  selftest-holds.mjs    Reservations v2 logic
+  selftest-metrics.mjs  utilization / status board / recurring revenue
+  selftest-service.mjs  schema-3 service + dispatch logic
+  selftest-render.mjs   every view, every mock variant, every role
 ```
 
 ---
@@ -170,6 +196,16 @@ plain CNAME from any host. Do not "simplify" this.
   back; new events land mid-run.
 - **Writes are proposals.** A submitted event renders as ⏳ pending and the board
   keeps showing current truth until the engine applies it.
+- **A pending `ticket_open` has no ticket number.** The engine assigns it. The
+  Service tab draws it as a synthetic INTAKE card badged "⏳ NEW"; never invent
+  an id client-side, not even a placeholder.
+- **The Worker cannot enforce "only Matt closes a customer ticket."** Knowing
+  whose machine `S1001` is means reading the snapshot, which is business state
+  and explicitly not the Worker's job. The UI hides the button and the engine
+  refuses the event. Same shape for the rig warning: the board warns, and never
+  blocks — two runs on one trailer in a day is often the plan.
+- **`billing` is in the snapshot and must not be rendered** (D39). It stays for
+  the engine's own consumers. `selftest-render.mjs` asserts we don't draw it.
 - **`start_url` cannot carry a token.** One static manifest serves everyone, so
   it is `"./"`; the home-screen app boots tokenless, and the page restores the
   token from `localStorage` into the URL (D24). If iOS has purged that storage,
@@ -212,12 +248,15 @@ npm run m1
 ```
 
 [`tools/m1-loop.sh`](tools/m1-loop.sh) is the M1 exit criterion as a script —
-34 checks: load a throwaway token map → publish the mock snapshot →
+62 checks: load a throwaway token map → publish the mock snapshot →
 `GET /api/data` as sales / service (role comes back from the server) →
 `GET /api/health` → every write refusal (wrong role, unknown action, bad
 serial, missing customer, bad date, bad readiness) → two real events →
 both visible to crew and admin, oldest first → ack one by id, one by full key
-→ the other survives → back to baseline. Plus 404 / 405 / CORS preflight.
+→ the other survives → back to baseline. Then the six schema-3 actions and
+their refusals — wrong role for a stage change or a cancel, a bad rig, an
+unknown driver, a claim with no date, a `ticket_update` that changes nothing.
+Plus 404 / 405 / CORS preflight.
 
 The same loop runs against the deployed Worker:
 
@@ -276,6 +315,27 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `GET /api/admin/events` | secret | `{count, events:[{id, key, event}]}` oldest first |
 | `POST /api/admin/events/ack` | secret | `{ids:[…]}` → deletes only those; `{deleted:n}` |
 | `POST /api/admin/tokens` | secret | replaces the map; echoes names + roles only |
+
+#### The nine write actions
+
+| Action | Roles | `serial` | Payload |
+|---|---|---|---|
+| `reserve` | owner, sales | required | `customer`, `purpose`, `start`, `end` |
+| `release` | owner, sales | required | `hold_id` |
+| `readiness` | owner, service | required | `readiness`, `note` |
+| `ticket_open` | any | optional | `machine_owner`, `serial`, `equipment`, `customer`, `issue`, `priority`, `site`, `location`, `intake_move`, `return_move` |
+| `ticket_update` | any — **`stage` needs service/owner** | optional | `ticket` + only the keys being changed |
+| `dispatch_add` | any | optional | `kind`, `serial`, `ticket`, `what`, `customer`, `address`, `date`, `note` |
+| `dispatch_claim` | any | optional | `dispatch_id`, `rig`, `date`, `driver` |
+| `dispatch_done` | any | optional | `dispatch_id`, `note` |
+| `dispatch_cancel` | **owner** | optional | `dispatch_id` |
+
+Enums the Worker checks membership of, and nothing more:
+`machine_owner` CUSTOMER·WSS · `stage` INTAKE·INSPECTION·QUOTED·PARTS-ORDERED·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·
+`priority` HIGH·MEDIUM·LOW · `location` AT-CUSTOMER·IN-SHOP ·
+`intake_move` NONE·PICKUP·CUSTOMER-DROP · `return_move` NONE·DELIVER·CUSTOMER-PICKUP ·
+`kind` PICKUP·DELIVER · `rig` KEVIN-LIFTGATE·JOSH-LIFTGATE·TRAILER-6000·TRAILER-3000 ·
+`driver` Matt·Kevin·Josh·Zac.
 
 Token: `Authorization: Bearer <t>` (preferred) or `?t=`. Secret: `X-Admin-Secret`.
 Unknown → `401 {"error":"unauthorized"}`. Wrong role for an action → `403`.
@@ -390,8 +450,9 @@ To revoke someone: remove them from the map and re-post it.
 ## Ask Matt before you
 
 change money display formats · change category names or order · add any write
-action beyond reserve / release / readiness · need a new DNS record or a paid
-plan · change repo visibility.
+action beyond the nine now defined · add any map or navigation integration ·
+add push/notifications (out of scope — the run cadence is the refresh) · need a
+new DNS record or a paid plan · change repo visibility.
 
 If the snapshot contract looks wrong or insufficient, **stop and say so** — that
 contract is owned on Matt's side and changes there first.

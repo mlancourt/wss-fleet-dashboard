@@ -1181,11 +1181,14 @@ function runPrefillForUnit(u, hold) {
 function viewHolds() {
   const r = holdsRollup();
   const unitLink = (h) => html`<a href="#/unit/${raw(encodeURIComponent(h.serial))}"><span class="unit-serial">#${h.serial}</span>${h.model ? raw(html` ${h.model}`) : ''}</a>`;
+  // A hold is a promise to put a machine somewhere on a day — so the row books
+  // the truck for it (§4), pre-filled from the unit and the hold's customer.
   const row = (h, withPill) => html`
     <div class="hrow">
       <div class="hold-top"><span class="hold-win">${fmtRange(h.start, h.end)}</span>${withPill ? raw(holdPill(h)) : ''}</div>
       <div class="hold-who">${raw(unitLink(h))}</div>
       <div class="hold-meta">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''} · held by ${h.held_by || '—'}</div>
+      <button class="btn sm ghost" type="button" data-sheet="add-run" data-serial="${h.serial}" data-hold="${h.id || ''}">Schedule delivery</button>
     </div>`;
 
   if (!r.expired.length && !r.upcoming.length) return html`<h1>Holds</h1>${raw(emptyState('Nothing on hold.'))}`;
@@ -1198,8 +1201,9 @@ function viewHolds() {
     <h2>${g.date ? fmtDateFull(g.date) : 'Unknown date'}</h2>
     <div class="card holds">${raw(g.items.map((h) => row(h, true)).join(''))}</div>`);
 
-  return html`<h1>Holds</h1>
+  return html`<h1>Holds</h1>${raw(msgBlock())}
     <div class="sub">${r.upcoming.length} upcoming${r.expired.length ? raw(html` · <span class="none">${r.expired.length} expired</span>`) : ''}</div>
+    ${sheetOpen('add-run') ? raw(addRunForm((ui.form && ui.form.arg) || {})) : ''}
     ${raw(expired)}${raw(groups.join(''))}`;
 }
 
@@ -1446,7 +1450,9 @@ document.addEventListener('click', async (ev) => {
     ui.form = { kind, id, arg: null };
     if (kind === 'add-run' && sheet.dataset.serial) {
       const u = unitBySerial(sheet.dataset.serial);
-      if (u) ui.form.arg = runPrefillForUnit(u, null);
+      const hold = u && sheet.dataset.hold
+        ? holdsOf(u).find((h) => h.id === sheet.dataset.hold) || null : null;
+      if (u) ui.form.arg = runPrefillForUnit(u, hold);
     }
     ui.msg = null;
     render();

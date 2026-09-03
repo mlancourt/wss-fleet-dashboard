@@ -219,6 +219,15 @@ await check('a NEEDS-PICKUP unit points at its row on the Dispatch board (§5)',
   assert.ok(out.includes(`#/dispatch/${booked.id}`), 'and link straight to the row');
 });
 
+await check('a hold row books the truck for it (§4)', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=sales';
+  window.location.search = '?mock=full&role=sales';
+  await app.__refresh();
+  const out = await renderRoute('#/holds');
+  assert.ok(out.includes('Schedule delivery'), 'a hold row must be able to book a run');
+  assert.ok(/data-sheet="add-run" data-serial="\d+" data-hold="h/.test(out), 'the run must carry the hold it came from');
+});
+
 await check('the empty variant renders both empty states, not a crash', async () => {
   window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
   window.location.search = '?mock=empty&role=owner';
