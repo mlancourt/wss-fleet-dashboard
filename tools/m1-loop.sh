@@ -4,6 +4,7 @@
 # Proves the full loop against a running Worker:
 #   tokens -> publish -> GET /api/data -> GET /api/health -> POST /api/event
 #   -> GET /api/admin/events (event present) -> ack -> events (event gone)
+#   -> DELETE /api/event/<id> (undo your own, and only your own)
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all nine
 # write actions, the six schema-3 ones included.
 #
@@ -65,7 +66,7 @@ expect "tokens: 3-person map -> 200 (names only echoed)" 200 \
   -d "{\"$T_SALES\":{\"name\":\"Test Kevin\",\"role\":\"sales\"},
        \"$T_SERVICE\":{\"name\":\"Test Josh\",\"role\":\"service\"},
        \"$T_OWNER\":{\"name\":\"Test Matt\",\"role\":\"owner\"}}"
-expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===3" \
+expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===4" \
   -X POST "$WORKER/api/admin/publish" "${H_ADMIN[@]}" --data-binary "@$SNAPSHOT"
 
 echo "-- crew: read"
@@ -212,6 +213,33 @@ expect "all eight schema-3 events drained -> deleted 8" 200 "b.deleted===8" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
   -d "{\"ids\":[\"$S3A\",\"$S3B\",\"$S3C\",\"$S3D\",\"$S3E\",\"$S3F\",\"$S3G\",\"$S3H\"]}"
 expect "pending back to baseline again"    200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
+echo "-- crew: undo a pending event (D46)"
+# Kevin taps something, then thinks better of it.
+expect "sales posts an event to undo -> 201" 201 "b.actor==='Test Kevin'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"reserve","serial":"900107","payload":{"customer":"Mistake Co","start":"2026-09-08","end":"2026-09-08"}}'
+UNDO_ID=$(node -e "console.log(encodeURIComponent(JSON.parse(process.argv[1]).id))" "$LAST")
+RAW_ID=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+
+expect "undo without a token -> 401"       401 "" -X DELETE "$WORKER/api/event/$UNDO_ID"
+expect "undo with an unknown token -> 401" 401 "" -X DELETE "$WORKER/api/event/$UNDO_ID" \
+  -H "$(auth unknowntoken0000000000000000000)"
+expect "someone else's event -> 403"       403 "" -X DELETE "$WORKER/api/event/$UNDO_ID" -H "$(auth $T_SERVICE)"
+expect "owner gets NO override -> 403"     403 "" -X DELETE "$WORKER/api/event/$UNDO_ID" -H "$(auth $T_OWNER)"
+expect "still there after the refusals"    200 "b.events.some(e=>e.id==='$RAW_ID')" \
+  "$WORKER/api/admin/events" -H "X-Admin-Secret: $ADMIN_SECRET"
+
+expect "own event -> 200 {ok,id}"          200 "b.ok===true && b.id==='$RAW_ID'" \
+  -X DELETE "$WORKER/api/event/$UNDO_ID" -H "$(auth $T_SALES)"
+expect "and it is gone from the inbox"     200 "!b.events.some(e=>e.id==='$RAW_ID')" \
+  "$WORKER/api/admin/events" -H "X-Admin-Secret: $ADMIN_SECRET"
+expect "undoing it again -> 404"           404 "" -X DELETE "$WORKER/api/event/$UNDO_ID" -H "$(auth $T_SALES)"
+expect "an id that never existed -> 404"   404 "" -X DELETE "$WORKER/api/event/nope%3Anope" -H "$(auth $T_SALES)"
+expect "a traversal-shaped id -> 400"      400 "" -X DELETE "$WORKER/api/event/..%2F..%2Fsnapshot" -H "$(auth $T_SALES)"
+expect "the snapshot is untouched"         200 "b.snapshot.units.length===39" "$WORKER/api/data" -H "$(auth $T_OWNER)"
+expect "GET on the id path -> 405"         405 "" "$WORKER/api/event/$UNDO_ID" -H "$(auth $T_SALES)"
+expect "pending back to baseline after undo" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- misc"
 expect "unknown route -> 404"             404 "" "$WORKER/api/nope" -H "$(auth $T_OWNER)"

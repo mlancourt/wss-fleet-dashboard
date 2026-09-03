@@ -14,6 +14,9 @@
  *   - Events are proposals: shape + role are validated here, business state is NOT
  *     (that's the vault's job). One KV key per event, never a shared array.
  *   - ack deletes only the ids it is handed. There is no "delete all".
+ *   - a crew member may DELETE their OWN pending event and nobody else's; owner
+ *     has no override (D46). Deleting is the only way an event leaves KV other
+ *     than the engine acking it.
  *   - Token values are never logged and never echoed back.
  */
 
@@ -58,6 +61,11 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;      // openssl rand -hex 16 -> 32 c
 const EVENT_KEY_RE = /^evt:\S{1,128}$/;
 const HOLD_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;         // per-hold id from the snapshot (v2)
 const REF_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;         // ticket ("S1001") / dispatch_id ("m-pu-150137")
+// Event ids are "<utc-iso>:<rand6>" — digits, colons, dots, dashes. No slashes:
+// KV keys are flat strings so a "../" id was never a traversal, but a malformed
+// id deserves a 400 rather than a lookup that can only ever miss.
+const EVENT_ID_PATH_RE = /^\/api\/event\/(.+)$/;
+const EVENT_ID_RE = /^[A-Za-z0-9:._-]{1,128}$/;
 
 const MAX_EVENT_BYTES = 8 * 1024;
 const MAX_ACK_IDS = 1000;
@@ -112,6 +120,20 @@ async function route(request, env, url) {
   const method = request.method;
 
   if (path === '/') return json({ ok: true, service: 'wss-fleet-worker' });
+
+  // /api/event/<id> — the only path with a variable segment, so it is matched
+  // before the exact-path table rather than complicating every row of it.
+  const withId = EVENT_ID_PATH_RE.exec(path);
+  if (withId) {
+    if (method !== 'DELETE') {
+      const res = json({ error: 'method not allowed' }, 405);
+      res.headers.set('Allow', 'DELETE');
+      return res;
+    }
+    const me = await crewAuth(request, url, env);
+    if (!me) return json({ error: 'unauthorized' }, 401);
+    return crewUndoEvent({ env, me, rawId: withId[1] });
+  }
 
   const samePath = ROUTES.filter((r) => r[1] === path);
   if (!samePath.length) return json({ error: 'not found' }, 404);
@@ -349,6 +371,37 @@ function cleanPayload(action, p, role) {
   return {}; // every action in ACTION_ROLES is handled above
 }
 
+/**
+ * DELETE /api/event/<id> — undo your own unapplied tap (D46).
+ *
+ * A "wrong button" valve, not moderation: you may delete an event you created,
+ * and only while it is still pending. `owner` gets NO override — Matt undoing
+ * Josh's tap would be a silent edit of someone else's proposal, and the way to
+ * change a colleague's pending write is to talk to them or make your own.
+ *
+ * Deletes exactly one key. Never touches `snapshot`, never bulk-deletes, and
+ * never logs the id alongside anything that identifies the token.
+ */
+async function crewUndoEvent({ env, me, rawId }) {
+  let id;
+  try { id = decodeURIComponent(rawId); } catch { throw httpError(400, 'bad event id'); }
+
+  const bare = id.startsWith('evt:') ? id.slice(4) : id;
+  if (!EVENT_ID_RE.test(bare)) throw httpError(400, 'bad event id');
+  const key = `evt:${bare}`;
+
+  const stored = await env.FLEET_KV.get(key, 'json');
+  // Already drained by the engine, or never existed. The client turns this into
+  // "already applied — change it with a new tap", which is the honest reading:
+  // by the time you tapped undo it was gone.
+  if (!stored) return json({ error: 'event not found' }, 404);
+
+  if (stored.actor !== me.name) throw httpError(403, 'you can only undo your own events');
+
+  await env.FLEET_KV.delete(key);
+  return json({ ok: true, id: bare });
+}
+
 async function crewHealth({ env }) {
   const [meta, pending_count] = await Promise.all([snapshotMeta(env), countEvents(env)]);
   return json({
@@ -478,7 +531,7 @@ function corsHeaders(origin, env) {
     (env.ALLOW_LOCALHOST === '1' && LOCAL_ORIGIN_RE.test(origin)));
   if (ok) {
     h['Access-Control-Allow-Origin'] = origin;
-    h['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+    h['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS';
     h['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, X-Admin-Secret';
     h['Access-Control-Max-Age'] = '86400';
   }

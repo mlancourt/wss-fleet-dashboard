@@ -199,7 +199,9 @@ plain CNAME from any host. Do not "simplify" this.
   KV has no atomic append; a shared array key silently loses concurrent writes
   when two techs toggle readiness at once.
 - **Never bulk-delete events.** `admin/events/ack` deletes only the ids handed
-  back; new events land mid-run.
+  back; new events land mid-run. `DELETE /api/event/<id>` likewise removes one
+  key, and only if the caller's token name matches the event's `actor` — it is
+  a "wrong button" valve, not moderation, so **owner has no override** (D46).
 - **Writes are proposals.** A submitted event renders as ⏳ pending and the board
   keeps showing current truth until the engine applies it.
 - **A pending `ticket_open` has no ticket number.** The engine assigns it. The
@@ -269,6 +271,10 @@ both visible to crew and admin, oldest first → ack one by id, one by full key
 → the other survives → back to baseline. Then the six schema-3 actions and
 their refusals — wrong role for a stage change or a cancel, a bad rig, an
 unknown driver, a claim with no date, a `ticket_update` that changes nothing.
+Then the undo endpoint (D46): no token → 401, someone else's event → 403,
+**owner gets no override** → 403, the event surviving every refusal, your own →
+200, the inbox losing exactly that key, a second undo → 404, an unknown id →
+404, a malformed id → 400, `snapshot` untouched, and a GET on the id path → 405.
 Plus 404 / 405 / CORS preflight.
 
 The same loop runs against the deployed Worker:
@@ -323,6 +329,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 |---|---|---|
 | `GET /api/data` | token | `{me:{name,role}, snapshot, pending:[events]}` |
 | `POST /api/event` | token | `201` the stored event `{id, ts, actor, role, action, serial, payload}` |
+| `DELETE /api/event/<id>` | token | `200 {ok, id}` — undo your OWN still-pending event. Someone else's → `403` (owner has no override); already drained or unknown → `404`; malformed id → `400`. Deletes exactly one `evt:` key and never touches `snapshot`. |
 | `GET /api/health` | token | `{published_at, generated_at, run_id, pending_count}` |
 | `POST /api/admin/publish` | secret | body = snapshot JSON; needs `meta.schema_version` |
 | `GET /api/admin/events` | secret | `{count, events:[{id, key, event}]}` oldest first |
