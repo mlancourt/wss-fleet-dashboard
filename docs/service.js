@@ -207,7 +207,23 @@ export function sortOpen(rows) {
   });
 }
 
-/** Scheduled rows grouped by date: [{ date, rows }], dated first, undated last. */
+/**
+ * Work still to do, deliveries first (D46). A delivery is a customer waiting on
+ * a machine; a pick-up is a machine waiting on us. Within a kind the older rule
+ * stands — dated ascending, undated last, then id — which comes free because
+ * Array#sort is stable, so this only reorders across kinds.
+ * A kind we don't recognise sorts after both rather than being dropped.
+ */
+const KIND_RANK = { DELIVER: 0, PICKUP: 1 };
+export function sortByKind(rows) {
+  return sortOpen(rows).sort((a, b) => (KIND_RANK[a.kind] ?? 2) - (KIND_RANK[b.kind] ?? 2));
+}
+
+/**
+ * Scheduled rows grouped by date: [{ date, rows }], dated first, undated last.
+ * Groups are ordered by date (so the grouping pass runs on the date-sorted
+ * list); the rows INSIDE each group are then ordered deliveries-first (D46).
+ */
 export function groupByDate(rows) {
   const map = new Map();
   for (const r of sortOpen(rows)) {
@@ -215,16 +231,17 @@ export function groupByDate(rows) {
     if (!map.has(k)) map.set(k, []);
     map.get(k).push(r);
   }
-  return [...map.entries()].map(([date, list]) => ({ date, rows: list }));
+  return [...map.entries()].map(([date, list]) => ({ date, rows: sortByKind(list) }));
 }
 
 /** The three sections of the board, in the order they're stacked. */
 export function sections(dispatch) {
   const all = Array.isArray(dispatch) ? dispatch : [];
   return {
-    open: sortOpen(all.filter((r) => r.status === 'OPEN')),
+    open: sortByKind(all.filter((r) => r.status === 'OPEN')),
     scheduled: groupByDate(all.filter((r) => r.status === 'SCHEDULED')),
     scheduledCount: all.filter((r) => r.status === 'SCHEDULED').length,
+    // Done this week is a log, not a work queue — it keeps its existing order.
     done: sortOpen(all.filter((r) => r.status === 'DONE')),
   };
 }

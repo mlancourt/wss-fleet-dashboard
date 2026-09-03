@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-03T15:16:48.276Z",
+    "ts": "2026-09-03T15:29:50.775Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-03T17:36:48.276Z",
+    "ts": "2026-09-03T17:49:50.775Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-03T18:04:48.276Z",
+    "ts": "2026-09-03T18:17:50.775Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-03T18:10:48.276Z",
+    "ts": "2026-09-03T18:23:50.775Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-03T18:13:48.276Z",
+    "ts": "2026-09-03T18:26:50.775Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",

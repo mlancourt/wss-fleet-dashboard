@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 4,
-    "generated_at": "2026-09-03T18:16:48.273Z",
+    "generated_at": "2026-09-03T18:29:50.773Z",
     "run_id": "mock-full-2026-09-03",
     "fleet_totals": {
       "units": 39
@@ -2101,6 +2101,23 @@
       "rig": "TRAILER-6000",
       "status": "SCHEDULED",
       "note": "Kevin riding along for the walkthrough",
+      "done": null
+    },
+    {
+      "id": "m-de-2203",
+      "kind": "DELIVER",
+      "source": "MANUAL",
+      "serial": null,
+      "ticket": null,
+      "what": "Loaner out to the Jefferson plant",
+      "customer": "Juniper Metalworks",
+      "address": "Jefferson WI",
+      "date": "2026-09-07",
+      "billed_through": null,
+      "driver": null,
+      "rig": null,
+      "status": "OPEN",
+      "note": "They open at 6; ask for the maintenance lead",
       "done": null
     },
     {

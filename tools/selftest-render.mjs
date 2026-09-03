@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STAGES, STAGE_LABEL, PIPELINE_STAGES, columnsFor } from '../docs/service.js';
+import { STAGES, STAGE_LABEL, PIPELINE_STAGES, columnsFor, sections as dispatchSections } from '../docs/service.js';
 import { utilization, utilizationFrom } from '../docs/metrics.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -226,6 +226,44 @@ await check('no costless units -> no footnote (the empty variant)', async () => 
 });
 
 /* ------------------------------------------ cost + book leave the site (D45) */
+
+await check('the dollar bar names what it measures, with no number (D46)', async () => {
+  const out = await renderRoute('#/');
+  assert.ok(out.includes('Fleet value on rent'), 'the dollar bar caption is missing');
+  // it sits in the sub-line slot, like the units bar's own sub-line
+  assert.ok(/class="util-s">Fleet value on rent</.test(out), 'caption must use the sub-line slot');
+  // and the excluded footnote sits UNDER it
+  assert.ok(out.indexOf('Fleet value on rent') < out.indexOf('without a cost excluded'),
+    'the footnote belongs under the caption');
+});
+
+await check('Dispatch leads with deliveries in Open and inside each Scheduled day (D46)', async () => {
+  const rows = app.__state().snapshot.dispatch;
+  const out = await renderRoute('#/dispatch');
+  const sec = dispatchSections(rows);
+
+  // The Open section draws exactly what the module ordered, in that order.
+  const openSec = out.slice(out.indexOf('<h2>Open'), out.indexOf('<h2>Scheduled'));
+  const openIds = [...openSec.matchAll(/id="d-([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(openIds, sec.open.map((r) => r.id), 'Open must draw sections().open verbatim');
+
+  // And that order really does lead with deliveries, ahead of an earlier pick-up.
+  const kindOf = Object.fromEntries(rows.map((r) => [r.id, r.kind]));
+  const kinds = openIds.map((id) => kindOf[id]);
+  assert.ok(kinds.includes('DELIVER') && kinds.includes('PICKUP'), 'mock must hold both kinds open');
+  assert.ok(kinds.lastIndexOf('DELIVER') < kinds.indexOf('PICKUP'), `Open must lead with deliveries, got ${kinds}`);
+
+  // Inside each Scheduled day, same rule; groups still ascend by date.
+  const schedSec = out.slice(out.indexOf('<h2>Scheduled'));
+  const schedIds = [...schedSec.matchAll(/id="d-([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(schedIds, sec.scheduled.flatMap((g) => g.rows.map((r) => r.id)));
+
+  // Nothing was lost in the reorder. "Done this week" is collapsed by default,
+  // so the drawn set is Open + Scheduled.
+  const drawn = [...out.matchAll(/id="d-([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(new Set(drawn).size, sec.open.length + sec.scheduledCount);
+  assert.equal(drawn.length, new Set(drawn).size, 'no row drawn twice');
+});
 
 await check('no dollar AMOUNT appears anywhere on the landing page', async () => {
   const out = await renderRoute('#/');

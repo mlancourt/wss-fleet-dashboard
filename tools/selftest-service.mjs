@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {
   STAGES, PIPELINE_STAGES, stagesFor, canStage, stageOptions, filterTickets, columnize, columnsFor, pipeline, sortTickets,
-  missingMoves, openCount, dispatchFor, sortOpen, groupByDate, sections, rigClash,
+  missingMoves, openCount, dispatchFor, sortOpen, sortByKind, groupByDate, sections, rigClash,
   driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from '../docs/service.js';
 
@@ -208,11 +208,58 @@ check('groupByDate: one group per day, in date order, undated last', () => {
   assert.deepEqual(g[1].rows.map((r) => r.id), ['a', 'c']);
 });
 
+check('sortByKind: deliveries above pick-ups, dates still ascending inside a kind (D46)', () => {
+  const rows = [
+    D('p1', 'OPEN', { kind: 'PICKUP', date: '2026-09-09' }),
+    D('d2', 'OPEN', { kind: 'DELIVER', date: '2026-09-15' }),
+    D('p2', 'OPEN', { kind: 'PICKUP' }),                        // undated
+    D('d1', 'OPEN', { kind: 'DELIVER', date: '2026-09-11' }),
+    D('d3', 'OPEN', { kind: 'DELIVER' }),                       // undated
+  ];
+  assert.deepEqual(sortByKind(rows).map((r) => r.id), ['d1', 'd2', 'd3', 'p1', 'p2']);
+  // deliveries first...
+  assert.deepEqual(sortByKind(rows).slice(0, 3).map((r) => r.kind), ['DELIVER', 'DELIVER', 'DELIVER']);
+  // ...dates ascending within the kind, undated last within the kind
+  assert.deepEqual(sortByKind(rows).slice(0, 3).map((r) => r.date), ['2026-09-11', '2026-09-15', null]);
+  // a kind we don't recognise goes last rather than being dropped
+  const odd = sortByKind(rows.concat([D('x', 'OPEN', { kind: 'TOW' })]));
+  assert.equal(odd.length, 6);
+  assert.equal(odd[5].id, 'x');
+  // sortOpen itself is unchanged — it still knows nothing about kind: dated
+  // ascending, then the undated pair settled by id ('d3' before 'p2').
+  assert.deepEqual(sortOpen(rows).map((r) => r.id), ['p1', 'd1', 'd2', 'd3', 'p2']);
+});
+
+check('groupByDate: groups still ascend by date, rows inside them lead with deliveries', () => {
+  const g = groupByDate([
+    D('p1', 'SCHEDULED', { kind: 'PICKUP', date: '2026-09-11' }),
+    D('d1', 'SCHEDULED', { kind: 'DELIVER', date: '2026-09-11' }),
+    D('p0', 'SCHEDULED', { kind: 'PICKUP', date: '2026-09-09' }),
+    D('u1', 'SCHEDULED', { kind: 'DELIVER' }),
+  ]);
+  assert.deepEqual(g.map((x) => x.date), ['2026-09-09', '2026-09-11', ''], 'group order unchanged');
+  assert.deepEqual(g[1].rows.map((r) => r.id), ['d1', 'p1'], 'delivery leads inside the day');
+  assert.equal(g.reduce((n, x) => n + x.rows.length, 0), 4, 'nothing dropped');
+});
+
 check('sections splits the board into Open / Scheduled / Done this week', () => {
   const s = sections([D('a', 'OPEN'), D('b', 'SCHEDULED', { date: '2026-09-10' }), D('c', 'DONE'), D('d', 'OPEN', { date: '2026-09-08' })]);
   assert.deepEqual(s.open.map((r) => r.id), ['d', 'a']);
   assert.equal(s.scheduledCount, 1);
   assert.deepEqual(s.done.map((r) => r.id), ['c']);
+});
+
+check('sections: Open leads with deliveries; Done this week keeps its date order (D46)', () => {
+  const rows = [
+    D('op', 'OPEN', { kind: 'PICKUP', date: '2026-09-08' }),
+    D('od', 'OPEN', { kind: 'DELIVER', date: '2026-09-12' }),
+    D('donep', 'DONE', { kind: 'PICKUP', date: '2026-09-01' }),
+    D('doned', 'DONE', { kind: 'DELIVER', date: '2026-09-03' }),
+  ];
+  const s = sections(rows);
+  assert.deepEqual(s.open.map((r) => r.id), ['od', 'op'], 'delivery first even though it is later');
+  // Done is a log, not a queue: still oldest-first by date, kind ignored.
+  assert.deepEqual(s.done.map((r) => r.id), ['donep', 'doned']);
 });
 
 check('dispatchFor: only this ticket, live rows before done ones', () => {

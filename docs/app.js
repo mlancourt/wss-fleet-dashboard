@@ -341,9 +341,10 @@ function utilBar() {
       ${subline ? raw(html`<div class="util-s">${raw(subline)}</div>`) : ''}
     </div>`);
 
-  // The dollar bar deliberately carries NO sub-line: schema 4 ships no amounts,
-  // and on schema 3 we decline to show the ones we could still add up (D45).
-  // A percentage is all the money anybody reads on this site.
+  // The dollar bar's sub-line names what the percentage is OF, and carries no
+  // number of its own (D46) — schema 4 ships no amounts and on schema 3 we
+  // decline to show the ones we could still add up (D45). A percentage is all
+  // the money anybody reads on this site.
   const n = u.dollars.excluded;
   const unitsSub = u.units.onRent != null && u.units.total != null
     ? html`${u.units.onRent} of ${u.units.total} rental units on rent` : '';
@@ -351,7 +352,7 @@ function utilBar() {
     <section class="util" aria-label="Fleet utilization">
       <div class="util-t">Fleet utilization</div>
       ${raw(bar('Units', u.units, unitsSub))}
-      ${raw(bar('Dollars', u.dollars, ''))}
+      ${raw(bar('Dollars', u.dollars, 'Fleet value on rent'))}
       ${n ? raw(html`<div class="util-fn">${n} unit${n === 1 ? '' : 's'} without a cost excluded</div>`) : ''}
     </section>`;
 }

@@ -35,6 +35,8 @@
  *     that's out on rent) · a HIGH customer ticket with intake_move PICKUP and
  *     its SERVICE-IN row · a READY-TO-INVOICE ticket with a SERVICE-OUT DELIVER
  *     row · a CLOSED ticket · a ticket needing no truck at all
+ *   - D46: an OPEN DELIVER row dated later than the OPEN pick-ups, so the board
+ *     visibly leads with deliveries
  *   - schema 3 dispatch: all three statuses, all four sources, a RENTAL-RETURN
  *     row tied to a NEEDS-PICKUP unit that is also in pickups[], one pick-up NOT
  *     yet on the board, and a dispatch_warnings entry naming two SCHEDULED rows
@@ -563,6 +565,12 @@ function build({ withServiceQueue }) {
       date: d(2), driver: 'Kevin', rig: 'TRAILER-6000', status: 'SCHEDULED', note: 'Kevin riding along for the walkthrough' });
 
     dispatch_warnings.push({ rig: 'TRAILER-6000', date: d(2), ids: ['m-so-2202', 'm-a1b2c3'] });
+
+    // MANUAL, DELIVER, OPEN — unclaimed, and dated LATER than the open pick-ups
+    // below it, so the board demonstrates D46: deliveries lead regardless of date.
+    move({ id: 'm-de-2203', kind: 'DELIVER', source: 'MANUAL',
+      what: 'Loaner out to the Jefferson plant', customer: 'Juniper Metalworks', address: 'Jefferson WI',
+      date: d(4), status: 'OPEN', note: 'They open at 6; ask for the maintenance lead' });
 
     // MANUAL, DONE — a parts run, no unit and no ticket. Lingers 7 days.
     move({ id: 'm-d4e5f6', kind: 'PICKUP', source: 'MANUAL',
