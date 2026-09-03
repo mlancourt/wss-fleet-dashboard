@@ -25,14 +25,14 @@ import { loadData, postEvent, mockVariant, resolveApiBase } from './api.js';
 import { utilization, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
-  stageOptions, columnize, sortTickets, missingMoves, openCount, dispatchFor, dispatchById,
+  stageOptions, columnize, pipeline, sortTickets, missingMoves, openCount, dispatchFor, dispatchById,
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from './service.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-03c';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-04a';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -84,8 +84,18 @@ const state = {
  * scope so it survives render(), which rewrites the whole view on every change
  * (including after a write lands in `pending`).
  */
+// The Service chip is remembered per device (D43) so a tech who lives in Fleet
+// lands there. Storage can be blocked or purged — any failure just means All.
+const FILTER_KEY = 'wss_fleet_service_filter';
+function storedFilter() {
+  try {
+    const v = localStorage.getItem(FILTER_KEY);
+    return v === 'CUSTOMER' || v === 'WSS' || v === 'all' ? v : 'all';
+  } catch (_) { return 'all'; }
+}
+
 const ui = {
-  ticketFilter: 'all',   // 'all' | 'CUSTOMER' | 'WSS'
+  ticketFilter: storedFilter(),   // 'all' | 'CUSTOMER' | 'WSS'
   form: null,            // { kind, id } — the one open sheet, if any
   msg: null,             // { tone: 'ok'|'bad', text } — shown once at the top of the view
   showDone: false,       // Dispatch: "Done this week" is collapsed by default
@@ -694,28 +704,46 @@ function pendingLine(n) {
 
 const PRI_LABEL = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' };
 
+/**
+ * Service tab (D43). Top to bottom: + New ticket · filter chips · the widget
+ * zone the chip selects · the kanban.
+ *
+ * Which widgets a chip shows:
+ *   All       Fleet Status, then the Service Pipeline — the whole shop
+ *   Fleet     Fleet Status only    (our machines' condition)
+ *   Customer  Service Pipeline only (their repairs' progress)
+ */
 function viewService() {
   const q = serviceQueue();
   const opens = pendingTicketOpens();
   const filter = ui.ticketFilter;
+  const s = serviceSummary();
 
-  const head = html`<h1>Service</h1>${raw(msgBlock())}${raw(boardView())}
+  // All / Fleet / Customer, by machine_owner — whose MACHINE it is, not the
+  // `owner` role. Fleet sits left of Customer (D43). Counts from the summary
+  // when the engine sent one.
+  const counts = { all: (s ? s.open_customer + s.open_wss : q.filter((t) => t.status === 'OPEN').length),
+    CUSTOMER: s ? s.open_customer : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER').length,
+    WSS: s ? s.open_wss : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'WSS').length };
+  const chips = [['all', 'All'], ['WSS', 'Fleet'], ['CUSTOMER', 'Customer']].map(([v, label]) =>
+    html`<button type="button" class="fchip${filter === v ? ' on' : ''}" data-filter="${v}">${label}<span class="c">${counts[v]}</span></button>`);
+
+  const widgets = filter === 'WSS' ? boardView()
+    : filter === 'CUSTOMER' ? pipelineView(false)
+    : boardView() + pipelineView(true);
+
+  const head = html`<h1>Service</h1>${raw(msgBlock())}
     <div class="actions"><button class="btn" type="button" data-sheet="new-ticket">+ New ticket</button></div>
-    ${sheetOpen('new-ticket') ? raw(newTicketForm()) : ''}`;
+    ${sheetOpen('new-ticket') ? raw(newTicketForm()) : ''}
+    <div class="fchips" role="group" aria-label="Filter tickets">${raw(chips.join(''))}</div>
+    ${raw(widgets)}`;
 
+  // The widgets stand on their own — an empty queue still shows the shop's
+  // shape, so only the kanban is replaced by the empty state.
   if (!q.length && !opens.length) {
     return head + emptyState('Nothing in the shop.',
       'Open a ticket above — it shows here as pending until the next run picks it up.');
   }
-
-  // All / Customer / Fleet, by machine_owner. `machine_owner` is whose MACHINE
-  // it is — not the `owner` role. Counts come from the summary when it's there.
-  const s = serviceSummary();
-  const counts = { all: (s ? s.open_customer + s.open_wss : q.filter((t) => t.status === 'OPEN').length),
-    CUSTOMER: s ? s.open_customer : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER').length,
-    WSS: s ? s.open_wss : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'WSS').length };
-  const chips = [['all', 'All'], ['CUSTOMER', 'Customer'], ['WSS', 'Fleet']].map(([v, label]) =>
-    html`<button type="button" class="fchip${filter === v ? ' on' : ''}" data-filter="${v}">${label}<span class="c">${counts[v]}</span></button>`);
 
   const cols = columnize(q, { summary: s, filter }).map((c) => {
     // A pending ticket_open has no number yet (§3.1) — it sits at the head of
@@ -724,16 +752,44 @@ function viewService() {
       ? opens.filter((e) => filter === 'all' || pl(e).machine_owner === filter).map(pendingTicketCard)
       : [];
     const cards = synth.concat(sortTickets(c.tickets).map(ticketCard));
-    return html`<section class="kan-col">
+    return html`<section class="kan-col" id="kan-${c.stage}">
       <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
       <div class="kan-body">${cards.length ? raw(cards.join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
     </section>`;
   });
 
   return html`${raw(head)}
-    <div class="fchips" role="group" aria-label="Filter tickets">${raw(chips.join(''))}</div>
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
     <div class="form-note">Swipe the columns sideways. Tap a card for the whole ticket.</div>`;
+}
+
+/**
+ * Service Pipeline widget (D43) — a sibling of the Fleet Status board, same
+ * card and row anatomy. Customer machines only; fleet repairs are what the
+ * board is for, which the caption says out loud when both are on screen.
+ * Rows are buttons: tapping one scrolls the kanban to that column.
+ */
+function pipelineView(withCaption) {
+  const p = pipeline(serviceQueue());
+  const rows = p.rows.map((r) => html`
+    <button type="button" class="brow pipe-${r.color}${r.count ? '' : ' zero'}" data-pipe="${r.stage}">
+      <span class="brow-l">${r.label}</span>
+      <span class="brow-n">${r.count}</span>
+      <span class="brow-track"><span class="brow-fill" style="width:${r.pct}%"></span></span>
+      <span class="brow-p">${r.pct}%</span>
+    </button>`);
+  return html`
+    <section class="board pipe" aria-label="Service pipeline — customer machines">
+      <div class="board-h">
+        <span>Service pipeline</span>
+        <span class="pills">
+          <span class="c">${p.open} open</span>
+          ${p.closedThisWeek ? raw(html`<span class="c muted">${p.closedThisWeek} closed this week</span>`) : ''}
+        </span>
+      </div>
+      ${withCaption ? raw('<div class="board-cap">Customer machines · fleet repairs are on the board above</div>') : ''}
+      ${raw(rows.join(''))}
+    </section>`;
 }
 
 function ticketCard(t) {
@@ -1482,7 +1538,21 @@ document.addEventListener('click', async (ev) => {
   if (ev.target.closest('[data-done-toggle]')) { ui.showDone = !ui.showDone; render(); return; }
 
   const fchip = ev.target.closest('[data-filter]');
-  if (fchip) { ui.ticketFilter = fchip.dataset.filter; render(); return; }
+  if (fchip) {
+    ui.ticketFilter = fchip.dataset.filter;
+    try { localStorage.setItem(FILTER_KEY, ui.ticketFilter); } catch (_) { /* storage blocked */ }
+    render();
+    return;
+  }
+
+  // A pipeline row scrolls the kanban to its column. It never changes the chip
+  // — the widget is a way to read the board, not a way to re-filter it.
+  const pipe = ev.target.closest('[data-pipe]');
+  if (pipe) {
+    const col = document.getElementById(`kan-${pipe.dataset.pipe}`);
+    if (col && col.scrollIntoView) col.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    return;
+  }
 
   // Addresses copy, they do not navigate. No map links (§4).
   const addr = ev.target.closest('[data-copy]');
@@ -1729,3 +1799,4 @@ refresh();
  * instead of a phone in a warehouse. Nothing in the page reads these. */
 export { render as __render, refresh as __refresh };
 export const __state = () => state;
+export const __ui = () => ui;

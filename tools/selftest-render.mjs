@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STAGES, STAGE_LABEL } from '../docs/service.js';
+import { STAGES, STAGE_LABEL, PIPELINE_STAGES, columnsFor } from '../docs/service.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(HERE, '..', 'docs');
@@ -171,6 +171,117 @@ await check('Service renders every stage, both filters and the pending ticket_op
   assert.ok(out.includes('⏳ NEW —'), 'the pending ticket_open card is missing');
   assert.ok(!/S\?\?\?\?|undefined/.test(out), 'a ticket id was invented for a pending open');
   assert.ok(out.includes('Fleet status'), 'the D20 board must stay at the top of Service');
+});
+
+/* ------------------------------------------- service pipeline widget (D43) */
+
+/** Render #/service under one chip. The chip is clicked, not faked, so the
+ *  persistence path is exercised too. */
+async function serviceUnder(filter) {
+  await renderRoute('#/service');
+  const fire = listeners.get('click') || [];
+  const btn = { dataset: { filter }, closest: (sel) => (sel === '[data-filter]' ? btn : null) };
+  for (const fn of fire) await fn({ target: { closest: (sel) => (sel === '[data-filter]' ? btn : null) } });
+  return view._html;
+}
+
+await check('the chip zone is All · Fleet · Customer, in that order (D43)', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  const out = await renderRoute('#/service');
+  const order = [...out.matchAll(/data-filter="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['all', 'WSS', 'CUSTOMER'], 'Fleet must sit left of Customer');
+  // + New ticket leads the page, above the chips and the widgets.
+  assert.ok(out.indexOf('+ New ticket') < out.indexOf('data-filter='), 'New ticket comes first');
+  assert.ok(out.indexOf('data-filter=') < out.indexOf('Fleet status'), 'chips come before the widgets');
+});
+
+await check('All shows both widgets and all eight columns', async () => {
+  const out = await serviceUnder('all');
+  assert.ok(out.includes('Fleet status'), 'the fleet board must show under All');
+  assert.ok(out.includes('Service pipeline'), 'the pipeline must show under All');
+  assert.ok(out.indexOf('Fleet status') < out.indexOf('Service pipeline'), 'board above pipeline');
+  assert.ok(out.includes('Customer machines · fleet repairs are on the board above'),
+    'the caption explains the split, but only when both are on screen');
+  const cols = [...out.matchAll(/id="kan-([A-Z-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(cols, columnsFor('all'));
+});
+
+await check('Fleet shows the board only, six columns, and only WSS tickets', async () => {
+  const out = await serviceUnder('WSS');
+  assert.ok(out.includes('Fleet status'), 'the board is the Fleet widget');
+  assert.ok(!out.includes('Service pipeline'), 'the pipeline is customer work — hidden under Fleet');
+  const cols = [...out.matchAll(/id="kan-([A-Z-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(cols, columnsFor('WSS'));
+  assert.equal(cols.length, 6);
+  assert.ok(!cols.includes('WAITING-ON-CUSTOMER') && !cols.includes('READY-TO-INVOICE'));
+  // every card drawn belongs to a fleet ticket
+  const wss = new Set(app.__state().snapshot.service_queue.filter((t) => t.machine_owner === 'WSS').map((t) => t.ticket));
+  for (const [, id] of out.matchAll(/class="kan-id">([^<]+)</g)) {
+    assert.ok(wss.has(id), `${id} is a customer ticket and must not show under Fleet`);
+  }
+});
+
+await check('Customer shows the pipeline only, eight columns, and only customer tickets', async () => {
+  const out = await serviceUnder('CUSTOMER');
+  assert.ok(out.includes('Service pipeline'), 'the pipeline is the Customer widget');
+  assert.ok(!out.includes('Fleet status'), 'the fleet board is hidden under Customer');
+  assert.ok(!out.includes('fleet repairs are on the board above'), 'no caption when the board is not on screen');
+  const cols = [...out.matchAll(/id="kan-([A-Z-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(cols, columnsFor('CUSTOMER'));
+  const cust = new Set(app.__state().snapshot.service_queue.filter((t) => t.machine_owner === 'CUSTOMER').map((t) => t.ticket));
+  for (const [, id] of out.matchAll(/class="kan-id">([^<]+)</g)) {
+    assert.ok(cust.has(id), `${id} is a fleet ticket and must not show under Customer`);
+  }
+});
+
+await check('the pipeline draws seven tappable rows and a live open pill', async () => {
+  const out = await serviceUnder('CUSTOMER');
+  const rows = [...out.matchAll(/data-pipe="([A-Z-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(rows, PIPELINE_STAGES, 'seven rows in stage order');
+  assert.ok(!rows.includes('COMPLETE'), 'COMPLETE is the header pill, not a row');
+  const q = app.__state().snapshot.service_queue;
+  const open = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN').length;
+  const closed = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'CLOSED').length;
+  assert.ok(out.includes(`${open} open`), `header pill should read "${open} open"`);
+  assert.equal(out.includes('closed this week'), closed > 0, 'the closed pill hides at zero');
+});
+
+await check('the chip is remembered per device and survives a reload', async () => {
+  await serviceUnder('WSS');
+  // A fresh boot reads it back out of storage rather than defaulting to All.
+  assert.equal(localStorage.getItem('wss_fleet_service_filter'), 'WSS');
+  // Boot a second copy of the module to prove the chip comes back from storage.
+  // app.js registers delegated listeners at import, so that copy would other-
+  // wise keep answering our synthetic clicks and re-rendering #view from its
+  // own state. Quarantine its listeners rather than let two apps share a DOM.
+  const saved = new Map([...listeners].map(([k, v]) => [k, v.slice()]));
+  const fresh = await import(`${path.join(DOCS, 'app.js')}?reload=${Date.now()}`);
+  await settle();
+  assert.equal(fresh.__ui().ticketFilter, 'WSS', 'the remembered chip must come back');
+  listeners.clear();
+  for (const [k, v] of saved) listeners.set(k, v);
+
+  await serviceUnder('all');   // leave the device on All for the checks below
+});
+
+await check('the pipeline card never hides — zero open tickets still draws seven rows', async () => {
+  window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
+  window.location.search = '?mock=empty&role=owner';
+  await app.__refresh();
+  const out = await serviceUnder('CUSTOMER');
+  assert.ok(out.includes('Service pipeline'), 'the card stays even with nothing in it');
+  assert.ok(out.includes('0 open'), 'the pill reads 0 open');
+  assert.ok(!out.includes('closed this week'), 'the closed pill hides at zero');
+  assert.equal([...out.matchAll(/data-pipe="[A-Z-]+"/g)].length, 7, 'seven zero rows still render');
+  assert.equal([...out.matchAll(/>0%</g)].length >= 7, true, 'and they read 0%');
+
+  // hand the suite back the state it expects: full snapshot, All chip
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  await serviceUnder('all');
 });
 
 await check('a tech sees COMPLETE disabled on a customer ticket, Matt does not', async () => {
