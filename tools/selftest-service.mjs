@@ -3,7 +3,7 @@
  *  kanban columns, dispatch ordering, the rig warning. Run: npm test */
 import assert from 'node:assert/strict';
 import {
-  STAGES, stagesFor, canStage, stageOptions, filterTickets, columnize, sortTickets,
+  STAGES, PIPELINE_STAGES, stagesFor, canStage, stageOptions, filterTickets, columnize, columnsFor, pipeline, sortTickets,
   missingMoves, openCount, dispatchFor, sortOpen, groupByDate, sections, rigClash,
   driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from '../docs/service.js';
@@ -90,6 +90,87 @@ check('columnize counts come from service_summary only when unfiltered', () => {
   assert.equal(columnize(QUEUE, { summary }).find((c) => c.stage === 'RECEIVED').count, 9);
   // Filtered, the summary would be a lie — count what is drawn.
   assert.equal(columnize(QUEUE, { summary, filter: 'WSS' }).find((c) => c.stage === 'RECEIVED').count, 1);
+});
+
+check('columnsFor: Fleet drops exactly the two stages a WSS ticket cannot occupy (D43)', () => {
+  assert.deepEqual(columnsFor('all'), STAGES);
+  assert.deepEqual(columnsFor('CUSTOMER'), STAGES);
+  const wss = columnsFor('WSS');
+  assert.equal(wss.length, 6);
+  assert.deepEqual(STAGES.filter((s) => !wss.includes(s)), ['WAITING-ON-CUSTOMER', 'READY-TO-INVOICE']);
+  // and it stays in step with the stage picker
+  assert.deepEqual(wss, stagesFor('WSS'));
+});
+
+check('columnize under Fleet draws six columns but never drops a ticket', () => {
+  const q = [T('S1', 'RECEIVED', 'WSS'), T('S2', 'IN-PROGRESS', 'WSS')];
+  assert.deepEqual(columnize(q, { filter: 'WSS' }).map((c) => c.stage), columnsFor('WSS'));
+  // A WSS ticket the engine parked in a hidden stage still gets a column —
+  // hiding a column is a display choice, losing a ticket is data loss.
+  const odd = columnize(q.concat([T('S3', 'READY-TO-INVOICE', 'WSS')]), { filter: 'WSS' });
+  assert.equal(odd.length, 7);
+  assert.equal(odd[6].stage, 'READY-TO-INVOICE');
+  assert.equal(odd.reduce((n, c) => n + c.tickets.length, 0), 3);
+});
+
+/* ---------------------------------------------------- service pipeline (D43) */
+
+check('pipeline: seven rows in stage order — COMPLETE is the pill, not a row', () => {
+  const p = pipeline(QUEUE);
+  assert.equal(p.rows.length, 7);
+  assert.deepEqual(p.rows.map((r) => r.stage), PIPELINE_STAGES);
+  assert.equal(p.rows.some((r) => r.stage === 'COMPLETE'), false);
+  assert.equal(p.rows[0].label, 'Received');
+  assert.ok(p.rows.every((r) => typeof r.color === 'string' && r.color));
+});
+
+check('pipeline: counts and percentages over OPEN customer tickets only', () => {
+  const q = [
+    T('S1', 'RECEIVED', 'CUSTOMER'), T('S2', 'RECEIVED', 'CUSTOMER'),
+    T('S3', 'IN-PROGRESS', 'CUSTOMER'), T('S4', 'SCHEDULED', 'CUSTOMER'),
+    T('S5', 'RECEIVED', 'WSS'),                               // fleet — excluded
+    T('S6', 'COMPLETE', 'CUSTOMER', { status: 'CLOSED' }),    // closed — not open
+  ];
+  const p = pipeline(q);
+  assert.equal(p.open, 4);
+  const by = Object.fromEntries(p.rows.map((r) => [r.stage, r]));
+  assert.equal(by.RECEIVED.count, 2);
+  assert.equal(by.RECEIVED.pct, 50);
+  assert.equal(by['IN-PROGRESS'].count, 1);
+  assert.equal(by['IN-PROGRESS'].pct, 25);
+  assert.equal(by.CONTACTED.count, 0);
+  assert.equal(by.CONTACTED.pct, 0);
+  // the whole pipeline accounts for every open customer ticket
+  assert.equal(p.rows.reduce((n, r) => n + r.count, 0), p.open);
+});
+
+check('pipeline: fleet tickets are excluded entirely, at every stage', () => {
+  const wssOnly = [T('S1', 'RECEIVED', 'WSS'), T('S2', 'IN-PROGRESS', 'WSS'), T('S3', 'SCHEDULED', 'WSS')];
+  const p = pipeline(wssOnly);
+  assert.equal(p.open, 0);
+  assert.equal(p.rows.reduce((n, r) => n + r.count, 0), 0);
+});
+
+check('pipeline: closed-this-week counts customer CLOSED tickets, with no date math', () => {
+  const q = [
+    T('S1', 'COMPLETE', 'CUSTOMER', { status: 'CLOSED' }),
+    T('S2', 'COMPLETE', 'CUSTOMER', { status: 'CLOSED' }),
+    T('S3', 'COMPLETE', 'WSS', { status: 'CLOSED' }),   // ours — not in this pill
+    T('S4', 'RECEIVED', 'CUSTOMER'),
+  ];
+  const p = pipeline(q);
+  assert.equal(p.closedThisWeek, 2);
+  assert.equal(p.open, 1);
+});
+
+check('pipeline: an empty queue still yields seven zero rows (the card never hides)', () => {
+  for (const empty of [[], null, undefined]) {
+    const p = pipeline(empty);
+    assert.equal(p.open, 0);
+    assert.equal(p.closedThisWeek, 0);
+    assert.equal(p.rows.length, 7);
+    assert.ok(p.rows.every((r) => r.count === 0 && r.pct === 0));
+  }
 });
 
 check('sortTickets: open before closed, HIGH first, then oldest', () => {

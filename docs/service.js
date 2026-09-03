@@ -80,6 +80,60 @@ export function filterTickets(queue, filter) {
 }
 
 /**
+ * The kanban columns a filter shows (D43). Under the Fleet chip the two stages
+ * a WSS-owned ticket can never occupy are dropped — six columns, not eight.
+ * Derived from stagesFor() so the kanban and the stage picker can't drift.
+ */
+export function columnsFor(filter) {
+  return filter === 'WSS' ? stagesFor('WSS') : STAGES.slice();
+}
+
+/* -------------------------------------------------------- service pipeline --
+ * D43. A sibling of the Fleet Status board (metrics.js statusBoard), computed
+ * the same way: one row per stage, counts and a shared 100% scale, zero rows
+ * still rendered so the card never changes shape. */
+
+/** COMPLETE is the header pill, not a row — seven rows, in stage order. */
+export const PIPELINE_STAGES = STAGES.filter((s) => s !== 'COMPLETE');
+
+/** Bar colors, keyed like BOARD_ROWS so the CSS owns the actual values. */
+export const PIPELINE_COLOR = {
+  RECEIVED: 'new',                    // maroon — nobody has touched it yet
+  CONTACTED: 'slate',
+  'WAITING-ON-CUSTOMER': 'amber',     // their court
+  'WAITING-ON-PARTS': 'orange',       // a supplier's court
+  SCHEDULED: 'blue',
+  'IN-PROGRESS': 'green',             // our court, hands on
+  'READY-TO-INVOICE': 'dark',
+};
+
+/**
+ * Customer-machine repair pipeline.
+ *   open             open customer tickets
+ *   closedThisWeek   customer tickets already CLOSED. The snapshot only carries
+ *                    closed tickets for 7 days, so this is a status count and
+ *                    never date arithmetic (CLAUDE.md rule 7).
+ *   rows             one per PIPELINE_STAGE, pct over `open`, 0 when none.
+ * Fleet repairs are deliberately excluded — the Fleet Status board is where a
+ * WSS machine's condition lives.
+ */
+export function pipeline(queue) {
+  const customer = (Array.isArray(queue) ? queue : []).filter((t) => t && t.machine_owner === 'CUSTOMER');
+  const open = customer.filter((t) => t.status === 'OPEN');
+  const rows = PIPELINE_STAGES.map((stage) => {
+    const count = open.filter((t) => t.stage === stage).length;
+    return {
+      stage,
+      label: STAGE_LABEL[stage] || stage,
+      color: PIPELINE_COLOR[stage] || 'slate',
+      count,
+      pct: open.length ? Math.round((count / open.length) * 100) : 0,
+    };
+  });
+  return { open: open.length, closedThisWeek: customer.filter((t) => t.status === 'CLOSED').length, rows };
+}
+
+/**
  * Kanban columns in stage order. A stage the engine invents that we don't know
  * about still gets a column at the end — never drop a ticket on the floor.
  * `count` prefers service_summary.open_by_stage when it is trustworthy (no
@@ -87,9 +141,13 @@ export function filterTickets(queue, filter) {
  */
 export function columnize(queue, { summary = null, filter = 'all' } = {}) {
   const list = filterTickets(queue, filter);
-  const extra = [...new Set((Array.isArray(queue) ? queue : [])
-    .map((t) => t && t.stage).filter((s) => s && !STAGES.includes(s)))];
-  const byStage = STAGES.concat(extra);
+  const base = columnsFor(filter);
+  // Any stage a ticket ON SCREEN actually occupies must have a column, even one
+  // this filter would otherwise hide (a WSS ticket the engine parked in
+  // WAITING-ON-CUSTOMER) or one we've never heard of. Hiding a column is a
+  // display choice; dropping a ticket is data loss.
+  const extra = [...new Set(list.map((t) => t && t.stage).filter((s) => s && !base.includes(s)))];
+  const byStage = base.concat(extra);
   const open = summary && summary.open_by_stage;
   return byStage.map((stage) => {
     const tickets = list.filter((t) => t.stage === stage);
