@@ -26,7 +26,7 @@
  *     only-FUTURE holds while AVAILABLE (the trap) · ON-RENT with two future holds ·
  *     an EXPIRED hold still holding the unit · four holds on one unit ·
  *     one MALFORMED hold; top-level rollup to match
- *   - schema 3 service: a ticket in every one of the seven stages · both
+ *   - schema 3 service: a ticket in every one of the eight stages · both
  *     machine_owners (a WSS ticket on a DOWN in-shop unit, and one on a unit
  *     that's out on rent) · a HIGH customer ticket with intake_move PICKUP and
  *     its SERVICE-IN row · a READY-TO-INVOICE ticket with a SERVICE-OUT DELIVER
@@ -483,6 +483,17 @@ function build({ withServiceQueue }) {
       intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', assigned: 'Zac', opened: -7,
     });
 
+    // 10 — SCHEDULED (D42): parts are in and the day is booked, but nobody has
+    // picked up a wrench yet. Without this the SCHEDULED column is never drawn
+    // with anything in it.
+    ticket({
+      stage: 'SCHEDULED', customer: 'Redtail Automotive', equipment: 'Cascade Clean T-500 (customer owned)',
+      issue: 'Drive belt + idler pulley — parts in, on the bench Tuesday',
+      location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'DELIVER',
+      assigned: 'Josh', opened: -10, scheduled: d(3),
+      quote: { number: 'Q-2205', amount: 640, sent: d(-8), approved: d(-6) },
+    });
+
     // ------------------------------------------------------------- dispatch board
     const move = (m) => {
       dispatch.push({
@@ -541,7 +552,7 @@ function build({ withServiceQueue }) {
       note: 'Picked up both pump assemblies' });
   }
 
-  // The seven-stage rollup the Service tab draws its column counts from.
+  // The eight-stage rollup the Service tab draws its column counts from.
   // COMPLETE is "closed in the last 7 days", not an open-work count (CLAUDE.md).
   const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
   const service_summary = {
@@ -607,7 +618,10 @@ function build({ withServiceQueue }) {
  * `units[].reservation` mirror, and none of the schema-3 arrays.
  */
 function downgradeToSchema2(s3) {
-  const OLD_STAGES = ['RECEIVED', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
+  // The PRE-schema-3 vocabulary, verbatim. These are not our stage names any
+  // more and must not be renamed with them — the whole point of this file is to
+  // be an authentic old snapshot. 'INTAKE' here is correct; leave it alone.
+  const OLD_STAGES = ['INTAKE', 'DIAGNOSED', 'AWAITING-PARTS', 'IN-PROGRESS', 'READY-TO-INVOICE', 'DONE'];
   const snap = JSON.parse(JSON.stringify(s3));
 
   snap.meta.schema_version = 2;

@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 3,
-    "generated_at": "2026-09-03T17:09:09.082Z",
+    "generated_at": "2026-09-03T17:33:14.516Z",
     "run_id": "mock-full-2026-09-03",
     "fleet_totals": {
       "units": 39,
@@ -2041,6 +2041,36 @@
       "parts": null,
       "machinio_ref": null,
       "closed": null
+    },
+    {
+      "ticket": "S1010",
+      "status": "OPEN",
+      "stage": "SCHEDULED",
+      "machine_owner": "CUSTOMER",
+      "customer": "Redtail Automotive",
+      "serial": null,
+      "equipment": "Cascade Clean T-500 (customer owned)",
+      "issue": "Drive belt + idler pulley — parts in, on the bench Tuesday",
+      "priority": "MEDIUM",
+      "site": "Ixonia WI",
+      "location": "IN-SHOP",
+      "intake_move": "CUSTOMER-DROP",
+      "return_move": "DELIVER",
+      "assigned": "Josh",
+      "scheduled": "2026-09-06",
+      "opened": "2026-08-24",
+      "opened_by": "Josh",
+      "stage_since": "2026-08-25",
+      "age_days": 10,
+      "quote": {
+        "number": "Q-2205",
+        "amount": 640,
+        "sent": "2026-08-26",
+        "approved": "2026-08-28"
+      },
+      "parts": null,
+      "machinio_ref": null,
+      "closed": null
     }
   ],
   "service_summary": {
@@ -2049,12 +2079,12 @@
       "CONTACTED": 1,
       "WAITING-ON-CUSTOMER": 1,
       "WAITING-ON-PARTS": 1,
-      "SCHEDULED": 0,
+      "SCHEDULED": 1,
       "IN-PROGRESS": 2,
       "READY-TO-INVOICE": 1,
       "COMPLETE": 1
     },
-    "open_customer": 6,
+    "open_customer": 7,
     "open_wss": 2
   },
   "dispatch": [

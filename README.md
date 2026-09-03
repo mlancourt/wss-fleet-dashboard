@@ -6,7 +6,7 @@ Phone-first, four users (Matt, Kevin, Josh, Zac).
 
 **v1.6 (schema 3)** — the Billing tab is retired: its recurring-revenue block
 moved to the top of Rentals and its nav slot became **Dispatch**. The Service
-tab is real (seven-stage kanban, ticket detail, `+ New ticket`). Six new write
+tab is real (eight-stage kanban, ticket detail, `+ New ticket`). Six new write
 actions bring the total to nine. `snapshot.billing` still arrives and is
 deliberately never rendered.
 

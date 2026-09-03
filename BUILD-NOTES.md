@@ -17,13 +17,13 @@ DNS/tokens/secrets touched, nothing pushed.
   ("Recurring revenue — per 28-day cycle" / "≈ $X / month"), above the
   agreements list.
 - **Service** — the D20 status board keeps the top, then `+ New ticket` (any
-  role), All/Customer/Fleet filter chips, then a seven-stage kanban that swipes
+  role), All/Customer/Fleet filter chips, then an eight-stage kanban that swipes
   sideways on a phone (scroll-snap, sticky column headers) and opens to all
-  seven columns side by side above 1040px. Cards carry customer, equipment (or
+  eight columns side by side above 1040px. Cards carry customer, equipment (or
   serial + model for a fleet machine), a one-line issue, age, the assignee's
   initial, a 🚚 when the ticket has a live truck run, and a maroon left edge on
   HIGH. Closed tickets show greyed in COMPLETE only.
-- **Ticket detail** — the whole record, then a stage picker (QUOTED and
+- **Ticket detail** — the whole record, then a stage picker (WAITING-ON-CUSTOMER and
   READY-TO-INVOICE hidden when `machine_owner: WSS`; COMPLETE on a customer
   ticket disabled for techs with the caption "Matt closes after invoicing."),
   note / assign / schedule, the ticket's dispatch rows, and an offer to book a
@@ -94,7 +94,7 @@ Where the spec left it to me, or left a gap:
    be a lie, so the column counts what it draws. The filter chips themselves
    show `open_customer` / `open_wss` from the summary.
 
-5. **A pending `ticket_open` does not inflate the INTAKE column count.** It
+5. **A pending `ticket_open` does not inflate the RECEIVED column count.** It
    renders as the synthetic ⏳ NEW card §3.1 asks for, but the header count
    stays the engine's number — the count is applied truth, the card is the
    proposal.
@@ -167,9 +167,9 @@ When the Architect says schema 3 is live, in this order:
 
 1. **`GET /api/health`** — confirm `published_at` moved and the run is fresh.
 2. **Open the tokened URL on a phone.** Header reads "data as of …" with no ⚠️.
-3. **Service tab** — the D20 board still sums to the fleet; the seven columns
+3. **Service tab** — the D20 board still sums to the fleet; the eight columns
    carry real tickets; column counts match `service_summary.open_by_stage`.
-   Check a `machine_owner: WSS` ticket hides QUOTED and READY-TO-INVOICE.
+   Check a `machine_owner: WSS` ticket hides WAITING-ON-CUSTOMER and READY-TO-INVOICE.
 4. **A fleet unit with an open ticket** shows the 🔧 chip and the chip links to
    a ticket that exists. If a unit's `service_ticket` names a ticket that isn't
    in `service_queue`, the detail page says "Ticket not found" — **report it,

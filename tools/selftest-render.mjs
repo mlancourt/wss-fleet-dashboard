@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { STAGES, STAGE_LABEL } from '../docs/service.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(HERE, '..', 'docs');
@@ -150,13 +151,22 @@ await check('Dispatch shows all three sections and the released-not-booked guard
   assert.ok(!/maps\.|geo:|google\.com\/maps/.test(out), 'a map link leaked into Dispatch');
 });
 
-await check('Service renders the eight stages, both filters and the pending ticket_open card', async () => {
+await check('Service renders every stage, both filters and the pending ticket_open card', async () => {
   window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
   window.location.search = '?mock=full&role=service&pending=1';
   await app.__refresh();
   const out = await renderRoute('#/service');
-  for (const s of ['Received', 'Contacted', 'Waiting on customer', 'Waiting on parts', 'Scheduled', 'In progress', 'Ready to invoice', 'Complete']) {
-    assert.ok(out.includes(s), `stage column ${s} missing`);
+  // Derived from the enum, not a hand-copied list — a stage rename must not be
+  // able to leave this test asserting yesterday's vocabulary.
+  for (const stage of STAGES) {
+    assert.ok(out.includes(STAGE_LABEL[stage]), `stage column ${STAGE_LABEL[stage]} missing`);
+  }
+  // A column header renders whether or not anything is in it, so check the
+  // FIXTURE separately: §9 wants a ticket in every stage, and when D42 added
+  // SCHEDULED the generator wasn't extended and that column drew empty.
+  const stages = new Set(app.__state().snapshot.service_queue.map((t) => t.stage));
+  for (const stage of STAGES) {
+    assert.ok(stages.has(stage), `mock-full has no ticket in ${stage} — extend make-mock-data.js`);
   }
   assert.ok(out.includes('⏳ NEW —'), 'the pending ticket_open card is missing');
   assert.ok(!/S\?\?\?\?|undefined/.test(out), 'a ticket id was invented for a pending open');

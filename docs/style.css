@@ -394,10 +394,10 @@ form.write textarea { min-height: 80px; resize: vertical; }
 .brow.zero { --fill: var(--slate-300); }
 .brow.zero .brow-l, .brow.zero .brow-n, .brow.zero .brow-p { color: var(--slate-400); }
 
-/* ----------------------------------------------- kanban (seven stages) --
+/* ----------------------------------------------- kanban (eight stages) --
    Phone: one column at a time, swiped sideways with scroll-snap and a sticky
    header. Wide screens: the wrapper breaks out of the 760px column so all
-   seven fit side by side. */
+   eight fit side by side. */
 
 .kan-wrap { margin: 0 -16px; }
 .kanban {
@@ -563,7 +563,7 @@ form.write.sheet { margin-bottom: 14px; }
   .view { padding-top: 22px; }
 }
 
-/* All seven stages side by side once there is room for them. */
+/* All eight stages side by side once there is room for them. */
 @media (min-width: 1040px) {
   .kan-wrap { width: 100vw; margin-left: calc(50% - 50vw); }
   .kanban { scroll-snap-type: none; padding-left: max(16px, calc(50vw - 620px)); padding-right: 16px; }
