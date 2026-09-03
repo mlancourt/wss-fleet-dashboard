@@ -295,3 +295,103 @@ re-filtering, and zero console exceptions.
 - **No test covers the scroll itself**, only that the handler targets the right
   column id and leaves the chip alone; `scrollIntoView` is browser behaviour.
   It was exercised by hand in Chrome (scrollLeft moved 0 → 1461).
+
+---
+
+# D44 — Fleet utilization by dollars (2026-09-04)
+
+Built from `Dollar-Utilization-Site-Spec.md` (below its cut line) against
+`CLAUDE.md` v1.8. **Site-only, as the order says** — no snapshot, Worker or
+event changes, and no `wrangler deploy`. `units[].acquisition_cost` was already
+in the contract.
+
+## What shipped
+
+- **The landing utilization bar is now a two-bar card**, one header
+  (`FLEET UTILIZATION`), one width.
+  - **Units** — the D19 bar, untouched in math, bands, colors and label, now
+    captioned so the two read as a pair.
+  - **Dollars** — ON-RENT `acquisition_cost` ÷ rentable `acquisition_cost` over
+    exactly D19's population (`status == "RENTAL"`, not RETIRED). Same bands,
+    same words. Sub-line `$309,300 on rent of $563,700` — whole dollars,
+    separators, tabular numerals, no cents and no "≈".
+  - Units with no cost are skipped on **both** sides and footnoted
+    `N unit(s) without a cost excluded`.
+- **`metrics.js`** — `utilization(units)` returns
+  `{ units: {onRent, total, pct, band, label, color},
+     dollars: {…, excluded} }`.
+- **Mock** — `mock-full` gains one rentable unit with `acquisition_cost: null`
+  so the footnote path is exercised; `mock-empty` keeps every cost so the
+  no-footnote path is too. The `fleet_totals` reducer is null-safe.
+- `BUILD` stamp and SW cache bumped (v12 → v13).
+
+## Tests
+
+`npm test` — 102 checks green, also under `TZ=Pacific/Pago_Pago`. Eleven new:
+dollar % on a mixed set, demo/loaner capital counted as not-on-rent, a missing
+cost excluded from both sides and counted, every cost missing → `null` rather
+than NaN, both bars sharing one band vocabulary across all eight edges, and the
+order's live example (18/35 units = 51 %; $251,624 / $421,578 = 60 % Building).
+Two render assertions cover the landing: two captioned bars in one card, the
+sub-line's format, the band class sitting on the bar, and the footnote showing
+on `full` and hiding on `empty`.
+
+Browser-verified at 390×844: one card, one header, two equal-length bars
+(434px each), captions left-aligned, percent + word right-aligned, no overflow,
+no console exceptions.
+
+## Decisions I made
+
+1. **`utilization()` was reshaped rather than duplicated.** The order specifies
+   `utilization(units)` returning `{units, dollars}`, but a function of that
+   name already held the D19 math in a flat shape. Reshaping it keeps one
+   entry point for "how utilized is the fleet"; the existing D19 assertions
+   moved to `.units` with their intent unchanged, and `band()` is untouched.
+   The alternative — a second function beside the first — would have left two
+   near-identical population filters to drift apart.
+
+2. **The band class moved from the card to each bar.** It used to sit on
+   `.util` and tint the whole block. Two bars can legitimately land in
+   different bands on one fleet, which is the entire point of the second bar,
+   so each carries its own colour.
+
+3. **Each side keeps `label` and `color`, not just `band`.** The order's stated
+   shape lists `band`; the renderer needs the word and the colour too, and
+   spreading `band()` into each side is how the existing code already did it.
+
+4. **`total` replaces `denom`** in the returned shape, per the order's naming.
+
+5. **The footnote counts units, not dollars** — "1 unit without a cost
+   excluded". How much money is missing is unknowable, which is why the unit is
+   excluded in the first place; claiming a dollar figure there would be a
+   fiction.
+
+6. **A non-finite cost (`NaN`, `Infinity`) is treated as missing, not as zero** —
+   same reasoning as `null`. Asserted.
+
+7. **One costless unit was added to `mock-full` only.** The exit criteria ask
+   for the footnote to appear "on the variant that has a null cost", which
+   implies one variant has none. Setting a property consumes no RNG, so the
+   other mock values did not churn.
+
+## Things worth flagging
+
+**None blocking.**
+
+- **On mock the two bars nearly agree (54 % vs 55 %)**, because
+  `make-mock-data.js` draws every acquisition cost from one random range with
+  no relation to category. A real fleet's riders cost several times a
+  walk-behind, so on real data the bars should diverge much more — which is the
+  feature's whole point. This is a property of the fixture, not of the maths;
+  the assertions pin a deliberately skewed case (60 % dollars vs 51 % units) so
+  the divergence is proven regardless. Making the mock's costs scale with
+  category would demo better and would be more realistic, but it churns every
+  mock money value and was outside this order — worth doing next time the mock
+  is touched.
+
+- **`acquisition_cost: null` is now present in a mock snapshot.** The contract
+  in `CLAUDE.md` shows the field as `0` in its example, and the order tells the
+  client to tolerate `null`/missing — so the two are consistent in spirit. If
+  the engine can in fact never emit a null cost, the footnote is dead code that
+  costs nothing; if it can, it is now handled. No contract change was made or
+  is being asked for.
