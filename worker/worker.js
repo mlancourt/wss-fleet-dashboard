@@ -18,18 +18,46 @@
  */
 
 const ROLES = new Set(['owner', 'sales', 'service']);
+const ALL_ROLES = new Set(['owner', 'sales', 'service']);
 const ACTION_ROLES = {
   reserve: new Set(['owner', 'sales']),
   release: new Set(['owner', 'sales']),
   readiness: new Set(['owner', 'service']),
+  // schema 3. Anyone may open a ticket, note/assign/schedule it, or work the
+  // dispatch board. Stage changes are narrowed inside cleanPayload (a
+  // ticket_update carrying `stage` needs service/owner); cancel is Matt's.
+  ticket_open: ALL_ROLES,
+  ticket_update: ALL_ROLES,
+  dispatch_add: ALL_ROLES,
+  dispatch_claim: ALL_ROLES,
+  dispatch_done: ALL_ROLES,
+  dispatch_cancel: new Set(['owner']),
 };
+// `serial` is required for the three v1/v2 actions and optional for the six
+// schema-3 ones — a customer's own machine and a parts run have no unit.
+const SERIAL_REQUIRED = new Set(['reserve', 'release', 'readiness']);
+
 const READINESS = new Set(['READY', 'NEEDS-PREP', 'DOWN', 'NEEDS-PICKUP']);   // NEEDS-PICKUP: D32
+
+// Fixed lists from CLAUDE.md / the Service-Dispatch spec. Shape and membership
+// only — whether the value makes sense for the ticket's current state is the
+// vault's call, never this file's.
+const MACHINE_OWNERS = new Set(['CUSTOMER', 'WSS']);
+const STAGES = new Set(['INTAKE', 'INSPECTION', 'QUOTED', 'PARTS-ORDERED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE']);
+const PRIORITIES = new Set(['HIGH', 'MEDIUM', 'LOW']);
+const LOCATIONS = new Set(['AT-CUSTOMER', 'IN-SHOP']);
+const INTAKE_MOVES = new Set(['NONE', 'PICKUP', 'CUSTOMER-DROP']);
+const RETURN_MOVES = new Set(['NONE', 'DELIVER', 'CUSTOMER-PICKUP']);
+const KINDS = new Set(['PICKUP', 'DELIVER']);
+const RIGS = new Set(['KEVIN-LIFTGATE', 'JOSH-LIFTGATE', 'TRAILER-6000', 'TRAILER-3000']);
+const DRIVERS = new Set(['Matt', 'Kevin', 'Josh', 'Zac']);
 
 const SERIAL_RE = /^[A-Za-z0-9-]{1,32}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;      // openssl rand -hex 16 -> 32 chars
 const EVENT_KEY_RE = /^evt:\S{1,128}$/;
 const HOLD_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;         // per-hold id from the snapshot (v2)
+const REF_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;         // ticket ("S1001") / dispatch_id ("m-pu-150137")
 
 const MAX_EVENT_BYTES = 8 * 1024;
 const MAX_ACK_IDS = 1000;
@@ -154,12 +182,21 @@ async function crewEvent({ request, me, env }) {
   const body = await readJson(request, MAX_EVENT_BYTES);
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw httpError(400, 'body must be an object');
 
-  const { action, serial } = body;
+  const { action } = body;
   if (!Object.prototype.hasOwnProperty.call(ACTION_ROLES, action)) throw httpError(400, 'unknown action');
-  if (typeof serial !== 'string' || !SERIAL_RE.test(serial)) throw httpError(400, 'bad serial');
   if (!ACTION_ROLES[action].has(me.role)) throw httpError(403, `role ${me.role} cannot ${action}`);
 
-  const payload = cleanPayload(action, body.payload);
+  // Optional for the six schema-3 actions, and then normalised to null so the
+  // engine sees one shape rather than "missing" vs "" vs null.
+  let serial = body.serial;
+  if (serial == null || serial === '') {
+    if (SERIAL_REQUIRED.has(action)) throw httpError(400, 'bad serial');
+    serial = null;
+  } else if (typeof serial !== 'string' || !SERIAL_RE.test(serial)) {
+    throw httpError(400, 'bad serial');
+  }
+
+  const payload = cleanPayload(action, body.payload, me.role);
 
   // Server stamps everything the client must not be trusted with.
   const ts = new Date().toISOString();
@@ -170,7 +207,7 @@ async function crewEvent({ request, me, env }) {
   return json(event, 201);
 }
 
-function cleanPayload(action, p) {
+function cleanPayload(action, p, role) {
   const obj = p && typeof p === 'object' && !Array.isArray(p) ? p : {};
   const str = (v, max, field, required) => {
     if (v == null || v === '') {
@@ -182,6 +219,29 @@ function cleanPayload(action, p) {
     if (t.length > max) throw httpError(400, `${field} is too long (max ${max})`);
     return t;
   };
+  // An enum field that must be present.
+  const oneOf = (v, set, field) => {
+    if (!set.has(v)) throw httpError(400, `${field} must be one of ${[...set].join(', ')}`);
+    return v;
+  };
+  // An enum field that may be absent — absent means "not being changed".
+  const optOneOf = (v, set, field) => (v == null || v === '' ? null : oneOf(v, set, field));
+  const optDate = (v, field) => {
+    if (v == null || v === '') return null;
+    if (typeof v !== 'string' || !DATE_RE.test(v)) throw httpError(400, `${field} must be YYYY-MM-DD`);
+    return v;
+  };
+  const optSerial = (v, field) => {
+    if (v == null || v === '') return null;
+    if (typeof v !== 'string' || !SERIAL_RE.test(v)) throw httpError(400, `bad ${field}`);
+    return v;
+  };
+  const refId = (v, field) => {
+    const t = str(v, 64, field, true);
+    if (!REF_ID_RE.test(t)) throw httpError(400, `bad ${field}`);
+    return t;
+  };
+  const optStr = (v, max, field) => (v == null || v === '' ? null : str(v, max, field, true));
 
   if (action === 'reserve') {
     // v2: an inclusive [start, end] window. Legacy `until` is accepted as `end`
@@ -209,7 +269,84 @@ function cleanPayload(action, p) {
     if (!READINESS.has(obj.readiness)) throw httpError(400, 'readiness must be READY, NEEDS-PREP, DOWN or NEEDS-PICKUP');
     return { readiness: obj.readiness, note: str(obj.note, 500, 'note', false) };
   }
-  return {}; // readiness handled above; nothing else reaches here
+
+  /* ------------------------------------------------------------- schema 3 -- */
+
+  if (action === 'ticket_open') {
+    // No ticket id: the engine assigns it. Nothing here checks that the serial
+    // exists or that the customer is real — that is the vault's job.
+    return {
+      machine_owner: oneOf(obj.machine_owner, MACHINE_OWNERS, 'machine_owner'),
+      serial: optSerial(obj.serial, 'serial'),
+      equipment: optStr(obj.equipment, 200, 'equipment'),
+      customer: str(obj.customer, 120, 'customer', true),
+      issue: str(obj.issue, 1000, 'issue', true),
+      priority: oneOf(obj.priority, PRIORITIES, 'priority'),
+      site: optStr(obj.site, 200, 'site'),
+      location: oneOf(obj.location, LOCATIONS, 'location'),
+      intake_move: oneOf(obj.intake_move, INTAKE_MOVES, 'intake_move'),
+      return_move: oneOf(obj.return_move, RETURN_MOVES, 'return_move'),
+    };
+  }
+
+  if (action === 'ticket_update') {
+    // Only the keys being changed travel. A stage move is the one part of this
+    // action that isn't open to everyone.
+    const out = { ticket: refId(obj.ticket, 'ticket') };
+    const stage = optOneOf(obj.stage, STAGES, 'stage');
+    if (stage) {
+      if (role !== 'service' && role !== 'owner') throw httpError(403, `role ${role} cannot change a ticket stage`);
+      out.stage = stage;
+    }
+    const note = optStr(obj.note, 1000, 'note');
+    if (note) out.note = note;
+    const assigned = optOneOf(obj.assigned, DRIVERS, 'assigned');
+    if (assigned) out.assigned = assigned;
+    const scheduled = optDate(obj.scheduled, 'scheduled');
+    if (scheduled) out.scheduled = scheduled;
+    const intake = optOneOf(obj.intake_move, INTAKE_MOVES, 'intake_move');
+    if (intake) out.intake_move = intake;
+    const ret = optOneOf(obj.return_move, RETURN_MOVES, 'return_move');
+    if (ret) out.return_move = ret;
+    if (Object.keys(out).length < 2) throw httpError(400, 'ticket_update needs at least one field to change');
+    return out;
+  }
+
+  if (action === 'dispatch_add') {
+    return {
+      kind: oneOf(obj.kind, KINDS, 'kind'),
+      serial: optSerial(obj.serial, 'serial'),
+      ticket: obj.ticket == null || obj.ticket === '' ? null : refId(obj.ticket, 'ticket'),
+      what: str(obj.what, 200, 'what', true),
+      customer: optStr(obj.customer, 120, 'customer'),
+      address: optStr(obj.address, 300, 'address'),
+      date: optDate(obj.date, 'date'),
+      note: optStr(obj.note, 500, 'note'),
+    };
+  }
+
+  if (action === 'dispatch_claim') {
+    return {
+      dispatch_id: refId(obj.dispatch_id, 'dispatch_id'),
+      rig: oneOf(obj.rig, RIGS, 'rig'),
+      date: (() => {
+        const v = optDate(obj.date, 'date');
+        if (!v) throw httpError(400, 'date is required');
+        return v;
+      })(),
+      driver: oneOf(obj.driver, DRIVERS, 'driver'),
+    };
+  }
+
+  if (action === 'dispatch_done') {
+    return { dispatch_id: refId(obj.dispatch_id, 'dispatch_id'), note: optStr(obj.note, 500, 'note') };
+  }
+
+  if (action === 'dispatch_cancel') {
+    return { dispatch_id: refId(obj.dispatch_id, 'dispatch_id') };
+  }
+
+  return {}; // every action in ACTION_ROLES is handled above
 }
 
 async function crewHealth({ env }) {

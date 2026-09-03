@@ -4,7 +4,8 @@
 # Proves the full loop against a running Worker:
 #   tokens -> publish -> GET /api/data -> GET /api/health -> POST /api/event
 #   -> GET /api/admin/events (event present) -> ack -> events (event gone)
-# plus the refusals: bad token, bad secret, wrong role, bad shape.
+# plus the refusals: bad token, bad secret, wrong role, bad shape — and all nine
+# write actions, the six schema-3 ones included.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
 # Remote:  WORKER=https://wss-fleet-worker.<you>.workers.dev ADMIN_SECRET=... npm run m1
@@ -64,7 +65,7 @@ expect "tokens: 3-person map -> 200 (names only echoed)" 200 \
   -d "{\"$T_SALES\":{\"name\":\"Test Kevin\",\"role\":\"sales\"},
        \"$T_SERVICE\":{\"name\":\"Test Josh\",\"role\":\"service\"},
        \"$T_OWNER\":{\"name\":\"Test Matt\",\"role\":\"owner\"}}"
-expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===2" \
+expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===3" \
   -X POST "$WORKER/api/admin/publish" "${H_ADMIN[@]}" --data-binary "@$SNAPSHOT"
 
 echo "-- crew: read"
@@ -142,6 +143,75 @@ expect "EV1 gone, EV2 survives"           200 \
 expect "ack EV2 by full key -> deleted 1" 200 "b.deleted===1" -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"evt:$EV2\"]}"
 expect "ack the three extra events -> deleted 3" 200 "b.deleted===3" -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"$EV_LEGACY\",\"$EV_REL\",\"$EV_PU\"]}"
 expect "pending back to baseline"         200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
+echo "-- crew: schema 3 (service + dispatch) refusals"
+expect "sales cannot cancel a run -> 403"  403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_cancel","payload":{"dispatch_id":"m-a1b2c3"}}'
+expect "sales cannot move a stage -> 403"  403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1001","stage":"INSPECTION"}}'
+expect "ticket_open bad priority -> 400"   400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_open","payload":{"machine_owner":"CUSTOMER","customer":"Acme","issue":"dead","priority":"URGENT","location":"IN-SHOP","intake_move":"NONE","return_move":"NONE"}}'
+expect "ticket_open bad machine_owner -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_open","payload":{"machine_owner":"THEIRS","customer":"Acme","issue":"dead","priority":"LOW","location":"IN-SHOP","intake_move":"NONE","return_move":"NONE"}}'
+expect "ticket_update with nothing to change -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1001"}}'
+expect "ticket_update bad ticket id -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"../evt","note":"x"}}'
+expect "dispatch_add bad kind -> 400"      400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_add","payload":{"kind":"HAUL","what":"x"}}'
+expect "dispatch_claim bad rig -> 400"     400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_claim","payload":{"dispatch_id":"m-a1b2c3","rig":"THE-BIG-ONE","date":"2026-09-11","driver":"Josh"}}'
+expect "dispatch_claim unknown driver -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_claim","payload":{"dispatch_id":"m-a1b2c3","rig":"TRAILER-6000","date":"2026-09-11","driver":"Steve"}}'
+expect "dispatch_claim without a date -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_claim","payload":{"dispatch_id":"m-a1b2c3","rig":"TRAILER-6000","driver":"Josh"}}'
+expect "dispatch_done without an id -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_done","payload":{"note":"done"}}'
+
+echo "-- crew: schema 3 writes (serial optional on all six)"
+expect "ticket_open with no serial -> 201, serial null" 201 \
+  "b.action==='ticket_open' && b.serial===null && b.actor==='Test Josh' && b.payload.machine_owner==='CUSTOMER' && b.payload.customer==='Acme Foods' && b.payload.intake_move==='PICKUP'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_open","payload":{"machine_owner":"CUSTOMER","serial":null,"equipment":"Nordvale SC-2400","customer":" Acme Foods ","issue":"No power at the key switch","priority":"HIGH","site":"Watertown WI","location":"AT-CUSTOMER","intake_move":"PICKUP","return_move":"DELIVER"}}'
+S3A=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "ticket_open on a fleet unit carries the serial -> 201" 201 \
+  "b.serial==='900191' && b.payload.machine_owner==='WSS' && b.payload.serial==='900191'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_open","serial":"900191","payload":{"machine_owner":"WSS","serial":"900191","equipment":"Ironline T-500","customer":"WSS","issue":"traction motor","priority":"MEDIUM","location":"IN-SHOP","intake_move":"NONE","return_move":"NONE"}}'
+S3B=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "sales may add a note (any role) -> 201, only that key travels" 201 \
+  "b.payload.ticket==='S1001' && b.payload.note==='Called, no answer' && b.payload.stage===undefined" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1001","note":"Called, no answer"}}'
+S3C=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "service moves the stage -> 201" 201 \
+  "b.payload.stage==='INSPECTION' && b.payload.assigned==='Zac' && b.payload.scheduled==='2026-09-11'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1002","stage":"INSPECTION","assigned":"Zac","scheduled":"2026-09-11"}}'
+S3D=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "anyone adds a run -> 201" 201 \
+  "b.action==='dispatch_add' && b.payload.kind==='DELIVER' && b.payload.serial==='900107' && b.payload.ticket===null && b.payload.date==='2026-09-11'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_add","serial":"900107","payload":{"kind":"DELIVER","serial":"900107","ticket":null,"what":"Demo unit out","customer":"Quarry Road Aggregates","address":"Beloit WI","date":"2026-09-11","note":null}}'
+S3E=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "anyone claims a run -> 201" 201 \
+  "b.payload.dispatch_id==='m-a1b2c3' && b.payload.rig==='TRAILER-6000' && b.payload.driver==='Josh'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_claim","payload":{"dispatch_id":"m-a1b2c3","rig":"TRAILER-6000","date":"2026-09-11","driver":"Josh"}}'
+S3F=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "anyone marks it done -> 201" 201 "b.action==='dispatch_done' && b.payload.note==='On the dock'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_done","payload":{"dispatch_id":"m-a1b2c3","note":"On the dock"}}'
+S3G=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "owner cancels a manual run -> 201" 201 "b.action==='dispatch_cancel' && b.role==='owner'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d '{"action":"dispatch_cancel","payload":{"dispatch_id":"m-a1b2c3"}}'
+S3H=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+
+expect "all eight schema-3 events drained -> deleted 8" 200 "b.deleted===8" \
+  -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
+  -d "{\"ids\":[\"$S3A\",\"$S3B\",\"$S3C\",\"$S3D\",\"$S3E\",\"$S3F\",\"$S3G\",\"$S3H\"]}"
+expect "pending back to baseline again"    200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- misc"
 expect "unknown route -> 404"             404 "" "$WORKER/api/nope" -H "$(auth $T_OWNER)"
