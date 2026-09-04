@@ -28,11 +28,19 @@ import {
   stageOptions, columnize, pipeline, sortTickets, missingMoves, openCount, dispatchFor, dispatchById,
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from './service.js';
+import {
+  NO_DATA, LEAD_PRIORITIES,
+  STAGE_LABEL as LEAD_STAGE_LABEL, STATUS_LABEL as LEAD_STATUS_LABEL,
+  SOURCE_LABEL, INTEREST_LABEL, REASON_LABEL,
+  optionsFrom, hasMoney, amount, boardColumns, closedLeads, chipCounts, leadById,
+  canEditLead, canCloseLead, stageOptions as leadStageOptions, stageNeeds,
+  delta, pctOr, statOr, leadForHold, isDemoHold, isStale,
+} from './leads.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-04d';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-04-leads';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -94,11 +102,28 @@ function storedFilter() {
   } catch (_) { return 'all'; }
 }
 
+// The Leads chip is remembered the same way. 'mine' is the one a salesperson
+// lives in, so it has to survive a reload or it isn't worth having.
+const LEAD_FILTER_KEY = 'wss_fleet_lead_filter';
+function storedLeadFilter() {
+  try {
+    const v = localStorage.getItem(LEAD_FILTER_KEY);
+    return v === 'mine' || v === 'stale' || v === 'all' ? v : 'all';
+  } catch (_) { return 'all'; }
+}
+
 const ui = {
   ticketFilter: storedFilter(),   // 'all' | 'CUSTOMER' | 'WSS'
+  leadFilter: storedLeadFilter(), // 'all' | 'mine' | 'stale'
   form: null,            // { kind, id } — the one open sheet, if any
   msg: null,             // { tone: 'ok'|'bad', text } — shown once at the top of the view
   showDone: false,       // Dispatch: "Done this week" is collapsed by default
+  // null = "nobody has tapped it yet", so the role default applies (§3.1: the
+  // scoreboard is open for Kevin and folded away for everyone else). Once it is
+  // tapped the choice is theirs for the session, whatever their role.
+  showScore: null,
+  showInsights: false,   // §3.2 — collapsed by default
+  showClosedLeads: false,
 };
 
 const openSheet = (kind, id = null) => { ui.form = { kind, id }; ui.msg = null; render(); };
@@ -161,6 +186,13 @@ const serviceSummary = () => (state.snapshot && state.snapshot.service_summary) 
 const dispatchRows = () => (state.snapshot && state.snapshot.dispatch) || [];
 const dispatchWarnings = () => (state.snapshot && state.snapshot.dispatch_warnings) || [];
 const categories = () => (state.snapshot && state.snapshot.categories) || [];
+// schema 5. All four may be missing entirely (a schema-4 snapshot still on KV),
+// which is what hides the Leads tab's contents rather than throwing.
+const leads = () => (state.snapshot && state.snapshot.leads) || [];
+const leadsSummary = () => (state.snapshot && state.snapshot.leads_summary) || null;
+const scoreboard = () => (state.snapshot && state.snapshot.scoreboard) || null;
+const insights = () => (state.snapshot && state.snapshot.insights) || null;
+const hasLeads = () => !!(state.snapshot && (Array.isArray(state.snapshot.leads) || state.snapshot.leads_summary));
 // `snapshot.billing` is deliberately NOT read: the Billing view was retired at
 // v1.6 (D39). The field stays in the contract for the engine's own consumers.
 
@@ -188,6 +220,11 @@ const pendingForTicket = (id) => (id ? state.pending.filter((e) => e.action === 
 const pendingForDispatch = (id) => (id ? state.pending.filter((e) => String(e.action).startsWith('dispatch_') && pl(e).dispatch_id === id) : []);
 const pendingTicketOpens = () => state.pending.filter((e) => e.action === 'ticket_open');
 const pendingDispatchAdds = () => state.pending.filter((e) => e.action === 'dispatch_add');
+// schema 5: keyed on `lead`, and — like ticket_open — a pending lead_open has no
+// number of its own until the engine assigns one.
+const pendingForLead = (id) => (id ? state.pending.filter((e) =>
+  (e.action === 'lead_update' || e.action === 'lead_close') && pl(e).lead === id) : []);
+const pendingLeadOpens = () => state.pending.filter((e) => e.action === 'lead_open');
 
 /** Top-level holds rollup (v2). Derived from units when a snapshot lacks it. */
 function holdsRollup() {
@@ -521,13 +558,18 @@ function holdsSection(u) {
   const canRelease = canReserveRole();
   const rows = holds.map((h) => {
     const rel = pendingReleases(u.serial, h.id);
+    // §4: a DEMO hold is a lead with a truck booked. Linked by hold id only —
+    // the engine sets `demo.hold_id`, and matching on customer + date instead
+    // would eventually put the wrong lead on somebody's unit page.
+    const lead = isDemoHold(h) ? leadForHold(leads(), h.id) : null;
     return html`
       <div class="hrow hold-${holdStatus(h, todayCentral())}">
         <div class="hold-top">
           <span class="hold-win">${fmtRange(h.start, h.end)}</span>
           ${raw(holdPill(h))}
+          ${isDemoHold(h) ? raw(chip('demo', 'out')) : ''}
         </div>
-        <div class="hold-who">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''}</div>
+        <div class="hold-who">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''}${lead ? raw(html` · <a href="#/lead/${raw(enc(lead.lead))}">${lead.lead}</a>`) : ''}</div>
         <div class="hold-meta">held by ${h.held_by || '—'}${h.created ? raw(html` · placed ${fmtDate(h.created)}`) : ''}</div>
         ${rel.length ? raw(html`<div class="hold-pending">⏳ release pending — applies at the next run
           ${raw(rel.map(undoControl).join(''))}</div>`) : ''}
@@ -1321,6 +1363,611 @@ function viewHolds() {
     ${raw(expired)}${raw(groups.join(''))}`;
 }
 
+/* ============================================== leads (schema 5) ========== */
+
+/**
+ * The Leads tab. Top to bottom: scoreboard · insights · + New lead · chips ·
+ * the five-column board · the closed strip.
+ *
+ * ONE RULE ABOVE THE REST: money here is ABSENT, not zero. The Worker deletes
+ * `value`, `potential_commission`, `leads_summary.commission_rates` and
+ * `scoreboard.money` before the response leaves the edge for a `service` token
+ * (spec §6). So every money render below is guarded by hasMoney()/amount(), and
+ * a guard that fails draws NOTHING — no "—", no "$0", no greyed placeholder.
+ * A placeholder would tell Josh exactly where the number he can't see lives.
+ */
+
+const leadOpts = () => optionsFrom(leadsSummary());
+
+/**
+ * `quote.file` is a URL the engine put in the snapshot, and it becomes an
+ * href. Escaping stops it breaking the attribute but not a `javascript:` or
+ * `data:` scheme, so the scheme is checked here and a link is drawn only for
+ * one we would follow ourselves. Anything else renders as no link at all.
+ */
+const httpUrl = (v) => (typeof v === 'string' && /^https?:\/\//i.test(v.trim()) ? v.trim() : null);
+const moneyVisible = () => hasMoney(state.snapshot);
+const scoreOpen = () => (ui.showScore == null ? role() === 'sales' : ui.showScore);
+const seesInsights = () => role() === 'owner' || role() === 'sales';
+
+function viewLeads() {
+  if (!hasLeads()) {
+    return html`<h1>Leads</h1>${raw(emptyState('No leads in this snapshot.',
+      'This board is running on an older snapshot — leads arrive with the next run.'))}`;
+  }
+  const all = leads();
+  const opens = pendingLeadOpens();
+  const filter = ui.leadFilter;
+  const meName = (state.me && state.me.name) || null;
+  const counts = chipCounts(all, meName);
+
+  const chips = [['all', 'All'], ['mine', 'Mine'], ['stale', 'Stale']].map(([v, label]) =>
+    html`<button type="button" class="fchip${filter === v ? ' on' : ''}" data-lead-filter="${v}">${label}<span class="c">${counts[v]}</span></button>`);
+
+  const head = html`<h1>Leads</h1>${raw(msgBlock())}
+    ${raw(scoreCard())}
+    ${seesInsights() ? raw(insightsCard()) : ''}
+    <div class="actions"><button class="btn" type="button" data-sheet="new-lead">+ New lead</button></div>
+    ${sheetOpen('new-lead') ? raw(newLeadForm()) : ''}
+    ${opens.length ? raw(html`<div class="note"><strong>⏳ ${opens.length} new lead${opens.length > 1 ? 's' : ''} pending</strong>
+      ${raw(opens.map((e) => html`<div class="pend-row"><span>${pl(e).customer || '—'}${pl(e).machine ? ` · ${pl(e).machine}` : ''}</span>${raw(undoControl(e))}</div>`).join(''))}
+      <div style="margin-top:6px">The engine assigns the lead number at the next run.</div></div>`) : ''}
+    <div class="fchips" role="group" aria-label="Filter leads">${raw(chips.join(''))}</div>`;
+
+  if (!all.length && !opens.length) {
+    return head + emptyState('No leads yet.', 'Write one down above — it shows here as pending until the next run picks it up.');
+  }
+
+  const cols = boardColumns(all, { filter, me: state.me, summary: leadsSummary() }).map((c) => html`
+    <section class="kan-col" id="lead-col-${raw(enc(c.key))}">
+      <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
+      <div class="kan-body">${c.leads.length ? raw(c.leads.map(leadCard).join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
+    </section>`);
+
+  return html`${raw(head)}
+    <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
+    <div class="form-note">Swipe the columns sideways. Tap a card for the whole lead.</div>
+    ${raw(closedStrip(filter, meName))}`;
+}
+
+/** LOST + DEAD, folded away. They linger 14 days so a post-mortem is possible. */
+function closedStrip(filter, meName) {
+  const rows = closedLeads(leads(), filter, meName);
+  return html`
+    <h2><button type="button" class="disclose" data-closed-toggle="1" aria-expanded="${ui.showClosedLeads ? 'true' : 'false'}">
+      ${ui.showClosedLeads ? '▾' : '▸'} Closed${rows.length ? raw(html` <span class="count">${rows.length}</span>`) : ''}</button></h2>
+    ${ui.showClosedLeads ? raw(html`<div class="card dlist">
+      ${rows.length ? raw(rows.map((l) => html`
+        <a class="drow lead-closed" href="#/lead/${raw(enc(l.lead))}">
+          <div class="drow-top">
+            ${raw(chip(LEAD_STATUS_LABEL[l.status] || l.status, l.status === 'LOST' ? 'bad' : 'out'))}
+            <span class="drow-what">${l.customer || '—'}</span>
+          </div>
+          <div class="drow-meta">${l.machine || INTEREST_LABEL[l.interest] || '—'}${l.close_reason ? raw(html` · ${REASON_LABEL[l.close_reason] || l.close_reason}`) : ''}${l.closed ? raw(html` · ${fmtDateFull(l.closed)}`) : ''}</div>
+          ${l.close_note ? raw(html`<div class="drow-note">${l.close_note}</div>`) : ''}
+        </a>`).join('')) : raw('<div class="hold-empty">Nothing closed in the last 14 days.</div>')}
+    </div>`) : ''}`;
+}
+
+/**
+ * One card (§3.4). The money line is omitted wholesale when there is no money
+ * to show — see the rule at the top of this section.
+ */
+function leadCard(l) {
+  const pend = pendingForLead(l.lead);
+  const v = amount(l.value);
+  const c = amount(l.potential_commission);
+  const stale = l.stale === 'red' ? '🔴' : l.stale === 'yellow' ? '🟡' : '';
+  const money = v == null && c == null ? '' : html`<div class="lead-money">
+    ${v != null ? fmtMoney(v) : ''}${v != null && c != null ? ' · ' : ''}${c != null ? raw(html`<span class="lead-comm">${fmtMoney(c)} potential</span>`) : ''}</div>`;
+  return html`
+    <a class="kan-card lead-card pri-${l.priority || 'MEDIUM'}${l.status !== 'OPEN' ? ' closed' : ''}" href="#/lead/${raw(enc(l.lead))}">
+      <div class="kan-row">
+        <span class="kan-t">${l.customer || '—'}</span>
+        <span class="kan-age${l.stale ? ` stale-${l.stale}` : ''}">${stale}${l.age_in_stage_days != null ? `${l.age_in_stage_days}d` : ''}</span>
+      </div>
+      <div class="kan-eq">${l.machine || INTEREST_LABEL[l.interest] || '—'}</div>
+      ${raw(money)}
+      ${l.next_action ? raw(html`<div class="kan-issue">${l.next_action}</div>`) : ''}
+      <div class="kan-foot">
+        <span class="lead-src">${SOURCE_LABEL[l.source] || l.source || ''}</span>
+        ${l.assigned ? raw(html`<span class="who" title="${l.assigned}">${String(l.assigned).slice(0, 1)}</span>`) : ''}
+        ${l.suggest_dead ? raw('<span class="skull" title="nothing has moved — consider marking it dead">💀</span>') : ''}
+        ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
+      </div>
+    </a>`;
+}
+
+/* ---- scoreboard (§3.1) ---- */
+
+/**
+ * Five rows, in the spec's order. Rows 1–2 are money and simply do not exist
+ * for a `service` token — no placeholder, no explanation, because explaining
+ * would itself be the disclosure.
+ */
+function scoreCard() {
+  const sb = scoreboard();
+  if (!sb) return '';
+  const open = scoreOpen();
+  const money = sb.money && typeof sb.money === 'object' ? sb.money : null;
+  const base = (money && money.baseline) || {};
+
+  const body = open ? html`
+    ${money ? raw(sbOnTable(money)) : ''}
+    ${money ? raw(sbThisMonth(sb, money, base)) : ''}
+    ${raw(sbSpeed(sb.speed || {}))}
+    ${raw(sbConversion(sb.conversion || {}))}
+    ${raw(sbStale(sb.stale || {}))}` : '';
+
+  return html`
+    <section class="score" aria-label="Sales scoreboard">
+      <button type="button" class="score-h" data-score-toggle="1" aria-expanded="${open ? 'true' : 'false'}">
+        <span>${open ? '▾' : '▸'} Scoreboard</span>
+        ${!open && sb.open && sb.open.count != null ? raw(html`<span class="c">${sb.open.count} open</span>`) : ''}
+      </button>
+      ${raw(body)}
+    </section>`;
+}
+
+/** Never "commission" alone: it is paid on cash received, not on a handshake. */
+function sbOnTable(money) {
+  const v = amount(money.on_table_value);
+  const c = amount(money.on_table_commission);
+  return html`
+    <div class="sb-row">
+      <div class="sb-l">On the table</div>
+      <div class="sb-v">
+        <strong>${v == null ? NO_DATA : fmtMoney(v)}</strong>
+        ${c != null ? raw(html`<span class="sb-sub">${fmtMoney(c)} potential commission</span>`) : ''}
+      </div>
+    </div>`;
+}
+
+const ARROW = { up: '↑', down: '↓', flat: '—' };
+
+/**
+ * Three figures, each against the same three-month baseline the engine sent.
+ * The delta is a direction and the average it is measured against — not a
+ * percentage change, which on a two-deal month is noise wearing a suit.
+ * The caption names the comparison once so three arrows don't have to.
+ */
+function sbThisMonth(sb, money, base) {
+  const tm = sb.this_month || {};
+  const stat = (label, value, shown, avg, fmt) => {
+    const d = delta(value, avg);
+    return html`<div class="sb-stat">
+      <b>${shown == null ? NO_DATA : shown}</b>
+      <span>${label}</span>
+      ${d.dir === 'none' ? '' : raw(html`<em class="d-${d.dir}">${ARROW[d.dir]} ${fmt(d.avg)}</em>`)}
+    </div>`;
+  };
+  const plain = (n) => (n == null ? '' : String(Math.round(n * 10) / 10));
+  const wonValue = amount(money.this_month_won_value);
+  const comm = amount(money.this_month_commission);
+  const wins = amount(tm.won_count);
+  const winsAvg = amount(tm.baseline_won_count_avg != null ? tm.baseline_won_count_avg : base.won_count_avg);
+  const months = Array.isArray(base.months) && base.months.length ? base.months.length : 3;
+
+  return html`
+    <div class="sb-row">
+      <div class="sb-l">This month${tm.month ? raw(html` <span class="sb-m">${tm.month}</span>`) : ''}</div>
+      <div class="sb-stats">
+        ${raw(stat('wins', wins, wins, winsAvg, plain))}
+        ${raw(stat('won', wonValue, wonValue == null ? null : fmtMoney(wonValue), amount(base.won_value_avg), fmtMoney))}
+        ${raw(stat('potential commission', comm, comm == null ? null : fmtMoney(comm), amount(base.commission_avg), fmtMoney))}
+      </div>
+      <div class="sb-cap">vs. your last ${months} mo avg</div>
+    </div>`;
+}
+
+function sbSpeed(sp) {
+  const streak = Number(sp.same_day_streak) || 0;
+  return html`
+    <div class="sb-row">
+      <div class="sb-l">Speed</div>
+      <div class="sb-v">
+        <strong>${statOr(sp.median_hours_to_contact, 'h')}</strong>
+        <span class="sb-sub">median to first contact${sp.n != null ? ` · n=${sp.n}` : ''}${sp.window_days ? ` · last ${sp.window_days}d` : ''}</span>
+      </div>
+      <div class="sb-cap">${streak >= 3 ? '🔥 ' : ''}${streak} same-day streak</div>
+    </div>`;
+}
+
+function sbConversion(cv) {
+  // `insufficient` is the engine saying "don't read anything into this yet".
+  // Honour it for the whole row — three individually-hedged numbers still read
+  // as a rate to somebody scanning the page.
+  if (cv.insufficient) {
+    const min = (insights() && insights().min_n) || 5;
+    return html`
+      <div class="sb-row">
+        <div class="sb-l">Conversion</div>
+        <div class="sb-v"><span class="sb-none">not enough data yet (n=${cv.n == null ? 0 : cv.n}/${min})</span></div>
+      </div>`;
+  }
+  return html`
+    <div class="sb-row">
+      <div class="sb-l">Conversion${cv.window_days ? raw(html` <span class="sb-m">last ${cv.window_days}d</span>`) : ''}</div>
+      <div class="sb-stats">
+        <div class="sb-stat"><b>${pctOr(cv.received_to_quoted_pct)}</b><span>received → quoted</span></div>
+        <div class="sb-stat"><b>${pctOr(cv.quoted_to_won_pct)}</b><span>quoted → won</span></div>
+        <div class="sb-stat"><b>${statOr(cv.median_days_to_win, 'd')}</b><span>median to win</span></div>
+      </div>
+    </div>`;
+}
+
+/** Tapping the row applies the Stale chip below — the row IS the filter. */
+function sbStale(st) {
+  const n = Number(st.count) || 0;
+  return html`
+    <button type="button" class="sb-row sb-tap" data-lead-filter="stale">
+      <div class="sb-l">Stale</div>
+      <div class="sb-v">
+        <strong>${n}</strong>
+        <span class="sb-chips">
+          ${st.red ? raw(chip(`🔴 ${st.red}`, 'bad')) : ''}
+          ${st.yellow ? raw(chip(`🟡 ${st.yellow}`, 'warn')) : ''}
+          ${!n ? raw('<span class="sb-sub">nothing rotting</span>') : ''}
+        </span>
+      </div>
+      ${n ? raw('<div class="sb-cap">tap to show just these</div>') : ''}
+    </button>`;
+}
+
+/* ---- insights (§3.2) ---- */
+
+/** A small table. `rows` is [[cell, cell, …], …]; empty renders the null phrase. */
+function insightTable(title, headers, rows, caption) {
+  return html`
+    <div class="ins-t">
+      <div class="ins-h">${title}</div>
+      ${rows.length ? raw(html`<table class="ins">
+        <thead><tr>${raw(headers.map((h, i) => html`<th${i ? raw(' class="n"') : ''}>${h}</th>`).join(''))}</tr></thead>
+        <tbody>${raw(rows.map((r) => html`<tr>${raw(r.map((c, i) => html`<td${i ? raw(' class="n"') : ''}>${c}</td>`).join(''))}</tr>`).join(''))}</tbody>
+      </table>`) : raw(html`<div class="ins-none">${NO_DATA}</div>`)}
+      ${caption ? raw(html`<div class="ins-cap">${caption}</div>`) : ''}
+    </div>`;
+}
+
+/** Sorted entries of an insights sub-object, skipping the `_`-prefixed extras. */
+function insEntries(obj, sortKey = 'leads') {
+  if (!obj || typeof obj !== 'object') return [];
+  return Object.entries(obj)
+    .filter(([k, v]) => !k.startsWith('_') && v && typeof v === 'object')
+    .sort((a, b) => (Number(b[1][sortKey]) || 0) - (Number(a[1][sortKey]) || 0) || a[0].localeCompare(b[0]));
+}
+
+function insightsCard() {
+  const ins = insights();
+  if (!ins) return '';
+  const open = ui.showInsights;
+  const win = ins.window_days || 90;
+
+  const body = open ? html`
+    ${ins.insufficient ? raw(html`<div class="ins-warn">${NO_DATA} yet — ${ins.n == null ? 0 : ins.n} of ${ins.min_n == null ? 5 : ins.min_n} closed leads in the window. The tables fill in as deals close.</div>`) : ''}
+    ${raw(insightTable('By source', ['Source', 'Leads', 'Won', 'Win rate'],
+      insEntries(ins.by_source).map(([k, v]) => [SOURCE_LABEL[k] || k, v.leads ?? 0, v.won ?? 0, pctOr(v.win_rate_pct)])))}
+    ${raw(insightTable('By interest', ['Interest', 'Leads', 'Won', 'Win rate'],
+      insEntries(ins.by_interest).map(([k, v]) => [INTEREST_LABEL[k] || k, v.leads ?? 0, v.won ?? 0, pctOr(v.win_rate_pct)]),
+      ins.by_interest && ins.by_interest._rental_share_of_wins_pct != null
+        ? `Rental is ${pctOr(ins.by_interest._rental_share_of_wins_pct)} of wins` : null))}
+    ${raw(insightTable('Machines asked for', ['Machine', 'Leads', 'Won'],
+      insEntries(ins.machines).map(([k, v]) => [k, v.leads ?? 0, v.won ?? 0])))}
+    ${raw(insightTable('Why we lose', ['Reason', 'Count'],
+      Object.entries((ins.lost && ins.lost.reasons) || {}).sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => [REASON_LABEL[k] || k, n]),
+      lostCaption(ins.lost)))}
+    ${raw(insightTable('Funnel — median business days', ['Stage', 'Days'],
+      Object.entries((ins.funnel && ins.funnel.median_bdays_in_stage) || {})
+        .map(([k, v]) => [LEAD_STAGE_LABEL[k] || k, statOr(v)]),
+      ins.funnel ? `Quote to decision: ${statOr(ins.funnel.median_quote_to_decision_bdays, ' business days')}` : null))}
+    ${raw(insightTable('By ZIP', ['ZIP', 'Leads', 'Won'],
+      insEntries(ins.by_zip).map(([k, v]) => [k, v.leads ?? 0, v.won ?? 0])))}` : '';
+
+  return html`
+    <section class="ins-card" aria-label="Pipeline insights">
+      <button type="button" class="score-h" data-insights-toggle="1" aria-expanded="${open ? 'true' : 'false'}">
+        <span>${open ? '▾' : '▸'} Pipeline insights — last ${win} days</span>
+      </button>
+      ${raw(body)}
+    </section>`;
+}
+
+function lostCaption(lost) {
+  if (!lost) return null;
+  const w = amount(lost.median_value_won);
+  const l = amount(lost.median_value_lost);
+  if (w == null && l == null) return null;
+  return `Median deal — won ${w == null ? NO_DATA : fmtMoney(w)} · lost ${l == null ? NO_DATA : fmtMoney(l)}`;
+}
+
+/* ---- + New lead (§3.3, any role) ---- */
+
+function newLeadForm() {
+  const o = leadOpts();
+  const meName = (state.me && state.me.name) || '';
+  const mine = o.assignees.includes(meName) ? meName : o.assignees[0];
+  const short = (list, labels) => list.map((v) => [v, labels[v] || v]);
+  return html`
+    <form class="write sheet" data-action="lead_open">
+      <label for="nl-cust">Customer</label>
+      <input id="nl-cust" name="customer" required autocomplete="off">
+
+      <label for="nl-contact">Who you talked to</label>
+      <input id="nl-contact" name="contact" autocomplete="off">
+      <div class="dates">
+        <div><label for="nl-phone">Phone</label><input id="nl-phone" name="phone" type="tel" autocomplete="off"></div>
+        <div><label for="nl-email">Email</label><input id="nl-email" name="email" type="email" autocomplete="off"></div>
+      </div>
+
+      <label>How they found us</label>
+      ${raw(toggle('source', short(o.sources, SOURCE_LABEL), o.sources.includes('PHONE') ? 'PHONE' : o.sources[0]))}
+
+      <label>What they want</label>
+      ${raw(toggle('interest', short(o.interests, INTEREST_LABEL), o.interests.includes('RENTAL') ? 'RENTAL' : o.interests[0]))}
+
+      <label>Which machine</label>
+      ${raw(toggle('machine_mode', [['TEXT', 'Type it'], ['UNIT', 'Pick one of ours']], 'TEXT'))}
+      <div data-when="machine_mode=TEXT">
+        <input id="nl-machine" name="machine" placeholder="what they asked for — brand, size, anything" autocomplete="off">
+      </div>
+      <div data-when="machine_mode=UNIT" hidden>
+        <select id="nl-serial" name="serial"><option value="">— none —</option>${raw(unitOptions())}</select>
+      </div>
+
+      <label for="nl-site">Site</label>
+      <input id="nl-site" name="site" placeholder="city, or the address if you have it" autocomplete="off">
+
+      <label>Priority</label>
+      ${raw(toggle('priority', LEAD_PRIORITIES.map((p) => [p, PRI_LABEL[p] || p]), 'MEDIUM'))}
+
+      <label>Whose lead</label>
+      ${raw(toggle('assigned', o.assignees.map((n) => [n, n]), mine))}
+
+      <label for="nl-next">Next action</label>
+      <input id="nl-next" name="next_action" placeholder="call back Thursday, send the quote…" autocomplete="off">
+
+      <label for="nl-note">Note</label>
+      <textarea id="nl-note" name="note" placeholder="what they said"></textarea>
+
+      ${raw(sheetButtons('Open the lead'))}
+      <div class="form-note">A proposal. The engine assigns the lead number at the next run, and flags a duplicate in the run report rather than here.</div>
+    </form>`;
+}
+
+/* ---- lead detail (§3.5) ---- */
+
+function viewLead(id) {
+  const l = leadById(leads(), id);
+  if (!l) {
+    return html`<a class="crumb" href="#/leads">‹ Leads</a>
+      ${raw(emptyState('Lead not found.', 'It may have closed and left the snapshot.'))}`;
+  }
+  const pend = pendingForLead(l.lead);
+  const u = l.serial ? unitBySerial(l.serial) : null;
+  const v = amount(l.value);
+  const c = amount(l.potential_commission);
+  const q = l.quote && typeof l.quote === 'object' ? l.quote : null;
+  const dm = l.demo && typeof l.demo === 'object' ? l.demo : null;
+  const demoUnit = dm && dm.serial ? unitBySerial(dm.serial) : null;
+
+  const contact = [
+    l.phone ? html`<a href="tel:${raw(encodeURIComponent(String(l.phone).replace(/[^\d+]/g, '')))}">${l.phone}</a>` : '',
+    l.email ? html`<a href="mailto:${raw(encodeURIComponent(l.email))}">${l.email}</a>` : '',
+  ].filter(Boolean).join(' · ');
+
+  return html`
+    <a class="crumb" href="#/leads">‹ Leads</a>
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="h">${l.customer || '—'}</div>
+      <div class="s"><span class="unit-serial">${l.lead}</span> · ${l.machine || INTEREST_LABEL[l.interest] || '—'}</div>
+      <div class="chips">
+        ${raw(chip(LEAD_STAGE_LABEL[l.stage] || l.stage, 'stage'))}
+        ${raw(chip(PRI_LABEL[l.priority] || l.priority || '—', `pri-chip pri-${l.priority || 'MEDIUM'}`))}
+        ${raw(chip(SOURCE_LABEL[l.source] || l.source || '—', 'out'))}
+        ${l.status !== 'OPEN' ? raw(chip(LEAD_STATUS_LABEL[l.status] || l.status, l.status === 'WON' ? 'ok' : 'bad')) : ''}
+        ${l.stale ? raw(chip(l.stale === 'red' ? '🔴 stale' : '🟡 going stale', l.stale === 'red' ? 'bad' : 'warn')) : ''}
+        ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
+      </div>
+    </div>
+
+    ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
+      ${raw(pend.map((e) => html`<div class="pend-row"><span>${describeLead(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
+      <div style="margin-top:6px">Applies at the next run — the board still shows the current truth.</div></div>`) : ''}
+
+    ${l.stale_reason ? raw(html`<div class="note"><strong>Going stale</strong>${l.stale_reason}</div>`) : ''}
+    ${l.suggest_dead ? raw('<div class="info">💀 Nothing has moved on this in a long time. Close it out or give it a next action.</div>') : ''}
+    ${l.next_action ? raw(html`<div class="info"><strong>Next:</strong> ${l.next_action}</div>`) : ''}
+
+    <h2>Who</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Customer', l.customer))}
+      ${raw(kvRow('Contact', l.contact))}
+      ${raw(kvRow('Reach them', contact ? raw(contact) : ''))}
+      ${raw(kvRow('Site', l.site))}
+      ${raw(kvRow('Source', SOURCE_LABEL[l.source] || l.source))}
+      ${raw(kvRow('Assigned', l.assigned))}
+    </dl></div>
+
+    <h2>The deal</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Wants', INTEREST_LABEL[l.interest] || l.interest))}
+      ${raw(kvRow('Machine', u
+        ? raw(html`<a href="#/unit/${raw(enc(u.serial))}">#${u.serial} ${unitName(u)}</a>`)
+        : (l.machine || '')))}
+      ${v != null ? raw(kvRow('Value', fmtMoney(v), 'num')) : ''}
+      ${c != null ? raw(kvRow('Potential commission', fmtMoney(c), 'num')) : ''}
+      ${raw(kvRow('Quote', q
+        ? raw(html`${q.number || '—'}${q.sent ? raw(html` · sent ${fmtDate(q.sent)}`) : ''}${httpUrl(q.file) ? raw(html` · <a href="${q.file}" rel="noopener noreferrer" target="_blank">open</a>`) : ''}`)
+        : ''))}
+      ${raw(kvRow('Demo', dm
+        ? raw(html`${fmtDateFull(dm.date)}${demoUnit ? raw(html` · <a href="#/unit/${raw(enc(demoUnit.serial))}">#${demoUnit.serial} ${unitName(demoUnit)}</a>`) : (dm.serial ? raw(html` · #${dm.serial}`) : '')}`)
+        : ''))}
+      ${raw(kvRow('Invoice', l.invoice))}
+      ${raw(kvRow('Machinio', l.machinio_ref))}
+      ${raw(kvRow('Service ticket', l.related_ticket
+        ? raw(html`<a href="#/ticket/${raw(enc(l.related_ticket))}">🔧 ${l.related_ticket}</a>`) : ''))}
+    </dl></div>
+
+    <h2>Timing</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Opened', `${fmtDateFull(l.opened)}${l.opened_by ? ` by ${l.opened_by}` : ''}`))}
+      ${raw(kvRow('First contact', l.first_contact
+        ? `${fmtInstantCentral(l.first_contact)}${l.hours_to_contact != null ? ` · ${statOr(l.hours_to_contact, 'h')} after it landed` : ''}`
+        : raw('<span class="none">nobody has called yet</span>')))}
+      ${raw(kvRow('In this stage since', l.stage_since ? fmtInstantCentral(l.stage_since) : ''))}
+      ${raw(kvRow('Age', `${l.age_in_stage_days != null ? `${l.age_in_stage_days}d in stage` : ''}${l.age_in_stage_days != null && l.age_total_days != null ? ' · ' : ''}${l.age_total_days != null ? `${l.age_total_days}d total` : ''}`))}
+      ${l.closed ? raw(kvRow('Closed', `${fmtDateFull(l.closed)}${l.close_reason ? ` · ${REASON_LABEL[l.close_reason] || l.close_reason}` : ''}`)) : ''}
+      ${l.close_note ? raw(kvRow('Close note', l.close_note)) : ''}
+    </dl></div>
+
+    ${raw(leadStagePicker(l))}
+    ${raw(leadActions(l))}`;
+}
+
+/** One-line English for a pending lead write, whatever it carried. */
+function describeLead(e) {
+  const p = pl(e);
+  if (e.action === 'lead_close') {
+    return `closing as ${p.outcome}${p.reason ? ` — ${REASON_LABEL[p.reason] || p.reason}` : ''}`;
+  }
+  const bits = [];
+  if (p.stage) bits.push(`stage → ${LEAD_STAGE_LABEL[p.stage] || p.stage}`);
+  if (p.value != null) bits.push(`value ${fmtMoney(p.value)}`);
+  if (p.assigned) bits.push(`assigned to ${p.assigned}`);
+  if (p.priority) bits.push(`priority ${PRI_LABEL[p.priority] || p.priority}`);
+  if (p.demo_date) bits.push(`demo ${fmtDate(p.demo_date)}${p.demo_serial ? ` on #${p.demo_serial}` : ''}`);
+  if (p.invoice) bits.push(`invoice ${p.invoice}`);
+  if (p.next_action) bits.push('next action set');
+  if (p.note) bits.push('note added');
+  return bits.length ? bits.join(', ') : e.action;
+}
+
+function leadStagePicker(l) {
+  const canEdit = canEditLead(role());
+  if (!canEdit) {
+    return html`<h2>Stage</h2>
+      <div class="info">${LEAD_STAGE_LABEL[l.stage] || l.stage}. Kevin and Matt work the pipeline; you can still add a note below.</div>`;
+  }
+  if (l.status !== 'OPEN') {
+    return html`<h2>Stage</h2>
+      <div class="info">This lead is ${LEAD_STATUS_LABEL[l.status] || l.status}. Reopening one is the vault's job — tell Matt.</div>`;
+  }
+  const opts = leadStageOptions(l, role(), leadsSummary());
+  const btns = opts.map((o) => html`
+    <button type="button" class="stg${o.current ? ' on' : ''}" data-lead-stage="${o.stage}"
+      ${o.enabled && !o.current ? '' : raw('disabled')}>${o.label}</button>`);
+  return html`
+    <h2>Stage</h2>
+    <div class="stages">${raw(btns.join(''))}</div>
+    ${role() !== 'owner' ? raw('<div class="form-note">Matt marks a deal invoiced — it names a real invoice.</div>') : ''}
+    ${ui.form && ui.form.kind === 'lead-stage' && ui.form.id === l.lead ? raw(leadStageForm(l, ui.form.arg)) : ''}`;
+}
+
+/**
+ * The stage sheet. Three stages ask for something before they can be proposed
+ * (stageNeeds): a demo needs a day and a machine, an invoice needs its number,
+ * and a quote needs a value if we never wrote one down.
+ */
+function leadStageForm(l, stage) {
+  const need = stageNeeds(l, stage);
+  const label = LEAD_STAGE_LABEL[stage] || stage;
+  const body = need === 'demo' ? html`
+      <label for="ls-date">Demo day</label>
+      <input id="ls-date" name="demo_date" type="date" value="${todayCentral()}" required>
+      <label for="ls-unit">Which unit is going</label>
+      <select id="ls-unit" name="demo_serial" required>${raw(unitOptions(l.serial || (l.demo && l.demo.serial)))}</select>
+      <div class="form-note">The engine puts the hold on that unit and books the truck at the next run.</div>`
+    : need === 'invoice' ? html`
+      <label for="ls-inv">Invoice number</label>
+      <input id="ls-inv" name="invoice" required autocomplete="off" placeholder="as it reads in QuickBooks">`
+    : need === 'value' ? html`
+      <label for="ls-val">Deal value</label>
+      <input id="ls-val" name="value" type="number" min="0" step="1" required inputmode="decimal" placeholder="what you quoted">
+      <div class="form-note">The engine works the commission out from this — don't put one in yourself.</div>`
+    : '';
+  return html`
+    <form class="write sheet" data-action="lead_update" data-id="${l.lead}" data-mode="stage">
+      <input type="hidden" name="stage" value="${stage}">
+      ${raw(body)}
+      <label for="ls-note">Move to ${label} — note (optional)</label>
+      <textarea id="ls-note" name="note" placeholder="what was said"></textarea>
+      ${raw(sheetButtons(`Move to ${label}`))}
+    </form>`;
+}
+
+/** Note (any role) · value / assign / priority / next action / close (sales + owner). */
+function leadActions(l) {
+  const open = ui.form && ui.form.id === l.lead ? ui.form.kind : null;
+  const canEdit = canEditLead(role());
+  const o = leadOpts();
+  const v = amount(l.value);
+
+  return html`
+    <h2>Update</h2>
+    <div class="actions row">
+      <button class="btn ghost" type="button" data-sheet="lead-note" data-id="${l.lead}">Add a note</button>
+      ${canEdit ? raw(html`<button class="btn ghost" type="button" data-sheet="lead-value" data-id="${l.lead}">Value</button>`) : ''}
+      ${canEdit ? raw(html`<button class="btn ghost" type="button" data-sheet="lead-next" data-id="${l.lead}">Next action</button>`) : ''}
+      ${canEdit ? raw(html`<button class="btn ghost" type="button" data-sheet="lead-assign" data-id="${l.lead}">Assign</button>`) : ''}
+      ${canEdit ? raw(html`<button class="btn ghost" type="button" data-sheet="lead-priority" data-id="${l.lead}">Priority</button>`) : ''}
+    </div>
+    ${open === 'lead-note' ? raw(html`
+      <form class="write sheet" data-action="lead_update" data-id="${l.lead}" data-mode="note">
+        <label for="ln-note">Note</label>
+        <textarea id="ln-note" name="note" required placeholder="what happened"></textarea>
+        ${raw(sheetButtons('Add the note'))}
+        <div class="form-note">Notes land in the lead's file at the next run; yours shows as pending until then.</div>
+      </form>`) : ''}
+    ${open === 'lead-value' ? raw(html`
+      <form class="write sheet" data-action="lead_update" data-id="${l.lead}" data-mode="value">
+        <label for="lv-val">Deal value</label>
+        <input id="lv-val" name="value" type="number" min="0" step="1" required inputmode="decimal" value="${v == null ? '' : v}">
+        ${raw(sheetButtons('Set the value'))}
+      </form>`) : ''}
+    ${open === 'lead-next' ? raw(html`
+      <form class="write sheet" data-action="lead_update" data-id="${l.lead}" data-mode="next">
+        <label for="lx-next">Next action</label>
+        <input id="lx-next" name="next_action" required value="${l.next_action || ''}" autocomplete="off">
+        ${raw(sheetButtons('Set it'))}
+      </form>`) : ''}
+    ${open === 'lead-assign' ? raw(html`
+      <form class="write sheet" data-action="lead_update" data-id="${l.lead}" data-mode="assign">
+        <label>Whose lead</label>
+        ${raw(toggle('assigned', o.assignees.map((n) => [n, n]), o.assignees.includes(l.assigned) ? l.assigned : o.assignees[0]))}
+        ${raw(sheetButtons('Assign'))}
+      </form>`) : ''}
+    ${open === 'lead-priority' ? raw(html`
+      <form class="write sheet" data-action="lead_update" data-id="${l.lead}" data-mode="priority">
+        <label>Priority</label>
+        ${raw(toggle('priority', LEAD_PRIORITIES.map((p) => [p, PRI_LABEL[p] || p]), l.priority || 'MEDIUM'))}
+        ${raw(sheetButtons('Set priority'))}
+      </form>`) : ''}
+
+    ${canCloseLead(role()) && l.status === 'OPEN' ? raw(html`
+      <h2>Close it out</h2>
+      <div class="actions"><button class="btn ghost danger-btn" type="button" data-sheet="lead-close" data-id="${l.lead}">Lost or dead</button></div>
+      ${open === 'lead-close' ? raw(closeLeadForm(l, o)) : ''}
+      <div class="form-note">A win is not closed here — move the stage to Invoiced and the engine marks it won.</div>`) : ''}`;
+}
+
+function closeLeadForm(l, o) {
+  return html`
+    <form class="write sheet" data-action="lead_close" data-id="${l.lead}">
+      <label>What happened</label>
+      ${raw(toggle('outcome', [['LOST', 'Lost it'], ['DEAD', 'Went nowhere']], 'LOST'))}
+      <div data-when="outcome=LOST">
+        <label>Why</label>
+        ${raw(toggle('reason', o.lostReasons.map((r) => [r, REASON_LABEL[r] || r]), o.lostReasons[0]))}
+      </div>
+      <label for="lc-note">Note</label>
+      <textarea id="lc-note" name="note" placeholder="who they went with, what the number was"></textarea>
+      ${raw(sheetButtons('Close the lead'))}
+      <div class="form-note">A proposal — it stays on the board until the next run.</div>
+    </form>`;
+}
+
 /* ---- gate / error screens ---- */
 
 function viewGate(code) {
@@ -1397,6 +2044,7 @@ function renderTabs(route) {
   const tab = route.startsWith('#/rentals') ? 'rentals'
     : route.startsWith('#/holds') ? 'holds'
     : route.startsWith('#/dispatch') ? 'dispatch'
+    : route.startsWith('#/leads') || route.startsWith('#/lead/') ? 'leads'
     : route.startsWith('#/service') || route.startsWith('#/ticket') ? 'service' : 'fleet';
   document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === tab));
   // The count badge moved from Service to Dispatch at v1.6 (§1): everything
@@ -1406,6 +2054,15 @@ function renderTabs(route) {
     const n = state.snapshot ? openCount(dispatchRows()) : 0;
     badge.hidden = n === 0;
     badge.textContent = n;
+  }
+  // Leads badge = leads nobody has called yet (§1). Visible pressure, by design:
+  // it is the one number on this board that only goes down by picking up a phone.
+  const lb = $('#tab-leads-badge');
+  if (lb) {
+    const s = leadsSummary();
+    const n = s && typeof s.received_uncontacted === 'number' ? s.received_uncontacted : 0;
+    lb.hidden = n === 0;
+    lb.textContent = n;
   }
 }
 
@@ -1433,6 +2090,8 @@ function render() {
   else if (section === 'dispatch') out = viewDispatch(arg ? decodeURIComponent(arg) : null);
   else if (section === 'service') out = viewService();
   else if (section === 'ticket') out = viewTicket(decodeURIComponent(arg || ''));
+  else if (section === 'leads') out = viewLeads();
+  else if (section === 'lead') out = viewLead(decodeURIComponent(arg || ''));
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
   else out = viewCategories();
@@ -1593,7 +2252,31 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
+  // A lead stage tap: same shape as a ticket's, but the sheet it opens depends
+  // on the stage (a demo needs a day and a machine — see stageNeeds).
+  const lstg = ev.target.closest('[data-lead-stage]');
+  if (lstg && !lstg.disabled) {
+    const lead = decodeURIComponent(window.location.hash.split('/').pop());
+    ui.form = { kind: 'lead-stage', id: lead, arg: lstg.dataset.leadStage };
+    ui.msg = null;
+    render();
+    return;
+  }
+
   if (ev.target.closest('[data-done-toggle]')) { ui.showDone = !ui.showDone; render(); return; }
+  if (ev.target.closest('[data-closed-toggle]')) { ui.showClosedLeads = !ui.showClosedLeads; render(); return; }
+  if (ev.target.closest('[data-score-toggle]')) { ui.showScore = !scoreOpen(); render(); return; }
+  if (ev.target.closest('[data-insights-toggle]')) { ui.showInsights = !ui.showInsights; render(); return; }
+
+  // The Leads chips, and the scoreboard's stale row, which is one of them.
+  const lchip = ev.target.closest('[data-lead-filter]');
+  if (lchip) {
+    ui.leadFilter = lchip.dataset.leadFilter;
+    try { localStorage.setItem(LEAD_FILTER_KEY, ui.leadFilter); } catch (_) { /* storage blocked */ }
+    if (!window.location.hash.startsWith('#/leads')) { window.location.hash = '#/leads'; return; }
+    render();
+    return;
+  }
 
   const fchip = ev.target.closest('[data-filter]');
   if (fchip) {
@@ -1802,6 +2485,62 @@ function eventBody(action, form, fd) {
     return { serial: r && r.serial ? r.serial : null,
       payload: { dispatch_id: form.dataset.id, note: orNull('note') } };
   }
+
+  /* --------------------------------------------------------- schema 5 ---- */
+
+  if (action === 'lead_open') {
+    // The machine is EITHER free text OR one of ours (§3.3). `machine_mode` is
+    // a form-only control and never travels; whichever side it hides sends null,
+    // so a serial typed and then switched away from can't ride along.
+    const unit = s('machine_mode') === 'UNIT';
+    const serial = unit ? orNull('serial') : null;
+    const u = serial ? unitBySerial(serial) : null;
+    return {
+      serial,
+      payload: {
+        customer: s('customer'),
+        contact: orNull('contact'),
+        phone: orNull('phone'),
+        email: orNull('email'),
+        site: orNull('site'),
+        source: s('source'),
+        interest: s('interest'),
+        // Name one of ours from the snapshot so two people describe it the same
+        // way; anything else is whatever they typed.
+        machine: unit ? (u ? unitName(u) : null) : orNull('machine'),
+        serial,
+        value: null,
+        priority: s('priority'),
+        assigned: orNull('assigned'),
+        next_action: orNull('next_action'),
+        note: orNull('note'),
+        related_ticket: null,
+        machinio_ref: null,
+      },
+    };
+  }
+  if (action === 'lead_update') {
+    // Only the keys being changed travel (§5). `data-mode` says which sheet.
+    const payload = { lead: form.dataset.id };
+    for (const k of ['stage', 'note', 'next_action', 'assigned', 'priority', 'demo_date', 'demo_serial', 'invoice']) {
+      const v = s(k);
+      if (v) payload[k] = v;
+    }
+    const val = s('value');
+    if (val !== '') payload.value = Number(val);
+    const l = leadById(leads(), form.dataset.id);
+    return { serial: l && l.serial ? l.serial : null, payload };
+  }
+  if (action === 'lead_close') {
+    const outcome = s('outcome');
+    const l = leadById(leads(), form.dataset.id);
+    return {
+      serial: l && l.serial ? l.serial : null,
+      // A DEAD lead has no reason to give — that IS the reason. Sending the
+      // hidden LOST chip's value with it would put a why on a lead nobody chose.
+      payload: { lead: form.dataset.id, outcome, reason: outcome === 'LOST' ? s('reason') : null, note: orNull('note') },
+    };
+  }
   return { serial: null, payload: {} };
 }
 
@@ -1811,6 +2550,9 @@ const SUBMIT_MSG = {
   dispatch_add: 'The run appears on the board at the next run.',
   dispatch_claim: 'The row moves to Scheduled at the next run.',
   dispatch_done: 'It clears at the next run.',
+  lead_open: 'The engine assigns the lead number at the next run.',
+  lead_update: 'Applies at the next run.',
+  lead_close: 'It moves to Closed at the next run.',
 };
 
 // Writes opened from the unit page report into that page's #write-msg; the ones
@@ -1832,6 +2574,14 @@ document.addEventListener('submit', async (ev) => {
     const el = form.querySelector('[name=customer]');
     if (el) el.focus();
     ui.msg = { tone: 'bad', text: 'Who is it for? Put a customer on it.' };
+    render();
+    return;
+  }
+  // A lead with no customer is a note to nobody.
+  if (action === 'lead_open' && !String(fd.get('customer') || '').trim()) {
+    const el = form.querySelector('[name=customer]');
+    if (el) el.focus();
+    ui.msg = { tone: 'bad', text: 'Who called? Put a customer on it.' };
     render();
     return;
   }

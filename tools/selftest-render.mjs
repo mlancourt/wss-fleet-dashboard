@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STAGES, STAGE_LABEL, PIPELINE_STAGES, columnsFor, sections as dispatchSections } from '../docs/service.js';
+import { BOARD_STAGES, NO_DATA } from '../docs/leads.js';
 import { utilization, utilizationFrom } from '../docs/metrics.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -40,7 +41,10 @@ function el(tag = 'div') {
   return node;
 }
 const view = el('main');
-const nodes = { '#view': view, '#asof': el('span'), '#pending-badge': el('span'), '#tab-dispatch-badge': el('span') };
+const nodes = {
+  '#view': view, '#asof': el('span'), '#pending-badge': el('span'),
+  '#tab-dispatch-badge': el('span'), '#tab-leads-badge': el('span'),
+};
 
 globalThis.window = {
   location: { href: 'http://localhost:8787/?mock=full', hash: '#/', hostname: 'localhost', protocol: 'http:', pathname: '/', search: '?mock=full',
@@ -79,7 +83,7 @@ const app = await import(path.join(DOCS, 'app.js'));
 const settle = () => new Promise((r) => setTimeout(r, 30));
 await settle();
 
-const ROUTES = ['#/', '#/rentals', '#/holds', '#/dispatch', '#/service', '#/billing'];
+const ROUTES = ['#/', '#/rentals', '#/holds', '#/dispatch', '#/service', '#/leads', '#/billing'];
 
 /** Render one route and hand back the markup, failing loudly on a throw. */
 async function renderRoute(hash) {
@@ -102,7 +106,8 @@ async function allRoutes(variant, role) {
     ...snap.categories.map((c) => `#/cat/${encodeURIComponent(c)}`),
     ...(snap.service_queue || []).map((t) => `#/ticket/${encodeURIComponent(t.ticket || t.ticket_id || '')}`),
     ...(snap.dispatch || []).map((r) => `#/dispatch/${encodeURIComponent(r.id)}`),
-    '#/unit/nope', '#/ticket/S9999',
+    ...(snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`),
+    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999',
   ];
   for (const hash of ROUTES.concat(extra)) out.push([hash, await renderRoute(hash)]);
   return out;
@@ -197,9 +202,10 @@ await check('the landing shows both utilization bars, Units then Dollars (D44/D4
   assert.equal([...out.matchAll(/class="util-track"/g)].length, 2, 'two bars, one card');
   assert.equal([...out.matchAll(/<section class="util"/g)].length, 1, 'one card, not two');
 
-  // The percentages come from meta.utilization on a schema-4 snapshot.
+  // The percentages come from meta.utilization, which arrived at schema 4 and
+  // is unchanged by schema 5 (leads are purely additive).
   const snap = app.__state().snapshot;
-  assert.equal(snap.meta.schema_version, 4, 'mock-full should be schema 4 now');
+  assert.ok(snap.meta.schema_version >= 4, 'mock-full should be schema 4 or later');
   const u = utilizationFrom(snap);
   assert.equal(u.units.pct, snap.meta.utilization.units.pct, 'engine number, not a recomputation');
   assert.ok(out.includes(`>${u.units.pct}%<`) && out.includes(`>${u.dollars.pct}%<`));
@@ -434,9 +440,10 @@ async function undoableIds(role) {
   await app.__refresh();
   const seen = new Set();
   const snap = app.__state().snapshot;
-  const routes = ['#/', '#/dispatch', '#/service', '#/holds']
+  const routes = ['#/', '#/dispatch', '#/service', '#/holds', '#/leads']
     .concat(snap.units.map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
-    .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`));
+    .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
+    .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`));
   for (const r of routes) {
     const out = await renderRoute(r);
     for (const [, id] of out.matchAll(/data-sheet="undo" data-id="([^"]+)"/g)) seen.add(id);
@@ -605,6 +612,212 @@ await check('the schema-2 snapshot still renders every view during the cutover',
   // The old singular `reservation` is present in this file and must be ignored.
   assert.ok(app.__state().snapshot.units.some((u) => u.reservation), 'legacy fixture lost its singular reservation');
   assert.ok((await renderRoute('#/holds')).includes('Holds'));
+});
+
+/* ================================================ leads (schema 5) ========= */
+
+/** Render the Leads tab as somebody, with the pending fixture loaded. */
+async function leadsAs(role, hash = '#/leads') {
+  window.location.href = `http://localhost:8787/?mock=full&role=${role}&pending=1`;
+  window.location.search = `?mock=full&role=${role}&pending=1`;
+  await app.__refresh();
+  return renderRoute(hash);
+}
+
+/** The service token's view, with the Worker's §6 strip applied to the fixture.
+ *  The mock file is the UNstripped snapshot — the strip happens at the edge —
+ *  so the test has to do to it exactly what worker.js stripLeadMoney() does. */
+async function leadsAsStrippedService(hash = '#/leads', openScore = false) {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
+  window.location.search = '?mock=full&role=service&pending=1';
+  await app.__refresh();
+  app.__ui().showScore = openScore ? true : null;
+  const snap = app.__state().snapshot;
+  for (const l of snap.leads) { delete l.value; delete l.potential_commission; }
+  delete snap.leads_summary.commission_rates;
+  delete snap.leads_summary.money_fields;
+  delete snap.scoreboard.money;
+  return renderRoute(hash);
+}
+
+await check('the Leads board draws five columns, RECEIVED first and Won last', async () => {
+  const out = await leadsAs('sales');
+  const heads = [...out.matchAll(/<div class="kan-head"><span>([^<]+)</g)].map((m) => m[1]);
+  assert.deepEqual(heads.slice(0, 4), BOARD_STAGES.map((s) => STAGE_LABEL[s] || s).map((x, i) =>
+    ['Received', 'Contacted', 'Quoted', 'Demo booked'][i]), 'the four open stages, in pipeline order');
+  assert.equal(heads[heads.length - 1], 'Won', 'Won is the last column');
+  assert.ok(out.includes('data-lead-filter="all"') && out.includes('data-lead-filter="mine"')
+    && out.includes('data-lead-filter="stale"'), 'All / Mine / Stale');
+});
+
+await check('every OPEN lead in the fixture is on the board exactly once', async () => {
+  const out = await leadsAs('sales');
+  const snap = app.__state().snapshot;
+  for (const l of snap.leads.filter((x) => x.status === 'OPEN')) {
+    const hits = [...out.matchAll(new RegExp(`href="#/lead/${l.lead}"`, 'g'))].length;
+    assert.equal(hits, 1, `${l.lead} should appear once on the board`);
+  }
+  // LOST and DEAD are in the collapsed strip, which is shut by default.
+  for (const l of snap.leads.filter((x) => x.status === 'LOST' || x.status === 'DEAD')) {
+    assert.ok(!out.includes(`href="#/lead/${l.lead}"`), `${l.lead} must not be on the board`);
+  }
+});
+
+await check('a service token sees no money on the leads board — and no hole either', async () => {
+  // Scoreboard expanded, so the absence of rows 1-2 is a real absence and not
+  // just the fold hiding them.
+  const out = await leadsAsStrippedService('#/leads', true);
+  assert.ok(!/class="lead-money"/.test(out), 'no money line on any card');
+  assert.ok(!out.includes('potential commission'), 'not even the label');
+  assert.ok(!out.includes('On the table'), 'row 1 is not rendered at all');
+  assert.ok(!out.includes('This month'), 'row 2 is not rendered at all');
+  assert.ok(!out.includes('vs. your last'), 'nor row 2\'s caption');
+  assert.ok(!/\$[0-9]/.test(out.split('kan-wrap')[0]), 'not a single dollar figure above the board');
+  // The rows that are not money still render, so the tab is still useful.
+  assert.ok(out.includes('Speed') && out.includes('Stale') && out.includes('Conversion'),
+    'rows 3-5 survive');
+  // A placeholder would say exactly where the missing number lives.
+  assert.ok(!/lead-money/.test(out));
+});
+
+await check('sales sees both money rows and the money line on cards', async () => {
+  const out = await leadsAs('sales');
+  assert.ok(out.includes('On the table'), 'row 1');
+  assert.ok(out.includes('potential commission'), 'never "commission" alone');
+  assert.ok(/class="lead-money"/.test(out), 'cards carry value + potential commission');
+  assert.ok(out.includes('vs. your last 3 mo avg'), 'row 2 names its baseline');
+});
+
+await check('the scoreboard is open for Kevin and folded away for Josh', async () => {
+  const kevin = await leadsAs('sales');
+  assert.ok(/aria-expanded="true"[^>]*>\s*<span>▾ Scoreboard/.test(kevin.replace(/\n\s*/g, ' '))
+    || kevin.includes('▾ Scoreboard'), 'open by default on sales');
+  const josh = await leadsAsStrippedService();
+  assert.ok(josh.includes('▸ Scoreboard'), 'collapsed by default on everyone else');
+  assert.ok(!josh.includes('Speed') || josh.includes('▸ Scoreboard'), 'collapsed means no rows drawn');
+});
+
+await check('insights are for Kevin and Matt, and collapsed until asked for', async () => {
+  const sales = await leadsAs('sales');
+  assert.ok(sales.includes('Pipeline insights — last 90 days'));
+  assert.ok(sales.includes('▸ Pipeline insights'), 'collapsed by default');
+  assert.ok(!sales.includes('Why we lose'), 'the tables are not drawn while collapsed');
+  const svc = await leadsAsStrippedService();
+  assert.ok(!svc.includes('Pipeline insights'), 'a tech does not get the insights card');
+});
+
+await check('a null rate renders the phrase, never a dash or a zero', async () => {
+  // The empty variant is the real snapshot's shape on a quiet day: no leads,
+  // every rate null, insufficient true.
+  window.location.href = 'http://localhost:8787/?mock=empty&role=sales';
+  window.location.search = '?mock=empty&role=sales';
+  await app.__refresh();
+  const out = await renderRoute('#/leads');
+  assert.ok(out.includes('No leads yet.'), 'the empty board says so');
+  assert.ok(out.includes('not enough data yet (n=0/5)'), 'the conversion row admits it');
+  assert.ok(out.includes(NO_DATA), 'the speed median reads the phrase');
+  assert.ok(!out.includes('<strong>&mdash;</strong>') && !out.includes('<strong>—</strong>'),
+    'no em-dash placeholders in the scoreboard');
+});
+
+await check('the nav badge counts leads nobody has called yet', async () => {
+  await leadsAs('sales');
+  const snap = app.__state().snapshot;
+  assert.equal(String(nodes['#tab-leads-badge'].textContent), String(snap.leads_summary.received_uncontacted));
+  assert.equal(nodes['#tab-leads-badge'].hidden, snap.leads_summary.received_uncontacted === 0);
+
+  window.location.href = 'http://localhost:8787/?mock=empty&role=sales';
+  window.location.search = '?mock=empty&role=sales';
+  await app.__refresh();
+  await renderRoute('#/leads');
+  assert.equal(nodes['#tab-leads-badge'].hidden, true, 'zero means no badge');
+});
+
+await check('the lead detail carries the whole record and its pending writes', async () => {
+  const out = await leadsAs('sales', '#/lead/L1005');
+  assert.ok(out.includes('Harbor Line Logistics'));
+  assert.ok(out.includes('990142'), 'the quote number');
+  assert.ok(out.includes('$28,900'), 'the value');
+  assert.ok(out.includes('Potential commission'));
+  assert.ok(out.includes('Who') && out.includes('The deal') && out.includes('Timing'));
+  // evt-mock-8 is Kevin's pending stage move on this lead.
+  assert.ok(out.includes('⏳ 1 pending change'), 'the pending write is badged');
+  assert.ok(out.includes('stage → Demo booked'), 'and described in English');
+  assert.ok(out.includes('data-sheet="undo"'), 'and Kevin may take his own tap back');
+});
+
+await check('a tech sees a lead but no stage picker, and can still add a note', async () => {
+  const out = await leadsAsStrippedService('#/lead/L1005');
+  assert.ok(!out.includes('data-lead-stage='), 'no stage buttons for service');
+  assert.ok(out.includes('Kevin and Matt work the pipeline'));
+  assert.ok(out.includes('data-sheet="lead-note"'), 'a note is still theirs to add');
+  assert.ok(!out.includes('data-sheet="lead-value"'), 'the value is not');
+  assert.ok(!out.includes('data-sheet="lead-close"'), 'nor is closing it');
+  assert.ok(!out.includes('$28,900') && !out.includes('Potential commission'), 'and no money anywhere');
+});
+
+await check('Kevin gets four stages, Matt gets Invoiced too', async () => {
+  const kevin = [...(await leadsAs('sales', '#/lead/L1005')).matchAll(/data-lead-stage="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(kevin, BOARD_STAGES, 'INVOICED is hidden from sales');
+  const matt = [...(await leadsAs('owner', '#/lead/L1005')).matchAll(/data-lead-stage="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(matt, BOARD_STAGES.concat('INVOICED'));
+});
+
+await check('a pending lead_open shows without inventing a lead number', async () => {
+  const out = await leadsAs('service');
+  assert.ok(out.includes('Stonebridge Cold Storage'), 'the pending new lead is on screen');
+  assert.ok(out.includes('The engine assigns the lead number at the next run.'));
+  assert.ok(!/L\?+/.test(out) && !out.includes('href="#/lead/undefined"'), 'no invented id');
+});
+
+await check('a demo hold on a unit page links back to its lead (§4)', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=sales';
+  window.location.search = '?mock=full&role=sales';
+  await app.__refresh();
+  const snap = app.__state().snapshot;
+  const withDemo = snap.leads.find((l) => l.demo && l.demo.hold_id);
+  assert.ok(withDemo, 'the fixture must hold a lead with a booked demo');
+  const out = await renderRoute(`#/unit/${encodeURIComponent(withDemo.demo.serial)}`);
+  assert.ok(out.includes(`href="#/lead/${withDemo.lead}"`), 'the hold row links to the lead');
+  assert.ok(out.includes('>demo</span>'), 'and says it is a demo');
+});
+
+await check('a lead pointing at a service ticket deep-links to it', async () => {
+  const out = await leadsAs('sales', '#/lead/L1008');
+  const t = app.__state().snapshot.leads.find((l) => l.lead === 'L1008').related_ticket;
+  assert.ok(t, 'the fixture must wire one lead to a ticket');
+  assert.ok(out.includes(`href="#/ticket/${t}"`));
+});
+
+await check('a quote file link is drawn only for an http(s) URL', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=sales';
+  window.location.search = '?mock=full&role=sales';
+  await app.__refresh();
+  const l = app.__state().snapshot.leads.find((x) => x.quote);
+  assert.ok(l, 'the fixture must hold a lead with a quote');
+
+  // The engine puts this URL in the snapshot and we turn it into an href.
+  // Escaping keeps it inside the attribute; it does not make the scheme safe.
+  l.quote.file = 'javascript:alert(1)';
+  let out = await renderRoute(`#/lead/${l.lead}`);
+  assert.ok(!out.includes('javascript:'), 'a javascript: quote link must not be drawn');
+  assert.ok(!out.includes('>open</a>'), 'and no link at all, rather than a dead one');
+
+  l.quote.file = 'https://files.example.com/q/990142.pdf';
+  out = await renderRoute(`#/lead/${l.lead}`);
+  assert.ok(out.includes('href="https://files.example.com/q/990142.pdf"'), 'a real link is drawn');
+  assert.ok(out.includes('rel="noopener noreferrer"'));
+  l.quote.file = null;
+});
+
+await check('a schema-4 snapshot says leads have not arrived, rather than drawing an empty board', async () => {
+  window.location.href = 'http://localhost:8787/?mock=legacy&role=sales';
+  window.location.search = '?mock=legacy&role=sales';
+  await app.__refresh();
+  const out = await renderRoute('#/leads');
+  assert.ok(out.includes('No leads in this snapshot.'));
+  assert.ok(!out.includes('kan-head'), 'no board at all — the keys are absent, not empty');
+  assert.equal(nodes['#tab-leads-badge'].hidden, true);
 });
 
 console.log(`\n${passed} checks passed.`);

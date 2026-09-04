@@ -1,8 +1,9 @@
+
 # WSS Fleet Dashboard — CLAUDE.md
 
 You are building the employee-facing operations website for **Wisconsin Scrub & Sweep (WSS)** — an industrial floor-scrubber dealer in Ixonia, WI. Four users: **Matt** (owner), **Kevin** (sales), **Josh + Zac** (service techs). It shows the rental fleet, active rental agreements, the service queue (customer-owned repairs **and** fleet repairs), and a Dispatch board of truck moves — one pane of glass, phone-first, replacing a $900/yr SaaS (IntegraRental) and, later, Machinio's service module.
 
-**v2.0 (2026-09-03, D45) — schema 4:** `acquisition_cost` + `book` are GONE from `units[]` (only `ask` survives), `meta.fleet_totals` = `{units}` only, new `meta.utilization` carries the D19/D44 bars as engine-computed percentages — no dollar amount ships, ever (same reasoning as D16's floor). Spec: [[Cost-Privacy-Site-Spec]]. **v1.9 (2026-09-03, D44):** landing utilization card carries a second bar by dollars (acquisition cost). Spec: [[Dollar-Utilization-Site-Spec]]. **v1.8 (2026-09-03, D43):** Service tab is chip-driven — All · Fleet · Customer choose the widget zone; new **Service Pipeline** widget (seven stage rows over open customer tickets, `N open` + `N closed this week` pills), client-computed, no contract change. Spec: [[Service-Pipeline-Widget-Site-Spec]]. **v1.7 (2026-09-03, D42):** service stages are now RECEIVED · CONTACTED · WAITING-ON-CUSTOMER · WAITING-ON-PARTS · SCHEDULED · IN-PROGRESS · READY-TO-INVOICE · COMPLETE (whose-court model); WSS-owned tickets skip WAITING-ON-CUSTOMER + READY-TO-INVOICE. **v1.6 (2026-09-03) — schema 3:** Billing tab retired → **Dispatch**; Service tab real; six new write actions. Work order: [[Service-Dispatch-Site-Spec]]. Sections below are updated in place; where a v1.5 rule survives it's unchanged.
+**v2.1 (2026-09-03, D46):** `DELETE /api/event/:id` (undo your own pending tap), Dispatch lists DELIVER before PICKUP in Open/Scheduled, "Fleet value on rent" caption under the dollar bar. Spec: [[Undo-Pending-Site-Spec]]. **v2.0 (2026-09-03, D45) — schema 4:** `acquisition_cost` + `book` are GONE from `units[]` (only `ask` survives), `meta.fleet_totals` = `{units}` only, new `meta.utilization` carries the D19/D44 bars as engine-computed percentages — no dollar amount ships, ever (same reasoning as D16's floor). Spec: [[Cost-Privacy-Site-Spec]]. **v1.9 (2026-09-03, D44):** landing utilization card carries a second bar by dollars (acquisition cost). Spec: [[Dollar-Utilization-Site-Spec]]. **v1.8 (2026-09-03, D43):** Service tab is chip-driven — All · Fleet · Customer choose the widget zone; new **Service Pipeline** widget (seven stage rows over open customer tickets, `N open` + `N closed this week` pills), client-computed, no contract change. Spec: [[Service-Pipeline-Widget-Site-Spec]]. **v1.7 (2026-09-03, D42):** service stages are now RECEIVED · CONTACTED · WAITING-ON-CUSTOMER · WAITING-ON-PARTS · SCHEDULED · IN-PROGRESS · READY-TO-INVOICE · COMPLETE (whose-court model); WSS-owned tickets skip WAITING-ON-CUSTOMER + READY-TO-INVOICE. **v1.6 (2026-09-03) — schema 3:** Billing tab retired → **Dispatch**; Service tab real; six new write actions. Work order: [[Service-Dispatch-Site-Spec]]. Sections below are updated in place; where a v1.5 rule survives it's unchanged.
 
 **This repo is the presentation + transport layer ONLY.** A separate system (Matt's vault + a Python "run engine," owned elsewhere) is the source of truth. It publishes a JSON snapshot to your Worker and drains pending write-events from it. You never see that system; you build to the contracts in this file.
 
@@ -80,6 +81,7 @@ Auth: crew endpoints take the token (`?t=` or `Authorization: Bearer`); admin en
 |---|---|---|
 | `GET /api/data` | token | `{me:{name,role}, snapshot:<the JSON>, pending:[events]}` — pending included so the UI can badge unapplied writes |
 | `POST /api/event` | token | Validate role + shape (below), stamp `{id, ts, actor, role}` server-side, write `evt:` key. Return the stored event. Reject unknown `action` / malformed `serial` (`serial` is required for reserve/release/readiness, optional for the six schema-3 actions) and any enum value outside the fixed lists in this file; **do not** validate against business state (vault's job). |
+| `DELETE /api/event/:id` | token | **D46:** delete ONE still-pending `evt:` key, and only if the stored `actor` equals the caller's token name (else 403); 404 once drained. The "wrong button" valve — never bulk, never touches `snapshot`, `owner` gets no override. |
 | `GET /api/health` | token | `{published_at, pending_count}` |
 | `POST /api/admin/publish` | secret | body = full snapshot JSON → validate it parses + has `meta.schema_version`, write `snapshot` |
 | `GET /api/admin/events` | secret | list + return all `evt:*` (id, key, event) |
@@ -110,7 +112,9 @@ Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest
 
 UI rules: **Reserve is offered on any non-RETIRED unit** (D28 — a machine out on rent today can carry future holds; label it "Reserve for later" when it's out). `start` defaults to today, `end` to **start + 5 business days** (skip Sat/Sun). `release` **must carry the `hold_id`** of the row being released — the engine rejects an ambiguous release on a multi-hold unit. Readiness toggle available on any unit for `service`/`owner`; the picker offers all four values, with `NEEDS-PICKUP` labeled "Needs pick-up" (D32 — see [[Needs-Pickup-Site-Spec]]). After a POST, badge the unit "⏳ pending" from the `pending` array and show "applies at the next run" once. Full v2 reservation UI spec: **[[Reservations-v2-Site-Spec]]** (the work order Matt pastes for this rebuild).
 
-## Snapshot contract — `dashboard-data.json` (schema_version 4)
+## Snapshot contract — `dashboard-data.json` (schema_version 4 → **5 as of 2026-09-04**)
+
+> **Schema 5 (LIVE, additive):** `leads[]`, `leads_summary`, `scoreboard`, `insights` + three actions `lead_open` / `lead_update` / `lead_close`. Full shapes, role gating and the **mandatory Worker money-strip for `service` tokens** are in [[Leads-Site-Spec]] — build from that file; everything below is unchanged.
 
 The engine emits this; you consume it and also generate FAKE versions of it in `make-mock-data.js`. Never require fields beyond this contract; tolerate unknown extra fields silently (forward compatibility).
 
@@ -162,7 +166,7 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
   } ],
   // schema 3 (D35–D38) — full field list + semantics in [[Service-Dispatch-Site-Spec]] §2
   "service_queue": [ { "ticket": "S1001", "status": "OPEN|CLOSED",
-    "stage": "RECEIVED|CONTACTED|WAITING-ON-CUSTOMER|WAITING-ON-PARTS|SCHEDULED|IN-PROGRESS|READY-TO-INVOICE|COMPLETE",
+    "stage": "RECEIVED|CONTACTED|NEEDS-QUOTE|WAITING-ON-CUSTOMER|WAITING-ON-PARTS|SCHEDULED|IN-PROGRESS|READY-TO-INVOICE|COMPLETE",
     "machine_owner": "CUSTOMER|WSS", "customer": "…", "serial": null, "equipment": "…", "issue": "…",   // machine_owner ≠ the `owner` ROLE
     "priority": "HIGH|MEDIUM|LOW", "site": null, "location": "AT-CUSTOMER|IN-SHOP",
     "intake_move": "NONE|PICKUP|CUSTOMER-DROP", "return_move": "NONE|DELIVER|CUSTOMER-PICKUP",

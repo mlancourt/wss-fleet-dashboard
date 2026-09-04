@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 4).
+ * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 5).
  *
  * EVERYTHING in this file is invented. Fake customers, fake serials, fake money.
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
  *
  * Emits three variants so every view can be exercised:
- *   mock-full.json    schema 4 — service queue, dispatch board, pick-ups, holds
- *   mock-empty.json   schema 4 — service_queue: [] and dispatch: [] (empty states);
- *                     ON-DEMO row = 0 on the status board
+ *   mock-full.json    schema 5 — service queue, dispatch board, pick-ups, holds, leads
+ *   mock-empty.json   schema 5 — service_queue: [], dispatch: [] and leads: [] (empty
+ *                     states); ON-DEMO row = 0 on the status board
  *   mock-legacy.json  schema 2 — the pre-Dispatch snapshot, kept for one release
  *                     so the board still renders during the cutover
  *
@@ -42,6 +42,16 @@
  *     yet on the board, and a dispatch_warnings entry naming two SCHEDULED rows
  *     on the same rig the same day
  *   - NO `reservation` singular anywhere at schema 3 (the legacy file has it)
+ *   - schema 5 leads: thirteen leads across every stage and status · two stale
+ *     (one red, one yellow) · one `suggest_dead` · one WON inside this month ·
+ *     two LOST with reasons and one DEAD · a SERVICE lead and a PARTS lead with
+ *     `value: null` and therefore `potential_commission: null` · a lead whose
+ *     `demo.hold_id` matches a real DEMO hold on a real unit (§4) · a lead
+ *     pointing at a live service ticket · a `scoreboard` and `insights` DERIVED
+ *     from those rows, so the tab's totals and the cards agree. The empty
+ *     variant ships `leads: []` with zeroed money and every rate/median null —
+ *     the real snapshot's shape on a quiet day, which is NOT the same as the
+ *     legacy file's total absence of the keys.
  *
  * Usage: node tools/make-mock-data.js [outdir]     (default: docs/mock)
  * No dependencies. Node 18+.
@@ -335,6 +345,7 @@ function build({ withServiceQueue }) {
     };
     h.status = status(h);
     u.reservations.push(h);
+    return h;
   };
   const reservedUnits = units.filter((u) => u.unit_state === 'RESERVED');
   const availReady = units.filter((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY');
@@ -352,6 +363,11 @@ function build({ withServiceQueue }) {
   hold(onRent[0], 12, 12);                             // ON-RENT with two future holds (the 142812 case)
   hold(onRent[0], 20, 22);
   hold(inShop[0], 5, 3, { purpose: 'bad dates' });     // MALFORMED (end before start)
+  // schema 5 §4: a DEMO hold a lead booked. The unit stays AVAILABLE (the hold
+  // is future), and leads[].demo.hold_id points back at this id — which is the
+  // ONLY thing that links the two.
+  const demoHold = hold(availReady[1], 3, 3,
+    { purpose: 'DEMO — customer site', customer: 'Cedar Ridge Foods', held_by: 'Kevin' });
   // everything else: zero holds
 
   // Schema 3: the list is the ONLY source. No `reservation` singular is emitted.
@@ -607,6 +623,10 @@ function build({ withServiceQueue }) {
     period_end: d(0),
   }));
 
+  // ------------------------------------------------------- leads (schema 5)
+  const { leads, leads_summary, scoreboard, insights } =
+    buildLeads({ withLeads: withServiceQueue, demoHold, demoUnit: availReady[1], service_queue });
+
   // schema 4: a count and nothing else. No cost, no book, no ask (D45).
   const totals = { units: units.length };
 
@@ -630,7 +650,7 @@ function build({ withServiceQueue }) {
 
   const snapshot = {
     meta: {
-      schema_version: 4,
+      schema_version: 5,
       generated_at: new Date().toISOString(),
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
       fleet_totals: totals,
@@ -649,9 +669,330 @@ function build({ withServiceQueue }) {
     dispatch_warnings,
     // Still emitted for the engine's own consumers; the app must NOT render it (D39).
     billing: { due_next_7_days, created_last_run },
+    // schema 5 (Leads spec §2). Additive: everything above is byte-identical.
+    leads,
+    leads_summary,
+    scoreboard,
+    insights,
   };
 
   return { snapshot, ledger };
+}
+
+/* --------------------------------------------------------- leads (schema 5)
+ * Hand-built, not generated: §8 of the work order names the exact cases the
+ * Leads tab has to survive, and a random walk can't promise them.
+ *
+ * The engine derives ages, staleness, medians and percentages from a lead's
+ * stage history. There is no history here — the derived fields are written
+ * directly, chosen so the scoreboard and the insights tables agree with the
+ * leads[] rows a reader can count for themselves.
+ *
+ * `withLeads: false` produces the shape the REAL snapshot has on a quiet day:
+ * no leads at all, money rows that are zero, and every rate/median null with
+ * `insufficient: true`. That is the empty state the tab must render — not an
+ * absent key, which is what a schema-4 snapshot looks like instead.
+ */
+
+// Commission is engine-computed from the deal value. Reproduced here only so
+// the mock's numbers add up; the site never does this arithmetic.
+const COMMISSION_RATES = { 'SALE-NEW': 0.045, 'SALE-USED': 0.045, RENTAL: 0.07 };
+const LEAD_STAGE_LIST = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'INVOICED'];
+const LEAD_SOURCE_LIST = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO'];
+const LEAD_INTEREST_LIST = ['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS'];
+const LEAD_LOST_REASONS = ['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER'];
+const LEAD_ASSIGNEES = ['Kevin', 'Matt'];
+
+/** An instant, N days back and at a plausible hour — `stage_since` is a datetime. */
+const dt = (daysBack, hour = 14) => new Date(TODAY - daysBack * DAY + hour * 3600000).toISOString();
+/** "2026-09" for N months back. Built from parts; never string-sliced arithmetic. */
+function monthBack(n) {
+  const now = new Date(TODAY);
+  const m = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - n, 1));
+  return m.toISOString().slice(0, 7);
+}
+const median = (nums) => {
+  const a = nums.filter((n) => typeof n === 'number').sort((x, y) => x - y);
+  if (!a.length) return null;
+  const mid = a.length >> 1;
+  return a.length % 2 ? a[mid] : Math.round(((a[mid - 1] + a[mid]) / 2) * 10) / 10;
+};
+
+function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
+  const commissionOf = (interest, value) => {
+    const rate = COMMISSION_RATES[interest];
+    // null when unset OR when the interest earns no commission (SERVICE/PARTS).
+    return rate == null || value == null ? null : Math.round(value * rate * 100) / 100;
+  };
+
+  const mk = (o) => {
+    const value = o.value == null ? null : o.value;
+    return {
+      lead: o.lead,
+      status: o.status || 'OPEN',
+      stage: o.stage,
+      customer: o.customer,
+      contact: o.contact || null,
+      phone: o.phone || null,
+      email: o.email || null,
+      site: o.site || null,
+      source: o.source,
+      interest: o.interest,
+      machine: o.machine || null,
+      serial: o.serial || null,
+      value,
+      potential_commission: commissionOf(o.interest, value),
+      quote: o.quote || null,
+      demo: o.demo || null,
+      assigned: o.assigned || 'Kevin',
+      priority: o.priority || 'MEDIUM',
+      next_action: o.next_action || null,
+      opened: d(-o.totalDays),
+      opened_by: o.opened_by || 'Kevin',
+      stage_since: dt(o.stageDays, 10),
+      first_contact: o.contactHours == null ? null : dt(o.totalDays - (o.contactHours / 24), 9),
+      hours_to_contact: o.contactHours == null ? null : o.contactHours,
+      age_in_stage_days: o.stageDays,
+      age_total_days: o.totalDays,
+      stale: o.stale || null,
+      stale_reason: o.stale_reason || null,
+      suggest_dead: !!o.suggest_dead,
+      closed: o.closedDays == null ? null : d(-o.closedDays),
+      close_reason: o.close_reason || null,
+      close_note: o.close_note || null,
+      invoice: o.invoice || null,
+      machinio_ref: o.machinio_ref || null,
+      related_ticket: o.related_ticket || null,
+    };
+  };
+
+  const ticket = (service_queue || []).find((t) => t.machine_owner === 'CUSTOMER');
+
+  const leads = !withLeads ? [] : [
+    // -- RECEIVED: two nobody has called yet, which is the nav badge's number.
+    mk({ lead: 'L1001', stage: 'RECEIVED', customer: 'Cedar Ridge Foods', contact: 'Dana Whitlock',
+      phone: '262-555-0148', email: 'dana@cedarridge.example', site: 'Oconomowoc WI 53066',
+      source: 'WEB-FORM', interest: 'RENTAL', machine: '28" rider, 3 months', value: 9800,
+      priority: 'HIGH', next_action: 'Call this morning', stageDays: 1, totalDays: 1 }),
+    mk({ lead: 'L1002', stage: 'RECEIVED', customer: 'Bellmont Distribution', contact: 'Ray Ackerman',
+      phone: '414-555-0192', site: 'Franklin WI 53132', source: 'PAID-SEARCH', interest: 'SALE-NEW',
+      machine: 'Walk-behind, 20" disk', value: 12400, assigned: 'Matt', opened_by: 'Matt',
+      stale: 'yellow', stale_reason: 'Four business days in Received with no call logged',
+      next_action: 'Nobody has called — do it today', stageDays: 4, totalDays: 4 }),
+
+    // -- CONTACTED: one healthy, one rotting hard enough that the engine says so.
+    mk({ lead: 'L1003', stage: 'CONTACTED', customer: 'Northgate Fulfillment', contact: 'Priya Raman',
+      phone: '608-555-0117', email: 'praman@northgate.example', site: 'Sun Prairie WI 53590',
+      source: 'PHONE', interest: 'RENTAL', machine: 'Rider scrubber, 6 weeks', value: 7350,
+      contactHours: 1.5, next_action: 'Send the weekly rate sheet', stageDays: 2, totalDays: 3 }),
+    mk({ lead: 'L1004', stage: 'CONTACTED', customer: 'Juniper Metalworks', contact: 'Tom Beier',
+      phone: '920-555-0163', site: 'Jefferson WI 53549', source: 'MACHINIO', interest: 'SALE-USED',
+      machine: 'Used 32" rider under $18k', value: 16500, assigned: 'Matt', opened_by: 'Matt',
+      contactHours: 26, stale: 'red', stale_reason: 'Eleven business days since the last contact',
+      suggest_dead: true, machinio_ref: 'MCH-88421', next_action: null, stageDays: 11, totalDays: 14 }),
+
+    // -- QUOTED: one with the quote object filled in, one big one.
+    mk({ lead: 'L1005', stage: 'QUOTED', customer: 'Harbor Line Logistics', contact: 'Marcus Idle',
+      phone: '262-555-0175', email: 'm.idle@harborline.example', site: 'Kenosha WI 53142',
+      source: 'REFERRAL', interest: 'SALE-NEW', machine: 'Nordvale SC-2400', value: 28900,
+      quote: { number: '990142', file: null, sent: d(-5) }, contactHours: 3,
+      next_action: 'Follow up Thursday', stageDays: 5, totalDays: 9 }),
+    mk({ lead: 'L1006', stage: 'QUOTED', customer: 'Quarry Road Aggregates', contact: 'Lena Faust',
+      phone: '608-555-0134', site: 'Beloit WI 53511', source: 'OUTBOUND', interest: 'RENTAL',
+      machine: 'Two riders, 6 months', value: 41200, priority: 'HIGH',
+      quote: { number: '990139', file: null, sent: d(-2) }, contactHours: 0.5,
+      next_action: 'They want a long-term number', stageDays: 2, totalDays: 12 }),
+
+    // -- DEMO-SCHEDULED: one wired to a real hold (§4), one wired to a ticket.
+    mk({ lead: 'L1007', stage: 'DEMO-SCHEDULED', customer: 'Cedar Ridge Foods', contact: 'Dana Whitlock',
+      phone: '262-555-0148', site: 'Oconomowoc WI 53066', source: 'WALK-IN', interest: 'SALE-NEW',
+      machine: demoUnit ? `${demoUnit.brand} ${demoUnit.model}` : 'Rider scrubber',
+      serial: demoUnit ? demoUnit.serial : null, value: 24600, priority: 'HIGH',
+      demo: demoHold ? { date: demoHold.start, serial: demoUnit.serial, hold_id: demoHold.id } : null,
+      contactHours: 2, next_action: 'Confirm the dock time', stageDays: 1, totalDays: 6 }),
+    mk({ lead: 'L1008', stage: 'DEMO-SCHEDULED', customer: 'Ironwood Packaging', contact: 'Sal Kittredge',
+      phone: '414-555-0128', email: 'sal@ironwoodpack.example', site: 'Milwaukee WI 53207',
+      source: 'SERVICE-UPSELL', interest: 'RENTAL', machine: 'Compact walk-behind', value: 5400,
+      assigned: 'Matt', contactHours: 4.5, related_ticket: ticket ? ticket.ticket : null,
+      next_action: 'Demo Tuesday, bring the small pad driver', stageDays: 3, totalDays: 11 }),
+
+    // -- a SERVICE lead: no value, and therefore no commission, by contract.
+    mk({ lead: 'L1009', stage: 'CONTACTED', customer: 'Meadowbrook Care', contact: 'Gail Ostrander',
+      email: 'gostrander@meadowbrook.example', site: 'Waukesha WI 53186', source: 'EMAIL',
+      interest: 'SERVICE', machine: 'Their own Halstead T-320', value: null,
+      contactHours: 6, next_action: 'Quote the annual PM', stageDays: 3, totalDays: 3 }),
+
+    // -- the win: stage INVOICED, status WON, closed inside this month.
+    mk({ lead: 'L1010', stage: 'INVOICED', status: 'WON', customer: 'Lakeshore Bottling', contact: 'Erik Nyholm',
+      phone: '920-555-0181', site: 'Sheboygan WI 53081', source: 'REFERRAL', interest: 'SALE-NEW',
+      machine: 'Ironline T-500', value: 31500, invoice: '990665', quote: { number: '990131', file: null, sent: d(-19) },
+      contactHours: 0.75, closedDays: 4, close_reason: 'WON', close_note: 'Took the demo unit',
+      stageDays: 4, totalDays: 23 }),
+
+    // -- two losses with reasons, and one that simply went quiet.
+    mk({ lead: 'L1011', stage: 'QUOTED', status: 'LOST', customer: 'Prairie State Millwork', contact: 'Hank Obuya',
+      site: 'Janesville WI 53545', source: 'PAID-SEARCH', interest: 'SALE-USED', machine: 'Used 26" rider',
+      value: 14750, contactHours: 5, closedDays: 3, close_reason: 'PRICE',
+      close_note: 'Came in $2,400 under us on a private sale', stageDays: 3, totalDays: 17 }),
+    mk({ lead: 'L1012', stage: 'QUOTED', status: 'LOST', customer: 'Blue Fox Brewing', contact: 'Marta Reyes',
+      site: 'Madison WI 53713', source: 'WEB-FORM', interest: 'RENTAL', machine: 'Walk-behind, 2 months',
+      value: 4300, assigned: 'Matt', contactHours: 22, closedDays: 9, close_reason: 'COMPETITOR',
+      close_note: 'Went with the Madison dealer for the shorter drive', stageDays: 9, totalDays: 26 }),
+    // The fifth closed lead in the window, which is what tips `insufficient`
+    // false and makes the conversion row and the insights tables render with
+    // real numbers. Below five they must all read "not enough data" instead —
+    // that path is the empty variant's job.
+    mk({ lead: 'L1014', stage: 'CONTACTED', status: 'LOST', customer: 'Halcyon Print Works', contact: 'Owen Brisk',
+      site: 'Racine WI 53403', source: 'PHONE', interest: 'SALE-NEW', machine: 'Nordvale SC-1700',
+      value: 19800, contactHours: 8, closedDays: 12, close_reason: 'NO-BUDGET',
+      close_note: 'Capital freeze until the new fiscal year', stageDays: 12, totalDays: 30 }),
+    mk({ lead: 'L1013', stage: 'RECEIVED', status: 'DEAD', customer: 'Fenwick Auto Group',
+      site: 'Brookfield WI 53045', source: 'MACHINIO', interest: 'PARTS', machine: 'Squeegee blades, unknown model',
+      value: null, machinio_ref: 'MCH-88109', closedDays: 6, close_reason: 'SILENT',
+      close_note: 'Three calls, no answer', stageDays: 6, totalDays: 21 }),
+  ];
+
+  /* ---- everything below is DERIVED from the rows above, so the tab's numbers
+     and the cards a reader can count always agree. ---- */
+
+  const open = leads.filter((l) => l.status === 'OPEN');
+  const won = leads.filter((l) => l.status === 'WON');
+  const lost = leads.filter((l) => l.status === 'LOST');
+  const dead = leads.filter((l) => l.status === 'DEAD');
+  const stale = leads.filter((l) => l.stale === 'red' || l.stale === 'yellow');
+  const sum = (list, key) => Math.round(list.reduce((n, l) => n + (l[key] || 0), 0) * 100) / 100;
+  const openByStage = Object.fromEntries(LEAD_STAGE_LIST.slice(0, 4)
+    .map((s) => [s, open.filter((l) => l.stage === s).length]));
+
+  const leads_summary = {
+    open_by_stage: openByStage,
+    received_uncontacted: open.filter((l) => l.stage === 'RECEIVED' && !l.first_contact).length,
+    stale_count: stale.length,
+    closed_recent: { WON: won.length, LOST: lost.length, DEAD: dead.length },
+    money_fields: ['value', 'potential_commission'],
+    stages: LEAD_STAGE_LIST,
+    sources: LEAD_SOURCE_LIST,
+    interests: LEAD_INTEREST_LIST,
+    lost_reasons: LEAD_LOST_REASONS,
+    assignees: LEAD_ASSIGNEES,
+    commission_rates: COMMISSION_RATES,
+  };
+
+  const contacted = leads.filter((l) => typeof l.hours_to_contact === 'number');
+  const closedForRates = won.length + lost.length + dead.length;
+  const enoughToRate = closedForRates >= 5;
+
+  const scoreboard = {
+    money: {
+      on_table_value: sum(open, 'value'),
+      on_table_commission: sum(open, 'potential_commission'),
+      this_month_won_value: sum(won, 'value'),
+      this_month_commission: sum(won, 'potential_commission'),
+      baseline: {
+        months: [monthBack(1), monthBack(2), monthBack(3)],
+        won_count_avg: withLeads ? 1.7 : 0,
+        won_value_avg: withLeads ? 24300 : 0,
+        commission_avg: withLeads ? 1150.5 : 0,
+      },
+    },
+    this_month: { month: monthBack(0), won_count: won.length, baseline_won_count_avg: withLeads ? 1.7 : 0 },
+    speed: {
+      median_hours_to_contact: median(contacted.map((l) => l.hours_to_contact)),
+      n: contacted.length,
+      window_days: 30,
+      same_day_streak: withLeads ? 4 : 0,          // >= 3 lights the 🔥
+    },
+    conversion: {
+      window_days: 90,
+      n: closedForRates,
+      received_to_quoted_pct: enoughToRate ? 62 : null,
+      quoted_to_won_pct: enoughToRate ? 33 : null,
+      median_days_to_win: enoughToRate ? 21 : null,
+      insufficient: !enoughToRate,
+    },
+    stale: {
+      count: stale.length,
+      red: stale.filter((l) => l.stale === 'red').length,
+      yellow: stale.filter((l) => l.stale === 'yellow').length,
+      leads: stale.map((l) => l.lead),
+    },
+    open: { count: open.length, by_stage: openByStage },
+  };
+
+  // A group-by that mirrors what the engine publishes: counts, a win rate that
+  // is null until there is something to divide, and won_value as DEAL SIZE —
+  // which is why insights survives the §6 money strip untouched.
+  const groupBy = (key) => {
+    const out = {};
+    for (const l of leads) {
+      const k = l[key];
+      if (!k) continue;
+      const g = out[k] || (out[k] = { leads: 0, won: 0, lost: 0, won_value: 0, win_rate_pct: null });
+      g.leads++;
+      if (l.status === 'WON') { g.won++; g.won_value += l.value || 0; }
+      if (l.status === 'LOST' || l.status === 'DEAD') g.lost++;
+    }
+    for (const g of Object.values(out)) {
+      const decided = g.won + g.lost;
+      g.win_rate_pct = decided ? Math.round((g.won / decided) * 100) : null;
+    }
+    return out;
+  };
+
+  const byInterest = groupBy('interest');
+  const wonTotal = won.length;
+  byInterest._rental_share_of_wins_pct = wonTotal
+    ? Math.round((won.filter((l) => l.interest === 'RENTAL').length / wonTotal) * 100) : null;
+
+  const machines = {};
+  for (const l of leads) {
+    if (!l.machine) continue;
+    const g = machines[l.machine] || (machines[l.machine] = { leads: 0, won: 0 });
+    g.leads++;
+    if (l.status === 'WON') g.won++;
+  }
+
+  const ZIP_RE = /\b(\d{5})\b/;
+  const by_zip = {};
+  for (const l of leads) {
+    const m = l.site && ZIP_RE.exec(l.site);
+    if (!m) continue;
+    const g = by_zip[m[1]] || (by_zip[m[1]] = { leads: 0, won: 0 });
+    g.leads++;
+    if (l.status === 'WON') g.won++;
+  }
+
+  const lostReasons = {};
+  for (const l of lost.concat(dead)) {
+    if (!l.close_reason) continue;
+    lostReasons[l.close_reason] = (lostReasons[l.close_reason] || 0) + 1;
+  }
+
+  const insights = {
+    window_days: 90,
+    n: leads.length,
+    min_n: 5,
+    insufficient: !enoughToRate,
+    by_source: groupBy('source'),
+    by_interest: byInterest,
+    machines,
+    lost: {
+      n: lost.length + dead.length,
+      reasons: lostReasons,
+      median_value_won: median(won.map((l) => l.value)),
+      median_value_lost: median(lost.map((l) => l.value)),
+    },
+    funnel: {
+      median_bdays_in_stage: Object.fromEntries(LEAD_STAGE_LIST.slice(0, 4).map((s) => {
+        const rows = leads.filter((l) => l.stage === s);
+        return [s, rows.length ? median(rows.map((l) => l.age_in_stage_days)) : null];
+      })),
+      median_quote_to_decision_bdays: enoughToRate ? 6 : null,
+    },
+    by_zip,
+  };
+
+  return { leads, leads_summary, scoreboard, insights };
 }
 
 /**
@@ -713,6 +1054,13 @@ function downgradeToSchema2(s3, ledger) {
   delete snap.service_summary;
   delete snap.dispatch;
   delete snap.dispatch_warnings;
+  // Schema 2 predates leads by three schema versions. Their ABSENCE (not an
+  // empty array) is what a stale KV value looks like, and the Leads tab has to
+  // say so rather than draw an empty board.
+  delete snap.leads;
+  delete snap.leads_summary;
+  delete snap.scoreboard;
+  delete snap.insights;
   return snap;
 }
 
@@ -799,6 +1147,37 @@ const pending = [
     actor: 'Matt', role: 'owner',
     action: 'dispatch_done', serial: null,
     payload: { dispatch_id: 'm-pu-900149', note: 'Back in the yard' },
+  },
+  // schema 5. Like ticket_open, a pending lead_open has no number of its own —
+  // the Leads tab has to badge it without inventing "L????".
+  {
+    id: 'evt-mock-7',
+    ts: ago(25),
+    actor: 'Josh', role: 'service',
+    action: 'lead_open', serial: null,
+    payload: {
+      customer: 'Stonebridge Cold Storage', contact: 'Nadia Kohl', phone: '262-555-0199',
+      email: null, site: 'Pewaukee WI 53072', source: 'PHONE', interest: 'RENTAL',
+      machine: 'Rider for a freezer floor', serial: null, value: null, priority: 'HIGH',
+      assigned: 'Kevin', next_action: 'Kevin to call back', note: 'Called the shop line',
+      related_ticket: null, machinio_ref: null, force: false,
+    },
+  },
+  // A stage move on a lead -> the lead badges pending, the card does not move.
+  {
+    id: 'evt-mock-8',
+    ts: ago(9),
+    actor: 'Kevin', role: 'sales',
+    action: 'lead_update', serial: null,
+    payload: { lead: 'L1005', stage: 'DEMO-SCHEDULED', demo_date: d(2), demo_serial: '900107', note: 'They asked to see it run' },
+  },
+  // A close proposal on a lead that is still OPEN on the board.
+  {
+    id: 'evt-mock-9',
+    ts: ago(4),
+    actor: 'Kevin', role: 'sales',
+    action: 'lead_close', serial: null,
+    payload: { lead: 'L1004', outcome: 'DEAD', reason: null, note: 'Four calls, nothing back' },
   },
 ];
 const pfile = path.join(outdir, 'mock-pending.json');

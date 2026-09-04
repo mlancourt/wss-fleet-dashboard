@@ -35,6 +35,13 @@ const ACTION_ROLES = {
   dispatch_claim: ALL_ROLES,
   dispatch_done: ALL_ROLES,
   dispatch_cancel: new Set(['owner']),
+  // schema 5 (Leads spec §5). Anyone may write a lead down — a tech who takes
+  // the call is the person who has the customer on the line. Working it is
+  // Kevin's and Matt's: a `lead_update` from `service` may carry a note and
+  // nothing else (narrowed inside cleanPayload), and closing is theirs alone.
+  lead_open: ALL_ROLES,
+  lead_update: ALL_ROLES,
+  lead_close: new Set(['owner', 'sales']),
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -54,6 +61,18 @@ const RETURN_MOVES = new Set(['NONE', 'DELIVER', 'CUSTOMER-PICKUP']);
 const KINDS = new Set(['PICKUP', 'DELIVER']);
 const RIGS = new Set(['KEVIN-LIFTGATE', 'JOSH-LIFTGATE', 'TRAILER-6000', 'TRAILER-3000']);
 const DRIVERS = new Set(['Matt', 'Kevin', 'Josh', 'Zac']);
+
+// schema 5 — leads. Same rule as every list above: membership only. Whether a
+// lead may legally move to this stage today is the vault's call, never ours.
+const LEAD_STAGES = new Set(['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'INVOICED']);
+const LEAD_SOURCES = new Set(['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO']);
+const LEAD_INTERESTS = new Set(['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS']);
+const LOST_REASONS = new Set(['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER']);
+const LEAD_OUTCOMES = new Set(['LOST', 'DEAD']);        // WON is reached by moving to INVOICED, not by closing
+const ASSIGNEES = new Set(['Kevin', 'Matt']);
+// The one key a `service` token may put in a lead_update (§5).
+const SERVICE_LEAD_KEYS = new Set(['lead', 'note']);
+const MAX_LEAD_VALUE = 10000000;                        // a typed-in figure, not a computed one — catch a fat finger
 
 const SERIAL_RE = /^[A-Za-z0-9-]{1,32}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -194,10 +213,59 @@ async function crewData({ me, env }) {
   if (!snapshot) return json({ error: 'no snapshot published yet' }, 503);
 
   // The snapshot was validated as JSON at publish time, so splice the raw text
-  // in rather than parse + re-stringify a large document on every read.
+  // in rather than parse + re-stringify a large document on every read. A
+  // `service` token is the one case that has to pay for a parse: its copy has
+  // the lead money removed here, at the edge, before the bytes leave.
+  const doc = me.role === 'service' ? stripLeadMoney(snapshot) : snapshot;
   const pending = JSON.stringify(events.map((e) => e.event));
-  const body = `{"me":${JSON.stringify(me)},"snapshot":${snapshot},"pending":${pending}}`;
+  const body = `{"me":${JSON.stringify(me)},"snapshot":${doc},"pending":${pending}}`;
   return new Response(body, { status: 200, headers: jsonHeaders() });
+}
+
+/**
+ * The money gate (Leads spec §6, L4) — NOT optional, and deliberately not a
+ * client concern. Privacy by contract, not by CSS: this is the D45 lesson, that
+ * a figure the page merely declines to draw is still a figure sitting in the
+ * response for anyone who opens the network tab.
+ *
+ * For a `service` token, remove from the snapshot:
+ *   - every key named in `leads_summary.money_fields` from each `leads[]` row
+ *     (today `value` + `potential_commission`), UNIONED with our own copy of
+ *     that list so a missing or malformed `money_fields` cannot open the gate;
+ *   - `leads_summary.commission_rates` — the rates reconstruct the commission;
+ *   - `leads_summary.money_fields` itself, which otherwise leaves the literal
+ *     string "potential_commission" in a response that must not contain it
+ *     (the deploy-loop curl check greps for exactly that);
+ *   - `scoreboard.money`.
+ * `insights` is untouched: `won_value` there is deal size, not anybody's pay.
+ *
+ * Fails CLOSED. If the stored snapshot somehow won't parse we refuse rather
+ * than fall back to shipping the raw text — the raw text is the thing we are
+ * trying not to send.
+ */
+function stripLeadMoney(text) {
+  let doc;
+  try { doc = JSON.parse(text); } catch { throw httpError(500, 'snapshot unreadable'); }
+  if (!doc || typeof doc !== 'object') throw httpError(500, 'snapshot unreadable');
+
+  const summary = doc.leads_summary && typeof doc.leads_summary === 'object' ? doc.leads_summary : null;
+  const declared = summary && Array.isArray(summary.money_fields) ? summary.money_fields : [];
+  const fields = new Set(['value', 'potential_commission']);
+  for (const f of declared) if (typeof f === 'string') fields.add(f);
+
+  if (Array.isArray(doc.leads)) {
+    for (const lead of doc.leads) {
+      if (!lead || typeof lead !== 'object') continue;
+      for (const f of fields) delete lead[f];
+    }
+  }
+  if (summary) {
+    delete summary.commission_rates;
+    delete summary.money_fields;
+  }
+  if (doc.scoreboard && typeof doc.scoreboard === 'object') delete doc.scoreboard.money;
+
+  return JSON.stringify(doc);
 }
 
 async function crewEvent({ request, me, env }) {
@@ -366,6 +434,97 @@ function cleanPayload(action, p, role) {
 
   if (action === 'dispatch_cancel') {
     return { dispatch_id: refId(obj.dispatch_id, 'dispatch_id') };
+  }
+
+  /* ------------------------------------------------------------- schema 5 -- */
+
+  // A typed-in dollar figure. Not money we computed and not money we display —
+  // the engine recomputes the commission from it. Rejects a string so "14,250"
+  // fails here rather than arriving in the vault as NaN.
+  const optValue = (v, field) => {
+    if (v == null || v === '') return null;
+    if (typeof v !== 'number' || !isFinite(v)) throw httpError(400, `${field} must be a number`);
+    if (v < 0 || v > MAX_LEAD_VALUE) throw httpError(400, `${field} is out of range`);
+    return Math.round(v * 100) / 100;
+  };
+
+  if (action === 'lead_open') {
+    // No lead id: the engine assigns it, exactly as it does a ticket number.
+    // `force` overrides the engine's duplicate check, so it is Matt's alone —
+    // for anyone else it is dropped rather than refused, because the safe
+    // reading of an unexpected force is "leave the de-dup switched on".
+    return {
+      customer: str(obj.customer, 120, 'customer', true),
+      contact: optStr(obj.contact, 120, 'contact'),
+      phone: optStr(obj.phone, 40, 'phone'),
+      email: optStr(obj.email, 200, 'email'),
+      site: optStr(obj.site, 200, 'site'),
+      source: oneOf(obj.source, LEAD_SOURCES, 'source'),
+      interest: oneOf(obj.interest, LEAD_INTERESTS, 'interest'),
+      machine: optStr(obj.machine, 200, 'machine'),
+      serial: optSerial(obj.serial, 'serial'),
+      value: optValue(obj.value, 'value'),
+      priority: oneOf(obj.priority, PRIORITIES, 'priority'),
+      assigned: optOneOf(obj.assigned, ASSIGNEES, 'assigned'),
+      next_action: optStr(obj.next_action, 300, 'next_action'),
+      note: optStr(obj.note, 1000, 'note'),
+      related_ticket: obj.related_ticket == null || obj.related_ticket === '' ? null : refId(obj.related_ticket, 'related_ticket'),
+      machinio_ref: optStr(obj.machinio_ref, 64, 'machinio_ref'),
+      force: role === 'owner' && obj.force === true,
+    };
+  }
+
+  if (action === 'lead_update') {
+    // Only the keys being changed travel. `service` gets the note and nothing
+    // else — a tech relaying "they called back" is useful; a tech re-pricing
+    // the deal is not, and a silently-dropped key would be worse than a 403.
+    if (role === 'service') {
+      for (const k of Object.keys(obj)) {
+        if (!SERVICE_LEAD_KEYS.has(k)) throw httpError(403, `role service may only add a note to a lead (got ${k})`);
+      }
+    }
+    const out = { lead: refId(obj.lead, 'lead') };
+    const stage = optOneOf(obj.stage, LEAD_STAGES, 'stage');
+    if (stage) out.stage = stage;
+    const note = optStr(obj.note, 1000, 'note');
+    if (note) out.note = note;
+    const next = optStr(obj.next_action, 300, 'next_action');
+    if (next) out.next_action = next;
+    const value = optValue(obj.value, 'value');
+    if (value != null) out.value = value;
+    const assigned = optOneOf(obj.assigned, ASSIGNEES, 'assigned');
+    if (assigned) out.assigned = assigned;
+    const priority = optOneOf(obj.priority, PRIORITIES, 'priority');
+    if (priority) out.priority = priority;
+    const demoDate = optDate(obj.demo_date, 'demo_date');
+    if (demoDate) out.demo_date = demoDate;
+    const demoSerial = optSerial(obj.demo_serial, 'demo_serial');
+    if (demoSerial) out.demo_serial = demoSerial;
+    const invoice = optStr(obj.invoice, 64, 'invoice');
+    if (invoice) out.invoice = invoice;
+    const quote = optStr(obj.quote, 64, 'quote');
+    if (quote) out.quote = quote;
+    const machine = optStr(obj.machine, 200, 'machine');
+    if (machine) out.machine = machine;
+    const serial = optSerial(obj.serial, 'serial');
+    if (serial) out.serial = serial;
+    for (const [k, max] of [['contact', 120], ['phone', 40], ['email', 200], ['site', 200]]) {
+      const v = optStr(obj[k], max, k);
+      if (v) out[k] = v;
+    }
+    if (Object.keys(out).length < 2) throw httpError(400, 'lead_update needs at least one field to change');
+    return out;
+  }
+
+  if (action === 'lead_close') {
+    // WON is not an outcome here: a win is reached by moving the stage to
+    // INVOICED, which names the invoice. Closing is for the ones that didn't.
+    return {
+      lead: refId(obj.lead, 'lead'),
+      outcome: oneOf(obj.outcome, LEAD_OUTCOMES, 'outcome'),
+      reason: optOneOf(obj.reason, LOST_REASONS, 'reason'),
+      note: optStr(obj.note, 1000, 'note'),
+    };
   }
 
   return {}; // every action in ACTION_ROLES is handled above

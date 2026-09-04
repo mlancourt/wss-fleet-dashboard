@@ -36,6 +36,7 @@ the hard rules — read it before changing anything here.
 | **M2 — deploy real** | ✅ done | Matt opens his tokened URL on his phone and sees the real fleet |
 | **M3 — domain + PWA** | ✅ live (Sep 2, 2026) | `fleet.wisconsinscrubandsweep.com` installs as an app |
 | **v1.6 — Service + Dispatch** | ✅ built on mock (Sep 3, 2026) | all nine actions round-trip locally; see `BUILD-NOTES.md` |
+| **v2.2 — Leads (schema 5)** | ✅ built (Sep 4, 2026) | three lead actions round-trip; the §6 money gate proven by curl; see `BUILD-NOTES.md` |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -97,11 +98,13 @@ whenever you re-run — that's expected.
 npm test
 ```
 
-Six suites, ~85 checks. `selftest-render.mjs` boots the **real** `app.js` in a
-stub DOM and renders every route against all three mock variants as all three
+Seven suites, ~145 checks. `selftest-render.mjs` boots the **real** `app.js` in
+a stub DOM and renders every route against all three mock variants as all three
 roles, failing on a thrown view, a leaked `undefined`, or a date-only string
 that got `Date`-parsed. `selftest-service.mjs` pins the schema-3 rules: stage
 gating, kanban columns, dispatch ordering, the same-rig-same-day warning.
+`selftest-leads.mjs` pins the schema-5 ones, and above all the rule that lead
+money is **absent, not zero** for a `service` token — see the money gate below.
 `selftest-holds.mjs` covers Reservations v2 and `selftest-metrics.mjs` the D19
 / D20 / D21 math. `selftest-api.mjs` proves the mock knobs are inert in production
 (role from the server only, no mock file fetched, snapshot untouched, token in
@@ -115,6 +118,43 @@ too:
 ```bash
 TZ=Pacific/Pago_Pago npm test
 ```
+
+### Smoke a real snapshot
+
+```bash
+node tools/smoke-real.mjs ~/.wss-runs/real-snapshot-schema5.json
+```
+
+Renders every view against a **real** published snapshot without copying one
+into this repo — the file is read from the path you give and served to the app
+from memory. Use it after any schema bump: the mock generator only produces
+what we thought to write, and this is what catches the rest. It does not test
+the money gate; that is Worker behaviour, proven by the curl check in
+`npm run m1`.
+
+### The money gate (schema 5, spec §6) — not optional
+
+`GET /api/data` strips lead money **at the edge** for a `service` token, before
+the bytes leave the Worker: `value` and `potential_commission` off every
+`leads[]` row, plus `leads_summary.commission_rates`, `leads_summary.money_fields`
+and `scoreboard.money`. `insights` is untouched — `won_value` there is deal
+size, not anybody's pay.
+
+Privacy by contract, not by CSS. A number the page merely declines to draw is
+still sitting in the response for anyone who opens a network tab; that was the
+D45 lesson and this is the same rule applied to commission. The page's own
+guards exist so the layout is right, **not** as the control.
+
+The check runs inside `npm run m1`, and is worth running by hand after any
+Worker deploy:
+
+```bash
+curl -s "$WORKER/api/data" -H "Authorization: Bearer $SERVICE_TOKEN" \
+  | grep -c potential_commission      # must print 0
+```
+
+If that ever prints anything but `0`, stop and fix the Worker — do not "fix" it
+in the page.
 
 ### Icons
 
@@ -137,12 +177,13 @@ package.json            scripts; wrangler is the sole dev dependency
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
-  app.js                routing, views, write forms, the nine write actions
+  app.js                routing, views, write forms, the twelve write actions
   api.js                data source: Worker or mock (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
   holds.js              hold-list logic (pure)
   metrics.js            utilization, status board, recurring revenue (pure)
   service.js            service + dispatch logic, schema 3 (pure)
+  leads.js              leads board, scoreboard + insights logic, schema 5 (pure)
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
   sw.js                 shell cache only; data is never cached
@@ -156,7 +197,7 @@ worker/                 the Cloudflare Worker
   .dev.vars             local ADMIN_SECRET + ALLOW_LOCALHOST=1 (gitignored)
 
 tools/
-  make-mock-data.js     fake snapshot generator (schema 4 + a schema-2 downgrade)
+  make-mock-data.js     fake snapshot generator (schema 5 + a schema-2 downgrade)
   make-icons.js         icon generator
   serve.js              dev static server (sends Cache-Control: no-store)
   m1-loop.sh            the Worker loop, curl-scripted (npm run m1)
@@ -166,7 +207,9 @@ tools/
   selftest-holds.mjs    Reservations v2 logic
   selftest-metrics.mjs  utilization / status board / recurring revenue
   selftest-service.mjs  schema-3 service + dispatch logic
+  selftest-leads.mjs    schema-5 leads logic, incl. money-absent-not-zero
   selftest-render.mjs   every view, every mock variant, every role
+  smoke-real.mjs        render a REAL snapshot by path — never copies it here
 ```
 
 ---

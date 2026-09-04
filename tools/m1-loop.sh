@@ -5,8 +5,9 @@
 #   tokens -> publish -> GET /api/data -> GET /api/health -> POST /api/event
 #   -> GET /api/admin/events (event present) -> ack -> events (event gone)
 #   -> DELETE /api/event/<id> (undo your own, and only your own)
-# plus the refusals: bad token, bad secret, wrong role, bad shape — and all nine
-# write actions, the six schema-3 ones included.
+# plus the refusals: bad token, bad secret, wrong role, bad shape — and all twelve
+# write actions, the six schema-3 and three schema-5 ones included, and the
+# schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
 # Remote:  WORKER=https://wss-fleet-worker.<you>.workers.dev ADMIN_SECRET=... npm run m1
@@ -66,7 +67,7 @@ expect "tokens: 3-person map -> 200 (names only echoed)" 200 \
   -d "{\"$T_SALES\":{\"name\":\"Test Kevin\",\"role\":\"sales\"},
        \"$T_SERVICE\":{\"name\":\"Test Josh\",\"role\":\"service\"},
        \"$T_OWNER\":{\"name\":\"Test Matt\",\"role\":\"owner\"}}"
-expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===4" \
+expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===5" \
   -X POST "$WORKER/api/admin/publish" "${H_ADMIN[@]}" --data-binary "@$SNAPSHOT"
 
 echo "-- crew: read"
@@ -240,6 +241,108 @@ expect "a traversal-shaped id -> 400"      400 "" -X DELETE "$WORKER/api/event/.
 expect "the snapshot is untouched"         200 "b.snapshot.units.length===39" "$WORKER/api/data" -H "$(auth $T_OWNER)"
 expect "GET on the id path -> 405"         405 "" "$WORKER/api/event/$UNDO_ID" -H "$(auth $T_SALES)"
 expect "pending back to baseline after undo" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
+echo "-- crew: leads (schema 5) refusals"
+expect "service may not close a lead -> 403" 403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_close","payload":{"lead":"L1001","outcome":"DEAD"}}'
+expect "service may not move a lead stage -> 403" 403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1001","stage":"CONTACTED"}}'
+expect "service may not set a lead value -> 403" 403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1001","value":9000}}'
+expect "lead_open bad source -> 400"       400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_open","payload":{"customer":"Acme","source":"CARRIER-PIGEON","interest":"RENTAL","priority":"LOW"}}'
+expect "lead_open bad interest -> 400"     400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_open","payload":{"customer":"Acme","source":"PHONE","interest":"VIBES","priority":"LOW"}}'
+expect "lead_open without a customer -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_open","payload":{"source":"PHONE","interest":"RENTAL","priority":"LOW"}}'
+expect "a value as a string -> 400"        400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1001","value":"14,250"}}'
+expect "a negative value -> 400"           400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1001","value":-5}}'
+expect "lead_update with nothing to change -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1001"}}'
+expect "lead_update bad lead id -> 400"    400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"../evt","note":"x"}}'
+expect "lead_close bad outcome -> 400"     400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_close","payload":{"lead":"L1001","outcome":"WON"}}'
+expect "lead_close bad reason -> 400"      400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_close","payload":{"lead":"L1001","outcome":"LOST","reason":"BAD-VIBES"}}'
+
+echo "-- crew: leads (schema 5) writes"
+expect "anyone opens a lead -> 201, server-stamped, no id yet" 201 \
+  "b.action==='lead_open' && b.serial===null && b.actor==='Test Josh' && b.payload.customer==='Stonebridge Cold Storage' && b.payload.source==='PHONE' && b.payload.interest==='RENTAL' && b.payload.value===null && b.payload.assigned==='Kevin'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_open","payload":{"customer":"  Stonebridge Cold Storage ","contact":"Nadia Kohl","phone":"262-555-0199","email":null,"site":"Pewaukee WI","source":"PHONE","interest":"RENTAL","machine":"Rider for a freezer floor","serial":null,"value":null,"priority":"HIGH","assigned":"Kevin","next_action":"Kevin to call back","note":"Called the shop line","related_ticket":null,"machinio_ref":null,"force":false}}'
+L5A=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "force is Matt's alone — dropped for sales" 201 "b.payload.force===false" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_open","payload":{"customer":"Duplicate Co","source":"WEB-FORM","interest":"SALE-NEW","priority":"LOW","force":true}}'
+L5B=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "force is honoured for owner -> 201"  201 "b.payload.force===true" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_open","payload":{"customer":"Duplicate Co","source":"WEB-FORM","interest":"SALE-NEW","priority":"LOW","force":true}}'
+L5C=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "sales moves a lead to DEMO-SCHEDULED -> 201" 201 \
+  "b.payload.lead==='L1005' && b.payload.stage==='DEMO-SCHEDULED' && b.payload.demo_date==='2026-09-11' && b.payload.demo_serial==='900114' && b.payload.value===undefined" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1005","stage":"DEMO-SCHEDULED","demo_date":"2026-09-11","demo_serial":"900114","note":"They want to see it run"}}'
+L5D=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "sales sets a value -> 201, only that key travels" 201 \
+  "b.payload.value===14250 && b.payload.stage===undefined && b.payload.note===undefined" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1006","value":14250}}'
+L5E=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "service adds a NOTE to a lead -> 201 (the one key they get)" 201 \
+  "b.payload.lead==='L1003' && b.payload.note==='They called the shop line' && b.role==='service'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1003","note":"They called the shop line"}}'
+L5F=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "sales closes a lead as LOST -> 201" 201 \
+  "b.action==='lead_close' && b.payload.outcome==='LOST' && b.payload.reason==='PRICE'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_close","payload":{"lead":"L1011","outcome":"LOST","reason":"PRICE","note":"Undercut on a private sale"}}'
+L5G=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "a DEAD lead needs no reason -> 201" 201 "b.payload.outcome==='DEAD' && b.payload.reason===null" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_close","payload":{"lead":"L1013","outcome":"DEAD","reason":null,"note":"Three calls, no answer"}}'
+L5H=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+
+expect "all eight lead events drained -> deleted 8" 200 "b.deleted===8" \
+  -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
+  -d "{\"ids\":[\"$L5A\",\"$L5B\",\"$L5C\",\"$L5D\",\"$L5E\",\"$L5F\",\"$L5G\",\"$L5H\"]}"
+expect "pending back to baseline after the leads" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
+echo "-- the money gate (Leads spec §6, L4) — NOT optional"
+# The literal grep the spec names. It runs on the RAW bytes, before any JSON
+# parse, because the thing being asserted is that the string is not in the
+# response at all — not that some parsed field happens to be undefined.
+SVC_BODY=$(curl -sS "$WORKER/api/data" -H "$(auth $T_SERVICE)")
+if printf '%s' "$SVC_BODY" | grep -q 'potential_commission'; then
+  bad "service token /api/data must not contain 'potential_commission'" \
+      "found it — the money gate is not stripping"
+else
+  ok "service token /api/data does not contain 'potential_commission'"
+fi
+if printf '%s' "$SVC_BODY" | grep -q 'commission_rates'; then
+  bad "service token /api/data must not contain 'commission_rates'" "found it"
+else
+  ok "service token /api/data does not contain 'commission_rates'"
+fi
+expect "service: no money on any lead, no scoreboard.money" 200 \
+  "b.snapshot.leads.every(l=>!('value' in l) && !('potential_commission' in l)) && !('money' in b.snapshot.scoreboard) && !('commission_rates' in b.snapshot.leads_summary) && !('money_fields' in b.snapshot.leads_summary)" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+expect "service: insights survive untouched (deal size is not commission)" 200 \
+  "b.snapshot.insights && typeof b.snapshot.insights.window_days==='number' && b.snapshot.insights.by_source && typeof b.snapshot.insights.by_interest==='object'" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+expect "service: the rest of the snapshot is intact" 200 \
+  "b.snapshot.units.length===39 && b.snapshot.leads.length===14 && b.snapshot.leads_summary.received_uncontacted===2" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+expect "sales KEEPS the money" 200 \
+  "b.snapshot.leads.some(l=>typeof l.value==='number') && b.snapshot.leads.some(l=>typeof l.potential_commission==='number') && b.snapshot.scoreboard.money && b.snapshot.leads_summary.commission_rates" \
+  "$WORKER/api/data" -H "$(auth $T_SALES)"
+expect "owner KEEPS the money" 200 \
+  "b.snapshot.scoreboard.money && typeof b.snapshot.scoreboard.money.on_table_commission==='number'" \
+  "$WORKER/api/data" -H "$(auth $T_OWNER)"
 
 echo "-- misc"
 expect "unknown route -> 404"             404 "" "$WORKER/api/nope" -H "$(auth $T_OWNER)"

@@ -637,3 +637,186 @@ badges still drawn for everyone. No console exceptions.
 
 - **The two utilization bars still nearly agree on mock**, for the reason in the
   D44/D45 notes. Unchanged here.
+
+---
+
+# Schema 5 — Leads tab · three lead actions · the Worker money gate (2026-09-04)
+
+Built from `docs-specs/Leads-Site-Spec.md` against `CLAUDE.md` v2.1, which
+already carried the Architect's schema-5 pointer. Site + Worker; the engine was
+already publishing schema 5 when I started, so the real snapshot was the
+fixture. No DNS, token or secret was touched.
+
+## What shipped
+
+**1. `docs/leads.js` — a new pure module.** Enums and shop-floor labels, the
+runtime option lists (`optionsFrom` prefers what `leads_summary` ships so a new
+source needs no deploy), column building, the three chips, the stage picker's
+gating, and the small `NO_DATA` / `pctOr` / `statOr` helpers that turn the
+engine's nulls into the words the spec names. No DOM, no network, no
+`Date`-parsing of date-only strings.
+
+**2. Leads tab (`#/leads`), sixth in the nav.** Nav badge =
+`leads_summary.received_uncontacted`, hidden at zero.
+
+- **Scoreboard** — five rows in the spec's order, collapsible, open by default
+  on `sales` and folded on everyone else. On the table · This month (three
+  figures, each with an ↑/↓/— against the engine's three-month baseline) ·
+  Speed (median hours to first contact, `n=`, 🔥 at a streak of 3) · Conversion
+  (two rates plus the median days to win; `insufficient` collapses the whole
+  row to "not enough data yet (n=…/5)") · Stale, which is itself a button that
+  applies the Stale chip.
+- **Insights** — "Pipeline insights — last 90 days", collapsed, `owner` +
+  `sales` only, six small tables. No charts (v1).
+- **+ New lead** — any role, nine taps: customer · contact · phone/email ·
+  source chips · interest chips · machine (type it **or** pick one of ours) ·
+  site · priority · assignee · next action · note.
+- **Board** — five columns: the four open stages, then **Won** (a *status*
+  column). LOST/DEAD sit in a collapsed Closed strip. Chips All · Mine · Stale,
+  remembered per device like the Service chip.
+- **Lead detail** — every field in three cards (Who · The deal · Timing), the
+  stage picker (INVOICED hidden unless `owner`), note / value / next action /
+  assign / priority sheets, and Close → LOST (reason chips) or DEAD.
+
+**3. Three write actions.** `lead_open` (any role) · `lead_update`
+(`sales`/`owner` full, `service` **note only** — any other key is a 403) ·
+`lead_close` (`sales`/`owner`). `force` is accepted only from `owner`.
+
+**4. The money gate (§6, L4).** `GET /api/data` parses and strips the snapshot
+**at the edge** for a `service` token: `value` + `potential_commission` off
+every lead, `leads_summary.commission_rates`, `leads_summary.money_fields` and
+`scoreboard.money`. `insights` ships as-is. It fails **closed** — a snapshot
+that will not parse gets a 500, never a fall-through to the raw text.
+
+**5. §4 tie-in.** A DEMO hold on a unit page carries a `demo` chip and links to
+the lead whose `demo.hold_id` matches — matched on the id and nothing else.
+
+`BUILD` stamp and SW cache bumped (v15 → v16); `leads.js` added to the shell
+cache. Header reads v2.1.
+
+## Tests
+
+`npm test` — **56 render checks + 25 leads checks**, green, also under
+`TZ=Pacific/Pago_Pago`.
+
+`npm run m1` — **105 passed, 0 failed** against `wrangler dev`, including all
+three lead actions, the twelve refusals (service closing/staging/pricing a
+lead, bad source, bad interest, no customer, a value as a string, a negative
+value, an empty update, a traversal-shaped lead id, `outcome: WON`, a bogus
+lost reason), and the money gate: the literal `grep -q potential_commission`
+the spec names, plus `commission_rates`, plus per-role assertions that `sales`
+and `owner` keep everything.
+
+`node tools/smoke-real.mjs ~/.wss-runs/real-snapshot-schema5.json` — **12
+passed, 0 failed**: 74 pages per role, all three roles, no thrown view and no
+leaked `undefined`.
+
+The money gate was also run against the **real** snapshot published to a local
+`wrangler dev`: a service token's `/api/data` contained neither string, kept 36
+units / 17 tickets / `insights`, and `sales` kept the money. The local KV was
+then overwritten with the mock; nothing real was written into the repo.
+
+Browser-checked at 390×844: six tabs still fit, the scoreboard open for Kevin
+and folded for Josh, the Stale row filtering the board, the demo hold's link
+from a unit page, and the Closed strip.
+
+## Decisions I made
+
+1. **`hasMoney()` reads `scoreboard.money`, one signal for the whole page.**
+   Deciding per field would let the cards and the scoreboard disagree about
+   what is visible. Presence, not truthiness — `$0` on the table is a fact and
+   has to stay on screen.
+
+2. **A missing money field draws NOTHING — no `—`, no `$0`, no greyed box.**
+   A placeholder tells the reader exactly where the number they can't see
+   lives, which is most of the disclosure. `selftest-render.mjs` asserts there
+   is not a single dollar figure above the board for a stripped payload.
+
+3. **`leads_summary.money_fields` is stripped too, though §6 doesn't list it.**
+   It contains the literal string `potential_commission`, so the curl check the
+   spec mandates could never pass while it shipped. It is a Worker directive, so
+   a service client loses nothing.
+
+4. **The strip is the union of `money_fields` and our own copy of the list.** A
+   malformed or missing `money_fields` must not open the gate. It only ever
+   widens what is removed.
+
+5. **Won is a status column, not a stage column.** An OPEN lead parked at a
+   stage the board has no column for (INVOICED, or one the engine invents
+   later) gets its own column inserted before Won — the same rule
+   `columnize()` uses for tickets. Hiding a column is a display choice;
+   dropping a lead is data loss.
+
+6. **A win is not closed with `lead_close`.** `lead_close` takes LOST or DEAD
+   only; a win is reached by moving the stage to INVOICED, which names a real
+   invoice. That is why INVOICED is `owner`-only in the picker.
+
+7. **Three stage moves ask for something first** (`stageNeeds`): DEMO-SCHEDULED
+   wants a day and a unit, INVOICED wants the invoice number, QUOTED wants a
+   value **only if we don't already have one**. Zero counts as having one —
+   asking again would overwrite a deliberate zero.
+
+8. **`service` gets a 403 on a lead_update carrying anything but a note**,
+   rather than the key being dropped. A silently ignored write is worse than a
+   refusal: the tech would believe they had changed something.
+
+9. **`force` is dropped for non-owners rather than refused.** The safe reading
+   of an unexpected `force` is "leave the duplicate check switched on", and the
+   UI never offers it — it is there for a future admin path.
+
+10. **`quote.file` is scheme-checked before it becomes an href.** Escaping keeps
+    the URL inside the attribute; it does not make `javascript:` safe. Only
+    `http(s)` draws a link, and anything else draws no link at all.
+
+11. **A DEAD close sends `reason: null`,** even though the LOST reason chips are
+    still in the form with a value. Sending the hidden chip's value would put a
+    "why" on a lead nobody chose one for.
+
+12. **`tools/smoke-real.mjs` reads a real snapshot by PATH and serves it from
+    memory.** Nothing is copied into `docs/`. The tool itself holds no data,
+    which is why it can live in the repo — and the schema-5 bump is exactly the
+    case where the mock generator only produces what we thought to write.
+
+13. **The mock's `scoreboard` and `insights` are DERIVED from its own
+    `leads[]`,** not hand-typed. A reader can count the cards and get the same
+    totals, so a mis-render is visible rather than plausible. The fixture is
+    tuned to five closed leads in the window — one over `min_n` — so the full
+    variant exercises the populated path and the empty variant the
+    "not enough data" one.
+
+## Things worth flagging
+
+- **`NEEDS-QUOTE` arrived in `CLAUDE.md`'s service-stage enum while I was
+  working, and is NOT implemented.** The service_queue stage list in the
+  contract now reads RECEIVED · CONTACTED · **NEEDS-QUOTE** ·
+  WAITING-ON-CUSTOMER · … but `worker.js`'s `STAGES` set and `docs/service.js`'s
+  `STAGES` array still hold the eight from D42. Consequences today: a
+  `ticket_update` moving a ticket to `NEEDS-QUOTE` is **rejected with a 400**,
+  and a ticket the engine parks there renders in a trailing extra column rather
+  than in pipeline order. Nothing is dropped — `columnize()` keeps it — but the
+  stage is not usable from the site. This was outside the Leads work order and
+  adding a stage is an Ask-Matt item, so it needs its own order from the
+  Architect. It is a two-line change in each file plus a label and a pipeline
+  colour.
+
+- **The real snapshot has zero leads.** Every Leads assertion against real data
+  is therefore an empty-state assertion. The populated paths — the board, the
+  cards, the money line, the insights tables — are proven on mock only until
+  Kevin writes the first lead down. Re-run `smoke-real.mjs` once there are a
+  few.
+
+- **The scoreboard's collapse state is per session, not per device.** The
+  Service and Leads *chips* are remembered in `localStorage`; the scoreboard
+  fold is deliberately not, because its default is role-derived and a
+  remembered "collapsed" would quietly override that for Kevin forever. Easy to
+  change if he asks.
+
+- **`insights` is not money-gated and that is deliberate** (§6 says so
+  explicitly: `won_value` is deal size, not commission). It does mean a service
+  token can read median won/lost deal values from the "why we lose" caption. If
+  that is not intended, it is a contract question for the Architect, not a CSS
+  one.
+
+- **Six tabs is the ceiling.** At 390px each tab is ~65px; the labels tighten
+  to 10px under 430px. A seventh would need a different nav — an overflow
+  sheet, or dropping Holds into Fleet.

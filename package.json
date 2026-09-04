@@ -7,7 +7,7 @@
   "scripts": {
     "mock": "node tools/make-mock-data.js",
     "icons": "node tools/make-icons.js",
-    "test": "node tools/selftest-dates.mjs && node tools/selftest-api.mjs && node tools/selftest-metrics.mjs && node tools/selftest-holds.mjs && node tools/selftest-service.mjs && node tools/selftest-render.mjs",
+    "test": "node tools/selftest-dates.mjs && node tools/selftest-api.mjs && node tools/selftest-metrics.mjs && node tools/selftest-holds.mjs && node tools/selftest-service.mjs && node tools/selftest-leads.mjs && node tools/selftest-render.mjs",
     "dev:worker": "wrangler dev --config worker/wrangler.toml --port 8788",
     "start": "node tools/serve.js",
     "deploy:worker": "wrangler deploy --config worker/wrangler.toml",

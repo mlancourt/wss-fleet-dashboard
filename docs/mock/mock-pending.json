@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-03T15:33:51.631Z",
+    "ts": "2026-09-04T12:17:50.153Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,13 +9,13 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "start": "2026-09-06",
-      "end": "2026-09-09"
+      "start": "2026-09-07",
+      "end": "2026-09-10"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-03T17:53:51.631Z",
+    "ts": "2026-09-04T14:37:50.153Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-03T18:21:51.631Z",
+    "ts": "2026-09-04T15:05:50.153Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-03T18:27:51.631Z",
+    "ts": "2026-09-04T15:11:50.153Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -55,13 +55,13 @@
     "payload": {
       "dispatch_id": "m-si-2201",
       "rig": "TRAILER-6000",
-      "date": "2026-09-04",
+      "date": "2026-09-05",
       "driver": "Kevin"
     }
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-03T18:30:51.631Z",
+    "ts": "2026-09-04T15:14:50.153Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-03T18:31:51.631Z",
+    "ts": "2026-09-04T15:15:50.153Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -82,6 +82,62 @@
     "payload": {
       "dispatch_id": "m-pu-900149",
       "note": "Back in the yard"
+    }
+  },
+  {
+    "id": "evt-mock-7",
+    "ts": "2026-09-04T14:52:50.153Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "lead_open",
+    "serial": null,
+    "payload": {
+      "customer": "Stonebridge Cold Storage",
+      "contact": "Nadia Kohl",
+      "phone": "262-555-0199",
+      "email": null,
+      "site": "Pewaukee WI 53072",
+      "source": "PHONE",
+      "interest": "RENTAL",
+      "machine": "Rider for a freezer floor",
+      "serial": null,
+      "value": null,
+      "priority": "HIGH",
+      "assigned": "Kevin",
+      "next_action": "Kevin to call back",
+      "note": "Called the shop line",
+      "related_ticket": null,
+      "machinio_ref": null,
+      "force": false
+    }
+  },
+  {
+    "id": "evt-mock-8",
+    "ts": "2026-09-04T15:08:50.153Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "lead_update",
+    "serial": null,
+    "payload": {
+      "lead": "L1005",
+      "stage": "DEMO-SCHEDULED",
+      "demo_date": "2026-09-06",
+      "demo_serial": "900107",
+      "note": "They asked to see it run"
+    }
+  },
+  {
+    "id": "evt-mock-9",
+    "ts": "2026-09-04T15:13:50.153Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "lead_close",
+    "serial": null,
+    "payload": {
+      "lead": "L1004",
+      "outcome": "DEAD",
+      "reason": null,
+      "note": "Four calls, nothing back"
     }
   }
 ]
