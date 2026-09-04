@@ -3,6 +3,8 @@
 
 You are building the employee-facing operations website for **Wisconsin Scrub & Sweep (WSS)** — an industrial floor-scrubber dealer in Ixonia, WI. Four users: **Matt** (owner), **Kevin** (sales), **Josh + Zac** (service techs). It shows the rental fleet, active rental agreements, the service queue (customer-owned repairs **and** fleet repairs), and a Dispatch board of truck moves — one pane of glass, phone-first, replacing a $900/yr SaaS (IntegraRental) and, later, Machinio's service module.
 
+**v2.5 (2026-09-04, 11:45):** lead logs are money-free by contract — the engine never writes a dollar figure into a lead log row (`value set` / `value updated` only) and the builder refuses to publish one that has it. The 11:34 fail-closed strip of `leads[].log` for service tokens is **reversed**: service sees lead logs again (Josh's own notes come back). Keep a Worker test that a service payload's lead-log text never matches `/\$\s?\d/`. Pending notes render **below** the log (newest last), not above.
+
 **v2.4 (2026-09-04, 11:20):** `service_queue[].log[]` and `leads[].log[]` — the ticket/lead body as `{ts, who, text}` rows (last 30, oldest first). Additive. Render it as a **Notes** timeline in ticket detail and lead detail; Matt needs the tech's diagnosis on his phone to quote. `who` is a best-effort parse — display `text` as primary, `who` as a chip only when present.
 
 **v2.3 (2026-09-04, D47):** `NEEDS-QUOTE` service stage — nine stages, three-value WSS skip set; kanban/picker/pipeline derive from `stagesFor()`. Shipped Worker 8b690e5a · Pages 5cd6fda. *(v1.7/v1.8 lines below still say eight stages / seven pipeline rows — 🕰️ historical, accurate for their date.)*
