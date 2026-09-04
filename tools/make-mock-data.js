@@ -856,7 +856,12 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       log: logOf([
         [ts(-9, '08:50'), 'Kevin', 'opened by Kevin (RECEIVED, REFERRAL): Sent over by Harbor Line\u2019s maintenance lead.'],
         [ts(-9, '11:55'), 'Kevin', 'Kevin RECEIVED \u2192 CONTACTED: Talked to Marcus. Two shifts, tile and sealed concrete, wants a rider.'],
-        [ts(-5, '14:03'), 'Kevin', 'Kevin value \u2192 $28,900.00'],
+        // v2.5: a lead log row NEVER carries a dollar figure. The engine writes
+        // "value set" / "value updated" and its builder refuses to publish one
+        // that has a number in it — which is what let the service strip of
+        // leads[].log be reversed. Keep this fixture money-free or the guard in
+        // tools/m1-loop.sh and tools/money-gate.mjs is testing nothing.
+        [ts(-5, '14:03'), 'Kevin', 'Kevin value set'],
         [ts(-5, '14:06'), 'Kevin', 'Kevin CONTACTED \u2192 QUOTED: Quote 990142 sent. He is taking it to their CFO Thursday.'],
       ]) }),
     mk({ lead: 'L1006', stage: 'QUOTED', customer: 'Quarry Road Aggregates', contact: 'Lena Faust',

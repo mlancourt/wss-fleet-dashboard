@@ -4,12 +4,14 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
-**v2.4** — `service_queue[].log[]` and `leads[].log[]` (the ticket/lead body as
-`{ts, who, text}`, last 30, oldest first) render as a **Notes** timeline in
-ticket and lead detail. `ts` is a display string the engine already formatted
-for Central — rendered verbatim, never `Date`-parsed. The lead log is stripped
-for `service` tokens along with the rest of the lead money: the engine writes
-`value → $X` rows into it. Ticket logs are not gated.
+**v2.4 / v2.5** — `service_queue[].log[]` and `leads[].log[]` (the ticket/lead
+body as `{ts, who, text}`, last 30, oldest first) render as a **Notes** timeline
+in ticket and lead detail, this session's unapplied notes closing it. `ts` is a
+display string the engine already formatted for Central — rendered verbatim,
+never `Date`-parsed. Lead logs are **money-free by contract** (v2.5): the engine
+writes `value set` / `value updated` and its builder refuses to publish a row
+carrying a figure, so nothing is stripped and a tech keeps their own lead notes.
+`npm run money-gate` holds that promise to account.
 
 **v2.2 (schema 5)** — a **Leads** tab: pipeline board, sales scoreboard and
 90-day insights, plus `lead_open` / `lead_update` / `lead_close`. Lead money is
@@ -55,7 +57,8 @@ the hard rules — read it before changing anything here.
 | **v1.6 — Service + Dispatch** | ✅ built on mock (Sep 3, 2026) | all nine actions round-trip locally; see `BUILD-NOTES.md` |
 | **v2.2 — Leads (schema 5)** | ✅ built (Sep 4, 2026) | three lead actions round-trip; the §6 money gate proven by curl; see `BUILD-NOTES.md` |
 | **D47 — NEEDS-QUOTE stage** | ✅ built (Sep 4, 2026) | a customer ticket moves to NEEDS-QUOTE end to end; Fleet still six columns |
-| **v2.4 — Notes timeline** | ✅ built (Sep 4, 2026) | real `log[]` rows render on ticket + lead detail; lead logs gated for `service` |
+| **v2.4 — Notes timeline** | ✅ built (Sep 4, 2026) | real `log[]` rows render on ticket + lead detail |
+| **v2.5 — lead logs money-free** | ✅ built (Sep 4, 2026) | service strip reversed; `npm run money-gate` green on the real snapshot |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -156,11 +159,22 @@ the money gate; that is Worker behaviour, proven by the curl check in
 `GET /api/data` strips lead money **at the edge** for a `service` token, before
 the bytes leave the Worker: `value` and `potential_commission` off every
 `leads[]` row, plus `leads_summary.commission_rates`, `leads_summary.money_fields`
-and `scoreboard.money` — plus, since v2.4, `leads[].log` in full, because the
-engine writes `value → $X` rows into that free text and shipping the sentence
-would defeat the gate in the same response. `insights` is untouched (`won_value`
-there is deal size, not anybody's pay) and so are **ticket** logs, which carry
-no lead money and are where the shop's work is written down.
+and `scoreboard.money`. `insights` is untouched — `won_value` there is deal
+size, not anybody's pay — and so are **ticket** logs.
+
+**Lead logs are not stripped, and must not be.** v2.4 did strip them, because
+the engine was writing `value → $X` into that free text and shipping the
+sentence would have defeated the gate one field over. v2.5 fixed it upstream
+instead: a lead log row reads `value set`, and the builder refuses to publish
+one carrying a figure. That is a better fix — a tech keeps the lead notes they
+are allowed to write, and the guarantee lives in the data rather than in a
+regex over free text. If a figure ever reappears in a lead log, **fix the
+engine**; do not re-add a strip or a redaction here.
+
+What the gate does **not** promise: that no dollar sign appears anywhere under
+`leads[]`. `machine` and `close_note` are free text a person types, and they
+legitimately carry a customer's stated budget or a competitor's price. Those are
+not our deal value and not anybody's commission.
 
 Privacy by contract, not by CSS. A number the page merely declines to draw is
 still sitting in the response for anyone who opens a network tab; that was the
@@ -177,6 +191,19 @@ curl -s "$WORKER/api/data" -H "Authorization: Bearer $SERVICE_TOKEN" \
 
 If that ever prints anything but `0`, stop and fix the Worker — do not "fix" it
 in the page.
+
+For the whole gate against a **real** snapshot, end to end through a running
+Worker:
+
+```bash
+npm run dev:worker                                   # in another terminal
+ADMIN_SECRET=… npm run money-gate -- ~/.wss-runs/real-snapshot-schema5.json
+```
+
+It publishes the file you name, checks all three roles — including that no
+lead-log row matches `/\$\s?\d/` — and restores the mock snapshot afterwards
+so no real data is left in the KV it touched. Nothing is written to disk, and
+the tool carries no data of its own.
 
 ### Icons
 
@@ -234,6 +261,7 @@ tools/
   selftest-notes.mjs    log[] rows — order kept, ts never Date-parsed
   selftest-render.mjs   every view, every mock variant, every role
   smoke-real.mjs        render a REAL snapshot by path — never copies it here
+  money-gate.mjs        the §6 gate end to end on a real snapshot (npm run money-gate)
 ```
 
 ---

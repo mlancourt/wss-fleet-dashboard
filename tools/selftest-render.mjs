@@ -662,9 +662,9 @@ async function leadsAsStrippedService(hash = '#/leads', openScore = false) {
   await app.__refresh();
   app.__ui().showScore = openScore ? true : null;
   const snap = app.__state().snapshot;
-  // `log` goes with the money: the engine writes "value → $X" rows into it, so
-  // shipping the sentence would undo the fields being deleted. See worker.js.
-  for (const l of snap.leads) { delete l.value; delete l.potential_commission; delete l.log; }
+  // `log` deliberately STAYS (v2.5): the engine no longer writes a figure into
+  // a lead log row, so the gate no longer has to take the notes with it.
+  for (const l of snap.leads) { delete l.value; delete l.potential_commission; }
   delete snap.leads_summary.commission_rates;
   delete snap.leads_summary.money_fields;
   delete snap.scoreboard.money;
@@ -877,7 +877,7 @@ function esc(v) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-await check('this session\'s pending note sits above the record, badged', async () => {
+await check('this session\'s pending note closes the timeline, badged (v2.5)', async () => {
   window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
   window.location.search = '?mock=full&role=service&pending=1';
   await app.__refresh();
@@ -891,8 +891,8 @@ await check('this session\'s pending note sits above the record, badged', async 
   const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
   assert.ok(out.includes('class="nrow is-pending"'), 'the pending note is tinted');
   assert.ok(out.includes('⏳ applies at the next run'), 'and says it has not landed');
-  assert.ok(out.indexOf('is-pending') < out.indexOf(esc(t.log[0].text).slice(0, 24)),
-    'it sits above the record, not inside it');
+  assert.ok(out.indexOf('is-pending') > out.indexOf(esc(t.log[t.log.length - 1].text).slice(0, 24)),
+    'it closes the timeline, newest last (v2.5) — below the record, not above it');
   assert.ok(out.includes(esc(ev.payload.note)), 'the note text itself is on screen');
 });
 
@@ -930,33 +930,48 @@ await check('a schema-2 snapshot has no log field at all and still renders Notes
   assert.ok(out.includes('No notes yet.') || !out.includes('<h2>Notes'), 'an absent field is not a crash');
 });
 
-await check('a service token gets no lead log — the engine writes money into it', async () => {
-  // Real rows read "<name> value → $<amount>". Deleting `value` while shipping
-  // the sentence that spells it out would defeat the §6 gate in one response,
-  // so the Worker drops the whole lead log for a service token. TICKET logs are
-  // untouched — that is where the shop's work is written down.
+await check('a service token KEEPS the lead log — it is money-free by contract (v2.5)', async () => {
+  // v2.4 stripped it, because the engine was writing figures into that free
+  // text. v2.5 fixed it upstream: a lead log row reads "value set" now, and the
+  // builder refuses to publish one carrying a figure. So Josh gets his own lead
+  // notes back — and the money assertion moves onto the TEXT, where the
+  // guarantee now lives.
   const out = await leadsAsStrippedService('#/lead/L1005');
-  // A log row is `class="nrow"`; a pending note is `class="nrow is-pending"`.
-  // The tech keeps their own side's unapplied notes — those are the crew's
-  // proposals, not the snapshot — and loses the record's.
-  assert.ok(!out.includes('class="nrow">'), 'no lead log rows for a tech');
-  assert.ok(!/\$\d/.test(out), 'and no dollar figure anywhere on the page');
+  assert.ok(out.includes('class="nrow">'), 'the lead log renders for a tech again');
+  assert.ok(out.includes('Kevin value set'), 'including the value-change row, figure-free');
 
-  // Kevin still gets both.
+  // The gate itself is unchanged: the structured money is still gone, and now
+  // nothing in the log text puts it back.
+  assert.ok(!out.includes('class="lead-money"') && !out.includes('Potential commission'));
+  assert.ok(!/\$\s?\d/.test(out), 'no dollar figure anywhere on the page, log text included');
+
+  // Kevin sees the same log plus the money that belongs to him.
   window.location.href = 'http://localhost:8787/?mock=full&role=sales';
   window.location.search = '?mock=full&role=sales';
   await app.__refresh();
   const kevin = await renderRoute('#/lead/L1005');
-  assert.ok(kevin.includes('class="nrow">'), 'sales keeps the lead log');
-  assert.ok(kevin.includes('value → $28,900.00'), 'including the row that made this gate necessary');
+  assert.ok(kevin.includes('Kevin value set'), 'sales sees the same money-free log row');
+  assert.ok(/\$\s?\d/.test(kevin), 'and the structured money the tech does not get');
 
-  // And a tech keeps every ticket log, which carries no lead money.
+  // Ticket logs were never gated and still are not.
   window.location.href = 'http://localhost:8787/?mock=full&role=service';
   window.location.search = '?mock=full&role=service';
   await app.__refresh();
   const t = app.__state().snapshot.service_queue.find((x) => (x.log || []).length >= 3);
   const josh = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
   assert.ok(josh.includes('class="nrow">'), 'ticket logs are not gated');
+});
+
+await check('no lead log row anywhere in the fixture carries a dollar figure', async () => {
+  // The client-side half of the v2.5 contract. The Worker half is
+  // tools/money-gate.mjs, which asserts the same regex on a real payload.
+  window.location.href = 'http://localhost:8787/?mock=full&role=sales';
+  window.location.search = '?mock=full&role=sales';
+  await app.__refresh();
+  const rows = app.__state().snapshot.leads.flatMap((l) => l.log || []);
+  assert.ok(rows.length, 'the fixture must actually have lead log rows to check');
+  const bad = rows.filter((r) => /\$\s?\d/.test(r.text));
+  assert.deepEqual(bad, [], `a lead log row carries a figure: ${bad.map((r) => r.text).join(' | ')}`);
 });
 
 await check('a schema-4 snapshot says leads have not arrived, rather than drawing an empty board', async () => {

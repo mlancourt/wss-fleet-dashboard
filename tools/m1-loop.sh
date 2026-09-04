@@ -354,12 +354,23 @@ fi
 expect "service: no money on any lead, no scoreboard.money" 200 \
   "b.snapshot.leads.every(l=>!('value' in l) && !('potential_commission' in l)) && !('money' in b.snapshot.scoreboard) && !('commission_rates' in b.snapshot.leads_summary) && !('money_fields' in b.snapshot.leads_summary)" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
-# v2.4: the lead log is free text and the engine writes "value -> $X" into it.
-# Deleting the field while shipping the sentence would defeat the gate in one
-# response, so the whole lead log goes. TICKET logs are deliberately untouched.
-expect "service: no lead log either — the engine writes money into it" 200 \
-  "b.snapshot.leads.every(l=>!('log' in l))" \
+# v2.5: the lead log is money-free BY CONTRACT — the engine writes "value set"
+# and its builder refuses to publish a row carrying a figure — so the v2.4
+# fail-closed strip of leads[].log is reversed and a tech keeps their own notes.
+# The assertion moved onto the TEXT, which is where the guarantee now lives.
+expect "service: the lead log survives (v2.5 reversal)" 200 \
+  "b.snapshot.leads.some(l=>Array.isArray(l.log) && l.log.length>0)" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+expect "service: no lead-log row matches /\\\$\\s?\\d/" 200 \
+  "b.snapshot.leads.flatMap(l=>l.log||[]).every(r=>!/\\\$\\s?\\d/.test(r.text||''))" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+# NOT asserted: "no figure anywhere under leads[]". The contract cannot promise
+# that and should not pretend to — `machine` and `close_note` are free text a
+# person types, and the mock legitimately carries 'Used 32" rider under $18k'
+# and 'Came in $2,400 under us'. Those are a customer's budget and a
+# competitor's price, not our deal value or anybody's commission. The gate
+# covers the structured money and the log row the ENGINE writes; a sentence
+# somebody typed is theirs.
 expect "service: TICKET logs survive — that is where the shop's work is" 200 \
   "b.snapshot.service_queue.some(t=>Array.isArray(t.log) && t.log.length>0)" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"

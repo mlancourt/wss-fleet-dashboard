@@ -41,7 +41,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-04-notes';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-04-notes2';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -788,9 +788,11 @@ function pendingLine(n) {
  * is neither an instant to format nor a business date to reformat — see
  * docs/notes.js. Nothing here goes near `new Date()`.
  *
- * This session's unapplied notes sit ABOVE the record rather than at the end
- * of it: the log is what the vault holds, and a proposal that hasn't been
- * applied has no place in that chronology yet.
+ * This session's unapplied notes sit BELOW the record, newest last (v2.5).
+ * They ARE the newest thing on the timeline — a note you just typed belongs
+ * where your eye already is, at the end, not above thirty older ones. The tint
+ * and the badge are what say "not applied yet"; the position says "most
+ * recent", which is true.
  */
 function notesSection(entity, pending) {
   const rows = logRows(entity);
@@ -809,15 +811,15 @@ function notesSection(entity, pending) {
   return html`
     <h2>Notes${rows.length ? raw(html` <span class="count">${rows.length}</span>`) : ''}</h2>
     <div class="card notes">
-      ${raw(mine.map((n) => html`
-        <div class="nrow is-pending">
-          <div class="ntext">${n.text}</div>
-          ${raw(meta(n.who, null, html`<span class="npend">⏳ applies at the next run</span>`))}
-        </div>`).join(''))}
       ${raw(rows.map((n) => html`
         <div class="nrow">
           <div class="ntext">${n.text}</div>
           ${raw(meta(n.who, n.ts, null))}
+        </div>`).join(''))}
+      ${raw(mine.map((n) => html`
+        <div class="nrow is-pending">
+          <div class="ntext">${n.text}</div>
+          ${raw(meta(n.who, null, html`<span class="npend">⏳ applies at the next run</span>`))}
         </div>`).join(''))}
     </div>`;
 }

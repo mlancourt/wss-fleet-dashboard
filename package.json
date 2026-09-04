@@ -12,6 +12,7 @@
     "start": "node tools/serve.js",
     "deploy:worker": "wrangler deploy --config worker/wrangler.toml",
     "m1": "bash tools/m1-loop.sh",
+    "money-gate": "node tools/money-gate.mjs",
     "m3": "bash tools/m3-check.sh"
   },
   "devDependencies": {

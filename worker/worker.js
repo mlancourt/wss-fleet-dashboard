@@ -260,15 +260,14 @@ function stripLeadMoney(text) {
     for (const lead of doc.leads) {
       if (!lead || typeof lead !== 'object') continue;
       for (const f of fields) delete lead[f];
-      // v2.4 `log[]` is FREE TEXT the engine writes, and it writes money into
-      // it: real rows read "<name> value → $<amount>". Deleting `value` while
-      // shipping a sentence that spells it out would defeat this gate in the
-      // same response. Not listed in §6 — §6 predates the field — so this is a
-      // deliberate over-strip, pending the Architect's call: a redacted lead
-      // log would be strictly better, since a tech loses their own lead notes
-      // here. TICKET logs are untouched; they carry no lead money and they are
-      // where the shop's actual work is written down.
-      delete lead.log;
+      // NOT `log`. v2.4 stripped it here because the engine was writing figures
+      // into that free text ("… value → $…"), which would have handed back the
+      // number the line above deletes. v2.5 fixed it upstream instead: a lead
+      // log row now reads "value set" / "value updated", and the builder
+      // refuses to publish a lead log containing a dollar figure at all. So a
+      // tech gets their own lead notes back, and the guarantee lives where it
+      // belongs — in the data, not in a strip over free text we would have to
+      // keep guessing at. tools/money-gate.mjs holds us to it.
     }
   }
   if (summary) {

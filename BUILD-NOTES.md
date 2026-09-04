@@ -1053,3 +1053,97 @@ lead logs. Local KV was restored to the mock afterwards.
   There is no sort, no filter and no "notes since" feature that can be built on
   this field as shipped. If one is wanted, it needs a real instant from the
   engine alongside the display string.
+
+---
+
+# v2.5 — lead logs money-free by contract; the strip reversed (2026-09-04)
+
+The Architect's ruling on yesterday's flag: right call, fix it upstream. The
+engine now never writes a dollar figure into a lead log row (`value set` /
+`value updated`), and its builder refuses to publish a lead log containing one.
+So the v2.4 fail-closed strip comes out and Josh gets his lead notes back.
+
+## What shipped
+
+**1. The strip is reversed.** One `delete lead.log` removed from
+`stripLeadMoney()`. The comment in its place says why the field is deliberately
+NOT stripped and where the guarantee now lives, so the next session doesn't
+"restore" it on sight.
+
+**2. A Worker test that holds the promise to account.** `tools/money-gate.mjs`
+(`npm run money-gate -- <snapshot>`) publishes a real snapshot to a running
+Worker, reads `/api/data` as all three roles, asserts the whole §6 gate —
+including that **no lead-log row matches `/\$\s?\d/`** — and restores the mock
+snapshot in a `finally`, so no real data is left in the KV it touched. It reads
+the file by path and writes nothing to disk, same rule as `smoke-real.mjs`.
+
+Against the refreshed real snapshot: **16 passed, 0 failed**, 9 lead-log rows
+checked, 83 ticket-log rows untouched.
+
+It is not a vacuous guard. Poisoning a copy of the real snapshot with the exact
+row v2.5 outlawed makes it fail, name the offending lead and row, and print
+"Fix it upstream — do NOT re-add a strip or a redaction here."
+
+**3. The same assertion in `npm run m1`, against mock**, so a regression is
+caught by the routine loop without needing real data. The mock's one
+value-change row was changed from a figure to `Kevin value set` to match the
+engine's new contract — otherwise the guard would have been testing nothing.
+
+**4. Pending notes moved below the log, newest last.** They ARE the newest thing
+on the timeline; the tint and the ⏳ badge carry "not applied yet", and the
+position now carries "most recent", which is true. The CSS adjacency rule
+flipped with it.
+
+`BUILD` stamp and SW cache bumped (v18 → v19).
+
+## The assertion I got wrong, and what it taught
+
+I first wrote a belt-and-braces check: *no dollar figure anywhere under
+`leads[]`, in any field.* The mock failed it immediately, on two honest rows:
+
+    machine:    'Used 32" rider under $18k'
+    close_note: 'Came in $2,400 under us on a private sale'
+
+A customer's stated budget and a competitor's price. Neither is our deal value
+and neither is anybody's commission — they are sentences a person typed into a
+free-text field, and no contract can promise they are figure-free without
+banning people from writing down what a customer said.
+
+So the check is gone, and both files now carry a comment saying it is
+deliberately absent and why. This is the boundary worth knowing: **the gate
+covers the structured money and the log rows the ENGINE writes. A sentence
+somebody typed is theirs.** An assertion that claimed more would have failed on
+honest data and been muted within a week, which is worse than not having it.
+
+## Tests
+
+`npm test` — **64 render + 8 notes checks**, green under
+`TZ=Pacific/Pago_Pago` too. Three assertions flipped: the stripped-service
+helper no longer deletes `log`; a service token is asserted to KEEP the lead log
+and to see `Kevin value set` in it; and the pending note is asserted to sit
+*below* the last log row. One added: no lead-log row in the fixture carries a
+figure.
+
+`npm run m1` — **113 passed, 0 failed**.
+
+`npm run money-gate -- ~/.wss-runs/real-snapshot-schema5.json` — **16 passed, 0
+failed**, plus the poisoned-fixture negative above.
+
+`node tools/smoke-real.mjs …` — **19 passed, 0 failed** on the refreshed
+snapshot; S1014 still shows Josh's diagnosis in full, attributed.
+
+## Things worth flagging
+
+- **`npm run money-gate` needs a running Worker and a real snapshot**, so it is
+  not in `npm test` and never will be. It belongs in the deploy loop next to
+  `npm run m1`. The README says so.
+
+- **Pending notes are still not money-gated** — unchanged from v2.4, and
+  unchangeable: they come from the `pending` array, which is the crew's own
+  unapplied proposals rather than the snapshot. If somebody types a figure into
+  a lead note it is visible until the next run drains it. It is their own tap,
+  and the engine's builder will catch it on the way into the log.
+
+- **The real snapshot refreshed twice while I worked** (2 leads, then 4). Both
+  were money-free. Nothing in the tests depends on a particular run id or lead
+  count, which is why both runs passed unchanged.

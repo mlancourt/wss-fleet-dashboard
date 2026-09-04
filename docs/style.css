@@ -756,10 +756,11 @@ table.ins td.n { color: var(--slate-700); }
 .nts { font-size: 12px; color: var(--slate-400); font-variant-numeric: tabular-nums; }
 .npend { font-size: 12px; font-weight: 650; color: var(--red-deep); }
 
-/* This session's unapplied notes sit above the record, tinted so nobody reads
-   a proposal as something the vault already holds. */
+/* This session's unapplied notes close the timeline, newest last (v2.5) —
+   they ARE the most recent thing. The tint and the badge carry "not applied
+   yet"; the position is simply the truth about when it was written. */
 .nrow.is-pending {
   background: var(--red-soft); border-radius: var(--radius-sm);
   padding: 10px 12px; margin: 10px 0; border-bottom: 0;
 }
-.nrow.is-pending + .nrow:not(.is-pending) { border-top: 1px solid var(--slate-100); }
+.nrow:not(.is-pending) + .nrow.is-pending { border-top: 1px solid var(--slate-100); }
