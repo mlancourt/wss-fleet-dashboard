@@ -910,3 +910,146 @@ which has no NEEDS-QUOTE tickets yet.
 - **No real ticket is in NEEDS-QUOTE yet**, so every real-data check of this
   stage is an absence. Worth a second `smoke-real.mjs` run once Josh has moved
   one.
+
+---
+
+# v2.4 — Notes timeline on tickets and leads (2026-09-04)
+
+`service_queue[].log[]` and `leads[].log[]` rendered as a **Notes** timeline in
+ticket detail and lead detail. Additive, no tag. One thing did not go to plan —
+see the money-gate note below, which is the item to read first.
+
+## What shipped
+
+**1. `docs/notes.js` — a new pure module.** `logRows(entity)` and
+`pendingNotes(events)`, shared by tickets and leads because the row shape is
+identical. It exists mostly to hold one rule down in writing: `ts` is a display
+string the engine has ALREADY formatted for a Central reader, in one of two
+shapes — `"2026-09-04 11:09 CT"` on a stamped row, a bare `"2026-09-03"` on an
+imported one. It is neither an instant to format nor a business date to
+reformat. It renders verbatim and never goes near `new Date()`. The order is the
+engine's too: oldest first, never re-sorted — sorting those two shapes against
+each other would quietly separate a tech's answer from the import note it
+answers.
+
+**2. The timeline.** In both detail views, immediately above the stage picker —
+you read the notes, then you move the thing. Text is the primary line (Matt
+prices a job off Josh's diagnosis, which is the whole reason the field exists),
+with `who` as a small chip when the engine parsed one and the timestamp beside
+it. About a third of real rows have `who: null`; those keep their row and simply
+draw no chip. Empty or absent logs render "No notes yet." rather than a gap.
+
+**3. Pending notes above the record.** A note typed this session renders in a
+tinted row above the log, badged "⏳ applies at the next run".
+
+**4. Mock.** Three tickets and two leads carry logs — including an authorless
+import row, a bare-date `ts`, and a four-row NEEDS-QUOTE diagnosis that is the
+exact case the field exists for. Nine tickets and twelve leads keep an empty
+log so the empty state is exercised.
+
+`BUILD` stamp and SW cache bumped (v17 → v18); `notes.js` added to the shell.
+
+## The money gate had to widen — read this one
+
+The render suite caught it: the engine writes money INTO the lead log. Real
+rows read
+
+    <name> | <name> value → $<amount>
+    <name> | <name> value → $<amount>
+
+So rendering `leads[].log` would have handed a `service` token the exact figure
+`stripLeadMoney()` deletes from `leads[].value` — in the same response, in plain
+text, one field over. That is not a rendering detail; it is the §6 gate being
+undone by a feature added after §6 was written.
+
+**The Worker now deletes `leads[].log` for a `service` token**, alongside the
+money fields. `service_queue[].log` is untouched.
+
+This is a deliberate **over-strip** and I want it flagged rather than absorbed:
+
+- §6 does not list `log` — §6 predates the field, so this is me extending a
+  mandated control rather than implementing one. Ask-Matt territory.
+- It has a real cost. `service` may add a note to a lead (`lead_update`,
+  note-only), and they now cannot read the log those notes land in. Their own
+  *pending* note still shows — that comes from the `pending` array, not the
+  snapshot — but it vanishes from their view at the next run.
+- The better fix is upstream: a **redacted** lead log for service tokens, or
+  the engine writing value-change rows in a form that carries no figure. Either
+  would let a tech keep their notes.
+- If the Architect decides the value is fine for a tech to see, this is one
+  `delete` to remove in `worker.js` plus three assertions.
+
+I took the fail-closed option because the two failure modes are not
+symmetrical: over-stripping is visible to Josh in a day and reversible in a
+minute, while under-stripping is invisible and cannot be un-seen. It is also
+what D45's "privacy by contract, not by CSS" points at — the control belongs at
+the edge, not in a regex over free text, which is where a "redact anything that
+looks like money" approach would have ended up.
+
+## Tests
+
+`npm test` — **63 render + 8 notes checks**, green, also under
+`TZ=Pacific/Pago_Pago`. The render checks pin: every row on screen in the
+engine's order; a chip per authored row and none for the imports; both `ts`
+shapes verbatim with no `Invalid Date`/`GMT`/`T00:00:00` anywhere; the pending
+note above the record; the empty state; a schema-2 snapshot with no `log` field
+at all; and the gate — no lead-log rows for a tech, both kept for Kevin, ticket
+logs kept for everyone.
+
+`npm run m1` — **112 passed, 0 failed** against `wrangler dev`, including
+`leads[].log` absent for `service`, ticket logs present for `service`, and both
+present for `sales`.
+
+`node tools/smoke-real.mjs ~/.wss-runs/real-snapshot-schema5.json` — **19
+passed, 0 failed**. It now asserts the timeline against real rows rather than
+just "didn't throw": all 17 tickets carry a log, S1013's nine rows all render,
+every real timestamp renders verbatim in both shapes, `who` is a chip on five of
+nine rows and absent on the other four, and **S1014 shows Josh's diagnosis in
+full, attributed to Josh** — the case the order named.
+
+The gate was also run against the real snapshot published to a local
+`wrangler dev`: a service token's bytes contain neither `potential_commission`
+nor either lead value in the log text, all 17 ticket logs survive, and `sales` keeps both
+lead logs. Local KV was restored to the mock afterwards.
+
+## Decisions I made
+
+1. **Notes sit immediately above the stage picker** in both views. You read the
+   diagnosis, then you move the stage or quote it — the two actions are
+   adjacent on purpose.
+
+2. **Pending notes render above the log, not at the end of it.** This is what
+   the order asked for, and it is defensible: the log is what the vault holds,
+   and a proposal that hasn't been applied has no place in that chronology.
+   It does read slightly oddly — the note you just typed appears above thirty
+   older ones. If you meant them at the bottom (temporally correct, since they
+   are the newest thing) it is a one-line move in `notesSection()`.
+
+3. **A row with no `text` is dropped; a row with no `who` is kept.** An empty
+   bubble with a timestamp says nothing; an authorless row is a third of the
+   real history.
+
+4. **`white-space: pre-wrap` on the text.** The real rows carry the shop's own
+   double-spacing between sentences and it reads better kept than collapsed.
+   Paired with `overflow-wrap: anywhere` so a long token can't push the card
+   sideways.
+
+5. **A 30-row cap in the client too**, keeping the RECENT end. The engine
+   already trims to 30; if a longer log ever arrives, the newest half is the
+   half worth having on a phone.
+
+## Things worth flagging
+
+- **The lead-log strip needs the Architect's ruling** — see above. It is the
+  only thing in this build I would call provisional.
+
+- **Pending notes are not money-gated**, and cannot be: they come from the
+  `pending` array, which is the crew's own unapplied proposals rather than the
+  snapshot. If somebody types a dollar figure into a lead note it is visible to
+  everyone until the next run drains it. Probably fine — it is their own tap —
+  but it is the one remaining path by which a number reaches a `service` token.
+
+- **`ts` is not machine-readable and nothing should start treating it as such.**
+  There is no sort, no filter and no "notes since" feature that can be built on
+  this field as shipped. If one is wanted, it needs a real instant from the
+  engine alongside the display string.

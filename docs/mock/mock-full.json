@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 5,
-    "generated_at": "2026-09-04T15:50:20.051Z",
+    "generated_at": "2026-09-04T16:22:17.932Z",
     "run_id": "mock-full-2026-09-04",
     "fleet_totals": {
       "units": 39
@@ -1773,7 +1773,24 @@
       "quote": null,
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": [
+        {
+          "ts": "2026-09-03 07:42 CT",
+          "who": "Kevin",
+          "text": "opened by Kevin (RECEIVED, PHONE): Scrubber dead, no power at the key switch. Whole line is mopping by hand."
+        },
+        {
+          "ts": "2026-09-03",
+          "who": null,
+          "text": "import note: called the shop line at 07:38, asked for Josh by name."
+        },
+        {
+          "ts": "2026-09-04 08:15 CT",
+          "who": "Josh",
+          "text": "Josh: Truck is booked for this afternoon. Bringing the spare key switch and a charger just in case."
+        }
+      ]
     },
     {
       "ticket": "S1002",
@@ -1798,7 +1815,8 @@
       "quote": null,
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": []
     },
     {
       "ticket": "S1003",
@@ -1828,7 +1846,8 @@
       },
       "parts": null,
       "machinio_ref": "MCH-74210",
-      "closed": null
+      "closed": null,
+      "log": []
     },
     {
       "ticket": "S1004",
@@ -1858,7 +1877,19 @@
       },
       "parts": "Pump assy 41-2207 — ETA Thursday, backordered once already",
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": [
+        {
+          "ts": "2026-08-22 11:02 CT",
+          "who": "Zac",
+          "text": "Zac: Quote approved over the phone. Pump ordered."
+        },
+        {
+          "ts": "2026-08-31 16:30 CT",
+          "who": null,
+          "text": "supplier note: backordered a second time, new ETA Thursday."
+        }
+      ]
     },
     {
       "ticket": "S1005",
@@ -1883,7 +1914,8 @@
       "quote": null,
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": []
     },
     {
       "ticket": "S1006",
@@ -1913,7 +1945,8 @@
       },
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": []
     },
     {
       "ticket": "S1007",
@@ -1943,7 +1976,8 @@
       },
       "parts": null,
       "machinio_ref": "MCH-73988",
-      "closed": "2026-09-02"
+      "closed": "2026-09-02",
+      "log": []
     },
     {
       "ticket": "S1008",
@@ -1968,7 +2002,8 @@
       "quote": null,
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": []
     },
     {
       "ticket": "S1009",
@@ -1993,7 +2028,8 @@
       "quote": null,
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": []
     },
     {
       "ticket": "S1010",
@@ -2023,7 +2059,8 @@
       },
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": []
     },
     {
       "ticket": "S1011",
@@ -2048,7 +2085,29 @@
       "quote": null,
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": [
+        {
+          "ts": "2026-08-29 13:20 CT",
+          "who": "Matt",
+          "text": "opened by Matt (RECEIVED): Dropped off. Customer says it crawls and pulls right."
+        },
+        {
+          "ts": "2026-08-30 09:05 CT",
+          "who": "Josh",
+          "text": "Josh RECEIVED → CONTACTED: Called Dana, confirmed they want it looked at before any work."
+        },
+        {
+          "ts": "2026-08-31 15:48 CT",
+          "who": "Josh",
+          "text": "Josh: Pulled both drive motors. Left one has scored brushes and the commutator is pitted; right one is worn but serviceable for now. Recommend replacing the pair — doing one and coming back costs them a second teardown."
+        },
+        {
+          "ts": "2026-09-02 10:12 CT",
+          "who": "Josh",
+          "text": "Josh CONTACTED → NEEDS-QUOTE: Parts priced, labour is about six hours. Matt owes them a number."
+        }
+      ]
     },
     {
       "ticket": "S1012",
@@ -2073,7 +2132,8 @@
       "quote": null,
       "parts": null,
       "machinio_ref": null,
-      "closed": null
+      "closed": null,
+      "log": []
     }
   ],
   "service_summary": {
@@ -2323,7 +2383,8 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1002",
@@ -2360,7 +2421,8 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1003",
@@ -2397,7 +2459,8 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1004",
@@ -2434,7 +2497,24 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": "MCH-88421",
-      "related_ticket": null
+      "related_ticket": null,
+      "log": [
+        {
+          "ts": "2026-08-21",
+          "who": null,
+          "text": "imported from Machinio MCH-88421: enquiry on a used 32\" rider."
+        },
+        {
+          "ts": "2026-08-22 09:10 CT",
+          "who": "Matt",
+          "text": "Matt RECEIVED → CONTACTED: Left a voicemail."
+        },
+        {
+          "ts": "2026-08-27 09:15 CT",
+          "who": "Matt",
+          "text": "Matt: Second voicemail. No callback."
+        }
+      ]
     },
     {
       "lead": "L1005",
@@ -2475,7 +2555,29 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": [
+        {
+          "ts": "2026-08-26 08:50 CT",
+          "who": "Kevin",
+          "text": "opened by Kevin (RECEIVED, REFERRAL): Sent over by Harbor Line’s maintenance lead."
+        },
+        {
+          "ts": "2026-08-26 11:55 CT",
+          "who": "Kevin",
+          "text": "Kevin RECEIVED → CONTACTED: Talked to Marcus. Two shifts, tile and sealed concrete, wants a rider."
+        },
+        {
+          "ts": "2026-08-30 14:03 CT",
+          "who": "Kevin",
+          "text": "Kevin value → $28,900.00"
+        },
+        {
+          "ts": "2026-08-30 14:06 CT",
+          "who": "Kevin",
+          "text": "Kevin CONTACTED → QUOTED: Quote 990142 sent. He is taking it to their CFO Thursday."
+        }
+      ]
     },
     {
       "lead": "L1006",
@@ -2516,7 +2618,8 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1007",
@@ -2557,7 +2660,8 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1008",
@@ -2594,7 +2698,8 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": "S1001"
+      "related_ticket": "S1001",
+      "log": []
     },
     {
       "lead": "L1009",
@@ -2631,7 +2736,8 @@
       "close_note": null,
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1010",
@@ -2672,7 +2778,8 @@
       "close_note": "Took the demo unit",
       "invoice": "990665",
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1011",
@@ -2709,7 +2816,8 @@
       "close_note": "Came in $2,400 under us on a private sale",
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1012",
@@ -2746,7 +2854,8 @@
       "close_note": "Went with the Madison dealer for the shorter drive",
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1014",
@@ -2783,7 +2892,8 @@
       "close_note": "Capital freeze until the new fiscal year",
       "invoice": null,
       "machinio_ref": null,
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     },
     {
       "lead": "L1013",
@@ -2820,7 +2930,8 @@
       "close_note": "Three calls, no answer",
       "invoice": null,
       "machinio_ref": "MCH-88109",
-      "related_ticket": null
+      "related_ticket": null,
+      "log": []
     }
   ],
   "leads_summary": {

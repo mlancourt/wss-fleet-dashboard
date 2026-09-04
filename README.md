@@ -4,6 +4,13 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
+**v2.4** — `service_queue[].log[]` and `leads[].log[]` (the ticket/lead body as
+`{ts, who, text}`, last 30, oldest first) render as a **Notes** timeline in
+ticket and lead detail. `ts` is a display string the engine already formatted
+for Central — rendered verbatim, never `Date`-parsed. The lead log is stripped
+for `service` tokens along with the rest of the lead money: the engine writes
+`value → $X` rows into it. Ticket logs are not gated.
+
 **v2.2 (schema 5)** — a **Leads** tab: pipeline board, sales scoreboard and
 90-day insights, plus `lead_open` / `lead_update` / `lead_close`. Lead money is
 stripped **at the Worker** for a `service` token — see "The money gate" below;
@@ -48,6 +55,7 @@ the hard rules — read it before changing anything here.
 | **v1.6 — Service + Dispatch** | ✅ built on mock (Sep 3, 2026) | all nine actions round-trip locally; see `BUILD-NOTES.md` |
 | **v2.2 — Leads (schema 5)** | ✅ built (Sep 4, 2026) | three lead actions round-trip; the §6 money gate proven by curl; see `BUILD-NOTES.md` |
 | **D47 — NEEDS-QUOTE stage** | ✅ built (Sep 4, 2026) | a customer ticket moves to NEEDS-QUOTE end to end; Fleet still six columns |
+| **v2.4 — Notes timeline** | ✅ built (Sep 4, 2026) | real `log[]` rows render on ticket + lead detail; lead logs gated for `service` |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -109,7 +117,7 @@ whenever you re-run — that's expected.
 npm test
 ```
 
-Seven suites, ~145 checks. `selftest-render.mjs` boots the **real** `app.js` in
+Eight suites, ~155 checks. `selftest-render.mjs` boots the **real** `app.js` in
 a stub DOM and renders every route against all three mock variants as all three
 roles, failing on a thrown view, a leaked `undefined`, or a date-only string
 that got `Date`-parsed. `selftest-service.mjs` pins the schema-3 rules: stage
@@ -148,8 +156,11 @@ the money gate; that is Worker behaviour, proven by the curl check in
 `GET /api/data` strips lead money **at the edge** for a `service` token, before
 the bytes leave the Worker: `value` and `potential_commission` off every
 `leads[]` row, plus `leads_summary.commission_rates`, `leads_summary.money_fields`
-and `scoreboard.money`. `insights` is untouched — `won_value` there is deal
-size, not anybody's pay.
+and `scoreboard.money` — plus, since v2.4, `leads[].log` in full, because the
+engine writes `value → $X` rows into that free text and shipping the sentence
+would defeat the gate in the same response. `insights` is untouched (`won_value`
+there is deal size, not anybody's pay) and so are **ticket** logs, which carry
+no lead money and are where the shop's work is written down.
 
 Privacy by contract, not by CSS. A number the page merely declines to draw is
 still sitting in the response for anyone who opens a network tab; that was the
@@ -195,6 +206,7 @@ docs/                   GitHub Pages root — the app shell
   metrics.js            utilization, status board, recurring revenue (pure)
   service.js            service + dispatch logic, schema 3 (pure)
   leads.js              leads board, scoreboard + insights logic, schema 5 (pure)
+  notes.js              log[] timeline rows, shared by tickets + leads (pure)
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
   sw.js                 shell cache only; data is never cached
@@ -219,6 +231,7 @@ tools/
   selftest-metrics.mjs  utilization / status board / recurring revenue
   selftest-service.mjs  schema-3 service + dispatch logic
   selftest-leads.mjs    schema-5 leads logic, incl. money-absent-not-zero
+  selftest-notes.mjs    log[] rows — order kept, ts never Date-parsed
   selftest-render.mjs   every view, every mock variant, every role
   smoke-real.mjs        render a REAL snapshot by path — never copies it here
 ```

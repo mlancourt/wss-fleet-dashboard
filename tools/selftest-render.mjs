@@ -662,7 +662,9 @@ async function leadsAsStrippedService(hash = '#/leads', openScore = false) {
   await app.__refresh();
   app.__ui().showScore = openScore ? true : null;
   const snap = app.__state().snapshot;
-  for (const l of snap.leads) { delete l.value; delete l.potential_commission; }
+  // `log` goes with the money: the engine writes "value → $X" rows into it, so
+  // shipping the sentence would undo the fields being deleted. See worker.js.
+  for (const l of snap.leads) { delete l.value; delete l.potential_commission; delete l.log; }
   delete snap.leads_summary.commission_rates;
   delete snap.leads_summary.money_fields;
   delete snap.scoreboard.money;
@@ -837,6 +839,124 @@ await check('a quote file link is drawn only for an http(s) URL', async () => {
   assert.ok(out.includes('href="https://files.example.com/q/990142.pdf"'), 'a real link is drawn');
   assert.ok(out.includes('rel="noopener noreferrer"'));
   l.quote.file = null;
+});
+
+/* ------------------------------------------------- notes timeline (v2.4) -- */
+
+await check('a ticket renders its log oldest-first, text primary, who as a chip', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service';
+  window.location.search = '?mock=full&role=service';
+  await app.__refresh();
+  const t = app.__state().snapshot.service_queue.find((x) => (x.log || []).length >= 3);
+  assert.ok(t, 'the fixture must hold a ticket with a real log');
+
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(out.includes('<h2>Notes'), 'the section is called Notes');
+
+  // Every row is on screen, in the engine's order — newest therefore at the bottom.
+  const texts = [...out.matchAll(/class="ntext">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
+  assert.equal(texts.length, t.log.length, 'every row renders, none dropped');
+  assert.deepEqual(texts.map((x) => x.slice(0, 24)), t.log.map((r) => esc(r.text).slice(0, 24)),
+    'oldest first — the order the engine sent, never re-sorted');
+
+  // who is a chip only when the engine parsed one.
+  const withWho = t.log.filter((r) => r.who);
+  assert.equal([...out.matchAll(/class="nwho">/g)].length, withWho.length,
+    'one chip per authored row, none for the imports');
+  for (const r of withWho) assert.ok(out.includes(`class="nwho">${r.who}<`), `${r.who} should have a chip`);
+
+  // ts verbatim, in both shapes, and never Date-parsed.
+  for (const r of t.log) assert.ok(out.includes(`class="nts">${esc(r.ts)}<`), `${r.ts} must render verbatim`);
+  assert.ok(!/Invalid Date|GMT|T00:00:00/.test(out), 'the CT shape must never reach new Date()');
+});
+
+// The page escapes what it interpolates; the assertions above compare against
+// the same escaping rather than the raw fixture text.
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+await check('this session\'s pending note sits above the record, badged', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
+  window.location.search = '?mock=full&role=service&pending=1';
+  await app.__refresh();
+  // evt-mock-5 is Zac's ticket_update on S1004, and it carries a note.
+  const ev = app.__state().pending.find((e) => e.action === 'ticket_update' && e.payload && e.payload.note);
+  assert.ok(ev, 'the fixture must hold a pending note');
+  const t = app.__state().service_queue
+    ? null : app.__state().snapshot.service_queue.find((x) => x.ticket === ev.payload.ticket);
+  assert.ok(t && (t.log || []).length, 'and it must land on a ticket that already has a log');
+
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(out.includes('class="nrow is-pending"'), 'the pending note is tinted');
+  assert.ok(out.includes('⏳ applies at the next run'), 'and says it has not landed');
+  assert.ok(out.indexOf('is-pending') < out.indexOf(esc(t.log[0].text).slice(0, 24)),
+    'it sits above the record, not inside it');
+  assert.ok(out.includes(esc(ev.payload.note)), 'the note text itself is on screen');
+});
+
+await check('a lead renders its log the same way', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=sales';
+  window.location.search = '?mock=full&role=sales';
+  await app.__refresh();
+  const l = app.__state().snapshot.leads.find((x) => (x.log || []).length >= 3);
+  assert.ok(l, 'the fixture must hold a lead with a log');
+  const out = await renderRoute(`#/lead/${encodeURIComponent(l.lead)}`);
+  assert.equal([...out.matchAll(/class="ntext">/g)].length, l.log.length);
+  assert.ok(out.includes(`class="nts">${esc(l.log[0].ts)}<`));
+});
+
+await check('an empty log renders "No notes yet.", not a gap', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service';
+  window.location.search = '?mock=full&role=service';
+  await app.__refresh();
+  const snap = app.__state().snapshot;
+  const bare = snap.service_queue.find((x) => !(x.log || []).length);
+  assert.ok(bare, 'the fixture must hold a ticket with no log');
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(bare.ticket)}`);
+  assert.ok(out.includes('<h2>Notes'), 'the section still draws');
+  assert.ok(out.includes('No notes yet.'));
+  assert.ok(!out.includes('class="ntext"'));
+});
+
+await check('a schema-2 snapshot has no log field at all and still renders Notes', async () => {
+  window.location.href = 'http://localhost:8787/?mock=legacy&role=owner';
+  window.location.search = '?mock=legacy&role=owner';
+  await app.__refresh();
+  const t = app.__state().snapshot.service_queue[0];
+  assert.equal(t.log, undefined, 'the legacy fixture predates log[] by three schema versions');
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket || t.ticket_id)}`);
+  assert.ok(out.includes('No notes yet.') || !out.includes('<h2>Notes'), 'an absent field is not a crash');
+});
+
+await check('a service token gets no lead log — the engine writes money into it', async () => {
+  // Real rows read "<name> value → $<amount>". Deleting `value` while shipping
+  // the sentence that spells it out would defeat the §6 gate in one response,
+  // so the Worker drops the whole lead log for a service token. TICKET logs are
+  // untouched — that is where the shop's work is written down.
+  const out = await leadsAsStrippedService('#/lead/L1005');
+  // A log row is `class="nrow"`; a pending note is `class="nrow is-pending"`.
+  // The tech keeps their own side's unapplied notes — those are the crew's
+  // proposals, not the snapshot — and loses the record's.
+  assert.ok(!out.includes('class="nrow">'), 'no lead log rows for a tech');
+  assert.ok(!/\$\d/.test(out), 'and no dollar figure anywhere on the page');
+
+  // Kevin still gets both.
+  window.location.href = 'http://localhost:8787/?mock=full&role=sales';
+  window.location.search = '?mock=full&role=sales';
+  await app.__refresh();
+  const kevin = await renderRoute('#/lead/L1005');
+  assert.ok(kevin.includes('class="nrow">'), 'sales keeps the lead log');
+  assert.ok(kevin.includes('value → $28,900.00'), 'including the row that made this gate necessary');
+
+  // And a tech keeps every ticket log, which carries no lead money.
+  window.location.href = 'http://localhost:8787/?mock=full&role=service';
+  window.location.search = '?mock=full&role=service';
+  await app.__refresh();
+  const t = app.__state().snapshot.service_queue.find((x) => (x.log || []).length >= 3);
+  const josh = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(josh.includes('class="nrow">'), 'ticket logs are not gated');
 });
 
 await check('a schema-4 snapshot says leads have not arrived, rather than drawing an empty board', async () => {

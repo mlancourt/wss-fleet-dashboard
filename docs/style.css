@@ -731,3 +731,35 @@ table.ins td.n { color: var(--slate-700); }
   .tab { font-size: 10px; letter-spacing: 0; }
   .tab-badge { left: calc(50% + 6px); }
 }
+
+/* ------------------------------------------- notes timeline (v2.4) --
+   The ticket/lead body, oldest at the top so the newest entry is the one
+   your thumb is already next to. Text is the primary line — Matt reads a
+   diagnosis here to price a job — with `who` as a chip and the engine's
+   already-formatted timestamp beside it. */
+
+.card.notes { padding: 2px 16px; }
+.nrow { padding: 11px 0; border-bottom: 1px solid var(--slate-100); }
+.nrow:last-child { border-bottom: 0; }
+.ntext {
+  font-size: 14.5px; line-height: 1.45; color: var(--slate-800);
+  /* Log text carries the shop's own spacing; keep it, but never let a long
+     unbroken token push the card sideways. */
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.nmeta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
+.nwho {
+  font-size: 11px; font-weight: 700; letter-spacing: .3px;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--slate-100); color: var(--slate-700);
+}
+.nts { font-size: 12px; color: var(--slate-400); font-variant-numeric: tabular-nums; }
+.npend { font-size: 12px; font-weight: 650; color: var(--red-deep); }
+
+/* This session's unapplied notes sit above the record, tinted so nobody reads
+   a proposal as something the vault already holds. */
+.nrow.is-pending {
+  background: var(--red-soft); border-radius: var(--radius-sm);
+  padding: 10px 12px; margin: 10px 0; border-bottom: 0;
+}
+.nrow.is-pending + .nrow:not(.is-pending) { border-top: 1px solid var(--slate-100); }

@@ -86,6 +86,14 @@ const DAY = 86400000;
 const TODAY = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
 const d = (offsetDays) => new Date(TODAY + offsetDays * DAY).toISOString().slice(0, 10);
 
+// A log row's `ts` (v2.4) is a DISPLAY STRING the engine has already formatted
+// for a Central reader — "2026-09-04 11:09 CT", or a bare date on an imported
+// row that only knew the day. It is not an instant and not a business date, so
+// the fixture builds both shapes as text and the site renders them verbatim.
+const ts = (offsetDays, hhmm) => (hhmm ? `${d(offsetDays)} ${hhmm} CT` : d(offsetDays));
+/** `{ts, who, text}` rows, oldest first — the order the engine publishes. */
+const logOf = (rows) => rows.map(([t, who, text]) => ({ ts: t, who: who || null, text }));
+
 // ---------------------------------------------------------------- fake corpus
 
 // The real 9 rental-rate-matrix bands, in canonical display order (confirmed by
@@ -426,6 +434,9 @@ function build({ withServiceQueue }) {
         parts: null,
         machinio_ref: null,
         closed: null,
+        // v2.4: the ticket body as {ts, who, text}, oldest first. Most tickets
+        // have none — an empty log must render the empty state, not a gap.
+        log: [],
         ...t,
       };
       delete row.unit;
@@ -452,6 +463,13 @@ function build({ withServiceQueue }) {
       equipment: 'Nordvale SC-2400 (customer owned)', issue: 'Scrubber dead — no power at key switch, whole line is mopping by hand',
       location: 'AT-CUSTOMER', site: 'Watertown WI', intake_move: 'PICKUP', return_move: 'DELIVER',
       opened: -1, assigned: 'Josh',
+      log: logOf([
+        [ts(-1, '07:42'), 'Kevin', 'opened by Kevin (RECEIVED, PHONE): Scrubber dead, no power at the key switch. Whole line is mopping by hand.'],
+        // An imported row with no author and only a day — both shapes the site
+        // has to render verbatim.
+        [ts(-1), null, 'import note: called the shop line at 07:38, asked for Josh by name.'],
+        [ts(0, '08:15'), 'Josh', 'Josh: Truck is booked for this afternoon. Bringing the spare key switch and a charger just in case.'],
+      ]),
     });
 
     // 2 — CONTACTED on one of ours, DOWN in the shop.
@@ -478,6 +496,10 @@ function build({ withServiceQueue }) {
       return_move: 'DELIVER', assigned: 'Zac', opened: -18, scheduled: d(4),
       quote: { number: 'Q-2198', amount: 1140, sent: d(-15), approved: d(-13) },
       parts: 'Pump assy 41-2207 — ETA Thursday, backordered once already',
+      log: logOf([
+        [ts(-13, '11:02'), 'Zac', 'Zac: Quote approved over the phone. Pump ordered.'],
+        [ts(-4, '16:30'), null, 'supplier note: backordered a second time, new ETA Thursday.'],
+      ]),
     });
 
     // 5 — IN-PROGRESS on one of ours that is OUT ON RENT: a field call, no truck move.
@@ -543,6 +565,12 @@ function build({ withServiceQueue }) {
       issue: 'Both drive motors worn — priced the pair, waiting on Matt for the number',
       location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP',
       assigned: 'Josh', opened: -6, stage_since: -2, priority: 'HIGH',
+      log: logOf([
+        [ts(-6, '13:20'), 'Matt', 'opened by Matt (RECEIVED): Dropped off. Customer says it crawls and pulls right.'],
+        [ts(-5, '09:05'), 'Josh', 'Josh RECEIVED \u2192 CONTACTED: Called Dana, confirmed they want it looked at before any work.'],
+        [ts(-4, '15:48'), 'Josh', 'Josh: Pulled both drive motors. Left one has scored brushes and the commutator is pitted; right one is worn but serviceable for now. Recommend replacing the pair \u2014 doing one and coming back costs them a second teardown.'],
+        [ts(-2, '10:12'), 'Josh', 'Josh CONTACTED \u2192 NEEDS-QUOTE: Parts priced, labour is about six hours. Matt owes them a number.'],
+      ]),
     });
     ticket({
       stage: 'NEEDS-QUOTE', customer: 'Stillman Foundry',
@@ -784,6 +812,8 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       invoice: o.invoice || null,
       machinio_ref: o.machinio_ref || null,
       related_ticket: o.related_ticket || null,
+      // v2.4: the lead body, same {ts, who, text} shape as a ticket's.
+      log: o.log || [],
     };
   };
 
@@ -810,14 +840,25 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       phone: '920-555-0163', site: 'Jefferson WI 53549', source: 'MACHINIO', interest: 'SALE-USED',
       machine: 'Used 32" rider under $18k', value: 16500, assigned: 'Matt', opened_by: 'Matt',
       contactHours: 26, stale: 'red', stale_reason: 'Eleven business days since the last contact',
-      suggest_dead: true, machinio_ref: 'MCH-88421', next_action: null, stageDays: 11, totalDays: 14 }),
+      suggest_dead: true, machinio_ref: 'MCH-88421', next_action: null, stageDays: 11, totalDays: 14,
+      log: logOf([
+        [ts(-14), null, 'imported from Machinio MCH-88421: enquiry on a used 32" rider.'],
+        [ts(-13, '09:10'), 'Matt', 'Matt RECEIVED \u2192 CONTACTED: Left a voicemail.'],
+        [ts(-8, '09:15'), 'Matt', 'Matt: Second voicemail. No callback.'],
+      ]) }),
 
     // -- QUOTED: one with the quote object filled in, one big one.
     mk({ lead: 'L1005', stage: 'QUOTED', customer: 'Harbor Line Logistics', contact: 'Marcus Idle',
       phone: '262-555-0175', email: 'm.idle@harborline.example', site: 'Kenosha WI 53142',
       source: 'REFERRAL', interest: 'SALE-NEW', machine: 'Nordvale SC-2400', value: 28900,
       quote: { number: '990142', file: null, sent: d(-5) }, contactHours: 3,
-      next_action: 'Follow up Thursday', stageDays: 5, totalDays: 9 }),
+      next_action: 'Follow up Thursday', stageDays: 5, totalDays: 9,
+      log: logOf([
+        [ts(-9, '08:50'), 'Kevin', 'opened by Kevin (RECEIVED, REFERRAL): Sent over by Harbor Line\u2019s maintenance lead.'],
+        [ts(-9, '11:55'), 'Kevin', 'Kevin RECEIVED \u2192 CONTACTED: Talked to Marcus. Two shifts, tile and sealed concrete, wants a rider.'],
+        [ts(-5, '14:03'), 'Kevin', 'Kevin value \u2192 $28,900.00'],
+        [ts(-5, '14:06'), 'Kevin', 'Kevin CONTACTED \u2192 QUOTED: Quote 990142 sent. He is taking it to their CFO Thursday.'],
+      ]) }),
     mk({ lead: 'L1006', stage: 'QUOTED', customer: 'Quarry Road Aggregates', contact: 'Lena Faust',
       phone: '608-555-0134', site: 'Beloit WI 53511', source: 'OUTBOUND', interest: 'RENTAL',
       machine: 'Two riders, 6 months', value: 41200, priority: 'HIGH',

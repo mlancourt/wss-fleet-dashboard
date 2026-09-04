@@ -354,14 +354,23 @@ fi
 expect "service: no money on any lead, no scoreboard.money" 200 \
   "b.snapshot.leads.every(l=>!('value' in l) && !('potential_commission' in l)) && !('money' in b.snapshot.scoreboard) && !('commission_rates' in b.snapshot.leads_summary) && !('money_fields' in b.snapshot.leads_summary)" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+# v2.4: the lead log is free text and the engine writes "value -> $X" into it.
+# Deleting the field while shipping the sentence would defeat the gate in one
+# response, so the whole lead log goes. TICKET logs are deliberately untouched.
+expect "service: no lead log either — the engine writes money into it" 200 \
+  "b.snapshot.leads.every(l=>!('log' in l))" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+expect "service: TICKET logs survive — that is where the shop's work is" 200 \
+  "b.snapshot.service_queue.some(t=>Array.isArray(t.log) && t.log.length>0)" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
 expect "service: insights survive untouched (deal size is not commission)" 200 \
   "b.snapshot.insights && typeof b.snapshot.insights.window_days==='number' && b.snapshot.insights.by_source && typeof b.snapshot.insights.by_interest==='object'" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
 expect "service: the rest of the snapshot is intact" 200 \
   "b.snapshot.units.length===39 && b.snapshot.leads.length===14 && b.snapshot.leads_summary.received_uncontacted===2" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
-expect "sales KEEPS the money" 200 \
-  "b.snapshot.leads.some(l=>typeof l.value==='number') && b.snapshot.leads.some(l=>typeof l.potential_commission==='number') && b.snapshot.scoreboard.money && b.snapshot.leads_summary.commission_rates" \
+expect "sales KEEPS the money, and the lead log with it" 200 \
+  "b.snapshot.leads.some(l=>typeof l.value==='number') && b.snapshot.leads.some(l=>typeof l.potential_commission==='number') && b.snapshot.scoreboard.money && b.snapshot.leads_summary.commission_rates && b.snapshot.leads.some(l=>Array.isArray(l.log) && l.log.length>0)" \
   "$WORKER/api/data" -H "$(auth $T_SALES)"
 expect "owner KEEPS the money" 200 \
   "b.snapshot.scoreboard.money && typeof b.snapshot.scoreboard.money.on_table_commission==='number'" \

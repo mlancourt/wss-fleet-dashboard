@@ -260,6 +260,15 @@ function stripLeadMoney(text) {
     for (const lead of doc.leads) {
       if (!lead || typeof lead !== 'object') continue;
       for (const f of fields) delete lead[f];
+      // v2.4 `log[]` is FREE TEXT the engine writes, and it writes money into
+      // it: real rows read "<name> value → $<amount>". Deleting `value` while
+      // shipping a sentence that spells it out would defeat this gate in the
+      // same response. Not listed in §6 — §6 predates the field — so this is a
+      // deliberate over-strip, pending the Architect's call: a redacted lead
+      // log would be strictly better, since a tech loses their own lead notes
+      // here. TICKET logs are untouched; they carry no lead money and they are
+      // where the shop's actual work is written down.
+      delete lead.log;
     }
   }
   if (summary) {

@@ -28,6 +28,7 @@ import {
   stageOptions, columnize, pipeline, sortTickets, missingMoves, openCount, dispatchFor, dispatchById,
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from './service.js';
+import { logRows, pendingNotes } from './notes.js';
 import {
   NO_DATA, LEAD_PRIORITIES,
   STAGE_LABEL as LEAD_STAGE_LABEL, STATUS_LABEL as LEAD_STATUS_LABEL,
@@ -40,7 +41,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-04-d47';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-04-notes';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -776,6 +777,51 @@ function pendingLine(n) {
   return n ? html`<div class="row-pending">⏳ ${n} pending — applies at the next run</div>` : '';
 }
 
+/* ---- Notes timeline (v2.4) ---------------------------------------------
+ * `service_queue[].log[]` and `leads[].log[]` render the same way, so tickets
+ * and leads share this. Matt reads a tech's diagnosis here to price the job,
+ * which is the whole reason the field exists — so the TEXT is the primary
+ * line, and `who` is a chip only when the engine managed to parse one.
+ *
+ * `ts` is rendered VERBATIM. The engine already formatted it for a Central
+ * reader ("2026-09-04 11:09 CT", or a bare "2026-09-03" on an import), so it
+ * is neither an instant to format nor a business date to reformat — see
+ * docs/notes.js. Nothing here goes near `new Date()`.
+ *
+ * This session's unapplied notes sit ABOVE the record rather than at the end
+ * of it: the log is what the vault holds, and a proposal that hasn't been
+ * applied has no place in that chronology yet.
+ */
+function notesSection(entity, pending) {
+  const rows = logRows(entity);
+  const mine = pendingNotes(pending);
+  if (!rows.length && !mine.length) {
+    return html`<h2>Notes</h2>
+      <div class="card notes"><div class="hold-empty">No notes yet.</div></div>`;
+  }
+
+  const meta = (who, ts, extra) => html`<div class="nmeta">
+    ${who ? raw(html`<span class="nwho">${who}</span>`) : ''}
+    ${ts ? raw(html`<span class="nts">${ts}</span>`) : ''}
+    ${extra ? raw(extra) : ''}
+  </div>`;
+
+  return html`
+    <h2>Notes${rows.length ? raw(html` <span class="count">${rows.length}</span>`) : ''}</h2>
+    <div class="card notes">
+      ${raw(mine.map((n) => html`
+        <div class="nrow is-pending">
+          <div class="ntext">${n.text}</div>
+          ${raw(meta(n.who, null, html`<span class="npend">⏳ applies at the next run</span>`))}
+        </div>`).join(''))}
+      ${raw(rows.map((n) => html`
+        <div class="nrow">
+          <div class="ntext">${n.text}</div>
+          ${raw(meta(n.who, n.ts, null))}
+        </div>`).join(''))}
+    </div>`;
+}
+
 /* ---- undo a pending event (D46) ----------------------------------------
  * You may take back your OWN tap, and only while it is still pending. This is
  * a "wrong button" valve, not moderation: somebody else's pending write renders
@@ -1052,6 +1098,7 @@ function viewTicket(id) {
       ${t.closed ? raw(kvRow('Closed', fmtDateFull(t.closed))) : ''}
     </dl></div>
 
+    ${raw(notesSection(t, pend))}
     ${raw(stagePicker(t, canWork))}
     ${raw(ticketActions(t))}
     ${raw(ticketMoves(t, moves, gaps))}`;
@@ -1822,6 +1869,7 @@ function viewLead(id) {
       ${l.close_note ? raw(kvRow('Close note', l.close_note)) : ''}
     </dl></div>
 
+    ${raw(notesSection(l, pend))}
     ${raw(leadStagePicker(l))}
     ${raw(leadActions(l))}`;
 }

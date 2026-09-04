@@ -171,6 +171,44 @@ if (snap.leads.length) {
   note(!out.includes('undefined'), 'and the scoreboard survives every null');
 }
 
+/* --------------------------------------------------- notes timeline (v2.4) --
+ * The reason this order shipped: Matt reads a tech's diagnosis on his phone to
+ * price the job. So the smoke test proves the real rows are actually on screen,
+ * not merely that the page didn't throw. */
+
+const logged = snap.service_queue.filter((t) => Array.isArray(t.log) && t.log.length);
+note(logged.length > 0, `${logged.length} of ${snap.service_queue.length} tickets carry a log`);
+
+if (logged.length) {
+  const t = logged.reduce((a, b) => (b.log.length > a.log.length ? b : a));
+  const out2 = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  const shown = t.log.filter((r) => out2.includes(esc(r.text).slice(0, 40)));
+  note(shown.length === t.log.length,
+    `${t.ticket}: all ${t.log.length} log rows on screen` + (shown.length === t.log.length ? '' : ` (only ${shown.length})`));
+  note(t.log.every((r) => !r.ts || out2.includes(`class="nts">${esc(r.ts)}<`)),
+    'every timestamp renders verbatim — both the "… CT" and bare-date shapes');
+  note(!/Invalid Date|GMT|T00:00:00/.test(out2), 'and none of them reached new Date()');
+  const authored = t.log.filter((r) => r.who);
+  note([...out2.matchAll(/class="nwho">/g)].length === authored.length,
+    `who is a chip on ${authored.length} of ${t.log.length} rows and absent on the rest`);
+}
+
+// The one the order named by number.
+const s1014 = snap.service_queue.find((t) => t.ticket === 'S1014');
+if (s1014) {
+  const out3 = await renderRoute('#/ticket/S1014');
+  const josh = (s1014.log || []).find((r) => r.who === 'Josh');
+  note(!!josh && out3.includes(esc(josh.text).slice(0, 60)), "S1014 shows Josh's diagnosis in full");
+  note(out3.includes('class="nwho">Josh<'), 'attributed to Josh');
+} else {
+  note(true, 'S1014 is not in this snapshot (skipped)');
+}
+
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 // The engine may publish a stage, source or interest we have no label for. That
 // is fine — but it must fall through as the raw enum, never as "undefined".
 const known = new Set(['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'INVOICED']);
