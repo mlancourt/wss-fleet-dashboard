@@ -30,7 +30,9 @@
  *     only-FUTURE holds while AVAILABLE (the trap) · ON-RENT with two future holds ·
  *     an EXPIRED hold still holding the unit · four holds on one unit ·
  *     one MALFORMED hold; top-level rollup to match
- *   - schema 3 service: a ticket in every one of the eight stages · both
+ *   - schema 3 service: a ticket in every one of the nine stages (D47's
+ *     NEEDS-QUOTE twice, so the new column is never one deep, and CUSTOMER-owned
+ *     both times — a WSS machine can never take it) · both
  *     machine_owners (a WSS ticket on a DOWN in-shop unit, and one on a unit
  *     that's out on rent) · a HIGH customer ticket with intake_move PICKUP and
  *     its SERVICE-IN row · a READY-TO-INVOICE ticket with a SERVICE-OUT DELIVER
@@ -531,6 +533,25 @@ function build({ withServiceQueue }) {
       quote: { number: 'Q-2205', amount: 640, sent: d(-8), approved: d(-6) },
     });
 
+    // 11 + 12 — NEEDS-QUOTE (D47): diagnosed, and now the ball is in OUR court
+    // because Matt owes them a number. Two of them, so the new column is never
+    // one deep — and both CUSTOMER-owned, because a WSS machine can never take
+    // this stage (nobody quotes us to us).
+    ticket({
+      stage: 'NEEDS-QUOTE', customer: 'Birchwood Cold Storage',
+      equipment: 'Halstead SW-900 (customer owned)',
+      issue: 'Both drive motors worn — priced the pair, waiting on Matt for the number',
+      location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP',
+      assigned: 'Josh', opened: -6, stage_since: -2, priority: 'HIGH',
+    });
+    ticket({
+      stage: 'NEEDS-QUOTE', customer: 'Stillman Foundry',
+      equipment: 'Ironline R-660 (customer owned)',
+      issue: 'Deck rebuild — teardown done, parts list handed over',
+      location: 'AT-CUSTOMER', site: 'Waukesha WI', intake_move: 'PICKUP', return_move: 'DELIVER',
+      assigned: 'Zac', opened: -13, stage_since: -5, priority: 'LOW',
+    });
+
     // ------------------------------------------------------------- dispatch board
     const move = (m) => {
       dispatch.push({
@@ -595,9 +616,9 @@ function build({ withServiceQueue }) {
       note: 'Picked up both pump assemblies' });
   }
 
-  // The eight-stage rollup the Service tab draws its column counts from.
+  // The nine-stage rollup the Service tab draws its column counts from.
   // COMPLETE is "closed in the last 7 days", not an open-work count (CLAUDE.md).
-  const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
+  const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
   const service_summary = {
     open_by_stage: Object.fromEntries(SERVICE_STAGES.map((s) => [s, service_queue.filter(
       (t) => t.stage === s && (s === 'COMPLETE' ? true : t.status === 'OPEN')).length])),

@@ -19,11 +19,24 @@ console.log('service + dispatch self-test');
 
 /* ------------------------------------------------------------------ stages */
 
-check('WSS tickets hide WAITING-ON-CUSTOMER and READY-TO-INVOICE; customer tickets show all eight', () => {
+check('WSS tickets hide the three billing stages; customer tickets show all nine', () => {
   assert.deepEqual(stagesFor('CUSTOMER'), STAGES);
+  assert.equal(STAGES.length, 9);
   assert.deepEqual(stagesFor('WSS'),
     ['RECEIVED', 'CONTACTED', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'COMPLETE']);
   assert.equal(stagesFor('WSS').includes('WAITING-ON-CUSTOMER'), false);
+  // D47: nobody quotes us to us.
+  assert.equal(stagesFor('WSS').includes('NEEDS-QUOTE'), false);
+});
+
+check('NEEDS-QUOTE sits between CONTACTED and WAITING-ON-CUSTOMER (D47)', () => {
+  assert.equal(STAGES.indexOf('NEEDS-QUOTE'), STAGES.indexOf('CONTACTED') + 1);
+  assert.equal(STAGES.indexOf('WAITING-ON-CUSTOMER'), STAGES.indexOf('NEEDS-QUOTE') + 1);
+  assert.equal(canStage(T('S1', 'CONTACTED', 'CUSTOMER'), 'NEEDS-QUOTE', 'service'), true);
+  assert.equal(canStage(T('S1', 'CONTACTED', 'CUSTOMER'), 'NEEDS-QUOTE', 'owner'), true);
+  assert.equal(canStage(T('S1', 'CONTACTED', 'CUSTOMER'), 'NEEDS-QUOTE', 'sales'), false);
+  // The picker never offers it on one of ours, whoever is asking.
+  assert.equal(canStage(T('S2', 'CONTACTED', 'WSS'), 'NEEDS-QUOTE', 'owner'), false);
 });
 
 check('stage changes are service/owner only — sales never moves a ticket', () => {
@@ -50,7 +63,7 @@ check('a stage hidden for WSS can never be set on a WSS ticket', () => {
 
 check('stageOptions marks the current stage and captions the disabled COMPLETE', () => {
   const opts = stageOptions(T('S1', 'WAITING-ON-CUSTOMER', 'CUSTOMER'), 'service');
-  assert.equal(opts.length, 8);
+  assert.equal(opts.length, 9);
   assert.equal(opts.find((o) => o.stage === 'WAITING-ON-CUSTOMER').current, true);
   const done = opts.find((o) => o.stage === 'COMPLETE');
   assert.equal(done.enabled, false);
@@ -78,10 +91,10 @@ check('filterTickets: all / Customer / Fleet', () => {
   assert.deepEqual(filterTickets(null, 'all'), []);
 });
 
-check('columnize: eight stages in order, unknown stages appended, nothing dropped', () => {
+check('columnize: nine stages in order, unknown stages appended, nothing dropped', () => {
   const cols = columnize(QUEUE);
-  assert.deepEqual(cols.slice(0, 8).map((c) => c.stage), STAGES);
-  assert.equal(cols[8].stage, 'TRIAGE');
+  assert.deepEqual(cols.slice(0, 9).map((c) => c.stage), STAGES);
+  assert.equal(cols[9].stage, 'TRIAGE');
   assert.equal(cols.reduce((n, c) => n + c.tickets.length, 0), QUEUE.length);
 });
 
@@ -92,12 +105,14 @@ check('columnize counts come from service_summary only when unfiltered', () => {
   assert.equal(columnize(QUEUE, { summary, filter: 'WSS' }).find((c) => c.stage === 'RECEIVED').count, 1);
 });
 
-check('columnsFor: Fleet drops exactly the two stages a WSS ticket cannot occupy (D43)', () => {
+check('columnsFor: Fleet drops exactly the three stages a WSS ticket cannot occupy (D43/D47)', () => {
   assert.deepEqual(columnsFor('all'), STAGES);
   assert.deepEqual(columnsFor('CUSTOMER'), STAGES);
+  assert.equal(columnsFor('all').length, 9);
   const wss = columnsFor('WSS');
-  assert.equal(wss.length, 6);
-  assert.deepEqual(STAGES.filter((s) => !wss.includes(s)), ['WAITING-ON-CUSTOMER', 'READY-TO-INVOICE']);
+  assert.equal(wss.length, 6, 'Fleet stays at six even though the list grew to nine');
+  assert.deepEqual(STAGES.filter((s) => !wss.includes(s)),
+    ['NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'READY-TO-INVOICE']);
   // and it stays in step with the stage picker
   assert.deepEqual(wss, stagesFor('WSS'));
 });
@@ -115,13 +130,24 @@ check('columnize under Fleet draws six columns but never drops a ticket', () => 
 
 /* ---------------------------------------------------- service pipeline (D43) */
 
-check('pipeline: seven rows in stage order — COMPLETE is the pill, not a row', () => {
+check('pipeline: eight rows in stage order — COMPLETE is the pill, not a row', () => {
   const p = pipeline(QUEUE);
-  assert.equal(p.rows.length, 7);
+  assert.equal(p.rows.length, 8);
   assert.deepEqual(p.rows.map((r) => r.stage), PIPELINE_STAGES);
   assert.equal(p.rows.some((r) => r.stage === 'COMPLETE'), false);
   assert.equal(p.rows[0].label, 'Received');
   assert.ok(p.rows.every((r) => typeof r.color === 'string' && r.color));
+});
+
+check('the Needs quote row follows Contacted and is maroon, not amber (D47)', () => {
+  const p = pipeline(QUEUE);
+  const i = p.rows.findIndex((r) => r.stage === 'NEEDS-QUOTE');
+  assert.equal(p.rows[i - 1].stage, 'CONTACTED');
+  assert.equal(p.rows[i].label, 'Needs quote');
+  // Our court, like RECEIVED — deliberately NOT the amber of WAITING-ON-CUSTOMER.
+  assert.equal(p.rows[i].color, 'new');
+  assert.equal(p.rows[i].color, p.rows.find((r) => r.stage === 'RECEIVED').color);
+  assert.notEqual(p.rows[i].color, p.rows.find((r) => r.stage === 'WAITING-ON-CUSTOMER').color);
 });
 
 check('pipeline: counts and percentages over OPEN customer tickets only', () => {
@@ -163,12 +189,12 @@ check('pipeline: closed-this-week counts customer CLOSED tickets, with no date m
   assert.equal(p.open, 1);
 });
 
-check('pipeline: an empty queue still yields seven zero rows (the card never hides)', () => {
+check('pipeline: an empty queue still yields eight zero rows (the card never hides)', () => {
   for (const empty of [[], null, undefined]) {
     const p = pipeline(empty);
     assert.equal(p.open, 0);
     assert.equal(p.closedThisWeek, 0);
-    assert.equal(p.rows.length, 7);
+    assert.equal(p.rows.length, 8);
     assert.ok(p.rows.every((r) => r.count === 0 && r.pct === 0));
   }
 });

@@ -4,6 +4,16 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
+**v2.2 (schema 5)** — a **Leads** tab: pipeline board, sales scoreboard and
+90-day insights, plus `lead_open` / `lead_update` / `lead_close`. Lead money is
+stripped **at the Worker** for a `service` token — see "The money gate" below;
+it is not a CSS rule and must never become one.
+
+**D47** — ninth service stage **`NEEDS-QUOTE`**, between CONTACTED and
+WAITING-ON-CUSTOMER: the tech has diagnosed it and Matt owes the customer a
+number. WSS-owned tickets never take it (nobody quotes us to us), so the Fleet
+chip still shows six columns while Customer and All show nine.
+
 **v1.9 (schema 4, D45)** — `acquisition_cost` and `book` no longer ship in the
 snapshot and are shown nowhere on the site; `ask` stays. `meta.fleet_totals` is
 a unit count only, and the engine publishes `meta.utilization` (percentages and
@@ -12,9 +22,9 @@ present and falls back to computing them from `units[]` on a schema-3 snapshot.
 
 **v1.6 (schema 3)** — the Billing tab is retired: its recurring-revenue block
 moved to the top of Rentals and its nav slot became **Dispatch**. The Service
-tab is real (eight-stage kanban, ticket detail, `+ New ticket`). Six new write
-actions bring the total to nine. `snapshot.billing` still arrives and is
-deliberately never rendered.
+tab is real (a nine-stage kanban since D47, ticket detail, `+ New ticket`). Six
+new write actions brought the total to nine, and schema 5 took it to twelve.
+`snapshot.billing` still arrives and is deliberately never rendered.
 
 **This repo is the presentation + transport layer only.** The vault + run engine
 (owned elsewhere) is the source of truth. It publishes a snapshot to the Worker
@@ -37,6 +47,7 @@ the hard rules — read it before changing anything here.
 | **M3 — domain + PWA** | ✅ live (Sep 2, 2026) | `fleet.wisconsinscrubandsweep.com` installs as an app |
 | **v1.6 — Service + Dispatch** | ✅ built on mock (Sep 3, 2026) | all nine actions round-trip locally; see `BUILD-NOTES.md` |
 | **v2.2 — Leads (schema 5)** | ✅ built (Sep 4, 2026) | three lead actions round-trip; the §6 money gate proven by curl; see `BUILD-NOTES.md` |
+| **D47 — NEEDS-QUOTE stage** | ✅ built (Sep 4, 2026) | a customer ticket moves to NEEDS-QUOTE end to end; Fleet still six columns |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**

@@ -820,3 +820,93 @@ from a unit page, and the Closed strip.
 - **Six tabs is the ceiling.** At 390px each tab is ~65px; the labels tighten
   to 10px under 430px. A seventh would need a different nav — an overflow
   sheet, or dropping Holds into Fleet.
+
+---
+
+# D47 — `NEEDS-QUOTE` service stage (2026-09-04)
+
+Built from `docs-specs/Needs-Quote-Site-Spec.md`. Three touches, additive, no
+tag. The engine was already enforcing the stage; this makes the site and the
+Worker able to speak it.
+
+## What shipped
+
+**1. Worker.** `NEEDS-QUOTE` added to the `ticket_update.stage` enum — nine
+values now. Role gating unchanged (a stage move is still `service` + `owner`).
+Membership only, as everywhere else in that file: a `NEEDS-QUOTE` on a
+WSS-owned ticket is **accepted** by the Worker and refused by the vault, which
+is where "nobody quotes us to us" belongs.
+
+**2. Service tab.** `docs/service.js` `STAGES` gained `NEEDS-QUOTE` between
+`CONTACTED` and `WAITING-ON-CUSTOMER`, and the WSS skip set went from two
+stages to three. Everything downstream follows from those two edits, because
+the kanban columns, the stage picker and the pipeline rows are all derived from
+`stagesFor()` / `STAGES` rather than listed separately:
+
+- kanban: nine columns under All and Customer, still **six** under Fleet;
+- stage picker: offered on a customer ticket, absent on one of ours;
+- pipeline widget: an eighth row, **"Needs quote"**, straight after Contacted,
+  in the same maroon as RECEIVED (`pipe-new`) — our court, deliberately not the
+  amber of WAITING-ON-CUSTOMER. No new CSS was needed for the colour.
+
+**3. Mock.** Two customer-owned `NEEDS-QUOTE` tickets (S1011 Birchwood Cold
+Storage, S1012 Stillman Foundry), so the new column is never one deep, and the
+nine-key `service_summary.open_by_stage` rollup.
+
+`BUILD` stamp and SW cache bumped (v16 → v17).
+
+## Tests
+
+`npm test` — **57 render + 31 service checks**, green, also under
+`TZ=Pacific/Pago_Pago`. New assertions: the stage's position in the list, that
+`canStage` allows it for service/owner and refuses it for sales and on a WSS
+ticket, that Fleet stays at six columns while All goes to nine, that the
+pipeline row is maroon and matches RECEIVED rather than WAITING-ON-CUSTOMER,
+and — at render level — that a fleet ticket's picker draws six buttons with no
+NEEDS-QUOTE among them.
+
+`npm run m1` — **110 passed, 0 failed** against `wrangler dev`: service moves a
+customer ticket to NEEDS-QUOTE, owner may too, sales gets a 403, an invented
+stage gets a 400, and the WSS case is asserted to **pass the Worker** so the
+division of labour is pinned in the test rather than assumed.
+
+`node tools/smoke-real.mjs` — 12 passed against the real schema-5 snapshot,
+which has no NEEDS-QUOTE tickets yet.
+
+## Decisions I made
+
+1. **`stagesFor()` now reads from a `WSS_SKIP` set** rather than a chain of
+   `!==`. Three exclusions is where the chain stops being readable, and it is
+   the single place the skip list lives — the picker, the kanban columns and
+   the Fleet count all derive from it.
+
+2. **`NEEDS-QUOTE` reuses `pipe-new` (maroon) rather than getting a colour of
+   its own.** The spec asks for maroon and gives the reason: it is WSS's court,
+   the same family as RECEIVED. Two maroon rows on the widget is the intended
+   reading — "these are waiting on us" — not a collision.
+
+3. **The kanban's desktop column floor is new.** Nine columns sharing 1040px
+   would be ~100px each, narrow enough to ellipsise every customer name, so
+   `.kan-col` gained `min-width: 150px` inside the wide-screen rule. Below the
+   floor the board scrolls sideways, which is what it already does on a phone.
+   All nine sit side by side from about 1500px.
+
+4. **The M1 loop asserts the WSS case is a 201, not a 400.** It looks like a
+   missing validation until you read why: the Worker checks shape and role, the
+   vault checks business state. Writing that down as a passing test is the only
+   way the next session doesn't "fix" it.
+
+## Things worth flagging
+
+- **`CLAUDE.md`'s prose is now behind its own enum.** The Architect's sync added
+  `NEEDS-QUOTE` to the `service_queue.stage` line, but §4 of the UI spec still
+  reads "eight columns by `stage` (six under the Fleet chip — WAITING-ON-CUSTOMER
+  + READY-TO-INVOICE never apply)", `service_summary` still says "…all eight
+  stages…", and the v1.7 / v1.8 lines still list the eight and describe the
+  pipeline as "seven stage rows". The code is right and matches the spec; the
+  brief needs a vault-side pass. I did not edit it — it is synced from the vault
+  master.
+
+- **No real ticket is in NEEDS-QUOTE yet**, so every real-data check of this
+  stage is an absence. Worth a second `smoke-real.mjs` run once Josh has moved
+  one.

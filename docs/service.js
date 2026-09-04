@@ -14,7 +14,7 @@ import { isDateStr } from './dates.js';
  * Fixed lists from CLAUDE.md / the Service-Dispatch spec. The Worker validates
  * against the same values; keep the two in step. */
 
-export const STAGES = ['RECEIVED', 'CONTACTED', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
+export const STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
 export const PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'];
 export const LOCATIONS = ['AT-CUSTOMER', 'IN-SHOP'];
 export const INTAKE_MOVES = ['NONE', 'PICKUP', 'CUSTOMER-DROP'];
@@ -29,7 +29,8 @@ export const DISPATCH_STATUSES = ['OPEN', 'SCHEDULED', 'DONE'];
 
 /* Shop-floor wording. The enum is the wire value; these are what a glove reads. */
 export const STAGE_LABEL = {
-  RECEIVED: 'Received', CONTACTED: 'Contacted', 'WAITING-ON-CUSTOMER': 'Waiting on customer', 'WAITING-ON-PARTS': 'Waiting on parts', SCHEDULED: 'Scheduled',
+  RECEIVED: 'Received', CONTACTED: 'Contacted', 'NEEDS-QUOTE': 'Needs quote',
+  'WAITING-ON-CUSTOMER': 'Waiting on customer', 'WAITING-ON-PARTS': 'Waiting on parts', SCHEDULED: 'Scheduled',
   'IN-PROGRESS': 'In progress', 'READY-TO-INVOICE': 'Ready to invoice', COMPLETE: 'Complete',
 };
 export const MOVE_LABEL = {
@@ -40,12 +41,12 @@ export const SOURCE_GLYPH = { 'RENTAL-RETURN': '📦', 'SERVICE-IN': '🔧', 'SE
 
 /* --------------------------------------------------------------- tickets -- */
 
-/** The stages a ticket can show. WAITING-ON-CUSTOMER / READY-TO-INVOICE are customer-billing
- *  stages — a fleet machine of ours never gets quoted or invoiced. */
+/** The stages a ticket can show. NEEDS-QUOTE / WAITING-ON-CUSTOMER / READY-TO-INVOICE
+ *  are customer-billing stages — a fleet machine of ours never gets quoted or
+ *  invoiced, and nobody quotes us to us (D47). */
+const WSS_SKIP = new Set(['NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'READY-TO-INVOICE']);
 export function stagesFor(machineOwner) {
-  return machineOwner === 'WSS'
-    ? STAGES.filter((s) => s !== 'WAITING-ON-CUSTOMER' && s !== 'READY-TO-INVOICE')
-    : STAGES.slice();
+  return machineOwner === 'WSS' ? STAGES.filter((s) => !WSS_SKIP.has(s)) : STAGES.slice();
 }
 
 /**
@@ -80,9 +81,9 @@ export function filterTickets(queue, filter) {
 }
 
 /**
- * The kanban columns a filter shows (D43). Under the Fleet chip the two stages
- * a WSS-owned ticket can never occupy are dropped — six columns, not eight.
- * Derived from stagesFor() so the kanban and the stage picker can't drift.
+ * The kanban columns a filter shows (D43). Under the Fleet chip the three
+ * stages a WSS-owned ticket can never occupy are dropped — six columns, not
+ * nine. Derived from stagesFor() so the kanban and the stage picker can't drift.
  */
 export function columnsFor(filter) {
   return filter === 'WSS' ? stagesFor('WSS') : STAGES.slice();
@@ -93,13 +94,14 @@ export function columnsFor(filter) {
  * the same way: one row per stage, counts and a shared 100% scale, zero rows
  * still rendered so the card never changes shape. */
 
-/** COMPLETE is the header pill, not a row — seven rows, in stage order. */
+/** COMPLETE is the header pill, not a row — eight rows, in stage order. */
 export const PIPELINE_STAGES = STAGES.filter((s) => s !== 'COMPLETE');
 
 /** Bar colors, keyed like BOARD_ROWS so the CSS owns the actual values. */
 export const PIPELINE_COLOR = {
   RECEIVED: 'new',                    // maroon — nobody has touched it yet
   CONTACTED: 'slate',
+  'NEEDS-QUOTE': 'new',               // maroon — OUR court: Matt owes them a number (D47)
   'WAITING-ON-CUSTOMER': 'amber',     // their court
   'WAITING-ON-PARTS': 'orange',       // a supplier's court
   SCHEDULED: 'blue',

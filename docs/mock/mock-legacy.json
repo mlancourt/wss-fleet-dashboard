@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-04T15:17:50.149Z",
+    "generated_at": "2026-09-04T15:50:20.051Z",
     "run_id": "mock-legacy-2026-09-04",
     "fleet_totals": {
       "units": 39,
@@ -2162,6 +2162,28 @@
       "assigned": "Josh",
       "opened": "2026-08-25",
       "quote": 640,
+      "machinio_ref": null
+    },
+    {
+      "ticket_id": "SVC-1210",
+      "customer": "Birchwood Cold Storage",
+      "serial": null,
+      "unit_desc": "Halstead SW-900 (customer owned)",
+      "stage": "READY-TO-INVOICE",
+      "assigned": "Josh",
+      "opened": "2026-08-29",
+      "quote": null,
+      "machinio_ref": null
+    },
+    {
+      "ticket_id": "SVC-1211",
+      "customer": "Stillman Foundry",
+      "serial": null,
+      "unit_desc": "Ironline R-660 (customer owned)",
+      "stage": "DONE",
+      "assigned": "Zac",
+      "opened": "2026-08-22",
+      "quote": null,
       "machinio_ref": null
     }
   ],

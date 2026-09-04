@@ -443,10 +443,10 @@ form.write textarea { min-height: 80px; resize: vertical; }
 .pipe .brow.zero { --fill: var(--slate-300); }
 .pipe .brow.zero .brow-l, .pipe .brow.zero .brow-n, .pipe .brow.zero .brow-p { color: var(--slate-400); }
 
-/* ----------------------------------------------- kanban (eight stages) --
+/* ------------------------------------------------ kanban (nine stages) --
    Phone: one column at a time, swiped sideways with scroll-snap and a sticky
-   header. Wide screens: the wrapper breaks out of the 760px column so all
-   eight fit side by side. */
+   header. Wide screens: the wrapper breaks out of the 760px column so as many
+   as will fit sit side by side. Shared with the Leads board. */
 
 .kan-wrap { margin: 0 -16px; }
 .kanban {
@@ -628,11 +628,14 @@ form.write.sheet { margin-bottom: 14px; }
   .view { padding-top: 22px; }
 }
 
-/* All eight stages side by side once there is room for them. */
+/* As many stages side by side as will fit. The floor matters: D47 took the
+   service board to nine columns, and nine shared across 1040px would be ~100px
+   each — narrow enough that every customer name ellipsises. Below the floor the
+   board keeps scrolling sideways, which is what it does on a phone anyway. */
 @media (min-width: 1040px) {
   .kan-wrap { width: 100vw; margin-left: calc(50% - 50vw); }
   .kanban { scroll-snap-type: none; padding-left: max(16px, calc(50vw - 620px)); padding-right: 16px; }
-  .kan-col { flex: 1 1 0; }
+  .kan-col { flex: 1 1 0; min-width: 150px; }
 }
 
 /* ================================================ leads (schema 5) =========

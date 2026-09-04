@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 5,
-    "generated_at": "2026-09-04T15:17:50.149Z",
+    "generated_at": "2026-09-04T15:50:20.051Z",
     "run_id": "mock-full-2026-09-04",
     "fleet_totals": {
       "units": 39
@@ -2024,12 +2024,63 @@
       "parts": null,
       "machinio_ref": null,
       "closed": null
+    },
+    {
+      "ticket": "S1011",
+      "status": "OPEN",
+      "stage": "NEEDS-QUOTE",
+      "machine_owner": "CUSTOMER",
+      "customer": "Birchwood Cold Storage",
+      "serial": null,
+      "equipment": "Halstead SW-900 (customer owned)",
+      "issue": "Both drive motors worn — priced the pair, waiting on Matt for the number",
+      "priority": "HIGH",
+      "site": "Milwaukee WI",
+      "location": "IN-SHOP",
+      "intake_move": "CUSTOMER-DROP",
+      "return_move": "CUSTOMER-PICKUP",
+      "assigned": "Josh",
+      "scheduled": null,
+      "opened": "2026-08-29",
+      "opened_by": "Zac",
+      "stage_since": "2026-09-02",
+      "age_days": 6,
+      "quote": null,
+      "parts": null,
+      "machinio_ref": null,
+      "closed": null
+    },
+    {
+      "ticket": "S1012",
+      "status": "OPEN",
+      "stage": "NEEDS-QUOTE",
+      "machine_owner": "CUSTOMER",
+      "customer": "Stillman Foundry",
+      "serial": null,
+      "equipment": "Ironline R-660 (customer owned)",
+      "issue": "Deck rebuild — teardown done, parts list handed over",
+      "priority": "LOW",
+      "site": "Waukesha WI",
+      "location": "AT-CUSTOMER",
+      "intake_move": "PICKUP",
+      "return_move": "DELIVER",
+      "assigned": "Zac",
+      "scheduled": null,
+      "opened": "2026-08-22",
+      "opened_by": "Kevin",
+      "stage_since": "2026-08-30",
+      "age_days": 13,
+      "quote": null,
+      "parts": null,
+      "machinio_ref": null,
+      "closed": null
     }
   ],
   "service_summary": {
     "open_by_stage": {
       "RECEIVED": 2,
       "CONTACTED": 1,
+      "NEEDS-QUOTE": 2,
       "WAITING-ON-CUSTOMER": 1,
       "WAITING-ON-PARTS": 1,
       "SCHEDULED": 1,
@@ -2037,7 +2088,7 @@
       "READY-TO-INVOICE": 1,
       "COMPLETE": 1
     },
-    "open_customer": 7,
+    "open_customer": 9,
     "open_wss": 2
   },
   "dispatch": [

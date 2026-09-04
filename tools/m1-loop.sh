@@ -6,7 +6,8 @@
 #   -> GET /api/admin/events (event present) -> ack -> events (event gone)
 #   -> DELETE /api/event/<id> (undo your own, and only your own)
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all twelve
-# write actions, the six schema-3 and three schema-5 ones included, and the
+# write actions, the six schema-3 (D47's NEEDS-QUOTE stage included) and three
+# schema-5 ones, and the
 # schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
@@ -191,6 +192,28 @@ expect "service moves the stage -> 201" 201 \
   -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
   -d '{"action":"ticket_update","payload":{"ticket":"S1002","stage":"CONTACTED","assigned":"Zac","scheduled":"2026-09-11"}}'
 S3D=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "service moves a customer ticket to NEEDS-QUOTE -> 201 (D47)" 201 \
+  "b.payload.ticket==='S1011' && b.payload.stage==='NEEDS-QUOTE' && b.payload.note==='Priced the pair, Matt owes them a number'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1011","stage":"NEEDS-QUOTE","note":"Priced the pair, Matt owes them a number"}}'
+S3I=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "owner may too -> 201" 201 "b.payload.stage==='NEEDS-QUOTE' && b.role==='owner'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1012","stage":"NEEDS-QUOTE"}}'
+S3J=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "sales still cannot -> 403" 403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1011","stage":"NEEDS-QUOTE"}}'
+# The Worker validates membership, not business state: a NEEDS-QUOTE on one of
+# OUR machines is accepted here and refused by the vault ("nobody quotes us to
+# us"). The site never offers the button; this proves where the line is drawn.
+expect "NEEDS-QUOTE on a WSS ticket passes the Worker — the vault referees" 201 \
+  "b.payload.ticket==='S1002' && b.payload.stage==='NEEDS-QUOTE'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1002","stage":"NEEDS-QUOTE"}}'
+S3K=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "a stage we have never heard of -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"ticket_update","payload":{"ticket":"S1011","stage":"NEEDS-COFFEE"}}'
+
 expect "anyone adds a run -> 201" 201 \
   "b.action==='dispatch_add' && b.payload.kind==='DELIVER' && b.payload.serial==='900107' && b.payload.ticket===null && b.payload.date==='2026-09-11'" \
   -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
@@ -210,9 +233,9 @@ expect "owner cancels a manual run -> 201" 201 "b.action==='dispatch_cancel' && 
   -d '{"action":"dispatch_cancel","payload":{"dispatch_id":"m-a1b2c3"}}'
 S3H=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
 
-expect "all eight schema-3 events drained -> deleted 8" 200 "b.deleted===8" \
+expect "all eleven schema-3 events drained -> deleted 11" 200 "b.deleted===11" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
-  -d "{\"ids\":[\"$S3A\",\"$S3B\",\"$S3C\",\"$S3D\",\"$S3E\",\"$S3F\",\"$S3G\",\"$S3H\"]}"
+  -d "{\"ids\":[\"$S3A\",\"$S3B\",\"$S3C\",\"$S3D\",\"$S3E\",\"$S3F\",\"$S3G\",\"$S3H\",\"$S3I\",\"$S3J\",\"$S3K\"]}"
 expect "pending back to baseline again"    200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- crew: undo a pending event (D46)"

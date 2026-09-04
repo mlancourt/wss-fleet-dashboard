@@ -344,7 +344,7 @@ await check('the chip zone is All · Fleet · Customer, in that order (D43)', as
   assert.ok(out.indexOf('data-filter=') < out.indexOf('Fleet status'), 'chips come before the widgets');
 });
 
-await check('All shows both widgets and all eight columns', async () => {
+await check('All shows both widgets and all nine columns', async () => {
   const out = await serviceUnder('all');
   assert.ok(out.includes('Fleet status'), 'the fleet board must show under All');
   assert.ok(out.includes('Service pipeline'), 'the pipeline must show under All');
@@ -353,6 +353,8 @@ await check('All shows both widgets and all eight columns', async () => {
     'the caption explains the split, but only when both are on screen');
   const cols = [...out.matchAll(/id="kan-([A-Z-]+)"/g)].map((m) => m[1]);
   assert.deepEqual(cols, columnsFor('all'));
+  assert.equal(cols.length, 9, 'D47 took the board from eight columns to nine');
+  assert.equal(cols[2], 'NEEDS-QUOTE', 'and it sits straight after CONTACTED');
 });
 
 await check('Fleet shows the board only, six columns, and only WSS tickets', async () => {
@@ -361,8 +363,9 @@ await check('Fleet shows the board only, six columns, and only WSS tickets', asy
   assert.ok(!out.includes('Service pipeline'), 'the pipeline is customer work — hidden under Fleet');
   const cols = [...out.matchAll(/id="kan-([A-Z-]+)"/g)].map((m) => m[1]);
   assert.deepEqual(cols, columnsFor('WSS'));
-  assert.equal(cols.length, 6);
+  assert.equal(cols.length, 6, 'Fleet stays at six — D47 added a stage it can never take');
   assert.ok(!cols.includes('WAITING-ON-CUSTOMER') && !cols.includes('READY-TO-INVOICE'));
+  assert.ok(!cols.includes('NEEDS-QUOTE'), 'nobody quotes us to us (D47)');
   // every card drawn belongs to a fleet ticket
   const wss = new Set(app.__state().snapshot.service_queue.filter((t) => t.machine_owner === 'WSS').map((t) => t.ticket));
   for (const [, id] of out.matchAll(/class="kan-id">([^<]+)</g)) {
@@ -370,7 +373,7 @@ await check('Fleet shows the board only, six columns, and only WSS tickets', asy
   }
 });
 
-await check('Customer shows the pipeline only, eight columns, and only customer tickets', async () => {
+await check('Customer shows the pipeline only, nine columns, and only customer tickets', async () => {
   const out = await serviceUnder('CUSTOMER');
   assert.ok(out.includes('Service pipeline'), 'the pipeline is the Customer widget');
   assert.ok(!out.includes('Fleet status'), 'the fleet board is hidden under Customer');
@@ -383,10 +386,13 @@ await check('Customer shows the pipeline only, eight columns, and only customer 
   }
 });
 
-await check('the pipeline draws seven tappable rows and a live open pill', async () => {
+await check('the pipeline draws eight tappable rows and a live open pill', async () => {
   const out = await serviceUnder('CUSTOMER');
   const rows = [...out.matchAll(/data-pipe="([A-Z-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(rows, PIPELINE_STAGES, 'seven rows in stage order');
+  assert.deepEqual(rows, PIPELINE_STAGES, 'eight rows in stage order');
+  // D47: our court, so the same maroon as RECEIVED and not WAITING's amber.
+  assert.ok(out.includes('pipe-new" data-pipe="NEEDS-QUOTE"'), 'the Needs quote row is maroon');
+  assert.ok(out.includes('>Needs quote<'), 'and reads in shop-floor words');
   assert.ok(!rows.includes('COMPLETE'), 'COMPLETE is the header pill, not a row');
   const q = app.__state().snapshot.service_queue;
   const open = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN').length;
@@ -413,7 +419,7 @@ await check('the chip is remembered per device and survives a reload', async () 
   await serviceUnder('all');   // leave the device on All for the checks below
 });
 
-await check('the pipeline card never hides — zero open tickets still draws seven rows', async () => {
+await check('the pipeline card never hides — zero open tickets still draws eight rows', async () => {
   window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
   window.location.search = '?mock=empty&role=owner';
   await app.__refresh();
@@ -421,8 +427,8 @@ await check('the pipeline card never hides — zero open tickets still draws sev
   assert.ok(out.includes('Service pipeline'), 'the card stays even with nothing in it');
   assert.ok(out.includes('0 open'), 'the pill reads 0 open');
   assert.ok(!out.includes('closed this week'), 'the closed pill hides at zero');
-  assert.equal([...out.matchAll(/data-pipe="[A-Z-]+"/g)].length, 7, 'seven zero rows still render');
-  assert.equal([...out.matchAll(/>0%</g)].length >= 7, true, 'and they read 0%');
+  assert.equal([...out.matchAll(/data-pipe="[A-Z-]+"/g)].length, 8, 'eight zero rows still render');
+  assert.equal([...out.matchAll(/>0%</g)].length >= 8, true, 'and they read 0%');
 
   // hand the suite back the state it expects: full snapshot, All chip
   window.location.href = 'http://localhost:8787/?mock=full&role=owner';
@@ -522,6 +528,29 @@ await check('a pending event with no id is never undoable', async () => {
   window.location.href = 'http://localhost:8787/?mock=full&role=owner';
   window.location.search = '?mock=full&role=owner';
   await app.__refresh();
+});
+
+await check('the stage picker offers NEEDS-QUOTE on their machine, never on ours (D47)', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service';
+  window.location.search = '?mock=full&role=service';
+  await app.__refresh();
+  const q = app.__state().snapshot.service_queue;
+
+  const cust = q.find((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN');
+  const theirs = await renderRoute(`#/ticket/${encodeURIComponent(cust.ticket)}`);
+  assert.ok(theirs.includes('data-stage="NEEDS-QUOTE"'), 'a customer ticket can be quoted');
+
+  const ours = q.find((t) => t.machine_owner === 'WSS');
+  const mine = await renderRoute(`#/ticket/${encodeURIComponent(ours.ticket)}`);
+  assert.ok(!mine.includes('data-stage="NEEDS-QUOTE"'), 'nobody quotes us to us');
+  assert.ok(!mine.includes('data-stage="WAITING-ON-CUSTOMER"') && !mine.includes('data-stage="READY-TO-INVOICE"'));
+  assert.equal([...mine.matchAll(/data-stage="[A-Z-]+"/g)].length, 6, 'six buttons on a fleet ticket');
+
+  // And a ticket actually parked there renders its stage in shop-floor words.
+  const parked = q.find((t) => t.stage === 'NEEDS-QUOTE');
+  assert.ok(parked, 'the fixture must hold a NEEDS-QUOTE ticket');
+  const detail = await renderRoute(`#/ticket/${encodeURIComponent(parked.ticket)}`);
+  assert.ok(detail.includes('>Needs quote</span>'), 'the stage chip reads "Needs quote"');
 });
 
 await check('a tech sees COMPLETE disabled on a customer ticket, Matt does not', async () => {
