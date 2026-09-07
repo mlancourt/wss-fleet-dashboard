@@ -177,7 +177,7 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "priority": "HIGH|MEDIUM|LOW", "site": null, "location": "AT-CUSTOMER|IN-SHOP",
     "intake_move": "NONE|PICKUP|CUSTOMER-DROP", "return_move": "NONE|DELIVER|CUSTOMER-PICKUP",
     "assigned": null, "scheduled": null, "opened": "YYYY-MM-DD", "opened_by": "…",
-    "stage_since": "YYYY-MM-DD", "age_days": 0, "quote": null, "parts": null, "machinio_ref": null, "closed": null } ],
+    "stage_since": "YYYY-MM-DD", "age_days": 0, "age_in_stage_days": 0, "quote": null, "parts": null, "machinio_ref": null, "closed": null } ],
   "service_summary": { "open_by_stage": { "RECEIVED": 0, "…all nine stages…": 0, "COMPLETE": 0 }, "open_customer": 0, "open_wss": 0 },   // COMPLETE = closed in the last 7 days
   "dispatch": [ { "id": "m-…", "kind": "PICKUP|DELIVER", "source": "RENTAL-RETURN|SERVICE-IN|SERVICE-OUT|MANUAL",
     "serial": null, "ticket": null, "what": "…", "customer": "…", "address": "…", "date": null, "billed_through": null,

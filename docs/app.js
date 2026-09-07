@@ -1090,7 +1090,7 @@ function viewTicket(id) {
       ${raw(kvRow('Assigned', t.assigned))}
       ${raw(kvRow('Scheduled', fmtDateFull(t.scheduled)))}
       ${raw(kvRow('Opened', `${fmtDateFull(t.opened)}${t.opened_by ? ` by ${t.opened_by}` : ''}`))}
-      ${raw(kvRow('In this stage since', `${fmtDateFull(t.stage_since)}${t.age_days != null ? ` · ${t.age_days}d old` : ''}`))}
+      ${raw(kvRow('In this stage since', `${fmtDateFull(t.stage_since)}${t.age_in_stage_days != null ? ` · ${t.age_in_stage_days}d in stage` : ''}${t.age_days != null ? ` · ${t.age_days}d old` : ''}`))}
       ${raw(kvRow('Getting it here', MOVE_LABEL[t.intake_move] || t.intake_move))}
       ${raw(kvRow('Getting it back', MOVE_LABEL[t.return_move] || t.return_move))}
       ${q ? raw(kvRow('Quote', `${q.number ? q.number + ' · ' : ''}${fmtMoney(q.amount)}${q.approved ? ' · approved ' + fmtDate(q.approved) : q.sent ? ' · sent ' + fmtDate(q.sent) : ''}`)) : ''}
