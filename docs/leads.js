@@ -105,15 +105,15 @@ const STALE_RANK = { red: 0, yellow: 1 };
 
 /**
  * Inside a column: the ones about to rot first (red, then yellow), then by
- * priority, then longest-in-stage. The engine already sorts `leads[]` globally;
+ * longest-in-stage first (D50), then rot, then priority. The engine already sorts `leads[]` globally;
  * this re-applies the same intent per column so a filtered board still reads
  * worst-first.
  */
 export function sortLeads(list) {
   return (list || []).slice().sort((a, b) =>
-    (STALE_RANK[a.stale] ?? 2) - (STALE_RANK[b.stale] ?? 2)
+    (Number(b.age_in_stage_days) || 0) - (Number(a.age_in_stage_days) || 0)
+    || (STALE_RANK[a.stale] ?? 2) - (STALE_RANK[b.stale] ?? 2)
     || (PRI_RANK[a.priority] ?? 3) - (PRI_RANK[b.priority] ?? 3)
-    || (Number(b.age_in_stage_days) || 0) - (Number(a.age_in_stage_days) || 0)
     || String(a.lead || '').localeCompare(String(b.lead || '')));
 }
 

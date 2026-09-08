@@ -209,7 +209,7 @@ check('pipeline: an empty queue still yields nine zero rows (the card never hide
   }
 });
 
-check('sortTickets: open before closed, HIGH first, then oldest', () => {
+check('sortTickets: open before closed, oldest first, priority breaks ties (D50)', () => {
   assert.deepEqual(sortTickets(QUEUE).map((t) => t.ticket), ['S1', 'S2', 'S3', 'S5', 'S4']);
 });
 

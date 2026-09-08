@@ -102,14 +102,14 @@ check('a stripped lead exposes no money at all', () => {
 
 /* --------------------------------------------------------------- sorting -- */
 
-check('inside a column: red, then yellow, then priority, then oldest', () => {
+check('inside a column: longest in stage first, then red/yellow, then priority (D50)', () => {
   const order = sortLeads([
     lead({ lead: 'a', priority: 'HIGH', age: 1 }),
     lead({ lead: 'b', stale: 'yellow', priority: 'LOW', age: 2 }),
     lead({ lead: 'c', stale: 'red', priority: 'LOW', age: 1 }),
     lead({ lead: 'd', priority: 'HIGH', age: 8 }),
   ]).map((l) => l.lead);
-  assert.deepEqual(order, ['c', 'b', 'd', 'a'], 'rot first, then priority, then longest in stage');
+  assert.deepEqual(order, ['d', 'b', 'c', 'a'], 'longest in stage first; rot then priority break the a/c tie');
 });
 
 check('sortLeads does not mutate its input', () => {

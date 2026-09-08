@@ -159,13 +159,15 @@ export function columnize(queue, { summary = null, filter = 'all' } = {}) {
   });
 }
 
-/** Open tickets first, HIGH first, then oldest — for anything that needs one list. */
+/** Open tickets first, then OLDEST first (D50) — priority and id only break ties.
+ *  Matt reads a column top-down as a queue: the tile that has waited longest is
+ *  the one to touch first, whatever its priority badge says. */
 const PRI_RANK = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 export function sortTickets(list) {
   return (list || []).slice().sort((a, b) =>
     (a.status === 'CLOSED') - (b.status === 'CLOSED')
-    || (PRI_RANK[a.priority] ?? 3) - (PRI_RANK[b.priority] ?? 3)
     || (Number(b.age_days) || 0) - (Number(a.age_days) || 0)
+    || (PRI_RANK[a.priority] ?? 3) - (PRI_RANK[b.priority] ?? 3)
     || String(a.ticket || '').localeCompare(String(b.ticket || '')));
 }
 
