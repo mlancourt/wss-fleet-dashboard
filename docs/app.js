@@ -29,6 +29,7 @@ import {
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
+import { docRows, docUrl } from './attachments.js';
 import {
   NO_DATA, LEAD_PRIORITIES,
   STAGE_LABEL as LEAD_STAGE_LABEL, STATUS_LABEL as LEAD_STATUS_LABEL,
@@ -777,6 +778,37 @@ function pendingLine(n) {
   return n ? html`<div class="row-pending">⏳ ${n} pending — applies at the next run</div>` : '';
 }
 
+/* ---- Documents (schema 6) -----------------------------------------------
+ * `service_queue[].docs[]` and `leads[].docs[]` — the quote, the work order,
+ * the photo of the cracked squeegee. One flat list, no viewer: a tap opens the
+ * file in a NEW TAB straight from the Worker and the phone's own viewer takes
+ * it from there (see the [data-doc] handler).
+ *
+ * Empty `docs` renders NOTHING — no "No documents" placeholder. A ticket with
+ * no paperwork is the normal case, and a permanent empty box on every one of
+ * them would be a line of noise on a phone for no information at all. That is
+ * the opposite call from Notes, where the empty state says "nobody has written
+ * anything yet", which is worth knowing.
+ *
+ * A schema-5 snapshot has no `docs` key anywhere; docRows() reads that as [],
+ * so this returns '' and the view is byte-identical to before.
+ */
+function docsSection(entity) {
+  const rows = docRows(entity);
+  if (!rows.length) return '';
+  return html`
+    <h2>Documents <span class="count">${rows.length}</span></h2>
+    <div class="card docs">
+      ${raw(rows.map((d) => html`
+        <button class="docrow" type="button" data-doc="${d.id}">
+          <span class="doc-ico" aria-hidden="true">${d.icon}</span>
+          <span class="doc-name">${d.label} — ${d.name}</span>
+          ${d.size ? raw(html`<span class="doc-size">${d.size}</span>`) : ''}
+          <span class="doc-go" aria-hidden="true">›</span>
+        </button>`).join(''))}
+    </div>`;
+}
+
 /* ---- Notes timeline (v2.4) ---------------------------------------------
  * `service_queue[].log[]` and `leads[].log[]` render the same way, so tickets
  * and leads share this. Matt reads a tech's diagnosis here to price the job,
@@ -1100,6 +1132,7 @@ function viewTicket(id) {
       ${t.closed ? raw(kvRow('Closed', fmtDateFull(t.closed))) : ''}
     </dl></div>
 
+    ${raw(docsSection(t))}
     ${raw(notesSection(t, pend))}
     ${raw(stagePicker(t, canWork))}
     ${raw(ticketActions(t))}
@@ -1871,6 +1904,7 @@ function viewLead(id) {
       ${l.close_note ? raw(kvRow('Close note', l.close_note)) : ''}
     </dl></div>
 
+    ${raw(docsSection(l))}
     ${raw(notesSection(l, pend))}
     ${raw(leadStagePicker(l))}
     ${raw(leadActions(l))}`;
@@ -2342,6 +2376,31 @@ document.addEventListener('click', async (ev) => {
   if (pipe) {
     const col = document.getElementById(`kan-${pipe.dataset.pipe}`);
     if (col && col.scrollIntoView) col.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    return;
+  }
+
+  // A document opens in a NEW TAB, straight from the Worker (schema 6).
+  //
+  // Not an iframe: iOS renders a PDF badly in one. Not fetch-then-blob: the
+  // window.open would land after an await and be popup-blocked, and the whole
+  // file would come through this page's memory to no purpose. The token rides
+  // in `?t=` because a new tab cannot send an Authorization header. The OS
+  // viewer is the viewer — we do not have one and are not building one.
+  const docBtn = ev.target.closest('[data-doc]');
+  if (docBtn) {
+    const c = ctx();
+    if (mockVariant(c.url, c.apiBase)) {
+      ui.msg = { tone: 'bad', text: 'Mock mode — documents live on the Worker.' };
+      render();
+      return;
+    }
+    const href = docUrl(c.apiBase, docBtn.dataset.doc, c.token);
+    if (!href) {
+      ui.msg = { tone: 'bad', text: 'No link for that document — check your token.' };
+      render();
+      return;
+    }
+    window.open(href, '_blank', 'noopener');
     return;
   }
 

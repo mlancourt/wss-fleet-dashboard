@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-04T13:38:07.661Z",
+    "ts": "2026-09-08T12:11:21.612Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,13 +9,13 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "start": "2026-09-07",
-      "end": "2026-09-10"
+      "start": "2026-09-11",
+      "end": "2026-09-14"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-04T15:58:07.661Z",
+    "ts": "2026-09-08T14:31:21.612Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-04T16:26:07.661Z",
+    "ts": "2026-09-08T14:59:21.612Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-04T16:32:07.661Z",
+    "ts": "2026-09-08T15:05:21.612Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -55,13 +55,13 @@
     "payload": {
       "dispatch_id": "m-si-2201",
       "rig": "TRAILER-6000",
-      "date": "2026-09-05",
+      "date": "2026-09-09",
       "driver": "Kevin"
     }
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-04T16:35:07.661Z",
+    "ts": "2026-09-08T15:08:21.612Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-04T16:36:07.661Z",
+    "ts": "2026-09-08T15:09:21.612Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-09-04T16:13:07.661Z",
+    "ts": "2026-09-08T14:46:21.612Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-09-04T16:29:07.661Z",
+    "ts": "2026-09-08T15:02:21.612Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -121,14 +121,14 @@
     "payload": {
       "lead": "L1005",
       "stage": "DEMO-SCHEDULED",
-      "demo_date": "2026-09-06",
+      "demo_date": "2026-09-10",
       "demo_serial": "900107",
       "note": "They asked to see it run"
     }
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-09-04T16:34:07.661Z",
+    "ts": "2026-09-08T15:07:21.612Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",

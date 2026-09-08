@@ -1147,3 +1147,111 @@ snapshot; S1014 still shows Josh's diagnosis in full, attributed.
 - **The real snapshot refreshed twice while I worked** (2 leads, then 4). Both
   were money-free. Nothing in the tests depends on a particular run id or lead
   count, which is why both runs passed unchanged.
+
+---
+
+# Schema 6 — document attachments, S1 read path (2026-09-08)
+
+Built from the S1 work order against `CLAUDE.md` v2.6. **Five Worker endpoints
+and one site element.** No new write action, no new binding, no new namespace.
+Tested on mock + a synthetic PDF through `wrangler dev`. **Not deployed** — the
+Architect deploys.
+
+## What shipped
+
+**Worker** (`worker/worker.js`, still one file):
+
+| Route | Auth | Behaviour |
+|---|---|---|
+| `GET /api/doc/<id>` | token — `?t=` **or** Bearer | streams the bytes out of KV; `Content-Type` from the stored meta, `Content-Disposition: inline`, `Cache-Control: private, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff` |
+| `PUT /api/admin/doc/<id>` | secret | `201 {id, bytes}` · `200 {id, existed:true}` · `409 {error:"hash mismatch", expected}` · `415` · `413` (10 MB) · `400` |
+| `GET /api/admin/doc/<id>` | secret | the same bytes, for the engine's down-leg |
+| `DELETE /api/admin/doc/<id>` | secret | `200 {id, deleted:true}` / `404` |
+| `GET /api/admin/docs` | secret | `{count, docs:[…]}` by `added_utc` ascending |
+
+Two KV keys per doc — `doc:<id>` (raw ArrayBuffer, never base64) and
+`docmeta:<id>` — meta written **last** and deleted **first**, so a half-write or
+half-delete is invisible: the listing and every reader go through `docmeta:`.
+
+**Site** — `docs/attachments.js` (new, pure) plus a `docsSection()` in `app.js`
+rendered between the record card and the Notes timeline on **ticket detail and
+lead detail**. One 44 px full-width row per doc: icon, `Kind — name`, humanized
+size, chevron. A tap is `window.open(…?t=…, '_blank', 'noopener')` — a real new
+tab, no iframe, no fetch-then-blob. Empty `docs[]` renders nothing at all.
+
+`docs/sw.js` names `/api/doc/` in its bypass explicitly (cache bumped to v20).
+
+## Decisions I made
+
+- **`PM-REPORT` renders as "PM-Report" and `PO` as "PO", not "Pm-Report" /
+  "Po".** The work order says "title-cased with the hyphen kept", and its own
+  example (`Parts-List`) is what that rule is for. Applied literally it turns
+  two initialisms — preventive maintenance, purchase order — into what reads on
+  a shop floor as a typo. So: title-case as specified, with a two-entry
+  initialism set. Flagged to the Architect; a one-line change if it's wrong.
+
+- **Sizes are decimal, not binary.** 25 602 bytes is "26 KB" in the work
+  order's own example, which is 1000-based — and it is what the phone's own file
+  info will say beside it. One decimal below 10 ("1.9 MB" is worth knowing
+  before you tap it on LTE), none above.
+
+- **A doc row with a malformed `id` is dropped, not drawn.** The id *is* the
+  content hash and the only part of the row that reaches a URL; a row that
+  cannot produce a valid `/api/doc/<id>` could only ever open a 404, so it never
+  becomes a tap target. Everything else falls back instead: no name → "document",
+  no kind → OTHER + 📄, no `bytes` → no size chip (never "NaN KB").
+
+- **`X-Doc-Name` refuses more than path separators.** It is echoed into a quoted
+  `Content-Disposition` filename, so a `"` or a control character would be
+  header injection rather than a name. Validated on write **and** sanitised on
+  read, so a doc cached before any future validation change still produces a
+  header nobody can break out of.
+
+- **`Content-Length` is deliberately not set on the doc GET.** The value is
+  streamed from KV; a manually-set length that ever disagreed with the body
+  would break the response outright, and the progress bar it would buy is not
+  worth that.
+
+- **Agreements carry `docs[]` in the mock but render nowhere.** There is no
+  agreement detail sheet today (the work order says skip them), so the field
+  exists for contract completeness and the Rentals list is untouched.
+
+- **A `409` is returned rather than thrown.** `httpError` is for shape refusals;
+  a hash mismatch has a body worth reading (`expected`), which is the whole
+  point — the engine can correct its own index from the response.
+
+## Tests
+
+`npm test` — **70 render + 12 attachment checks**, all suites green. New:
+Documents renders above Notes on both detail views; the row is a `<button>`
+carrying only the 16-hex id (asserted that no `doc:` / `docmeta:` key can reach
+the page); a `service` token sees a lead's QUOTE; an empty `docs[]` draws
+nothing; **and a schema-5 snapshot with the `docs` key deleted everywhere
+renders every ticket and every lead unchanged.**
+
+`npm run m1` — **140 passed, 0 failed**, including the whole document section
+against `test/fixtures/sample-quote.pdf` (24 557 bytes, synthetic): hash
+mismatch → 409 with nothing stored, 201 then 200 `existed:true`, the listing,
+`?t=` and Bearer reads with the headers asserted, 401/404/400/405, an 11 MB body
+→ 413, `text/plain` → 415, DELETE → 404, and **the bytes read back hashing to
+the same id**.
+
+## Things worth flagging
+
+- **Mock doc ids point at nothing.** They have the right shape but no bytes in
+  any KV, because no document may live in this repo. Tapping one in mock mode
+  says "Mock mode — documents live on the Worker" and stops. Against a real
+  snapshot whose ids the engine has actually pushed, the same tap opens the file.
+
+- **A `docs[]` id the engine never pushed is a 404 in the tech's face.** The
+  Worker cannot tell "not cached yet" from "never existed" — it only has
+  `docmeta:`. If that turns out to matter in the field, the fix is on the
+  engine's side (publish the row only after the PUT returns), not here.
+
+- **`POST /api/doc` (crew upload) is S2 and is not built.** There is a named
+  stub comment where it goes, next to the crew read.
+
+- **KV is eventually consistent (~60s cross-edge).** A doc PUT and the snapshot
+  that references it can land on an edge out of order, which looks like a brief
+  404 on a brand-new attachment. Same lag the README already documents for the
+  snapshot; not a new class of problem.

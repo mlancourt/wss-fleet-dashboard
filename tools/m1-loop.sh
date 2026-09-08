@@ -5,6 +5,7 @@
 #   tokens -> publish -> GET /api/data -> GET /api/health -> POST /api/event
 #   -> GET /api/admin/events (event present) -> ack -> events (event gone)
 #   -> DELETE /api/event/<id> (undo your own, and only your own)
+#   -> PUT/GET/DELETE a document (schema 6) with the hash check that names it
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all twelve
 # write actions, the six schema-3 (D47's NEEDS-QUOTE stage included) and three
 # schema-5 ones, and the
@@ -46,6 +47,21 @@ expect() {
   LAST="$body"
 }
 
+# expecth <label> <status-wanted> <grep-pattern-on-headers|''> <curl args...>
+# Same as expect(), but asserts on the RESPONSE HEADERS. Documents are bytes:
+# the Content-Type and the inline disposition are the contract, not the body.
+expecth() {
+  local label="$1" want="$2" pattern="$3"; shift 3
+  local hdrs status
+  hdrs=$(curl -sS -D - -o /dev/null "$@") || { bad "$label" "curl failed"; return; }
+  status=$(printf '%s' "$hdrs" | awk 'NR==1{print $2}')
+  if [ "$status" != "$want" ]; then bad "$label" "status $status, wanted $want"; return; fi
+  if [ -n "$pattern" ] && ! printf '%s' "$hdrs" | grep -qi "$pattern"; then
+    bad "$label" "header not found [$pattern]"; return
+  fi
+  ok "$label"
+}
+
 H_ADMIN=(-H "X-Admin-Secret: $ADMIN_SECRET" -H "Content-Type: application/json")
 auth() { echo "Authorization: Bearer $1"; }
 
@@ -68,7 +84,7 @@ expect "tokens: 3-person map -> 200 (names only echoed)" 200 \
   -d "{\"$T_SALES\":{\"name\":\"Test Kevin\",\"role\":\"sales\"},
        \"$T_SERVICE\":{\"name\":\"Test Josh\",\"role\":\"service\"},
        \"$T_OWNER\":{\"name\":\"Test Matt\",\"role\":\"owner\"}}"
-expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===5" \
+expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===6" \
   -X POST "$WORKER/api/admin/publish" "${H_ADMIN[@]}" --data-binary "@$SNAPSHOT"
 
 echo "-- crew: read"
@@ -374,6 +390,12 @@ expect "service: no lead-log row matches /\\\$\\s?\\d/" 200 \
 expect "service: TICKET logs survive — that is where the shop's work is" 200 \
   "b.snapshot.service_queue.some(t=>Array.isArray(t.log) && t.log.length>0)" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+# schema 6: docs are NEVER stripped and never role-gated. A QUOTE on a lead
+# carries a customer-facing price, which the customer already has — and a tech
+# who cannot open the work order for the machine on his bench has no board.
+expect "service: docs[] survive the gate, on leads and on tickets" 200 \
+  "b.snapshot.leads.some(l=>Array.isArray(l.docs) && l.docs.length>0) && b.snapshot.service_queue.some(t=>Array.isArray(t.docs) && t.docs.length>0)" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
 expect "service: insights survive untouched (deal size is not commission)" 200 \
   "b.snapshot.insights && typeof b.snapshot.insights.window_days==='number' && b.snapshot.insights.by_source && typeof b.snapshot.insights.by_interest==='object'" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
@@ -387,6 +409,80 @@ expect "owner KEEPS the money" 200 \
   "b.snapshot.scoreboard.money && typeof b.snapshot.scoreboard.money.on_table_commission==='number'" \
   "$WORKER/api/data" -H "$(auth $T_OWNER)"
 
+echo "-- documents (schema 6): the doc id IS the sha256 of the bytes"
+PDF="${PDF:-$(dirname "$0")/../test/fixtures/sample-quote.pdf}"
+if [ ! -f "$PDF" ]; then
+  bad "document fixture" "missing $PDF"
+else
+DOC_ID=$(node -e "const c=require('node:crypto'),f=require('node:fs');console.log(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex').slice(0,16))" "$PDF")
+WRONG_ID="0123456789abcdef"
+H_DOC=(-H "X-Admin-Secret: $ADMIN_SECRET" -H "Content-Type: application/pdf" -H "X-Doc-Name: 2026-09-07-Fixture-Quote.pdf")
+
+expect "docs listing baseline -> 200" 200 "Array.isArray(b.docs)" "$WORKER/api/admin/docs" -H "X-Admin-Secret: $ADMIN_SECRET"
+DOCS_BEFORE=$(node -e "console.log(JSON.parse(process.argv[1]).docs.length)" "$LAST")
+
+expect "PUT without secret -> 401"        401 "" -X PUT "$WORKER/api/admin/doc/$DOC_ID" -H "Content-Type: application/pdf" -H "X-Doc-Name: x.pdf" --data-binary "@$PDF"
+expect "bad doc id shape -> 400"          400 "" -X PUT "$WORKER/api/admin/doc/NOTHEXAT-ALL" "${H_DOC[@]}" --data-binary "@$PDF"
+expect "wrong content-type -> 415"        415 "" -X PUT "$WORKER/api/admin/doc/$DOC_ID" \
+  -H "X-Admin-Secret: $ADMIN_SECRET" -H "Content-Type: text/plain" -H "X-Doc-Name: x.txt" --data-binary 'hello'
+expect "missing X-Doc-Name -> 400"        400 "" -X PUT "$WORKER/api/admin/doc/$DOC_ID" \
+  -H "X-Admin-Secret: $ADMIN_SECRET" -H "Content-Type: application/pdf" --data-binary "@$PDF"
+expect "a path separator in the name -> 400" 400 "" -X PUT "$WORKER/api/admin/doc/$DOC_ID" \
+  -H "X-Admin-Secret: $ADMIN_SECRET" -H "Content-Type: application/pdf" -H "X-Doc-Name: ../etc/passwd" --data-binary "@$PDF"
+
+# An 11 MB body is refused on size, before anything is hashed or stored.
+BIG=$(mktemp); head -c 11534336 /dev/zero > "$BIG"
+expect "11 MB body -> 413"                413 "" -X PUT "$WORKER/api/admin/doc/$DOC_ID" "${H_DOC[@]}" --data-binary "@$BIG"
+rm -f "$BIG"
+
+# THE test. The id is a claim about the bytes; the Worker checks it and stores
+# nothing when it is wrong, because a poisoned id would be permanent.
+expect "hash mismatch -> 409, and it names the right id" 409 \
+  "b.error==='hash mismatch' && b.expected==='$DOC_ID'" \
+  -X PUT "$WORKER/api/admin/doc/$WRONG_ID" "${H_DOC[@]}" --data-binary "@$PDF"
+expect "...and nothing was stored under the claimed id" 404 "" \
+  "$WORKER/api/admin/doc/$WRONG_ID" -H "X-Admin-Secret: $ADMIN_SECRET"
+
+expect "PUT the real bytes -> 201" 201 "b.id==='$DOC_ID' && b.bytes>0" \
+  -X PUT "$WORKER/api/admin/doc/$DOC_ID" "${H_DOC[@]}" --data-binary "@$PDF"
+expect "PUT it again -> 200 existed:true (docs are immutable)" 200 "b.id==='$DOC_ID' && b.existed===true" \
+  -X PUT "$WORKER/api/admin/doc/$DOC_ID" "${H_DOC[@]}" --data-binary "@$PDF"
+expect "listing gained exactly one, ours" 200 \
+  "b.docs.length===$DOCS_BEFORE+1 && b.docs.filter(x=>x.id==='$DOC_ID').length===1 && b.docs.find(x=>x.id==='$DOC_ID').source==='vault' && b.docs.find(x=>x.id==='$DOC_ID').actor==='engine'" \
+  "$WORKER/api/admin/docs" -H "X-Admin-Secret: $ADMIN_SECRET"
+
+# The crew read. ?t= has to work: this is opened in a new tab, which cannot
+# send a header. A service token gets it — docs are never role-gated.
+expecth "GET /api/doc?t=<service> -> 200 application/pdf" 200 "^content-type: application/pdf" \
+  "$WORKER/api/doc/$DOC_ID?t=$T_SERVICE"
+expecth "...and inline, with the stored filename" 200 'content-disposition: inline; filename="2026-09-07-Fixture-Quote.pdf"' \
+  "$WORKER/api/doc/$DOC_ID?t=$T_SERVICE"
+expecth "...immutable, private, nosniff" 200 "^cache-control: private, max-age=31536000, immutable" \
+  "$WORKER/api/doc/$DOC_ID?t=$T_SERVICE"
+expecth "...nosniff" 200 "^x-content-type-options: nosniff" "$WORKER/api/doc/$DOC_ID?t=$T_SERVICE"
+expecth "Bearer-only GET also works" 200 "^content-type: application/pdf" \
+  "$WORKER/api/doc/$DOC_ID" -H "$(auth $T_OWNER)"
+expect "no token -> 401"                  401 "" "$WORKER/api/doc/$DOC_ID"
+expect "unknown id -> 404"                404 "" "$WORKER/api/doc/ffffffffffffffff" -H "$(auth $T_SALES)"
+expect "bad id shape -> 400"              400 "" "$WORKER/api/doc/xyz" -H "$(auth $T_SALES)"
+expect "POST to a doc -> 405 (upload is S2)" 405 "" -X POST "$WORKER/api/doc/$DOC_ID" -H "$(auth $T_OWNER)"
+
+# The bytes came back byte-identical — that is the whole point of a hash id.
+curl -sS -o /tmp/m1doc.$$ "$WORKER/api/doc/$DOC_ID?t=$T_OWNER"
+BACK=$(node -e "const c=require('node:crypto'),f=require('node:fs');console.log(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex').slice(0,16))" "/tmp/m1doc.$$")
+rm -f "/tmp/m1doc.$$"
+if [ "$BACK" = "$DOC_ID" ]; then ok "the bytes read back hash to the same id"
+else bad "the bytes read back hash to the same id" "got $BACK, wanted $DOC_ID"; fi
+
+expect "DELETE -> 200"                    200 "b.id==='$DOC_ID' && b.deleted===true" \
+  -X DELETE "$WORKER/api/admin/doc/$DOC_ID" -H "X-Admin-Secret: $ADMIN_SECRET"
+expect "...then GET -> 404"               404 "" "$WORKER/api/doc/$DOC_ID?t=$T_SERVICE"
+expect "...DELETE again -> 404"           404 "" -X DELETE "$WORKER/api/admin/doc/$DOC_ID" -H "X-Admin-Secret: $ADMIN_SECRET"
+expect "...and the listing is back to baseline" 200 "b.docs.length===$DOCS_BEFORE" \
+  "$WORKER/api/admin/docs" -H "X-Admin-Secret: $ADMIN_SECRET"
+fi
+
+echo
 echo "-- misc"
 expect "unknown route -> 404"             404 "" "$WORKER/api/nope" -H "$(auth $T_OWNER)"
 expect "wrong method -> 405"              405 "" -X POST "$WORKER/api/data" -H "$(auth $T_OWNER)"

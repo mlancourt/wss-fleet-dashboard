@@ -984,4 +984,95 @@ await check('a schema-4 snapshot says leads have not arrived, rather than drawin
   assert.equal(nodes['#tab-leads-badge'].hidden, true);
 });
 
+/* ============================================ documents (schema 6) ========= */
+
+const asFull = async (role = 'owner') => {
+  window.location.href = `http://localhost:8787/?mock=full&role=${role}`;
+  window.location.search = `?mock=full&role=${role}`;
+  await app.__refresh();
+  return app.__state().snapshot;
+};
+
+await check('ticket detail draws a Documents group above Notes', async () => {
+  const snap = await asFull('service');
+  const t = snap.service_queue.find((x) => (x.docs || []).length > 1);
+  assert.ok(t, 'the fixture must carry a ticket with more than one doc');
+
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(out.includes('<h2>Documents'), 'no Documents header');
+  assert.equal([...out.matchAll(/class="docrow"/g)].length, t.docs.length, 'one row per doc');
+
+  // It sits between the ticket card and the Notes timeline (the work order's
+  // placement), so a tech scrolling for the diagnosis passes the paperwork.
+  assert.ok(out.indexOf('<h2>Documents') < out.indexOf('<h2>Notes'), 'Documents must come before Notes');
+
+  // Row content: icon, "Kind — name", humanized size.
+  for (const d of t.docs) {
+    assert.ok(out.includes(`data-doc="${d.id}"`), `${d.name} is not linked`);
+    assert.ok(out.includes(d.name), `${d.name} is not named`);
+  }
+  assert.ok(out.includes('📝') && out.includes('🖼'), 'both icons on a ticket that has both kinds');
+  assert.ok(out.includes('1.9 MB'), 'the photo\'s size is not humanized');
+});
+
+await check('the doc row is a button, and it carries only the id — never a storage key', async () => {
+  const snap = await asFull('owner');
+  const t = snap.service_queue.find((x) => (x.docs || []).length);
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(/<button class="docrow" type="button" data-doc="[0-9a-f]{16}">/.test(out));
+  assert.ok(!out.includes('docmeta:') && !/["'>]doc:/.test(out), 'no KV key may reach the page');
+  // No href: the tap opens a new tab through window.open with the token, which
+  // an <a href> would have to put in the markup on every row.
+  assert.ok(!/docrow[^>]*href=/.test(out));
+});
+
+await check('lead detail draws the same group — a QUOTE on a lead is fine', async () => {
+  const snap = await asFull('sales');
+  const l = snap.leads.find((x) => (x.docs || []).length);
+  assert.ok(l, 'the fixture must carry a lead with a doc');
+  const out = await renderRoute(`#/lead/${encodeURIComponent(l.lead)}`);
+  assert.ok(out.includes('<h2>Documents'));
+  assert.ok(out.includes(`data-doc="${l.docs[0].id}"`));
+  assert.ok(out.indexOf('<h2>Documents') < out.indexOf('<h2>Notes'));
+});
+
+await check('a service token sees the lead doc too — docs are never role-gated', async () => {
+  const snap = await asFull('service');
+  const l = snap.leads.find((x) => (x.docs || []).length);
+  const out = await renderRoute(`#/lead/${encodeURIComponent(l.lead)}`);
+  assert.ok(out.includes(`data-doc="${l.docs[0].id}"`), 'a tech must be able to open the quote');
+});
+
+await check('an empty docs[] renders NOTHING — no placeholder, no empty box', async () => {
+  const snap = await asFull('owner');
+  const t = snap.service_queue.find((x) => !(x.docs || []).length);
+  assert.ok(t, 'the fixture must carry a ticket with no docs');
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(!out.includes('<h2>Documents'), 'a ticket with no paperwork gets no Documents header');
+  assert.ok(!out.includes('docrow'));
+  assert.ok(out.includes('<h2>Notes'), 'Notes still renders its own empty state — that is a different call');
+});
+
+await check('a schema-5 snapshot (no docs key anywhere) renders ticket + lead detail', async () => {
+  // The forward/backward-compatibility case: schema 5 is still on KV until the
+  // engine publishes a 6. Not one view may notice.
+  const snap = await asFull('owner');
+  snap.meta.schema_version = 5;
+  for (const t of snap.service_queue) delete t.docs;
+  for (const l of snap.leads) delete l.docs;
+  for (const a of snap.agreements) delete a.docs;
+
+  for (const t of snap.service_queue) {
+    const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+    assert.ok(!out.includes('undefined'), `${t.ticket} leaked undefined`);
+    assert.ok(!out.includes('<h2>Documents'), `${t.ticket} drew a Documents group out of nothing`);
+  }
+  for (const l of snap.leads) {
+    const out = await renderRoute(`#/lead/${encodeURIComponent(l.lead)}`);
+    assert.ok(!out.includes('undefined'), `${l.lead} leaked undefined`);
+    assert.ok(!out.includes('<h2>Documents'));
+  }
+  await asFull('owner');   // put the fixture back for anything after this
+});
+
 console.log(`\n${passed} checks passed.`);

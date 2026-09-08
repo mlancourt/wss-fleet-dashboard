@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v19';
+const CACHE = 'wss-fleet-shell-v20';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
@@ -20,6 +20,7 @@ const SHELL = [
   'service.js',
   'leads.js',
   'notes.js',
+  'attachments.js',
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -47,6 +48,19 @@ self.addEventListener('fetch', (ev) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
+
+  // Documents (schema 6) are NEVER precached and NEVER runtime-cached. They are
+  // already excluded by the /api/ rule below; naming them here is deliberate,
+  // so that a future change to that rule cannot quietly start caching them.
+  //
+  // Why: a doc is a one-off read a tech asked for by name, and it is the
+  // largest thing this app will ever fetch. On one bar of LTE he pays for
+  // exactly the file he tapped, once — never for one he didn't, and never for
+  // a shelf of them warmed up on his behalf. A second read is free anyway: the
+  // id is the content hash, so the Worker sends `immutable` and the browser's
+  // own HTTP cache is the right and only place for it.
+  if (url.pathname.includes('/api/doc/')) return;
+
   const isData = url.pathname.includes('/api/') || url.pathname.endsWith('.json');
 
   // Data: network-first, and NEVER cached. Offline means "can't load", not

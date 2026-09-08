@@ -4,6 +4,14 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
+**v2.7 (schema 6)** — **document attachments, read path.** `service_queue[]`,
+`leads[]` and `agreements[]` each gain `docs[]` (`{id, name, kind, bytes,
+added}`); ticket and lead detail render a **Documents** group above the Notes
+timeline and a tap opens the file in a new tab straight from the Worker. Five
+new Worker endpoints back it — see "Documents" below. **A doc id IS the content:
+the first 16 hex of `sha256(bytes)`**, verified on every write. Docs are never
+stripped and never role-gated. Uploading from a phone is S2 and is not built.
+
 **v2.4 / v2.5** — `service_queue[].log[]` and `leads[].log[]` (the ticket/lead
 body as `{ts, who, text}`, last 30, oldest first) render as a **Notes** timeline
 in ticket and lead detail, this session's unapplied notes closing it. `ts` is a
@@ -59,6 +67,7 @@ the hard rules — read it before changing anything here.
 | **D47 — NEEDS-QUOTE stage** | ✅ built (Sep 4, 2026) | a customer ticket moves to NEEDS-QUOTE end to end; Fleet still six columns |
 | **v2.4 — Notes timeline** | ✅ built (Sep 4, 2026) | real `log[]` rows render on ticket + lead detail |
 | **v2.5 — lead logs money-free** | ✅ built (Sep 4, 2026) | service strip reversed; `npm run money-gate` green on the real snapshot |
+| **v2.7 — documents S1 (schema 6)** | ✅ built (Sep 8, 2026) | a real PDF round-trips through `npm run m1`; the hash check refuses a mismatched id |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -205,6 +214,62 @@ lead-log row matches `/\$\s?\d/` — and restores the mock snapshot afterwards
 so no real data is left in the KV it touched. Nothing is written to disk, and
 the tool carries no data of its own.
 
+### Documents (schema 6)
+
+The vault is the archive. **The Worker's doc store is a cache** — the engine may
+wipe and rebuild it at any time, and nothing here is a system of record. Two KV
+keys per document, meta written last and deleted first, so a half-write is
+invisible:
+
+| Key | Value |
+|---|---|
+| `doc:<id>` | the raw bytes (`put(key, arrayBuffer)` / `get(key, "arrayBuffer")` — **never base64**) |
+| `docmeta:<id>` | `{id, name, mime, bytes, added_utc, source, actor}` |
+
+**The id is the document.** It is the first 16 hex chars of `sha256(bytes)`, so
+the Worker recomputes the hash on every write and refuses a mismatch with `409` —
+the id in the URL is a claim and is never trusted. That is what makes a doc
+immutable (the same id can only ever mean the same bytes), what makes a second
+PUT a no-op, and what makes the whole store safe to throw away and rebuild.
+
+Push one down (what the engine does):
+
+```bash
+W=http://localhost:8788
+S=dev-admin-secret-not-for-production
+F=test/fixtures/sample-quote.pdf
+ID=$(node -e "const c=require('node:crypto'),f=require('node:fs');\
+console.log(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex').slice(0,16))" "$F")
+
+curl -s -X PUT "$W/api/admin/doc/$ID" -H "X-Admin-Secret: $S" \
+  -H 'Content-Type: application/pdf' -H 'X-Doc-Name: 2026-09-07-Quote.pdf' \
+  --data-binary "@$F"                       # -> 201 {"id":"…","bytes":24557}
+
+curl -s "$W/api/admin/docs" -H "X-Admin-Secret: $S"
+curl -s "$W/api/doc/$ID?t=<crew token>" -o /tmp/back.pdf
+```
+
+Then put `{"id":"<ID>","name":"…","kind":"QUOTE","bytes":24557,"added":"2026-09-07"}`
+into that ticket's / lead's / agreement's `docs[]` in the next snapshot.
+`kind` ∈ `QUOTE · WORKORDER · PARTS-LIST · PM-REPORT · SERVICE-TICKET · PO ·
+PHOTO · OTHER`; MIME ∈ `application/pdf · image/jpeg · image/png`; cap 10 MB.
+
+Three rules that are easy to break later:
+
+- **Docs are never stripped and never role-gated.** The §6 money gate does not
+  touch `docs[]`. A QUOTE on a lead carries a customer-facing price, which the
+  customer already has; a tech who cannot open the work order for the machine on
+  his bench has no board.
+- **No client ever sees a storage key** — only `/api/doc/<id>`.
+- **`/api/doc/` is never cached by the service worker**, precached or otherwise.
+  It is named explicitly in `docs/sw.js` so a future edit to the `/api/` rule
+  cannot start caching it. A tech on one bar of LTE pays for exactly the file he
+  tapped, once; the browser's own HTTP cache handles the second read, because
+  the Worker sends `immutable`.
+
+Uploading from a phone (`POST /api/doc`) is **S2** and is deliberately not
+built — there is a named stub comment in `worker/worker.js` where it goes.
+
 ### Icons
 
 ```bash
@@ -234,6 +299,7 @@ docs/                   GitHub Pages root — the app shell
   service.js            service + dispatch logic, schema 3 (pure)
   leads.js              leads board, scoreboard + insights logic, schema 5 (pure)
   notes.js              log[] timeline rows, shared by tickets + leads (pure)
+  attachments.js        docs[] rows, icons, sizes, doc URL — schema 6 (pure)
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
   sw.js                 shell cache only; data is never cached
@@ -247,7 +313,7 @@ worker/                 the Cloudflare Worker
   .dev.vars             local ADMIN_SECRET + ALLOW_LOCALHOST=1 (gitignored)
 
 tools/
-  make-mock-data.js     fake snapshot generator (schema 5 + a schema-2 downgrade)
+  make-mock-data.js     fake snapshot generator (schema 6 + a schema-2 downgrade)
   make-icons.js         icon generator
   serve.js              dev static server (sends Cache-Control: no-store)
   m1-loop.sh            the Worker loop, curl-scripted (npm run m1)
@@ -259,7 +325,11 @@ tools/
   selftest-service.mjs  schema-3 service + dispatch logic
   selftest-leads.mjs    schema-5 leads logic, incl. money-absent-not-zero
   selftest-notes.mjs    log[] rows — order kept, ts never Date-parsed
+  selftest-attachments.mjs  docs[] rows — id shape, order, sizes, doc URL
   selftest-render.mjs   every view, every mock variant, every role
+
+test/fixtures/
+  sample-quote.pdf      a 24 KB SYNTHETIC PDF the m1 loop uploads and reads back
   smoke-real.mjs        render a REAL snapshot by path — never copies it here
   money-gate.mjs        the §6 gate end to end on a real snapshot (npm run money-gate)
 ```
@@ -430,6 +500,11 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `GET /api/admin/events` | secret | `{count, events:[{id, key, event}]}` oldest first |
 | `POST /api/admin/events/ack` | secret | `{ids:[…]}` → deletes only those; `{deleted:n}` |
 | `POST /api/admin/tokens` | secret | replaces the map; echoes names + roles only |
+| `GET /api/doc/<id>` | token (`?t=` **or** Bearer) | the bytes, `Content-Type` from the stored meta, `Content-Disposition: inline`, `Cache-Control: private, max-age=31536000, immutable`, `nosniff`. `404` unknown, `400` malformed id. `?t=` must work — a new tab cannot send a header. |
+| `PUT /api/admin/doc/<id>` | secret | body = raw bytes. `201 {id, bytes}`; `200 {id, existed:true}` if already cached; `409 {error:"hash mismatch", expected}` if `sha256(body)[0:16] != id` (**nothing is stored**); `415` bad type; `413` over 10 MB; `400` bad/missing `X-Doc-Name` |
+| `GET /api/admin/doc/<id>` | secret | same bytes as the token GET (the engine's down-leg) |
+| `DELETE /api/admin/doc/<id>` | secret | `200 {id, deleted:true}`, `404` if unknown. Drops both keys. |
+| `GET /api/admin/docs` | secret | `{count, docs:[…docmeta…]}` oldest first |
 
 #### The nine write actions
 

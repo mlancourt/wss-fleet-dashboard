@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 5).
+ * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 6).
  *
  * EVERYTHING in this file is invented. Fake customers, fake serials, fake money.
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
  *
  * Emits three variants so every view can be exercised:
  *   mock-full.json    schema 5 — service queue, dispatch board, pick-ups, holds, leads
- *   mock-empty.json   schema 5 — service_queue: [], dispatch: [] and leads: [] (empty
+ *   mock-empty.json   schema 6 — service_queue: [], dispatch: [] and leads: [] (empty
  *                     states); ON-DEMO row = 0 on the status board
  *   mock-legacy.json  schema 2 — the pre-Dispatch snapshot, kept for one release
  *                     so the board still renders during the cutover
@@ -93,6 +93,15 @@ const d = (offsetDays) => new Date(TODAY + offsetDays * DAY).toISOString().slice
 const ts = (offsetDays, hhmm) => (hhmm ? `${d(offsetDays)} ${hhmm} CT` : d(offsetDays));
 /** `{ts, who, text}` rows, oldest first — the order the engine publishes. */
 const logOf = (rows) => rows.map(([t, who, text]) => ({ ts: t, who: who || null, text }));
+
+/**
+ * A FAKE document row (schema 6). The id has the right SHAPE — 16 lowercase hex
+ * — but there are no bytes behind it: nothing in this repo may carry a real
+ * document, and the doc store is the Worker's KV, not the snapshot's. Tapping
+ * one of these in mock mode says "documents live on the Worker" and stops,
+ * which is the honest answer.
+ */
+const doc = (id, name, kind, bytes, addedDaysAgo) => ({ id, name, kind, bytes, added: d(addedDaysAgo) });
 
 // ---------------------------------------------------------------- fake corpus
 
@@ -264,6 +273,10 @@ function build({ withServiceQueue }) {
           job_site,
           customer_po: rand() < 0.4 ? `PO-${Math.round(10000 + rand() * 89999)}` : null,
           alerts: [],
+          // schema 6. Agreements carry docs too, but there is no agreement
+          // DETAIL sheet to render them on yet — the S1 site work is tickets
+          // and leads only. The field is here so the contract is complete.
+          docs: [],
         });
       }
     });
@@ -437,6 +450,9 @@ function build({ withServiceQueue }) {
         // v2.4: the ticket body as {ts, who, text}, oldest first. Most tickets
         // have none — an empty log must render the empty state, not a gap.
         log: [],
+        // schema 6: the ticket's paperwork. Most tickets have none — an empty
+        // docs[] must render NOTHING at all, not an empty box.
+        docs: [],
         ...t,
       };
       delete row.unit;
@@ -470,6 +486,12 @@ function build({ withServiceQueue }) {
         [ts(-1), null, 'import note: called the shop line at 07:38, asked for Josh by name.'],
         [ts(0, '08:15'), 'Josh', 'Josh: Truck is booked for this afternoon. Bringing the spare key switch and a charger just in case.'],
       ]),
+      // Two kinds and two icons on one ticket: the work order Josh drives with
+      // and the photo the customer texted in.
+      docs: [
+        doc('4f2a91c07be3d518', '2026-09-07-Ironwood-Workorder.pdf', 'WORKORDER', 18442, -1),
+        doc('a10c73be9d4f2205', 'key-switch-panel.jpg', 'PHOTO', 1874300, -1),
+      ],
     });
 
     // 2 — CONTACTED on one of ours, DOWN in the shop.
@@ -487,6 +509,7 @@ function build({ withServiceQueue }) {
       intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', assigned: 'Josh', opened: -12,
       quote: { number: 'Q-2211', amount: 2480, sent: d(-6), approved: null },
       machinio_ref: 'MCH-74210',
+      docs: [doc('ab0b83a1b88c21ff', '2026-09-02-FairmontDairy-Quote.pdf', 'QUOTE', 25602, -6)],
     });
 
     // 4 — WAITING-ON-PARTS: the wait state that eats a shop.
@@ -500,6 +523,10 @@ function build({ withServiceQueue }) {
         [ts(-13, '11:02'), 'Zac', 'Zac: Quote approved over the phone. Pump ordered.'],
         [ts(-4, '16:30'), null, 'supplier note: backordered a second time, new ETA Thursday.'],
       ]),
+      docs: [
+        doc('c93de4470a1b6688', 'pump-assy-41-2207-parts.pdf', 'PARTS-LIST', 7180, -15),
+        doc('0d5e1fa2c7b39940', '2026-08-25-Lakeshore-PM.pdf', 'PM-REPORT', 44100, -15),
+      ],
     });
 
     // 5 — IN-PROGRESS on one of ours that is OUT ON RENT: a field call, no truck move.
@@ -699,7 +726,7 @@ function build({ withServiceQueue }) {
 
   const snapshot = {
     meta: {
-      schema_version: 5,
+      schema_version: 6,
       generated_at: new Date().toISOString(),
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
       fleet_totals: totals,
@@ -814,6 +841,10 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       related_ticket: o.related_ticket || null,
       // v2.4: the lead body, same {ts, who, text} shape as a ticket's.
       log: o.log || [],
+      // schema 6. A QUOTE on a lead carries a customer-facing price, which is
+      // fine — the customer already has it. Docs are never stripped and never
+      // role-gated, so this survives the service money gate untouched.
+      docs: o.docs || [],
     };
   };
 
@@ -853,6 +884,7 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       source: 'REFERRAL', interest: 'SALE-NEW', machine: 'Nordvale SC-2400', value: 28900,
       quote: { number: '990142', file: null, sent: d(-5) }, contactHours: 3,
       next_action: 'Follow up Thursday', stageDays: 5, totalDays: 9,
+      docs: [doc('7e6b02fd419ac83b', '2026-09-03-HarborLine-Quote-990142.pdf', 'QUOTE', 132880, -5)],
       log: logOf([
         [ts(-9, '08:50'), 'Kevin', 'opened by Kevin (RECEIVED, REFERRAL): Sent over by Harbor Line\u2019s maintenance lead.'],
         [ts(-9, '11:55'), 'Kevin', 'Kevin RECEIVED \u2192 CONTACTED: Talked to Marcus. Two shifts, tile and sealed concrete, wants a rider.'],

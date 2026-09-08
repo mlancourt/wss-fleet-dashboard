@@ -3,7 +3,8 @@
  * paste-deploy stays possible as a fallback to `wrangler deploy`.
  *
  * Bindings (wrangler.toml):
- *   FLEET_KV        KV namespace: `snapshot`, `tokens`, `evt:<utc-iso>:<rand6>`
+ *   FLEET_KV        KV namespace: `snapshot`, `tokens`, `evt:<utc-iso>:<rand6>`,
+ *                   `doc:<id>` + `docmeta:<id>` (schema 6 — the document cache)
  * Secrets / vars:
  *   ADMIN_SECRET    `wrangler secret put ADMIN_SECRET` (local dev: worker/.dev.vars)
  *   ALLOW_LOCALHOST "1" to accept http://localhost:* origins (dev only, via .dev.vars)
@@ -18,6 +19,12 @@
  *     has no override (D46). Deleting is the only way an event leaves KV other
  *     than the engine acking it.
  *   - Token values are never logged and never echoed back.
+ *   - The doc store is a CACHE, not an archive: the vault is the archive and may
+ *     wipe and rebuild this at any time. A doc id IS the SHA-256 prefix of its
+ *     bytes, so the Worker recomputes the hash on every write and refuses a
+ *     mismatch — the id in the URL is never trusted. Docs are immutable; no
+ *     client ever sees a storage key, only /api/doc/<id>. Doc bytes are never
+ *     logged.
  */
 
 const ROLES = new Set(['owner', 'sales', 'service']);
@@ -88,6 +95,25 @@ const REF_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;         // ticket ("S1001") / dispat
 // id deserves a 400 rather than a lookup that can only ever miss.
 const EVENT_ID_PATH_RE = /^\/api\/event\/(.+)$/;
 const EVENT_ID_RE = /^[A-Za-z0-9:._-]{1,128}$/;
+// The two document paths. `/api/admin/docs` (the listing) has no trailing
+// segment, so it never matches the admin-doc pattern and falls through to the
+// exact-path table below.
+const DOC_PATH_RE = /^\/api\/doc\/(.+)$/;
+const ADMIN_DOC_PATH_RE = /^\/api\/admin\/doc\/(.+)$/;
+
+/* --------------------------------------------------------- docs (schema 6) */
+
+// A doc id is the first 16 hex chars of sha256(bytes) — lowercase, always.
+const DOC_ID_RE = /^[0-9a-f]{16}$/;
+const DOC_ID_LEN = 16;
+// What the vault is allowed to hand us. Anything else is a 415: the browser
+// opens these in the OS viewer, and we are not in the business of serving
+// arbitrary content types back to a phone from our own origin.
+const DOC_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+// `crew` arrives with POST /api/doc at S2; today only the engine writes.
+const DOC_SOURCES = new Set(['vault']);
+const MAX_DOC_BYTES = 10 * 1024 * 1024;
+const DOC_NAME_MAX = 120;
 
 const MAX_EVENT_BYTES = 8 * 1024;
 const MAX_ACK_IDS = 1000;
@@ -109,6 +135,7 @@ const ROUTES = [
   ['GET',  '/api/admin/events',     'admin', adminEvents],
   ['POST', '/api/admin/events/ack', 'admin', adminAck],
   ['POST', '/api/admin/tokens',     'admin', adminTokens],
+  ['GET',  '/api/admin/docs',       'admin', adminDocs],
 ];
 
 export default {
@@ -155,6 +182,41 @@ async function route(request, env, url) {
     const me = await crewAuth(request, url, env);
     if (!me) return json({ error: 'unauthorized' }, 401);
     return crewUndoEvent({ env, me, rawId: withId[1] });
+  }
+
+  // /api/admin/doc/<id> — the engine's up-leg. Matched ahead of the exact-path
+  // table for the same reason /api/event/<id> is.
+  const adminDoc = ADMIN_DOC_PATH_RE.exec(path);
+  if (adminDoc) {
+    if (!adminAuth(request, env)) return json({ error: 'unauthorized' }, 401);
+    if (method !== 'GET' && method !== 'PUT' && method !== 'DELETE') {
+      const res = json({ error: 'method not allowed' }, 405);
+      res.headers.set('Allow', 'GET, PUT, DELETE');
+      return res;
+    }
+    const id = docId(adminDoc[1]);
+    if (method === 'PUT') return adminDocPut({ request, env, id });
+    if (method === 'DELETE') return adminDocDelete(env, id);
+    return docGet(env, id);
+  }
+
+  // /api/doc/<id> — the crew read. `?t=` has to work: this is opened in a new
+  // tab by the OS viewer, and a new tab cannot send an Authorization header.
+  //
+  // STUB (S2): POST /api/doc — the crew upload — goes here, beside this block.
+  // It is deliberately NOT in this order; nothing below writes a doc.
+  const crewDoc = DOC_PATH_RE.exec(path);
+  if (crewDoc) {
+    if (method !== 'GET') {
+      const res = json({ error: 'method not allowed' }, 405);
+      res.headers.set('Allow', 'GET');
+      return res;
+    }
+    const me = await crewAuth(request, url, env);
+    if (!me) return json({ error: 'unauthorized' }, 401);
+    // No role gate. Docs are never stripped and never role-gated (schema 6): a
+    // QUOTE on a lead carries a customer-facing price the customer already has.
+    return docGet(env, docId(crewDoc[1]));
   }
 
   const samePath = ROUTES.filter((r) => r[1] === path);
@@ -657,6 +719,166 @@ async function adminTokens({ request, env }) {
   return json({ ok: true, count: people.length, people });
 }
 
+/* ------------------------------------------------------- docs (schema 6) */
+
+/**
+ * The document cache. Two keys per doc:
+ *
+ *   doc:<id>      raw bytes      (put/get as an ArrayBuffer — NEVER base64)
+ *   docmeta:<id>  {id, name, mime, bytes, added_utc, source, actor}
+ *
+ * Meta is written LAST and deleted FIRST, so a half-write or a half-delete is
+ * invisible: every reader and the listing go through `docmeta:`.
+ *
+ * The id is not an identifier we assign — it IS the content, sha256(bytes)
+ * truncated to 16 hex. So the id in the URL is a claim, and `adminDocPut`
+ * checks it against the bytes on every write. That is what makes the store
+ * safe to wipe and rebuild from the vault at any time, and what makes a doc
+ * immutable: the same id can only ever mean the same bytes.
+ */
+
+/** The `<id>` path segment, or a 400. Never a KV key — the caller builds those. */
+function docId(raw) {
+  let id;
+  try { id = decodeURIComponent(raw); } catch { throw httpError(400, 'bad doc id'); }
+  if (!DOC_ID_RE.test(id)) throw httpError(400, 'bad doc id');
+  return id;
+}
+
+/**
+ * Serve the bytes. Streamed straight out of KV — a 10 MB PDF must never become
+ * a string in this Worker's memory.
+ *
+ * `inline` so the phone's own viewer opens it rather than downloading it;
+ * `nosniff` so the declared type is the only type; `immutable` with a year of
+ * max-age because the id is the hash — these bytes cannot change, so a tech on
+ * one bar of LTE pays for the file once. `private`: it went out under a token.
+ */
+async function docGet(env, id) {
+  const meta = await env.FLEET_KV.get(`docmeta:${id}`, 'json');
+  if (!meta) return json({ error: 'not found' }, 404);
+
+  const body = await env.FLEET_KV.get(`doc:${id}`, 'stream');
+  if (!body) return json({ error: 'not found' }, 404);   // meta without bytes: can't happen, still not a 500
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': DOC_MIMES.has(meta.mime) ? meta.mime : 'application/octet-stream',
+      'Content-Disposition': `inline; filename="${headerSafeName(meta.name)}"`,
+      'Cache-Control': 'private, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
+/**
+ * PUT /api/admin/doc/<id> — the vault pushes a document down.
+ *
+ * Order matters: type, then name, then size, then hash. The cheap refusals come
+ * first so an 11 MB body with the wrong content type is turned away on its
+ * headers, and nothing is stored until the bytes have proved they are the
+ * document the id names.
+ */
+async function adminDocPut({ request, env, id }) {
+  const mime = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  if (!DOC_MIMES.has(mime)) throw httpError(415, `content-type must be one of ${[...DOC_MIMES].join(', ')}`);
+
+  const name = docName(request.headers.get('X-Doc-Name'));
+  const source = (request.headers.get('X-Doc-Source') || 'vault').trim().toLowerCase();
+  if (!DOC_SOURCES.has(source)) throw httpError(400, `x-doc-source must be one of ${[...DOC_SOURCES].join(', ')}`);
+
+  // Refuse on the declared length when there is one, so an oversized upload
+  // does not have to be read to be rejected. The real check is below it.
+  const declared = Number(request.headers.get('Content-Length'));
+  if (Number.isFinite(declared) && declared > MAX_DOC_BYTES) throw httpError(413, 'document too large (max 10 MB)');
+
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_DOC_BYTES) throw httpError(413, 'document too large (max 10 MB)');
+  if (!bytes.byteLength) throw httpError(400, 'empty body');
+
+  const digest = await sha256Hex(bytes);
+  const expected = digest.slice(0, DOC_ID_LEN);
+  if (expected !== id) {
+    // Store NOTHING. A mismatch means these bytes are not that document, and
+    // writing them under the claimed id would poison the cache for every reader
+    // of the snapshot row that points at it.
+    return json({ error: 'hash mismatch', expected }, 409);
+  }
+
+  // Immutable: if the meta is already there the bytes are already right, by
+  // definition of the id. Re-writing them would only burn a KV write.
+  const existing = await env.FLEET_KV.get(`docmeta:${id}`, 'json');
+  if (existing) return json({ id, existed: true });
+
+  await env.FLEET_KV.put(`doc:${id}`, bytes);
+  await env.FLEET_KV.put(`docmeta:${id}`, JSON.stringify({
+    id,
+    name,
+    mime,
+    bytes: bytes.byteLength,
+    added_utc: new Date().toISOString(),
+    source,
+    actor: 'engine',
+  }));
+  return json({ id, bytes: bytes.byteLength }, 201);
+}
+
+/** Drop a doc from the cache. The vault still has it; this is only the copy. */
+async function adminDocDelete(env, id) {
+  const meta = await env.FLEET_KV.get(`docmeta:${id}`, 'json');
+  if (!meta) return json({ error: 'not found' }, 404);
+  await env.FLEET_KV.delete(`docmeta:${id}`);      // meta first: it is what readers look for
+  await env.FLEET_KV.delete(`doc:${id}`);
+  return json({ id, deleted: true });
+}
+
+/** Every docmeta, oldest first. There will never be many; still paginated. */
+async function adminDocs({ env }) {
+  const docs = [];
+  let cursor;
+  do {
+    const page = await env.FLEET_KV.list({ prefix: 'docmeta:', cursor });
+    const values = await Promise.all(page.keys.map((k) => env.FLEET_KV.get(k.name, 'json')));
+    for (const v of values) if (v) docs.push(v);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  // By when we cached it, not by key: key order is hash order, which is noise.
+  docs.sort((a, b) =>
+    String(a.added_utc || '').localeCompare(String(b.added_utc || '')) ||
+    String(a.id || '').localeCompare(String(b.id || '')));
+  return json({ count: docs.length, docs });
+}
+
+/** A display name, never a storage key — so no path separators, ever. */
+function docName(v) {
+  const t = typeof v === 'string' ? v.trim() : '';
+  if (!t) throw httpError(400, 'X-Doc-Name is required');
+  if (t.length > DOC_NAME_MAX) throw httpError(400, `X-Doc-Name is too long (max ${DOC_NAME_MAX})`);
+  if (/[/\\]/.test(t)) throw httpError(400, 'X-Doc-Name must not contain a path separator');
+  // It is echoed into a quoted Content-Disposition filename, so a quote, a
+  // backslash or a control character would be header injection, not a name.
+  // eslint-disable-next-line no-control-regex
+  if (/["\u0000-\u001F\u007F]/.test(t)) throw httpError(400, 'bad X-Doc-Name');
+  return t;
+}
+
+/**
+ * The same name again on the way out. Validated on write, sanitised on read:
+ * a doc cached before a validation change must still produce a header that
+ * cannot be broken out of.
+ */
+function headerSafeName(name) {
+  const t = typeof name === 'string' && name.trim() ? name.trim() : 'document';
+  // eslint-disable-next-line no-control-regex
+  return t.replace(/[^\u0020-\u007E]/g, '_').replace(/["\\]/g, '_').slice(0, DOC_NAME_MAX);
+}
+
+async function sha256Hex(buf) {
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /* --------------------------------------------------------------- KV utils */
 
 /** Every pending event, oldest first. Keys embed the UTC timestamp, so key order is time order. */
@@ -701,8 +923,8 @@ function corsHeaders(origin, env) {
     (env.ALLOW_LOCALHOST === '1' && LOCAL_ORIGIN_RE.test(origin)));
   if (ok) {
     h['Access-Control-Allow-Origin'] = origin;
-    h['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS';
-    h['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, X-Admin-Secret';
+    h['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+    h['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, X-Admin-Secret, X-Doc-Name, X-Doc-Source';
     h['Access-Control-Max-Age'] = '86400';
   }
   return h;
