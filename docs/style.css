@@ -492,6 +492,7 @@ form.write textarea { min-height: 80px; resize: vertical; }
   width: 20px; height: 20px; border-radius: 50%; background: var(--slate-700); color: var(--white);
   font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: 0 0 auto;
 }
+.kan-city { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--slate-700); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
 .kan-pend { color: var(--red-deep); font-weight: 650; }
 .kan-empty { padding: 12px 0 4px; color: var(--slate-400); font-size: 13px; }
 

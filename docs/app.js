@@ -45,7 +45,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-08-d48';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-08-d49';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -1090,6 +1090,24 @@ function pipelineView(withCaption) {
     </section>`;
 }
 
+/** City from a free-text site line ("3939 W McKinley Ave, Milwaukee, WI 53208" -> "Milwaukee").
+ *  We only service Wisconsin, so the state is noise on a tile; drop it. Null when we can't tell. */
+function siteCity(site) {
+  if (!site) return null;
+  let s = String(site).replace(/\(.*?\)/g, ' ').replace(/[—–].*$/, ' ');
+  const m = s.match(/^(.*)[,\s]+(WI|Wisconsin)\b/i); // greedy: the LAST WI, not 'E Wisconsin Ave'
+  if (!m) return /^[A-Za-z][A-Za-z .'-]{1,30}$/.test(s.trim()) ? s.trim() : null; // a bare city typed into the form
+  const parts = m[1].split(',').map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  let city = parts[parts.length - 1];
+  // "815 Park Avenue Columbus" — no comma before the city; keep the last word.
+  if (/^\d/.test(city) || /\b(ave|avenue|st|street|dr|drive|rd|road|blvd|pkwy|parkway|ln|lane|way|ct|hwy)\.?$/i.test(city)) {
+    const w = city.split(/\s+/); city = w[w.length - 1];
+    if (/^\d/.test(city) || /^(ave|avenue|st|street|dr|drive|rd|road|blvd|pkwy|parkway|ln|lane|way|ct|hwy)\.?$/i.test(city)) return null;
+  }
+  return city.replace(/\.$/, '') || null;
+}
+
 function ticketCard(t) {
   const moves = dispatchFor(dispatchRows(), t.ticket);
   const hasMove = moves.some((r) => r.status !== 'DONE');
@@ -1111,6 +1129,7 @@ function ticketCard(t) {
         <span class="kan-id">${t.ticket}</span>
         ${t.assigned ? raw(html`<span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}
         ${hasMove ? raw('<span class="truck" title="has a truck move">🚚</span>') : ''}
+        ${siteCity(t.site) ? raw(html`<span class="kan-city" title="${t.site}">${siteCity(t.site)}</span>`) : ''}
         ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
       </div>
     </a>`;
