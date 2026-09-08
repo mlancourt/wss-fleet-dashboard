@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-08T15:11:21.608Z",
+    "generated_at": "2026-09-08T17:33:31.425Z",
     "run_id": "mock-legacy-2026-09-08",
     "fleet_totals": {
       "units": 39,
@@ -174,7 +174,7 @@
           "status": "future"
         }
       ],
-      "service_ticket": "SVC-1204",
+      "service_ticket": "SVC-1205",
       "acquisition_cost": 22200,
       "book": 12543,
       "reservation": {
@@ -2118,87 +2118,98 @@
     },
     {
       "ticket_id": "SVC-1204",
+      "customer": "Northgate Foods",
+      "serial": null,
+      "unit_desc": "Halstead R-440 (customer owned)",
+      "stage": "READY-TO-INVOICE",
+      "assigned": "Josh",
+      "opened": "2026-08-31",
+      "quote": 615,
+      "machinio_ref": null
+    },
+    {
+      "ticket_id": "SVC-1205",
       "customer": "Granite Peak Warehouse",
       "serial": "900121",
       "unit_desc": "Cascade Clean BX-40",
-      "stage": "READY-TO-INVOICE",
+      "stage": "DONE",
       "assigned": "Josh",
       "opened": "2026-09-05",
       "quote": null,
       "machinio_ref": null
     },
     {
-      "ticket_id": "SVC-1205",
+      "ticket_id": "SVC-1206",
       "customer": "Cedar Ridge Manufacturing",
       "serial": null,
       "unit_desc": "Ironline BX-40 (customer owned)",
-      "stage": "DONE",
+      "stage": "INTAKE",
       "assigned": "Zac",
       "opened": "2026-08-18",
       "quote": 860,
       "machinio_ref": null
     },
     {
-      "ticket_id": "SVC-1206",
+      "ticket_id": "SVC-1207",
       "customer": "Dorsey Plastics",
       "serial": null,
       "unit_desc": "Cascade Clean SW-900 (customer owned)",
-      "stage": "INTAKE",
+      "stage": "DIAGNOSED",
       "assigned": "Josh",
       "opened": "2026-08-13",
       "quote": 1320,
       "machinio_ref": "MCH-73988"
     },
     {
-      "ticket_id": "SVC-1207",
+      "ticket_id": "SVC-1208",
       "customer": "Maplewood Schools",
       "serial": null,
       "unit_desc": "Nordvale BX-27 (customer owned)",
-      "stage": "DIAGNOSED",
+      "stage": "AWAITING-PARTS",
       "assigned": "Josh",
       "opened": "2026-09-04",
       "quote": null,
       "machinio_ref": null
     },
     {
-      "ticket_id": "SVC-1208",
+      "ticket_id": "SVC-1209",
       "customer": "Granite Peak Warehouse",
       "serial": null,
       "unit_desc": "Meridian R-880 (customer owned)",
-      "stage": "AWAITING-PARTS",
+      "stage": "IN-PROGRESS",
       "assigned": "Zac",
       "opened": "2026-09-01",
       "quote": null,
       "machinio_ref": null
     },
     {
-      "ticket_id": "SVC-1209",
+      "ticket_id": "SVC-1210",
       "customer": "Redtail Automotive",
       "serial": null,
       "unit_desc": "Cascade Clean T-500 (customer owned)",
-      "stage": "IN-PROGRESS",
+      "stage": "READY-TO-INVOICE",
       "assigned": "Josh",
       "opened": "2026-08-29",
       "quote": 640,
       "machinio_ref": null
     },
     {
-      "ticket_id": "SVC-1210",
+      "ticket_id": "SVC-1211",
       "customer": "Birchwood Cold Storage",
       "serial": null,
       "unit_desc": "Halstead SW-900 (customer owned)",
-      "stage": "READY-TO-INVOICE",
+      "stage": "DONE",
       "assigned": "Josh",
       "opened": "2026-09-02",
       "quote": null,
       "machinio_ref": null
     },
     {
-      "ticket_id": "SVC-1211",
+      "ticket_id": "SVC-1212",
       "customer": "Stillman Foundry",
       "serial": null,
       "unit_desc": "Ironline R-660 (customer owned)",
-      "stage": "DONE",
+      "stage": "INTAKE",
       "assigned": "Zac",
       "opened": "2026-08-26",
       "quote": null,

@@ -14,7 +14,7 @@ import { isDateStr } from './dates.js';
  * Fixed lists from CLAUDE.md / the Service-Dispatch spec. The Worker validates
  * against the same values; keep the two in step. */
 
-export const STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
+export const STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'READY-TO-SCHEDULE', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
 export const PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'];
 export const LOCATIONS = ['AT-CUSTOMER', 'IN-SHOP'];
 export const INTAKE_MOVES = ['NONE', 'PICKUP', 'CUSTOMER-DROP'];
@@ -30,7 +30,7 @@ export const DISPATCH_STATUSES = ['OPEN', 'SCHEDULED', 'DONE'];
 /* Shop-floor wording. The enum is the wire value; these are what a glove reads. */
 export const STAGE_LABEL = {
   RECEIVED: 'Received', CONTACTED: 'Contacted', 'NEEDS-QUOTE': 'Needs quote',
-  'WAITING-ON-CUSTOMER': 'Waiting on customer', 'WAITING-ON-PARTS': 'Waiting on parts', SCHEDULED: 'Scheduled',
+  'WAITING-ON-CUSTOMER': 'Waiting on customer', 'WAITING-ON-PARTS': 'Waiting on parts', 'READY-TO-SCHEDULE': 'Ready to schedule', SCHEDULED: 'Scheduled',
   'IN-PROGRESS': 'In progress', 'READY-TO-INVOICE': 'Ready to invoice', COMPLETE: 'Complete',
 };
 export const MOVE_LABEL = {
@@ -82,8 +82,8 @@ export function filterTickets(queue, filter) {
 
 /**
  * The kanban columns a filter shows (D43). Under the Fleet chip the three
- * stages a WSS-owned ticket can never occupy are dropped — six columns, not
- * nine. Derived from stagesFor() so the kanban and the stage picker can't drift.
+ * stages a WSS-owned ticket can never occupy are dropped — seven columns, not
+ * ten (D48 added READY-TO-SCHEDULE, which a fleet ticket CAN take). Derived from stagesFor() so the kanban and the stage picker can't drift.
  */
 export function columnsFor(filter) {
   return filter === 'WSS' ? stagesFor('WSS') : STAGES.slice();
@@ -94,7 +94,7 @@ export function columnsFor(filter) {
  * the same way: one row per stage, counts and a shared 100% scale, zero rows
  * still rendered so the card never changes shape. */
 
-/** COMPLETE is the header pill, not a row — eight rows, in stage order. */
+/** COMPLETE is the header pill, not a row — nine rows, in stage order (D48 made it nine). */
 export const PIPELINE_STAGES = STAGES.filter((s) => s !== 'COMPLETE');
 
 /** Bar colors, keyed like BOARD_ROWS so the CSS owns the actual values. */
@@ -104,6 +104,7 @@ export const PIPELINE_COLOR = {
   'NEEDS-QUOTE': 'new',               // maroon — OUR court: Matt owes them a number (D47)
   'WAITING-ON-CUSTOMER': 'amber',     // their court
   'WAITING-ON-PARTS': 'orange',       // a supplier's court
+  'READY-TO-SCHEDULE': 'new',         // maroon — OUR court again: approval + parts in hand, we owe a date (D48)
   SCHEDULED: 'blue',
   'IN-PROGRESS': 'green',             // our court, hands on
   'READY-TO-INVOICE': 'dark',

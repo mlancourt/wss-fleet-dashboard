@@ -581,7 +581,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `doc_attach` | any | not used | `record`, `doc_id`, `kind`, `name` — **schema 6 / S2.** The one action the Worker checks state for: 400 if `docmeta:<doc_id>` is not in the store, because an attach with no bytes behind it is a dangling pointer into *our* KV. |
 
 Enums the Worker checks membership of, and nothing more:
-`machine_owner` CUSTOMER·WSS · `stage` RECEIVED·CONTACTED·WAITING-ON-CUSTOMER·WAITING-ON-PARTS·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·
+`machine_owner` CUSTOMER·WSS · `stage` RECEIVED·CONTACTED·NEEDS-QUOTE·WAITING-ON-CUSTOMER·WAITING-ON-PARTS·READY-TO-SCHEDULE·SCHEDULED·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·
 `priority` HIGH·MEDIUM·LOW · `location` AT-CUSTOMER·IN-SHOP ·
 `intake_move` NONE·PICKUP·CUSTOMER-DROP · `return_move` NONE·DELIVER·CUSTOMER-PICKUP ·
 `kind` PICKUP·DELIVER · `rig` KEVIN-LIFTGATE·JOSH-LIFTGATE·TRAILER-6000·TRAILER-3000 ·

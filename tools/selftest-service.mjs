@@ -19,11 +19,11 @@ console.log('service + dispatch self-test');
 
 /* ------------------------------------------------------------------ stages */
 
-check('WSS tickets hide the three billing stages; customer tickets show all nine', () => {
+check('WSS tickets hide the three billing stages; customer tickets show all ten', () => {
   assert.deepEqual(stagesFor('CUSTOMER'), STAGES);
-  assert.equal(STAGES.length, 9);
+  assert.equal(STAGES.length, 10);
   assert.deepEqual(stagesFor('WSS'),
-    ['RECEIVED', 'CONTACTED', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'COMPLETE']);
+    ['RECEIVED', 'CONTACTED', 'WAITING-ON-PARTS', 'READY-TO-SCHEDULE', 'SCHEDULED', 'IN-PROGRESS', 'COMPLETE']);
   assert.equal(stagesFor('WSS').includes('WAITING-ON-CUSTOMER'), false);
   // D47: nobody quotes us to us.
   assert.equal(stagesFor('WSS').includes('NEEDS-QUOTE'), false);
@@ -37,6 +37,16 @@ check('NEEDS-QUOTE sits between CONTACTED and WAITING-ON-CUSTOMER (D47)', () => 
   assert.equal(canStage(T('S1', 'CONTACTED', 'CUSTOMER'), 'NEEDS-QUOTE', 'sales'), false);
   // The picker never offers it on one of ours, whoever is asking.
   assert.equal(canStage(T('S2', 'CONTACTED', 'WSS'), 'NEEDS-QUOTE', 'owner'), false);
+});
+
+check('READY-TO-SCHEDULE sits between WAITING-ON-PARTS and SCHEDULED, on both owners (D48)', () => {
+  assert.equal(STAGES.indexOf('READY-TO-SCHEDULE'), STAGES.indexOf('WAITING-ON-PARTS') + 1);
+  assert.equal(STAGES.indexOf('SCHEDULED'), STAGES.indexOf('READY-TO-SCHEDULE') + 1);
+  assert.equal(canStage(T('S1', 'WAITING-ON-CUSTOMER', 'CUSTOMER'), 'READY-TO-SCHEDULE', 'service'), true);
+  assert.equal(canStage(T('S1', 'WAITING-ON-PARTS', 'CUSTOMER'), 'READY-TO-SCHEDULE', 'owner'), true);
+  // Unlike the billing stages, a fleet machine whose parts arrived lands here too.
+  assert.equal(canStage(T('S2', 'WAITING-ON-PARTS', 'WSS'), 'READY-TO-SCHEDULE', 'service'), true);
+  assert.equal(canStage(T('S1', 'WAITING-ON-PARTS', 'CUSTOMER'), 'READY-TO-SCHEDULE', 'sales'), false);
 });
 
 check('stage changes are service/owner only — sales never moves a ticket', () => {
@@ -63,7 +73,7 @@ check('a stage hidden for WSS can never be set on a WSS ticket', () => {
 
 check('stageOptions marks the current stage and captions the disabled COMPLETE', () => {
   const opts = stageOptions(T('S1', 'WAITING-ON-CUSTOMER', 'CUSTOMER'), 'service');
-  assert.equal(opts.length, 9);
+  assert.equal(opts.length, 10);
   assert.equal(opts.find((o) => o.stage === 'WAITING-ON-CUSTOMER').current, true);
   const done = opts.find((o) => o.stage === 'COMPLETE');
   assert.equal(done.enabled, false);
@@ -91,10 +101,10 @@ check('filterTickets: all / Customer / Fleet', () => {
   assert.deepEqual(filterTickets(null, 'all'), []);
 });
 
-check('columnize: nine stages in order, unknown stages appended, nothing dropped', () => {
+check('columnize: ten stages in order, unknown stages appended, nothing dropped', () => {
   const cols = columnize(QUEUE);
-  assert.deepEqual(cols.slice(0, 9).map((c) => c.stage), STAGES);
-  assert.equal(cols[9].stage, 'TRIAGE');
+  assert.deepEqual(cols.slice(0, 10).map((c) => c.stage), STAGES);
+  assert.equal(cols[10].stage, 'TRIAGE');
   assert.equal(cols.reduce((n, c) => n + c.tickets.length, 0), QUEUE.length);
 });
 
@@ -108,31 +118,31 @@ check('columnize counts come from service_summary only when unfiltered', () => {
 check('columnsFor: Fleet drops exactly the three stages a WSS ticket cannot occupy (D43/D47)', () => {
   assert.deepEqual(columnsFor('all'), STAGES);
   assert.deepEqual(columnsFor('CUSTOMER'), STAGES);
-  assert.equal(columnsFor('all').length, 9);
+  assert.equal(columnsFor('all').length, 10);
   const wss = columnsFor('WSS');
-  assert.equal(wss.length, 6, 'Fleet stays at six even though the list grew to nine');
+  assert.equal(wss.length, 7, 'Fleet is seven: D48 added a stage a fleet ticket CAN take');
   assert.deepEqual(STAGES.filter((s) => !wss.includes(s)),
     ['NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'READY-TO-INVOICE']);
   // and it stays in step with the stage picker
   assert.deepEqual(wss, stagesFor('WSS'));
 });
 
-check('columnize under Fleet draws six columns but never drops a ticket', () => {
+check('columnize under Fleet draws seven columns but never drops a ticket', () => {
   const q = [T('S1', 'RECEIVED', 'WSS'), T('S2', 'IN-PROGRESS', 'WSS')];
   assert.deepEqual(columnize(q, { filter: 'WSS' }).map((c) => c.stage), columnsFor('WSS'));
   // A WSS ticket the engine parked in a hidden stage still gets a column —
   // hiding a column is a display choice, losing a ticket is data loss.
   const odd = columnize(q.concat([T('S3', 'READY-TO-INVOICE', 'WSS')]), { filter: 'WSS' });
-  assert.equal(odd.length, 7);
-  assert.equal(odd[6].stage, 'READY-TO-INVOICE');
+  assert.equal(odd.length, 8);
+  assert.equal(odd[7].stage, 'READY-TO-INVOICE');
   assert.equal(odd.reduce((n, c) => n + c.tickets.length, 0), 3);
 });
 
 /* ---------------------------------------------------- service pipeline (D43) */
 
-check('pipeline: eight rows in stage order — COMPLETE is the pill, not a row', () => {
+check('pipeline: nine rows in stage order — COMPLETE is the pill, not a row', () => {
   const p = pipeline(QUEUE);
-  assert.equal(p.rows.length, 8);
+  assert.equal(p.rows.length, 9);
   assert.deepEqual(p.rows.map((r) => r.stage), PIPELINE_STAGES);
   assert.equal(p.rows.some((r) => r.stage === 'COMPLETE'), false);
   assert.equal(p.rows[0].label, 'Received');
@@ -189,12 +199,12 @@ check('pipeline: closed-this-week counts customer CLOSED tickets, with no date m
   assert.equal(p.open, 1);
 });
 
-check('pipeline: an empty queue still yields eight zero rows (the card never hides)', () => {
+check('pipeline: an empty queue still yields nine zero rows (the card never hides)', () => {
   for (const empty of [[], null, undefined]) {
     const p = pipeline(empty);
     assert.equal(p.open, 0);
     assert.equal(p.closedThisWeek, 0);
-    assert.equal(p.rows.length, 8);
+    assert.equal(p.rows.length, 9);
     assert.ok(p.rows.every((r) => r.count === 0 && r.pct === 0));
   }
 });

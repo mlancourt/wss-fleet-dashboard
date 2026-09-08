@@ -529,6 +529,17 @@ function build({ withServiceQueue }) {
       ],
     });
 
+    // 4b — READY-TO-SCHEDULE (D48): approval + parts in hand, we owe them a date. Our court.
+    ticket({
+      stage: 'READY-TO-SCHEDULE', customer: 'Northgate Foods', equipment: 'Halstead R-440 (customer owned)',
+      issue: 'Vac motor replacement — parts on the shelf, needs a truck day', location: 'AT-CUSTOMER',
+      intake_move: 'NONE', return_move: 'NONE', assigned: null, opened: -8,
+      quote: { number: 'Q-2230', amount: 615, sent: d(-6), approved: d(-2) },
+      parts: 'Vac motor 22-0410 — received',
+      log: logOf([
+        [ts(-2, '09:15'), 'Matt', 'Matt: approved by email. Motor came in this morning.'],
+      ]),
+    });
     // 5 — IN-PROGRESS on one of ours that is OUT ON RENT: a field call, no truck move.
     ticket({
       stage: 'IN-PROGRESS', unit: outOnRent, customer: outOnRent ? outOnRent.customer : 'WSS',
@@ -673,7 +684,7 @@ function build({ withServiceQueue }) {
 
   // The nine-stage rollup the Service tab draws its column counts from.
   // COMPLETE is "closed in the last 7 days", not an open-work count (CLAUDE.md).
-  const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
+  const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'READY-TO-SCHEDULE', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
   const service_summary = {
     open_by_stage: Object.fromEntries(SERVICE_STAGES.map((s) => [s, service_queue.filter(
       (t) => t.stage === s && (s === 'COMPLETE' ? true : t.status === 'OPEN')).length])),

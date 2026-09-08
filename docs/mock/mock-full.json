@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 6,
-    "generated_at": "2026-09-08T15:11:21.608Z",
+    "generated_at": "2026-09-08T17:33:31.425Z",
     "run_id": "mock-full-2026-09-08",
     "fleet_totals": {
       "units": 39
@@ -166,7 +166,7 @@
           "status": "future"
         }
       ],
-      "service_ticket": "S1005"
+      "service_ticket": "S1006"
     },
     {
       "serial": "900128",
@@ -1954,6 +1954,44 @@
     {
       "ticket": "S1005",
       "status": "OPEN",
+      "stage": "READY-TO-SCHEDULE",
+      "machine_owner": "CUSTOMER",
+      "customer": "Northgate Foods",
+      "serial": null,
+      "equipment": "Halstead R-440 (customer owned)",
+      "issue": "Vac motor replacement — parts on the shelf, needs a truck day",
+      "priority": "MEDIUM",
+      "site": "Oconomowoc WI",
+      "location": "AT-CUSTOMER",
+      "intake_move": "NONE",
+      "return_move": "NONE",
+      "assigned": null,
+      "scheduled": null,
+      "opened": "2026-08-31",
+      "opened_by": "Kevin",
+      "stage_since": "2026-09-01",
+      "age_days": 8,
+      "quote": {
+        "number": "Q-2230",
+        "amount": 615,
+        "sent": "2026-09-02",
+        "approved": "2026-09-06"
+      },
+      "parts": "Vac motor 22-0410 — received",
+      "machinio_ref": null,
+      "closed": null,
+      "log": [
+        {
+          "ts": "2026-09-06 09:15 CT",
+          "who": "Matt",
+          "text": "Matt: approved by email. Motor came in this morning."
+        }
+      ],
+      "docs": []
+    },
+    {
+      "ticket": "S1006",
+      "status": "OPEN",
       "stage": "IN-PROGRESS",
       "machine_owner": "WSS",
       "customer": "Granite Peak Warehouse",
@@ -1968,8 +2006,8 @@
       "assigned": "Josh",
       "scheduled": "2026-09-09",
       "opened": "2026-09-05",
-      "opened_by": "Kevin",
-      "stage_since": "2026-09-06",
+      "opened_by": "Matt",
+      "stage_since": "2026-09-08",
       "age_days": 3,
       "quote": null,
       "parts": null,
@@ -1979,7 +2017,7 @@
       "docs": []
     },
     {
-      "ticket": "S1006",
+      "ticket": "S1007",
       "status": "OPEN",
       "stage": "READY-TO-INVOICE",
       "machine_owner": "CUSTOMER",
@@ -1995,8 +2033,8 @@
       "assigned": "Zac",
       "scheduled": null,
       "opened": "2026-08-18",
-      "opened_by": "Matt",
-      "stage_since": "2026-08-22",
+      "opened_by": "Zac",
+      "stage_since": "2026-08-21",
       "age_days": 21,
       "quote": {
         "number": "Q-2185",
@@ -2011,7 +2049,7 @@
       "docs": []
     },
     {
-      "ticket": "S1007",
+      "ticket": "S1008",
       "status": "CLOSED",
       "stage": "COMPLETE",
       "machine_owner": "CUSTOMER",
@@ -2020,14 +2058,14 @@
       "equipment": "Cascade Clean SW-900 (customer owned)",
       "issue": "Charger fault, replaced onboard charger",
       "priority": "MEDIUM",
-      "site": "Milwaukee WI",
+      "site": "Waukesha WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Josh",
       "scheduled": null,
       "opened": "2026-08-13",
-      "opened_by": "Matt",
+      "opened_by": "Kevin",
       "stage_since": "2026-09-06",
       "age_days": 26,
       "quote": {
@@ -2043,7 +2081,7 @@
       "docs": []
     },
     {
-      "ticket": "S1008",
+      "ticket": "S1009",
       "status": "OPEN",
       "stage": "RECEIVED",
       "machine_owner": "CUSTOMER",
@@ -2052,15 +2090,15 @@
       "equipment": "Nordvale BX-27 (customer owned)",
       "issue": "Dropping water on the right side",
       "priority": "LOW",
-      "site": "Waukesha WI",
+      "site": "Milwaukee WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": null,
       "scheduled": null,
       "opened": "2026-09-04",
-      "opened_by": "Kevin",
-      "stage_since": "2026-09-08",
+      "opened_by": "Matt",
+      "stage_since": "2026-09-04",
       "age_days": 4,
       "quote": null,
       "parts": null,
@@ -2070,7 +2108,7 @@
       "docs": []
     },
     {
-      "ticket": "S1009",
+      "ticket": "S1010",
       "status": "OPEN",
       "stage": "IN-PROGRESS",
       "machine_owner": "CUSTOMER",
@@ -2087,7 +2125,7 @@
       "scheduled": null,
       "opened": "2026-09-01",
       "opened_by": "Matt",
-      "stage_since": "2026-09-01",
+      "stage_since": "2026-09-04",
       "age_days": 7,
       "quote": null,
       "parts": null,
@@ -2097,7 +2135,7 @@
       "docs": []
     },
     {
-      "ticket": "S1010",
+      "ticket": "S1011",
       "status": "OPEN",
       "stage": "SCHEDULED",
       "machine_owner": "CUSTOMER",
@@ -2106,7 +2144,7 @@
       "equipment": "Cascade Clean T-500 (customer owned)",
       "issue": "Drive belt + idler pulley — parts in, on the bench Tuesday",
       "priority": "MEDIUM",
-      "site": "Milwaukee WI",
+      "site": "Beloit WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "DELIVER",
@@ -2114,7 +2152,7 @@
       "scheduled": "2026-09-11",
       "opened": "2026-08-29",
       "opened_by": "Matt",
-      "stage_since": "2026-09-01",
+      "stage_since": "2026-09-02",
       "age_days": 10,
       "quote": {
         "number": "Q-2205",
@@ -2129,7 +2167,7 @@
       "docs": []
     },
     {
-      "ticket": "S1011",
+      "ticket": "S1012",
       "status": "OPEN",
       "stage": "NEEDS-QUOTE",
       "machine_owner": "CUSTOMER",
@@ -2177,7 +2215,7 @@
       "docs": []
     },
     {
-      "ticket": "S1012",
+      "ticket": "S1013",
       "status": "OPEN",
       "stage": "NEEDS-QUOTE",
       "machine_owner": "CUSTOMER",
@@ -2193,7 +2231,7 @@
       "assigned": "Zac",
       "scheduled": null,
       "opened": "2026-08-26",
-      "opened_by": "Kevin",
+      "opened_by": "Josh",
       "stage_since": "2026-09-03",
       "age_days": 13,
       "quote": null,
@@ -2211,12 +2249,13 @@
       "NEEDS-QUOTE": 2,
       "WAITING-ON-CUSTOMER": 1,
       "WAITING-ON-PARTS": 1,
+      "READY-TO-SCHEDULE": 1,
       "SCHEDULED": 1,
       "IN-PROGRESS": 2,
       "READY-TO-INVOICE": 1,
       "COMPLETE": 1
     },
-    "open_customer": 9,
+    "open_customer": 10,
     "open_wss": 2
   },
   "dispatch": [
@@ -2276,7 +2315,7 @@
       "kind": "DELIVER",
       "source": "SERVICE-OUT",
       "serial": null,
-      "ticket": "S1006",
+      "ticket": "S1007",
       "what": "Ironline BX-40 (customer owned) back to customer",
       "customer": "Cedar Ridge Manufacturing",
       "address": "Oconomowoc WI",

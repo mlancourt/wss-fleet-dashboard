@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-08T12:11:21.612Z",
+    "ts": "2026-09-08T14:33:31.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-08T14:31:21.612Z",
+    "ts": "2026-09-08T16:53:31.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-08T14:59:21.612Z",
+    "ts": "2026-09-08T17:21:31.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-08T15:05:21.612Z",
+    "ts": "2026-09-08T17:27:31.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-08T15:08:21.612Z",
+    "ts": "2026-09-08T17:30:31.431Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-08T15:09:21.612Z",
+    "ts": "2026-09-08T17:31:31.431Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-09-08T14:46:21.612Z",
+    "ts": "2026-09-08T17:08:31.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-09-08T15:02:21.612Z",
+    "ts": "2026-09-08T17:24:31.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -128,7 +128,7 @@
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-09-08T15:07:21.612Z",
+    "ts": "2026-09-08T17:29:31.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",
