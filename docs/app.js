@@ -21,7 +21,7 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney, isDateStr,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
-import { loadData, postEvent, deleteEvent, mockVariant, resolveApiBase } from './api.js';
+import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase } from './api.js';
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
@@ -29,7 +29,10 @@ import {
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
-import { docRows, docUrl } from './attachments.js';
+import {
+  docRows, docUrl, pendingDocRows, resolveKind, sanitizeName, retypeName, cameraName,
+  isImageMime, humanBytes, kindLabel, docIcon, KIND_CHOICES, DOC_RECORD_RE,
+} from './attachments.js';
 import {
   NO_DATA, LEAD_PRIORITIES,
   STAGE_LABEL as LEAD_STAGE_LABEL, STATUS_LABEL as LEAD_STATUS_LABEL,
@@ -42,7 +45,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-04-notes2';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-08-docs-s2';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -127,6 +130,31 @@ const ui = {
   showInsights: false,   // §3.2 — collapsed by default
   showClosedLeads: false,
 };
+
+/* ---- uploads in flight (S2) --------------------------------------------
+ * A file a tech picked, resized, and is trying to send. Module scope so it
+ * survives render(), which rewrites the whole view on every state change.
+ *
+ * DELIBERATELY NOT PERSISTED. No localStorage of blobs, no IndexedDB queue, no
+ * service-worker background sync — the work order rules all three out and it is
+ * the right call: a queue that survives the page is a promise to deliver, and
+ * this app cannot keep that promise from a warehouse with one bar. So the copy
+ * says exactly what is true — "leaving this page discards it" — and a failed
+ * send stays one tap from a retry for as long as the tech is looking at it.
+ *
+ *   uploads  localId -> { localId, record, kind, name, mime, blob, thumb, state, error }
+ *            state: 'sending' | 'failed'   (a success deletes the entry — the
+ *            stored doc_attach event becomes the row from then on)
+ *   thumbs   docId -> data: URL, for images sent THIS session. The snapshot
+ *            carries no thumbnails and never will; this is only so the row a
+ *            tech just created shows the photo he just took.
+ */
+const uploads = new Map();
+const thumbs = new Map();
+let uploadSeq = 0;
+// The file chosen but not yet given a kind. Held here rather than in `ui` so a
+// File object never lands in something we might one day serialise.
+let pendingPick = null;
 
 const openSheet = (kind, id = null) => { ui.form = { kind, id }; ui.msg = null; render(); };
 const closeSheet = () => { ui.form = null; render(); };
@@ -227,6 +255,12 @@ const pendingDispatchAdds = () => state.pending.filter((e) => e.action === 'disp
 const pendingForLead = (id) => (id ? state.pending.filter((e) =>
   (e.action === 'lead_update' || e.action === 'lead_close') && pl(e).lead === id) : []);
 const pendingLeadOpens = () => state.pending.filter((e) => e.action === 'lead_open');
+// schema 6 / S2: keyed on `record`, which is a ticket id OR a lead id — the one
+// action whose key spans both boards. Deliberately NOT folded into
+// pendingForTicket: a doc_attach is not a change to the ticket, it is a
+// document arriving, and it renders in the Documents group rather than in the
+// "pending changes" list at the top of the record.
+const pendingDocsFor = (recordId) => (recordId ? pendingDocRows(state.pending, recordId) : []);
 
 /** Top-level holds rollup (v2). Derived from units when a snapshot lacks it. */
 function holdsRollup() {
@@ -768,9 +802,11 @@ const enc = (s) => encodeURIComponent(String(s == null ? '' : s));
 function msgBlock() {
   if (!ui.msg) return '';
   const m = ui.msg;
-  return m.tone === 'bad'
-    ? html`<div class="alert">⚠️ ${m.text}</div>`
-    : html`<div class="note"><strong>Submitted</strong>${m.text}</div>`;
+  if (m.tone === 'bad') return html`<div class="alert">⚠️ ${m.text}</div>`;
+  // A document says "Attached", not "Submitted": the bytes really did land, and
+  // it is only the filing that waits for the run.
+  if (m.tone === 'doc') return html`<div class="note"><strong>Attached ✓</strong>${m.text}</div>`;
+  return html`<div class="note"><strong>Submitted</strong>${m.text}</div>`;
 }
 
 /** "⏳ pending" line for a row that has unapplied writes against it. */
@@ -784,28 +820,112 @@ function pendingLine(n) {
  * file in a NEW TAB straight from the Worker and the phone's own viewer takes
  * it from there (see the [data-doc] handler).
  *
- * Empty `docs` renders NOTHING — no "No documents" placeholder. A ticket with
- * no paperwork is the normal case, and a permanent empty box on every one of
- * them would be a line of noise on a phone for no information at all. That is
- * the opposite call from Notes, where the empty state says "nobody has written
- * anything yet", which is worth knowing.
+ * THREE TIERS, in this order, and the order is the whole point:
  *
- * A schema-5 snapshot has no `docs` key anywhere; docRows() reads that as [],
- * so this returns '' and the view is byte-identical to before.
+ *   1. FILED     rows from the snapshot. The engine has them; they are real.
+ *                Engine order, never re-sorted (same rule as the notes log).
+ *   2. PENDING   a `doc_attach` that has been accepted by the Worker but not
+ *                yet applied by the engine. The BYTES are safe — they went up
+ *                first, and the record binding is in `docmeta` — but the row is
+ *                not in `docs[]` yet, so it must never render as if it were.
+ *   3. UNSENT    a file that failed on the way out, or is still going. Not an
+ *                event at all yet. Newest last, at the end, where the tech's
+ *                eye already is after tapping.
+ *
+ * S1 said an empty `docs[]` renders nothing at all. S2 supersedes that HERE and
+ * only here: the two add buttons live in this group, so on a detail view the
+ * group always draws — an empty one is not a placeholder, it is the way to put
+ * a document on the ticket. Everywhere else the S1 rule stands.
  */
-function docsSection(entity) {
-  const rows = docRows(entity);
-  if (!rows.length) return '';
+function docsSection(entity, recordId) {
+  const filed = docRows(entity);
+  const pendingRows = pendingDocsFor(recordId);
+  const unsent = uploadsFor(recordId);
+  // Uploading needs a record the Worker will accept. A detail view always has
+  // one; the guard is so a future caller can't quietly ship a broken button.
+  const canAdd = DOC_RECORD_RE.test(String(recordId || ''));
+  const total = filed.length + pendingRows.length + unsent.length;
+  if (!total && !canAdd) return '';
+
+  const row = (inner, cls, attrs) => html`<button class="docrow${cls ? ' ' + cls : ''}" type="button" ${raw(attrs || '')}>${raw(inner)}</button>`;
+  const face = (d, thumb) => html`
+    ${thumb ? raw(html`<img class="doc-thumb" src="${thumb}" alt="">`) : raw(html`<span class="doc-ico" aria-hidden="true">${d.icon}</span>`)}
+    <span class="doc-name">${d.label} — ${d.name}</span>`;
+
   return html`
-    <h2>Documents <span class="count">${rows.length}</span></h2>
+    <h2>Documents${total ? raw(html` <span class="count">${total}</span>`) : ''}</h2>
     <div class="card docs">
-      ${raw(rows.map((d) => html`
-        <button class="docrow" type="button" data-doc="${d.id}">
-          <span class="doc-ico" aria-hidden="true">${d.icon}</span>
-          <span class="doc-name">${d.label} — ${d.name}</span>
-          ${d.size ? raw(html`<span class="doc-size">${d.size}</span>`) : ''}
-          <span class="doc-go" aria-hidden="true">›</span>
-        </button>`).join(''))}
+      ${raw(filed.map((d) => row(html`
+        ${raw(face(d, thumbs.get(d.id)))}
+        ${d.size ? raw(html`<span class="doc-size">${d.size}</span>`) : ''}
+        <span class="doc-go" aria-hidden="true">›</span>`, '', `data-doc="${esc(d.id)}"`)).join(''))}
+
+      ${raw(pendingRows.map((d) => row(html`
+        ${raw(face(d, thumbs.get(d.docId)))}
+        <span class="doc-pend">⏳ filing</span>`, 'is-pending', 'data-doc-pending="1"')).join(''))}
+
+      ${raw(unsent.map((u) => row(u.state === 'sending'
+        ? html`${raw(face(u, u.thumb))}<span class="doc-pend">Sending…</span>`
+        : html`${raw(face(u, u.thumb))}<span class="doc-fail">${u.error || "Didn't send"} — tap to retry</span>`,
+        u.state === 'sending' ? 'is-sending' : 'is-failed',
+        u.state === 'sending' ? 'disabled' : `data-doc-retry="${esc(u.localId)}"`)).join(''))}
+
+      ${canAdd ? raw(docAddRow(recordId)) : ''}
+    </div>
+    ${canAdd && sheetOpen('doc-kind', recordId) ? raw(kindSheet(recordId)) : ''}`;
+}
+
+/** The unsent files for one record, oldest first — insertion order of the Map. */
+const uploadsFor = (recordId) => [...uploads.values()].filter((u) => u.record === recordId);
+
+/**
+ * The two doors, side by side, for any role.
+ *
+ * 📷 goes straight to the camera (`capture="environment"` — the back lens, not
+ * a selfie); 📎 goes to the Files picker, which is where a scan-to-PDF lands.
+ * Neither takes `multiple`: a two-page work order is two taps, and a
+ * multi-select would need a queue this app has deliberately not got.
+ *
+ * The inputs are real but hidden; the buttons click them. `capture` on the
+ * camera input is what makes iOS skip the "Photo Library / Take Photo" sheet.
+ */
+function docAddRow(recordId) {
+  return html`
+    <div class="doc-add">
+      <button class="btn sm ghost" type="button" data-doc-pick="camera">📷 Photo</button>
+      <button class="btn sm ghost" type="button" data-doc-pick="file">📎 File</button>
+      <input type="file" accept="image/*" capture="environment" data-doc-input="camera" data-record="${recordId}" hidden>
+      <input type="file" accept="image/*,application/pdf" data-doc-input="file" data-record="${recordId}" hidden>
+    </div>`;
+}
+
+/**
+ * One tap to say what it is. Three big buttons, Work order highlighted because
+ * it is what a tech is holding nine times out of ten.
+ *
+ * PHOTO is not on it — resolveKind() works that out from the file (see
+ * docs/attachments.js), so nobody has to tell the app that the photo they just
+ * took is a photo.
+ */
+function kindSheet(recordId) {
+  const pick = pendingPick;
+  if (!pick || pick.record !== recordId) return '';
+  return html`
+    <div class="sheet doc-sheet">
+      <div class="sheet-h">What is it?</div>
+      <div class="doc-preview">
+        ${pick.thumb ? raw(html`<img class="doc-thumb lg" src="${pick.thumb}" alt="">`) : raw('<span class="doc-ico lg" aria-hidden="true">📄</span>')}
+        <div>
+          <div class="doc-preview-name">${pick.name}</div>
+          <div class="doc-preview-size">${pick.sizeText}</div>
+        </div>
+      </div>
+      <div class="kinds">
+        ${raw(KIND_CHOICES.map((c, i) => html`
+          <button class="btn${i ? ' ghost' : ''}" type="button" data-doc-kind="${c.kind}">${c.label}</button>`).join(''))}
+      </div>
+      <div class="actions row"><button class="btn ghost" type="button" data-sheet-close="1">Cancel</button></div>
+      <div class="form-note">It uploads now and files at the next run. Leaving this page before it sends discards it.</div>
     </div>`;
 }
 
@@ -1132,7 +1252,7 @@ function viewTicket(id) {
       ${t.closed ? raw(kvRow('Closed', fmtDateFull(t.closed))) : ''}
     </dl></div>
 
-    ${raw(docsSection(t))}
+    ${raw(docsSection(t, t.ticket))}
     ${raw(notesSection(t, pend))}
     ${raw(stagePicker(t, canWork))}
     ${raw(ticketActions(t))}
@@ -1904,7 +2024,7 @@ function viewLead(id) {
       ${l.close_note ? raw(kvRow('Close note', l.close_note)) : ''}
     </dl></div>
 
-    ${raw(docsSection(l))}
+    ${raw(docsSection(l, l.lead))}
     ${raw(notesSection(l, pend))}
     ${raw(leadStagePicker(l))}
     ${raw(leadActions(l))}`;
@@ -2285,6 +2405,134 @@ async function copyText(text, el) {
 }
 
 // Delegated events — the view is re-rendered wholesale, so nothing binds directly.
+/* ====================================== documents: upload (S2) ============ */
+
+/**
+ * Longest edge a photo is allowed to keep, and the JPEG quality it keeps it at.
+ *
+ * A phone camera hands over 8-12 MB; 1600px at q0.7 lands around 200-400 KB.
+ * That is the difference between a tech attaching the photo and a tech giving
+ * up on one bar of LTE — and 1600px is still more than enough to read a serial
+ * plate or see a cracked squeegee.
+ */
+const MAX_EDGE = 1600;
+const JPEG_QUALITY = 0.7;
+const THUMB_EDGE = 160;
+
+/**
+ * Decode a picked image with its EXIF rotation already applied.
+ *
+ * A phone shoots portrait by writing landscape pixels plus an orientation tag.
+ * Draw those pixels to a canvas naively and the photo comes out on its side —
+ * which is exactly what would happen to every single photo a tech takes. So:
+ * `createImageBitmap(file, {imageOrientation:'from-image'})` where it exists,
+ * then a plain createImageBitmap, then an <img> (modern Safari applies EXIF to
+ * an <img> by default). Three doors because this one bug would be invisible in
+ * every desktop test and wrong on every phone.
+ */
+async function decodeImage(file) {
+  if (typeof createImageBitmap === 'function') {
+    try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (_) { /* older engines reject the options bag */ }
+    try { return await createImageBitmap(file); } catch (_) { /* fall through to <img> */ }
+  }
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't read that image.")); };
+    img.src = url;
+  });
+}
+
+/** Draw `src` into a fresh canvas scaled to fit `edge`. -> canvas */
+function fitToCanvas(src, edge) {
+  const w0 = src.width || src.naturalWidth;
+  const h0 = src.height || src.naturalHeight;
+  const scale = Math.min(1, edge / Math.max(w0, h0));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(w0 * scale));
+  canvas.height = Math.max(1, Math.round(h0 * scale));
+  canvas.getContext('2d').drawImage(src, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+const toBlob = (canvas, type, q) => new Promise((res) => canvas.toBlob(res, type, q));
+
+/**
+ * Turn a picked file into the bytes we will actually send.
+ *
+ * PDFs pass through UNTOUCHED — no canvas, no re-encode, no "conversion". A
+ * scan-to-PDF from the Files app is already the document; anything we did to it
+ * could only lose text. Images are resized and re-encoded as JPEG (a PNG
+ * screenshot of a parts diagram is several MB for no gain), and get a
+ * thumbnail so the row shows the photo the tech just took.
+ *
+ * -> { blob, mime, name, thumb, sizeText }
+ */
+async function prepareFile(file, source, record) {
+  const type = String(file.type || '').split(';')[0].trim().toLowerCase();
+
+  if (type === 'application/pdf') {
+    return {
+      blob: file, mime: 'application/pdf', thumb: null,
+      name: sanitizeName(file.name, 'document.pdf'),
+      sizeText: humanSize(file.size),
+    };
+  }
+  if (!isImageMime(type) && !/^image\//.test(type)) {
+    throw new Error('PDF or photo only');
+  }
+
+  const src = await decodeImage(file);
+  const blob = await toBlob(fitToCanvas(src, MAX_EDGE), 'image/jpeg', JPEG_QUALITY);
+  if (!blob) throw new Error("Couldn't read that image.");
+  const thumb = fitToCanvas(src, THUMB_EDGE).toDataURL('image/jpeg', 0.6);
+  if (src.close) src.close();
+
+  // The camera gives every photo the same useless name; a picked file keeps its
+  // own, retyped because a PNG that came out as JPEG is no longer a .png.
+  const name = source === 'camera'
+    ? cameraName(record, 'image/jpeg')
+    : sanitizeName(retypeName(file.name || 'photo.jpg', 'image/jpeg'), 'photo.jpg');
+
+  return { blob, mime: 'image/jpeg', name, thumb, sizeText: humanSize(blob.size) };
+}
+
+const humanSize = (n) => (typeof n === 'number' && isFinite(n) ? humanBytes(n) : '');
+
+/**
+ * Send one upload: bytes first, then the event that points at them.
+ *
+ * The two calls are deliberately in this order and deliberately not atomic. If
+ * the event fails after the bytes landed, the document is still in the store
+ * WITH its record binding in `docmeta`, and the engine sweeps unfiled crew docs
+ * on its next run — so the worst case is a delay, never a lost photo. That is
+ * why the binding is a header on the upload and not only a field on the event.
+ */
+async function sendUpload(up) {
+  up.state = 'sending';
+  up.error = null;
+  render();
+  try {
+    const stored = await uploadDoc(ctx(), {
+      blob: up.blob, mime: up.mime, name: up.name, record: up.record, kind: up.kind,
+    });
+    const event = await postEvent(ctx(), 'doc_attach', null, {
+      record: up.record, doc_id: stored.id, kind: up.kind, name: up.name,
+    });
+    if (up.thumb) thumbs.set(stored.id, up.thumb);
+    state.pending.push(event);
+    uploads.delete(up.localId);
+    ui.msg = { tone: 'doc', text: 'Filing at the next run.' };
+  } catch (err) {
+    // The blob stays in memory, so the retry costs the tech one tap and no
+    // second trip to the machine.
+    up.state = 'failed';
+    up.error = err && err.message ? err.message : "Didn't send";
+  }
+  render();
+}
+
 document.addEventListener('click', async (ev) => {
   // Segmented control: set the hidden input, then re-evaluate the form's
   // conditional blocks. No re-render — the typed-in fields must survive.
@@ -2315,7 +2563,7 @@ document.addEventListener('click', async (ev) => {
     render();
     return;
   }
-  if (ev.target.closest('[data-sheet-close]')) { closeSheet(); return; }
+  if (ev.target.closest('[data-sheet-close]')) { pendingPick = null; closeSheet(); return; }
 
   // A stage tap asks for an optional note before it proposes anything (§3.3).
   const stg = ev.target.closest('[data-stage]');
@@ -2386,6 +2634,50 @@ document.addEventListener('click', async (ev) => {
   // file would come through this page's memory to no purpose. The token rides
   // in `?t=` because a new tab cannot send an Authorization header. The OS
   // viewer is the viewer — we do not have one and are not building one.
+  // 📷 / 📎 — the buttons click the hidden inputs. Nothing else happens here;
+  // the work starts when the OS hands a file back (the 'change' listener).
+  const pick = ev.target.closest('[data-doc-pick]');
+  if (pick) {
+    const input = pick.parentNode.querySelector(`[data-doc-input="${pick.dataset.docPick}"]`);
+    if (input) input.click();
+    return;
+  }
+
+  // The kind sheet's three buttons: one tap, then it goes.
+  const kindBtn = ev.target.closest('[data-doc-kind]');
+  if (kindBtn && pendingPick) {
+    const p = pendingPick;
+    pendingPick = null;
+    ui.form = null;
+    const up = {
+      localId: `u${++uploadSeq}`,
+      record: p.record,
+      kind: resolveKind(kindBtn.dataset.docKind, p.mime),
+      name: p.name, mime: p.mime, blob: p.blob, thumb: p.thumb,
+      label: '', icon: '', state: 'sending', error: null,
+    };
+    // The row has to draw before the first byte moves, so decorate it now.
+    Object.assign(up, { label: kindLabel(up.kind), icon: docIcon(up.kind) });
+    uploads.set(up.localId, up);
+    sendUpload(up);
+    return;
+  }
+
+  // "Didn't send — tap to retry". Same blob, no second trip to the machine.
+  const retry = ev.target.closest('[data-doc-retry]');
+  if (retry) {
+    const up = uploads.get(retry.dataset.docRetry);
+    if (up && up.state !== 'sending') sendUpload(up);
+    return;
+  }
+
+  // A pending row is not a document yet — there is nothing to open.
+  if (ev.target.closest('[data-doc-pending]')) {
+    ui.msg = { tone: 'bad', text: 'Filing on the next run — it opens once the engine has it.' };
+    render();
+    return;
+  }
+
   const docBtn = ev.target.closest('[data-doc]');
   if (docBtn) {
     const c = ctx();
@@ -2516,7 +2808,34 @@ document.addEventListener('input', (ev) => {
   if (form.dataset.action === 'ticket_open') applyConditionals(form);
   if (form.dataset.action === 'dispatch_claim' && ['rig', 'date'].includes(ev.target.name)) updateRigHint(form);
 });
-document.addEventListener('change', (ev) => {
+/**
+ * A file came back from the camera or the Files picker.
+ *
+ * The File is captured into module state IMMEDIATELY, before any render: the
+ * next render() rewrites the view's innerHTML, which destroys the <input> and
+ * its `.files` list with it. Read it late and it is gone.
+ */
+document.addEventListener('change', async (ev) => {
+  const input = ev.target.closest('[data-doc-input]');
+  if (input) {
+    const file = input.files && input.files[0];
+    input.value = '';                        // so picking the same file twice fires again
+    if (!file) return;
+    const record = input.dataset.record;
+    const source = input.dataset.docInput;
+    try {
+      const prepared = await prepareFile(file, source, record);
+      pendingPick = { record, source, ...prepared };
+      ui.form = { kind: 'doc-kind', id: record, arg: null };
+      ui.msg = null;
+    } catch (err) {
+      pendingPick = null;
+      ui.form = null;
+      ui.msg = { tone: 'bad', text: err && err.message ? err.message : "Couldn't read that file." };
+    }
+    render();
+    return;
+  }
   const form = ev.target.closest('form.write');
   if (form && form.dataset.action === 'dispatch_claim' && ['rig', 'date'].includes(ev.target.name)) updateRigHint(form);
 });
@@ -2723,7 +3042,7 @@ document.addEventListener('submit', async (ev) => {
   }
 });
 
-window.addEventListener('hashchange', () => { ui.form = null; ui.msg = null; render(); });
+window.addEventListener('hashchange', () => { ui.form = null; ui.msg = null; pendingPick = null; render(); });
 
 // Service worker on real hosts only. On localhost a cached shell just makes you
 // debug yesterday's CSS; iOS requires HTTPS for install anyway, so dev loses nothing.

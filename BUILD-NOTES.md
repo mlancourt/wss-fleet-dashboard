@@ -1255,3 +1255,138 @@ the same id**.
   that references it can land on an edge out of order, which looks like a brief
   404 on a brand-new attachment. Same lag the README already documents for the
   snapshot; not a new class of problem.
+
+---
+
+# Schema 6 / S2 — document upload from the phone (2026-09-08)
+
+Built from the S2 work order against `CLAUDE.md` v2.6 + the S1 code. **One
+Worker endpoint, one write action (the tenth core one, approved 2026-09-08),
+two buttons.** Tested on mock + `wrangler dev`. **Not deployed.**
+
+## What shipped
+
+**Worker** — `POST /api/doc` (token, any role). Body = raw bytes; headers
+`Content-Type`, `X-Doc-Name`, `X-Doc-Record` (`^[SL]\d{4}$`), `X-Doc-Kind`
+(`WORKORDER · PARTS-LIST · PHOTO · OTHER` — a phone may not mint the vault's
+kinds). The client sends **no id**: the Worker hashes the body and that is the
+id, so there is no hash-mismatch case on this door and a double tap is one
+document. `docmeta` gains `record` + `kind`, `source: "crew"`, `actor` = token
+name. `201 {id, bytes, existed:false}` / `200 {id, existed:true}`.
+
+The admin PUT and the crew POST now share `readDocBody()` (type → declared
+length → real length) and `storeDoc()` (bytes first, meta last), so "what counts
+as a document" cannot drift between the two doors.
+
+**`doc_attach`** — tenth core action, `ALL_ROLES`. `{record, doc_id, kind,
+name}`, `serial` unused. It is **the only action in the Worker that checks
+business state**: 400 when `docmeta:<doc_id>` is absent. That check is in
+`crewEvent`, not `cleanPayload`, because `cleanPayload` is sync and has no
+`env` — and keeping it there also keeps the shape-only rule visible in the
+place it still holds.
+
+**Site** — 📷 Photo (`capture="environment"`) and 📎 File in the Documents group
+on ticket and lead detail, any role. A pick opens a kind sheet (Work order
+default · Parts list · Other) with the filename and a thumbnail; one tap sends.
+The group now has three tiers: filed (snapshot) → pending `doc_attach` → unsent
+(sending / failed). New pure helpers in `docs/attachments.js`
+(`resolveKind`, `sanitizeName`, `retypeName`, `cameraName`, `pendingDocRows`),
+the canvas work in `app.js`, `uploadDoc()` in `api.js`.
+
+## Decisions I made
+
+- **"Other" resolves to PHOTO from the FILE TYPE, not from which button opened
+  the picker.** The work order gives two examples — 📷 + Other → PHOTO, PDF +
+  Other → OTHER — and they confound source with type. Keying on type satisfies
+  both exactly (a camera capture is always an image) and also gets the case they
+  do not name: a photo picked out of the Files app instead of shot on the spot,
+  which the source rule would have filed as 📄 OTHER. One line in `resolveKind`
+  if the Architect wants it keyed on source after all.
+
+- **The heading in `CLAUDE.md` now says thirteen actions, not ten.** The work
+  order says "nine → ten", which is right for the core set the heading was
+  counting, but the heading was stale: schema 5 added three lead actions and
+  never updated it. It now reads "thirteen — nine through schema 3, three lead
+  actions at schema 5, `doc_attach` at schema 6", and the roles paragraph calls
+  `doc_attach` "the tenth of the core set" so the Architect's own framing
+  survives. Flagged rather than silently recounted.
+
+- **An empty Documents group now draws on a detail view.** S1's rule was that an
+  empty `docs[]` renders nothing at all. The add buttons live in this group, so
+  on ticket/lead detail it always draws — an empty one is not a placeholder, it
+  is the way to put a document on the record. No count chip and no "No
+  documents" text, so nothing was added except the two doors. The S1 test was
+  rewritten to assert exactly that, rather than deleted.
+
+- **The kind sheet's file is held in a module-level `pendingPick`, not in `ui`.**
+  `ui` is the transient view object and a `File` has no business in something we
+  might one day serialise. Same reason `uploads` and `thumbs` are their own Maps.
+
+- **`prepareFile` reads the File in the `change` handler before any render.**
+  `render()` rewrites the view's `innerHTML`, which destroys the `<input>` and
+  its `.files` list with it. Read it late and it is gone — an invisible bug on
+  the desktop, every time on a phone.
+
+- **EXIF is asked for three ways**: `createImageBitmap(file,
+  {imageOrientation:'from-image'})`, then bare `createImageBitmap`, then an
+  `<img>` (modern Safari applies EXIF to an `<img>` by default). Without the
+  first, every portrait photo a tech takes lands on its side — and it would look
+  correct in every desktop test.
+
+- **A camera capture's filename uses LOCAL time** (`WO-S1018-20260908-1432.jpg`).
+  Rule 7 governs timestamps in the data; this is a label a person in Ixonia
+  reads, and a 2pm photo named "…-1900" would look wrong to the only people who
+  will ever see it. Asserted, with the reasoning, in the test.
+
+- **Filenames are sanitised client-side** (path separators, quotes, anything
+  outside printable ASCII) before they become an `X-Doc-Name` header. Not
+  belt-and-braces: a header value that is not Latin-1 makes `fetch()` throw
+  before the request leaves, so a photo named with an accent would fail with no
+  server response to translate into a message.
+
+## Tests
+
+`npm test` — **75 render + 22 attachment checks**. The five new render checks
+drive the *real* handlers (a `change` from a fake file input, a `click` on a
+kind button): a 4000×3000 capture resizes to 1600×1200 at q0.7 with the EXIF
+option asserted and the **resized** blob — not the 9 MB original — going out; a
+PDF reaches `fetch` as the very same `File` object with the canvas untouched; a
+413 renders "Too big (max 10 MB)" and a retry re-sends from memory with no
+second pick; a pending `doc_attach` lands on its own record and on no other.
+
+Node has no canvas, so the stub records the canvas dimensions and the encoder
+settings and returns bytes proportional to pixels. **The "under 1 MB" half of
+the work order's test 5 is asserted as the mechanism that produces it —
+1600 px long edge, `image/jpeg`, q0.7 — not as a fabricated byte count dressed
+up as a measurement.**
+
+`npm run m1` — **166 passed, 0 failed**, including the phone-shaped upload of
+both fixtures (PDF and PNG), the `docmeta` record binding, `existed:true` on a
+re-send, all six header refusals, and `doc_attach` accepted for all three roles
+and refused for an unknown/malformed doc_id, a bad record and a vault-only kind.
+
+## Things worth flagging
+
+- **The S2 section of `m1-loop.sh` runs after the S1 section has emptied the
+  store, deliberately.** Both use `sample-quote.pdf`, and the same bytes are the
+  same document — uploading it as crew while the vault's copy was still there
+  correctly answered `existed:true` and proved nothing about the crew path. The
+  first run of this suite failed exactly that way; the fix was the ordering, not
+  the code.
+
+- **`source` on a re-sent doc is whoever got there first.** If the engine has
+  already cached those exact bytes as `vault`, a crew POST of the same file
+  returns `existed:true` and the meta keeps `source: "vault"` with no `record`.
+  The `doc_attach` still fires and the engine still files it, so nothing is
+  lost — but the sweep for unfiled crew docs will not see it. Only reachable
+  when a tech uploads a byte-identical copy of something the vault already has.
+
+- **No progress bar, only "Sending…".** `fetch` gives no upload progress without
+  moving to XHR; at ~300 KB after the resize the send is short enough that a
+  spinner would be all a tech ever saw.
+
+- **A pending row cannot be undone from the Documents group.** D46 undo is drawn
+  in the "pending changes" list, which a `doc_attach` deliberately does not join
+  (it is keyed on `record`, not `ticket`). The event is still undoable through
+  the normal `DELETE /api/event/:id` path; there is just no button for it. Worth
+  a decision if techs start asking.

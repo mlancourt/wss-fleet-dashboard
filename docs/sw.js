@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v20';
+const CACHE = 'wss-fleet-shell-v21';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
@@ -49,9 +49,11 @@ self.addEventListener('fetch', (ev) => {
 
   const url = new URL(req.url);
 
-  // Documents (schema 6) are NEVER precached and NEVER runtime-cached. They are
-  // already excluded by the /api/ rule below; naming them here is deliberate,
-  // so that a future change to that rule cannot quietly start caching them.
+  // Documents (schema 6) are NEVER precached and NEVER runtime-cached — the
+  // read (`/api/doc/<id>`) and, at S2, the upload (`POST /api/doc`) alike. They
+  // are already excluded by the /api/ rule below, and a POST never reaches this
+  // handler at all; naming the path here is deliberate, so that a future change
+  // to either rule cannot quietly start caching them.
   //
   // Why: a doc is a one-off read a tech asked for by name, and it is the
   // largest thing this app will ever fetch. On one bar of LTE he pays for
@@ -59,7 +61,7 @@ self.addEventListener('fetch', (ev) => {
   // a shelf of them warmed up on his behalf. A second read is free anyway: the
   // id is the content hash, so the Worker sends `immutable` and the browser's
   // own HTTP cache is the right and only place for it.
-  if (url.pathname.includes('/api/doc/')) return;
+  if (url.pathname.includes('/api/doc')) return;
 
   const isData = url.pathname.includes('/api/') || url.pathname.endsWith('.json');
 

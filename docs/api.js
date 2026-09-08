@@ -3,6 +3,9 @@
  * Pure on purpose: takes the page URL, the token, and a fetch — touches no DOM,
  * so tools/selftest-api.mjs can drive it against a fake Worker.
  *
+ * Three calls out: loadData (read), postEvent + deleteEvent (proposals), and
+ * uploadDoc (bytes — the only one that does not send JSON).
+ *
  * Two sources:
  *   api   the Worker. Identity (me.role) comes ONLY from the server's response.
  *   mock  docs/mock/*.json — fake data for development. Exists only where the
@@ -132,6 +135,56 @@ export async function deleteEvent({ url, token, apiBase = API_BASE, fetch = defa
   e.status = res.status;
   throw e;
 }
+
+/**
+ * What each refusal MEANS to the person holding the phone. A tech who just
+ * watched a photo fail needs "Too big (max 10 MB)", not "Upload failed (413)" —
+ * the first tells him to shoot it again, the second tells him nothing.
+ */
+const UPLOAD_MSG = {
+  400: 'That file was rejected — check the name and try again.',
+  401: 'Your link has expired — ask Matt for a new one.',
+  413: 'Too big (max 10 MB)',
+  415: 'PDF or photo only',
+};
+
+/**
+ * POST /api/doc — put a document UP (S2). The bytes go here and ONLY here; the
+ * `doc_attach` event that follows carries just the id the Worker computed.
+ *
+ * The client never names an id: the Worker hashes the bytes and that is the id,
+ * which is also why sending the same file twice is one document and not two.
+ *
+ * -> { id, bytes, existed } — `existed: true` means those exact bytes were
+ *    already in the store (a double tap, or a retry that actually got through
+ *    the first time and lost only the response).
+ */
+export async function uploadDoc({ url, token, apiBase = API_BASE, fetch = defaultFetch }, doc) {
+  if (mockVariant(url, apiBase)) throw fail('mock', 'Mock mode — documents live on the Worker.');
+  if (!token) throw fail('no-token', 'No token.');
+  if (!apiBase) throw fail('no-api', 'No Worker to upload to.');
+
+  const res = await fetch(`${apiBase}/api/doc`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': doc.mime,
+      // Header values must be Latin-1: a filename with an em-dash or an accent
+      // makes fetch() throw before the request leaves. The caller sanitises,
+      // this is the backstop.
+      'X-Doc-Name': asciiHeader(doc.name),
+      'X-Doc-Record': doc.record,
+      'X-Doc-Kind': doc.kind,
+    },
+    body: doc.blob,
+  });
+  if (res.ok) return res.json();
+  const e = fail('error', UPLOAD_MSG[res.status] || `Upload failed (${res.status})`);
+  e.status = res.status;
+  throw e;
+}
+
+const asciiHeader = (v) => String(v == null ? '' : v).replace(/[^\u0020-\u007E]/g, '_').replace(/["\\]/g, '_').slice(0, 120);
 
 /** POST /api/event. Returns the stored event as the Worker stamped it. */
 export async function postEvent({ url, token, apiBase = API_BASE, fetch = defaultFetch }, action, serial, payload) {

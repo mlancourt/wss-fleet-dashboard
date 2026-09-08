@@ -76,6 +76,8 @@ If real data ever looks wrong, **report it — never "fix" data**. The vault win
 | `snapshot` | the full dashboard-data JSON string | replaced atomically on publish |
 | `tokens` | JSON: `{"<token>": {"name":"Kevin","role":"sales"}, ...}` | loaded/managed by Matt via admin endpoint or dashboard; **never in repo** |
 | `evt:<utc-iso>:<rand6>` | one event JSON | **one key per event — NEVER a single events-array key.** KV has no atomic append; a shared array key loses concurrent writes (two techs toggling readiness at once). List by prefix `evt:`, delete only ACKed ids. |
+| `doc:<id>` | one document's raw bytes | schema 6. `put(key, arrayBuffer)` / `get(key, "arrayBuffer")` — **never base64.** `<id>` = `sha256(bytes)[:16]`, so the key IS the content and a doc is immutable. |
+| `docmeta:<id>` | JSON `{id, name, mime, bytes, added_utc, source, actor}` (+ `record`, `kind` when `source: "crew"`) | Written **last** and deleted **first**, so a half-write is invisible: every reader and the listing go through this key. The doc store is a **cache** — the vault is the archive and may wipe and rebuild it. |
 
 KV is eventually consistent (~60s cross-edge) — acceptable here; note it in README so nobody "fixes" phantom lag.
 
@@ -93,12 +95,16 @@ Auth: crew endpoints take the token (`?t=` or `Authorization: Bearer`); admin en
 | `GET /api/admin/events` | secret | list + return all `evt:*` (id, key, event) |
 | `POST /api/admin/events/ack` | secret | `{ids:[...]}` → delete those keys only. **Never bulk-delete all events** — new events can land mid-run. |
 | `POST /api/admin/tokens` | secret | replace the `tokens` map (how Matt issues/rotates) |
+| `GET /api/doc/:id` | token (`?t=` **or** Bearer) | schema 6: stream the bytes. `Content-Type` from the stored meta, `Content-Disposition: inline`, `Cache-Control: private, max-age=31536000, immutable`, `nosniff`. A doc id is 16 lowercase hex — `sha256(bytes)[:16]` — so `?t=` must work: this opens in a new tab, which cannot send a header. |
+| `POST /api/doc` | token | schema 6 / S2: a phone uploads. Body = raw bytes; headers `Content-Type`, `X-Doc-Name`, `X-Doc-Record`, `X-Doc-Kind`. The client sends **no id** — the Worker hashes the body. `201 {id, bytes, existed:false}` / `200 {id, existed:true}`. |
+| `PUT /api/admin/doc/:id` | secret | the engine's up-leg. **Recompute `sha256(body)[:16]`; on a mismatch, 409 and store NOTHING** — the id in the URL is a claim, never trusted. 10 MB cap. |
+| `GET`/`DELETE` `/api/admin/doc/:id` · `GET /api/admin/docs` | secret | read back / drop / list `docmeta:` |
 
 CORS: allow origins `https://fleet.wisconsinscrubandsweep.com` and `https://mlancourt.github.io` (pre-DNS testing), plus `http://localhost:*` in dev. Handle preflight.
 
-## Write model (nine actions as of schema 3 — exactly these, nothing more)
+## Write model (thirteen actions — nine through schema 3, three lead actions at schema 5, `doc_attach` at schema 6 — exactly these, nothing more)
 
-Roles (visibility, D12 as amended by D16 + D45: everyone sees everything the snapshot carries — and the snapshot no longer carries floor, cost, or book): `owner` (Matt — all writes) · `sales` (Kevin — reserve/release) · `service` (Josh, Zac — readiness, ticket stages). **Schema 3 adds:** `ticket_open`, notes/assign/schedule via `ticket_update`, and `dispatch_add` / `dispatch_claim` / `dispatch_done` for **any role**; ticket *stage* changes for `service`/`owner`; `dispatch_cancel` for `owner`. `serial` is optional on the six new actions. Everyone **reads everything** the snapshot carries (D12); floor (D16) and cost + book (D45) no longer exist in the snapshot at all — only `ask` remains as a money figure on a unit.
+Roles (visibility, D12 as amended by D16 + D45: everyone sees everything the snapshot carries — and the snapshot no longer carries floor, cost, or book): `owner` (Matt — all writes) · `sales` (Kevin — reserve/release) · `service` (Josh, Zac — readiness, ticket stages). **Schema 3 adds:** `ticket_open`, notes/assign/schedule via `ticket_update`, and `dispatch_add` / `dispatch_claim` / `dispatch_done` for **any role**; ticket *stage* changes for `service`/`owner`; `dispatch_cancel` for `owner`. `serial` is optional on the six new actions. **Schema 6 adds** `doc_attach` (the tenth of the core set, approved 2026-09-08) for **any role** — see the documents block below. Everyone **reads everything** the snapshot carries (D12); floor (D16) and cost + book (D45) no longer exist in the snapshot at all — only `ask` remains as a money figure on a unit.
 
 Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest):
 
@@ -114,11 +120,28 @@ Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest
 {"action":"dispatch_claim",  "payload":{"dispatch_id":"m-…","rig":"KEVIN-LIFTGATE|JOSH-LIFTGATE|TRAILER-6000|TRAILER-3000","date":"YYYY-MM-DD","driver":"Matt|Kevin|Josh|Zac"}}
 {"action":"dispatch_done",   "payload":{"dispatch_id":"m-…","note":null}}
 {"action":"dispatch_cancel", "payload":{"dispatch_id":"m-…"}}
+
+// schema 6 / S2 — the bytes NEVER ride in the event. The phone POSTs the file to
+// /api/doc first; this carries only the id the Worker computed from it.
+{"action":"doc_attach",      "payload":{"record":"S1018|L1005","doc_id":"ab0b83a1b88c21ff","kind":"WORKORDER|PARTS-LIST|PHOTO|OTHER","name":"IMG_4821.jpg"}}
 ```
 
 UI rules: **Reserve is offered on any non-RETIRED unit** (D28 — a machine out on rent today can carry future holds; label it "Reserve for later" when it's out). `start` defaults to today, `end` to **start + 5 business days** (skip Sat/Sun). `release` **must carry the `hold_id`** of the row being released — the engine rejects an ambiguous release on a multi-hold unit. Readiness toggle available on any unit for `service`/`owner`; the picker offers all four values, with `NEEDS-PICKUP` labeled "Needs pick-up" (D32 — see [[Needs-Pickup-Site-Spec]]). After a POST, badge the unit "⏳ pending" from the `pending` array and show "applies at the next run" once. Full v2 reservation UI spec: **[[Reservations-v2-Site-Spec]]** (the work order Matt pastes for this rebuild).
 
-## Snapshot contract — `dashboard-data.json` (schema_version 4 → **5 as of 2026-09-04**)
+### Documents (schema 6) — `POST /api/doc` + `doc_attach`
+
+**The binary never rides in an event.** Two calls, in this order, and the order is the design:
+
+1. **`POST /api/doc`** (token, any role) — body = raw bytes; headers `Content-Type` (`application/pdf` · `image/jpeg` · `image/png`), `X-Doc-Name`, `X-Doc-Record` (`^[SL]\d{4}$` — the ticket or lead), `X-Doc-Kind` (`WORKORDER · PARTS-LIST · PHOTO · OTHER` — a phone may **not** mint QUOTE / PO / PM-REPORT / SERVICE-TICKET; those are the vault's). The client sends **no id**: the Worker hashes the bytes and `sha256[:16]` *is* the id, which is also why the same file twice is one document (`existed: true`). 10 MB cap. `docmeta` gains `record` + `kind`, `source: "crew"`, `actor` = token name.
+2. **`doc_attach`** — the event above, carrying only the id. The Worker refuses it with 400 if `docmeta:<doc_id>` does not exist; that is **the one business-state check in the Worker**, and it is checking our own store, not the vault's.
+
+**The record binding lives in `docmeta`, not only in the event.** So a lost event is not a lost document — the engine sweeps unfiled `source: "crew"` docs every run. That is the whole reason the binding is a header on the upload.
+
+Site: 📷 Photo (`capture="environment"`) and 📎 File on ticket + lead detail, any role. One file per tap, **no `multiple`**. Images resize on a canvas to a 1600 px long edge at JPEG q0.7 with EXIF orientation applied; **PDFs pass through untouched** and nothing is ever converted *to* PDF. A failed send shows "Didn't send — tap to retry" against the blob still in memory: **no persistent queue, no background sync, no `localStorage` of blobs** — and the copy says so ("leaving this page discards it"). A pending `doc_attach` renders as a pending row in that record's Documents group and is not openable until the engine files it.
+
+## Snapshot contract — `dashboard-data.json` (schema_version 4 → 5 → **6 as of 2026-09-08**)
+
+> **Schema 6 (LIVE, additive):** `service_queue[]`, `leads[]` and `agreements[]` each gain `docs[]` — `{id, name, kind, bytes, added}`, always present, may be `[]`. `id` is 16 lowercase hex (the content hash); `kind` ∈ `QUOTE · WORKORDER · PARTS-LIST · PM-REPORT · SERVICE-TICKET · PO · PHOTO · OTHER`. Read at `GET /api/doc/<id>` (token, `?t=` or Bearer). **Docs are never stripped and never role-gated** — the §6 money gate does not touch them. A schema-5 snapshot (no `docs` key) must render unchanged. Upload: the documents block above.
 
 > **Schema 5 (LIVE, additive):** `leads[]`, `leads_summary`, `scoreboard`, `insights` + three actions `lead_open` / `lead_update` / `lead_close`. Full shapes, role gating and the **mandatory Worker money-strip for `service` tokens** are in [[Leads-Site-Spec]] — build from that file; everything below is unchanged.
 
@@ -168,7 +191,8 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "cycle_rate": 0, "cycles_billed": 10, "cycles_max": null,
     "last_invoiced_period_start": "YYYY-MM-DD", "last_invoiced_period_end": "YYYY-MM-DD",
     "last_invoice": "R4130-10", "next_due": "YYYY-MM-DD",   // engine-computed; null = not billable
-    "job_site": "…", "customer_po": null, "alerts": ["…"]
+    "job_site": "…", "customer_po": null, "alerts": ["…"],
+    "docs": [ { …same shape… } ]              // schema 6. No agreement detail sheet renders these yet.
   } ],
   // schema 3 (D35–D38) — full field list + semantics in [[Service-Dispatch-Site-Spec]] §2
   "service_queue": [ { "ticket": "S1001", "status": "OPEN|CLOSED",
@@ -177,7 +201,8 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "priority": "HIGH|MEDIUM|LOW", "site": null, "location": "AT-CUSTOMER|IN-SHOP",
     "intake_move": "NONE|PICKUP|CUSTOMER-DROP", "return_move": "NONE|DELIVER|CUSTOMER-PICKUP",
     "assigned": null, "scheduled": null, "opened": "YYYY-MM-DD", "opened_by": "…",
-    "stage_since": "YYYY-MM-DD", "age_days": 0, "age_in_stage_days": 0, "quote": null, "parts": null, "machinio_ref": null, "closed": null } ],
+    "stage_since": "YYYY-MM-DD", "age_days": 0, "age_in_stage_days": 0, "quote": null, "parts": null, "machinio_ref": null, "closed": null,
+    "docs": [ { "id": "ab0b83a1b88c21ff", "name": "2026-09-07-I39Supply-Service.pdf", "kind": "QUOTE", "bytes": 25602, "added": "2026-09-07" } ] } ],   // schema 6 — always present, may be []
   "service_summary": { "open_by_stage": { "RECEIVED": 0, "…all nine stages…": 0, "COMPLETE": 0 }, "open_customer": 0, "open_wss": 0 },   // COMPLETE = closed in the last 7 days
   "dispatch": [ { "id": "m-…", "kind": "PICKUP|DELIVER", "source": "RENTAL-RETURN|SERVICE-IN|SERVICE-OUT|MANUAL",
     "serial": null, "ticket": null, "what": "…", "customer": "…", "address": "…", "date": null, "billed_through": null,

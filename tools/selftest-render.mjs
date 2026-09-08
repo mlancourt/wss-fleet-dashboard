@@ -61,11 +61,42 @@ globalThis.localStorage = {
 };
 globalThis.CSS = { escape: (s) => String(s).replace(/[^A-Za-z0-9_-]/g, '\\$&') };
 // Node 22 already defines navigator (getter-only) — app.js only reads it.
+/* The image pipeline, stubbed (S2). Node has no canvas and no JPEG encoder, so
+ * what these record is the MECHANISM: the dimensions the resize asked for, the
+ * encoder settings it asked for, and the EXIF option it passed. Those are the
+ * contract. The byte size of a real JPEG is not something a stub can prove, so
+ * the stub emits bytes proportional to pixels and the test asserts the
+ * dimensions and settings that produce a small file — never a fabricated size
+ * dressed up as a measurement. */
+const encodes = [];        // {w, h, type, quality}
+const bitmapOpts = [];     // the options bag each createImageBitmap call got
+let bitmapSize = { width: 4000, height: 3000 };
+
+function canvasEl() {
+  const c = {
+    tagName: 'CANVAS', width: 0, height: 0,
+    getContext: () => ({ drawImage() {} }),
+    toBlob(cb, type, quality) {
+      encodes.push({ w: c.width, h: c.height, type, quality });
+      // ~0.05 bytes/px is roughly what q0.7 JPEG costs. Proportional, not real.
+      cb(new Blob([new Uint8Array(Math.max(1, Math.round(c.width * c.height * 0.05)))], { type }));
+    },
+    toDataURL: (type) => `data:${type};base64,/9j/stub`,
+  };
+  return c;
+}
+
+globalThis.createImageBitmap = async (_file, opts) => {
+  bitmapOpts.push(opts || null);
+  return { ...bitmapSize, close() {} };
+};
+
 globalThis.document = {
   querySelector: (sel) => nodes[sel] || null,
   querySelectorAll: () => [],
   addEventListener(type, fn) { listeners.set(type, (listeners.get(type) || []).concat(fn)); },
   createRange: () => ({ selectNodeContents() {} }),
+  createElement: (tag) => (String(tag).toLowerCase() === 'canvas' ? canvasEl() : el(tag)),
 };
 
 // The page fetches its own mock file relative to docs/.
@@ -1043,13 +1074,20 @@ await check('a service token sees the lead doc too — docs are never role-gated
   assert.ok(out.includes(`data-doc="${l.docs[0].id}"`), 'a tech must be able to open the quote');
 });
 
-await check('an empty docs[] renders NOTHING — no placeholder, no empty box', async () => {
+await check('an empty docs[] draws no ROWS, and no count — but keeps the two doors (S2)', async () => {
+  // S1 rendered nothing at all here. S2 supersedes that on a detail view: the
+  // add buttons live in this group, so an empty group is not a placeholder, it
+  // is how a document gets onto the ticket. No count chip, no rows, no
+  // "No documents" text — just the two doors.
   const snap = await asFull('owner');
   const t = snap.service_queue.find((x) => !(x.docs || []).length);
   assert.ok(t, 'the fixture must carry a ticket with no docs');
   const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
-  assert.ok(!out.includes('<h2>Documents'), 'a ticket with no paperwork gets no Documents header');
-  assert.ok(!out.includes('docrow'));
+  assert.ok(out.includes('<h2>Documents<'), 'the group draws, with no count chip');
+  assert.ok(!/<h2>Documents <span class="count"/.test(out), 'nothing to count');
+  assert.ok(!out.includes('class="docrow"'), 'no rows');
+  assert.ok(!/No documents/i.test(out), 'still no placeholder text');
+  assert.ok(out.includes('data-doc-pick="camera"') && out.includes('data-doc-pick="file"'));
   assert.ok(out.includes('<h2>Notes'), 'Notes still renders its own empty state — that is a different call');
 });
 
@@ -1065,14 +1103,221 @@ await check('a schema-5 snapshot (no docs key anywhere) renders ticket + lead de
   for (const t of snap.service_queue) {
     const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
     assert.ok(!out.includes('undefined'), `${t.ticket} leaked undefined`);
-    assert.ok(!out.includes('<h2>Documents'), `${t.ticket} drew a Documents group out of nothing`);
+    assert.ok(!/<h2>Documents <span class="count"/.test(out), `${t.ticket} counted documents it does not have`);
+    assert.ok(!out.includes('class="docrow"'), `${t.ticket} drew a document row out of nothing`);
   }
   for (const l of snap.leads) {
     const out = await renderRoute(`#/lead/${encodeURIComponent(l.lead)}`);
     assert.ok(!out.includes('undefined'), `${l.lead} leaked undefined`);
-    assert.ok(!out.includes('<h2>Documents'));
+    assert.ok(!/<h2>Documents <span class="count"/.test(out));
+    assert.ok(!out.includes('class="docrow"'));
   }
   await asFull('owner');   // put the fixture back for anything after this
+});
+
+/* ================================= document upload — S2 =================== */
+
+/**
+ * Drive the real handlers the way a phone does: a `change` from a hidden file
+ * input, then a `click` on one of the kind buttons. Nothing is faked past the
+ * event target — prepareFile, resolveKind, sendUpload and the renderer are all
+ * the shipping code.
+ */
+const fireOn = async (type, target) => {
+  for (const fn of listeners.get(type) || []) await fn({ target });
+};
+const fakeTarget = (sel, extra) => {
+  const node = { dataset: {}, files: null, value: '', disabled: false, ...extra };
+  node.closest = (q) => (q === sel ? node : null);
+  node.parentNode = { querySelector: () => null };
+  return node;
+};
+
+/** Choose a file for a record, then tap a kind. Returns after the send settles. */
+async function attach({ record, file, source = 'file', kindChoice = 'WORKORDER' }) {
+  await fireOn('change', fakeTarget('[data-doc-input]', {
+    dataset: { record, docInput: source }, files: [file],
+  }));
+  await settle();
+  await fireOn('click', fakeTarget('[data-doc-kind]', { dataset: { docKind: kindChoice } }));
+  await settle();
+}
+
+/**
+ * Put the app in API mode against a stubbed Worker, because uploads are refused
+ * in mock mode by design (docs/api.js) — so the upload path can only be tested
+ * on the real one. `handler(url, init)` answers /api/doc and /api/event.
+ */
+const realFetch = globalThis.fetch;
+async function apiMode(handler) {
+  const snapshot = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.endsWith('/api/data')) {
+      return { ok: true, status: 200, json: async () => ({ me: { name: 'Josh', role: 'service' }, snapshot, pending: [] }) };
+    }
+    return handler(u, init);
+  };
+  window.location.href = 'https://fleet.wisconsinscrubandsweep.com/?t=0123456789abcdef0123456789abcdef';
+  window.location.search = '?t=0123456789abcdef0123456789abcdef';
+  window.location.hostname = 'fleet.wisconsinscrubandsweep.com';
+  window.location.protocol = 'https:';
+  await app.__refresh();
+  return snapshot;
+}
+async function backToMock() {
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+}
+
+await check('a 4000x3000 photo is resized to 1600px long edge at q0.7, EXIF honoured', async () => {
+  const sent = [];
+  const snap = await apiMode(async (u, init) => {
+    if (u.endsWith('/api/doc')) {
+      sent.push({ headers: init.headers, blob: init.body });
+      return { ok: true, status: 201, json: async () => ({ id: 'aaaabbbbccccdddd', bytes: 1, existed: false }) };
+    }
+    return { ok: true, status: 201, json: async () => ({ id: 'evt1', ts: 'x', actor: 'Josh', role: 'service', action: 'doc_attach', serial: null, payload: JSON.parse(init.body).payload }) };
+  });
+  const t = snap.service_queue[0];
+  await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+
+  encodes.length = 0; bitmapOpts.length = 0;
+  const original = new File([new Uint8Array(9_000_000)], 'IMG_4821.jpg', { type: 'image/jpeg' });
+  await attach({ record: t.ticket, file: original, source: 'camera', kindChoice: 'OTHER' });
+
+  // The EXIF ask comes first, or every portrait photo lands on its side.
+  assert.deepEqual(bitmapOpts[0], { imageOrientation: 'from-image' });
+
+  // Two encodes: the upload, then the thumbnail.
+  const [upload] = encodes;
+  assert.equal(Math.max(upload.w, upload.h), 1600, 'long edge must be capped at 1600');
+  assert.equal(upload.w, 1600); assert.equal(upload.h, 1200, 'aspect ratio kept');
+  assert.equal(upload.type, 'image/jpeg', 'PNG in, JPEG out — always JPEG');
+  assert.equal(upload.quality, 0.7);
+
+  // What actually went up is the RESIZED blob, not the 9 MB the camera gave us.
+  assert.equal(sent.length, 1);
+  assert.notEqual(sent[0].blob, original, 'the original file must never be the body');
+  assert.ok(sent[0].blob.size < original.size / 10, 'the upload is a fraction of the capture');
+
+  // The camera's own "IMG_4821.jpg" is replaced; a camera capture is named
+  // after the record and the minute, and "Other" on an image means PHOTO.
+  const h = sent[0].headers;
+  assert.match(h['X-Doc-Name'], new RegExp(`^WO-${t.ticket}-\\d{8}-\\d{4}\\.jpg$`));
+  assert.equal(h['X-Doc-Kind'], 'PHOTO');
+  assert.equal(h['X-Doc-Record'], t.ticket);
+  assert.equal(h['Content-Type'], 'image/jpeg');
+
+  await backToMock();
+});
+
+await check('a PDF goes up byte-identical — no canvas, no re-encode, no conversion', async () => {
+  const sent = [];
+  const snap = await apiMode(async (u, init) => {
+    if (u.endsWith('/api/doc')) {
+      sent.push({ headers: init.headers, blob: init.body });
+      return { ok: true, status: 201, json: async () => ({ id: 'ab0b83a1b88c21ff', bytes: 24557, existed: false }) };
+    }
+    return { ok: true, status: 201, json: async () => ({ id: 'evt2', action: 'doc_attach', actor: 'Josh', payload: JSON.parse(init.body).payload }) };
+  });
+  const t = snap.service_queue[0];
+  await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+
+  encodes.length = 0;
+  const bytes = fs.readFileSync(path.join(HERE, '..', 'test', 'fixtures', 'sample-quote.pdf'));
+  const pdf = new File([bytes], 'Fairmont Quote.pdf', { type: 'application/pdf' });
+  await attach({ record: t.ticket, file: pdf, kindChoice: 'OTHER' });
+
+  assert.equal(encodes.length, 0, 'a PDF must never touch the canvas');
+  assert.equal(sent[0].blob, pdf, 'the very same File object goes out');
+  assert.equal(sent[0].headers['Content-Type'], 'application/pdf');
+  assert.equal(sent[0].headers['X-Doc-Kind'], 'OTHER', 'a PDF marked Other stays OTHER, never PHOTO');
+  assert.equal(sent[0].headers['X-Doc-Name'], 'Fairmont Quote.pdf', 'a picked file keeps its own name');
+
+  await backToMock();
+});
+
+await check('a failed send shows the retry row, and the retry needs no second pick', async () => {
+  let attempts = 0;
+  const snap = await apiMode(async (u, init) => {
+    if (u.endsWith('/api/doc')) {
+      attempts += 1;
+      if (attempts === 1) return { ok: false, status: 413, json: async () => ({ error: 'too large' }) };
+      return { ok: true, status: 201, json: async () => ({ id: 'ab0b83a1b88c21ff', bytes: 10, existed: false }) };
+    }
+    return { ok: true, status: 201, json: async () => ({ id: 'evt3', action: 'doc_attach', actor: 'Josh', payload: JSON.parse(init.body).payload }) };
+  });
+  const t = snap.service_queue[0];
+  await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+
+  const pdf = new File([new Uint8Array(64)], 'wo.pdf', { type: 'application/pdf' });
+  await attach({ record: t.ticket, file: pdf });
+
+  let out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(out.includes('is-failed'), 'a failed send must show as failed');
+  assert.ok(out.includes('Too big (max 10 MB)'), 'the 413 is translated, not echoed as a number');
+  assert.ok(out.includes('tap to retry'));
+  const retryId = /data-doc-retry="([^"]+)"/.exec(out);
+  assert.ok(retryId, 'the failed row must carry a retry handle');
+
+  // The retry re-sends the blob already in memory — no change event, no picker.
+  await fireOn('click', fakeTarget('[data-doc-retry]', { dataset: { docRetry: retryId[1] } }));
+  await settle();
+  assert.equal(attempts, 2, 'the second attempt reused the in-memory blob');
+
+  out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(!out.includes('is-failed'), 'the failed row is gone once it lands');
+  assert.ok(out.includes('is-pending') && out.includes('⏳ filing'), 'it becomes a pending row');
+  assert.ok(!out.includes('data-doc="ab0b83a1b88c21ff"'), 'and is NOT tappable — the engine has not filed it');
+
+  await backToMock();
+});
+
+await check('a pending doc_attach renders on its own record and nowhere else', async () => {
+  const snap = await asFull('owner');
+  const [a, b] = snap.service_queue;
+  const lead = snap.leads[0];
+  app.__state().pending.push(
+    { id: 'e1', action: 'doc_attach', actor: 'Josh', role: 'service', serial: null,
+      payload: { record: a.ticket, doc_id: '1111222233334444', kind: 'WORKORDER', name: 'wo.pdf' } },
+    { id: 'e2', action: 'doc_attach', actor: 'Kevin', role: 'sales', serial: null,
+      payload: { record: lead.lead, doc_id: '5555666677778888', kind: 'PHOTO', name: 'site.jpg' } },
+  );
+
+  const onA = await renderRoute(`#/ticket/${encodeURIComponent(a.ticket)}`);
+  assert.ok(onA.includes('Workorder — wo.pdf') && onA.includes('is-pending'));
+  assert.ok(!onA.includes('site.jpg'), "the lead's document must not appear on a ticket");
+
+  const onB = await renderRoute(`#/ticket/${encodeURIComponent(b.ticket)}`);
+  assert.ok(!onB.includes('wo.pdf'), 'and not on a different ticket either');
+
+  const onLead = await renderRoute(`#/lead/${encodeURIComponent(lead.lead)}`);
+  assert.ok(onLead.includes('Photo — site.jpg') && onLead.includes('is-pending'));
+  assert.ok(!onLead.includes('wo.pdf'));
+
+  // It counts as a document on that record, and it is not openable.
+  assert.ok(/<h2>Documents <span class="count">/.test(onA));
+  assert.ok(!onA.includes('data-doc="1111222233334444"'));
+
+  app.__state().pending.length = 0;
+  await asFull('owner');
+});
+
+await check('a malformed pending doc_attach is dropped, never drawn as a broken row', async () => {
+  const snap = await asFull('owner');
+  const t = snap.service_queue[0];
+  app.__state().pending.push(
+    { id: 'x1', action: 'doc_attach', payload: { record: t.ticket, doc_id: 'NOTHEX', kind: 'OTHER', name: 'a' } },
+    { id: 'x2', action: 'doc_attach', payload: { record: t.ticket, kind: 'OTHER', name: 'b' } },
+  );
+  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(!out.includes('NOTHEX'));
+  assert.ok(!out.includes('is-pending'), 'neither row may draw');
+  app.__state().pending.length = 0;
+  await asFull('owner');
 });
 
 console.log(`\n${passed} checks passed.`);

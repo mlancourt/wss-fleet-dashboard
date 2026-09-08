@@ -6,9 +6,10 @@
 #   -> GET /api/admin/events (event present) -> ack -> events (event gone)
 #   -> DELETE /api/event/<id> (undo your own, and only your own)
 #   -> PUT/GET/DELETE a document (schema 6) with the hash check that names it
-# plus the refusals: bad token, bad secret, wrong role, bad shape — and all twelve
-# write actions, the six schema-3 (D47's NEEDS-QUOTE stage included) and three
-# schema-5 ones, and the
+#   -> POST a document from a "phone" + the doc_attach event that points at it (S2)
+# plus the refusals: bad token, bad secret, wrong role, bad shape — and all
+# thirteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
+# three schema-5 ones, doc_attach (schema 6 / S2), and the
 # schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
@@ -479,6 +480,90 @@ expect "DELETE -> 200"                    200 "b.id==='$DOC_ID' && b.deleted===t
 expect "...then GET -> 404"               404 "" "$WORKER/api/doc/$DOC_ID?t=$T_SERVICE"
 expect "...DELETE again -> 404"           404 "" -X DELETE "$WORKER/api/admin/doc/$DOC_ID" -H "X-Admin-Secret: $ADMIN_SECRET"
 expect "...and the listing is back to baseline" 200 "b.docs.length===$DOCS_BEFORE" \
+  "$WORKER/api/admin/docs" -H "X-Admin-Secret: $ADMIN_SECRET"
+
+echo
+# Runs AFTER the S1 section has emptied the store, deliberately: the fixture is
+# the same file, so the same bytes are the same document. Uploading it as crew
+# while the vault's copy was still there would (correctly) answer existed:true
+# and prove nothing about the crew write path.
+echo "-- documents from a phone (S2): POST /api/doc + doc_attach"
+PHOTO="${PHOTO:-$(dirname "$0")/../test/fixtures/sample-photo.png}"
+PHOTO_ID=$(node -e "const c=require('node:crypto'),f=require('node:fs');console.log(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex').slice(0,16))" "$PHOTO")
+H_UP=(-H "$(auth $T_SERVICE)" -H "Content-Type: application/pdf" -H "X-Doc-Name: IMG_4821.pdf" -H "X-Doc-Record: S1018" -H "X-Doc-Kind: WORKORDER")
+
+expect "upload without a token -> 401"     401 "" -X POST "$WORKER/api/doc" \
+  -H "Content-Type: application/pdf" -H "X-Doc-Name: x.pdf" -H "X-Doc-Record: S1018" -H "X-Doc-Kind: WORKORDER" --data-binary "@$PDF"
+expect "no X-Doc-Record -> 400"            400 "" -X POST "$WORKER/api/doc" -H "$(auth $T_SERVICE)" \
+  -H "Content-Type: application/pdf" -H "X-Doc-Name: x.pdf" -H "X-Doc-Kind: WORKORDER" --data-binary "@$PDF"
+expect "X-Doc-Record: X1 -> 400"           400 "" -X POST "$WORKER/api/doc" -H "$(auth $T_SERVICE)" \
+  -H "Content-Type: application/pdf" -H "X-Doc-Name: x.pdf" -H "X-Doc-Record: X1" -H "X-Doc-Kind: WORKORDER" --data-binary "@$PDF"
+# A phone may not mint the vault's kinds. QUOTE comes from the engine, always.
+expect "X-Doc-Kind: QUOTE -> 400"          400 "" -X POST "$WORKER/api/doc" -H "$(auth $T_SERVICE)" \
+  -H "Content-Type: application/pdf" -H "X-Doc-Name: x.pdf" -H "X-Doc-Record: S1018" -H "X-Doc-Kind: QUOTE" --data-binary "@$PDF"
+expect "no X-Doc-Kind -> 400"              400 "" -X POST "$WORKER/api/doc" -H "$(auth $T_SERVICE)" \
+  -H "Content-Type: application/pdf" -H "X-Doc-Name: x.pdf" -H "X-Doc-Record: S1018" --data-binary "@$PDF"
+expect "no X-Doc-Name -> 400"              400 "" -X POST "$WORKER/api/doc" -H "$(auth $T_SERVICE)" \
+  -H "Content-Type: application/pdf" -H "X-Doc-Record: S1018" -H "X-Doc-Kind: WORKORDER" --data-binary "@$PDF"
+expect "text/plain -> 415"                 415 "" -X POST "$WORKER/api/doc" -H "$(auth $T_SERVICE)" \
+  -H "Content-Type: text/plain" -H "X-Doc-Name: x.txt" -H "X-Doc-Record: S1018" -H "X-Doc-Kind: OTHER" --data-binary 'hello'
+BIG2=$(mktemp); head -c 11534336 /dev/zero > "$BIG2"
+expect "11 MB upload -> 413"               413 "" -X POST "$WORKER/api/doc" "${H_UP[@]}" --data-binary "@$BIG2"
+rm -f "$BIG2"
+
+# The client never names an id — the Worker hashes the bytes, and that IS the id.
+expect "a tech uploads a PDF -> 201, id computed from the bytes" 201 \
+  "b.id==='$DOC_ID' && b.bytes>0 && b.existed===false" \
+  -X POST "$WORKER/api/doc" "${H_UP[@]}" --data-binary "@$PDF"
+expect "the record binding lives in docmeta, not only in the event" 200 \
+  "(()=>{const d=b.docs.find(x=>x.id==='$DOC_ID'); return d && d.record==='S1018' && d.kind==='WORKORDER' && d.source==='crew' && d.actor==='Test Josh' && d.mime==='application/pdf' && d.name==='IMG_4821.pdf';})()" \
+  "$WORKER/api/admin/docs" -H "X-Admin-Secret: $ADMIN_SECRET"
+# Double-tap protection, free: same bytes = same id = one document.
+expect "the same file again -> 200 existed:true" 200 "b.id==='$DOC_ID' && b.existed===true" \
+  -X POST "$WORKER/api/doc" "${H_UP[@]}" --data-binary "@$PDF"
+expect "...and it is still ONE doc in the listing" 200 \
+  "b.docs.filter(x=>x.id==='$DOC_ID').length===1" \
+  "$WORKER/api/admin/docs" -H "X-Admin-Secret: $ADMIN_SECRET"
+# A PNG from the camera roll — the other MIME branch.
+expect "sales uploads a PNG against a LEAD -> 201" 201 "b.id==='$PHOTO_ID' && b.existed===false" \
+  -X POST "$WORKER/api/doc" -H "$(auth $T_SALES)" -H "Content-Type: image/png" \
+  -H "X-Doc-Name: WO-L1005-20260908-1432.png" -H "X-Doc-Record: L1005" -H "X-Doc-Kind: PHOTO" --data-binary "@$PHOTO"
+expecth "a tech can read back what he just uploaded" 200 "^content-type: application/pdf" \
+  "$WORKER/api/doc/$DOC_ID?t=$T_SERVICE"
+
+echo "-- doc_attach: the tenth write action"
+expect "doc_attach with an unknown doc_id -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"doc_attach","payload":{"record":"S1018","doc_id":"ffffffffffffffff","kind":"WORKORDER","name":"x.pdf"}}'
+expect "doc_attach with a bad doc_id shape -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d '{"action":"doc_attach","payload":{"record":"S1018","doc_id":"../snapshot","kind":"WORKORDER","name":"x.pdf"}}'
+expect "doc_attach with a bad record -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"doc_attach\",\"payload\":{\"record\":\"X1\",\"doc_id\":\"$DOC_ID\",\"kind\":\"WORKORDER\",\"name\":\"x.pdf\"}}"
+expect "doc_attach with a vault-only kind -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"doc_attach\",\"payload\":{\"record\":\"S1018\",\"doc_id\":\"$DOC_ID\",\"kind\":\"QUOTE\",\"name\":\"x.pdf\"}}"
+expect "a tech attaches it -> 201, server-stamped" 201 \
+  "b.action==='doc_attach' && b.actor==='Test Josh' && b.role==='service' && b.serial===null && b.id && b.ts && b.payload.record==='S1018' && b.payload.doc_id==='$DOC_ID' && b.payload.kind==='WORKORDER' && b.payload.name==='IMG_4821.pdf'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"doc_attach\",\"payload\":{\"record\":\"S1018\",\"doc_id\":\"$DOC_ID\",\"kind\":\"WORKORDER\",\"name\":\"IMG_4821.pdf\"}}"
+D1=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "sales attaches the photo to a lead -> 201" 201 "b.payload.record==='L1005' && b.payload.kind==='PHOTO'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"doc_attach\",\"payload\":{\"record\":\"L1005\",\"doc_id\":\"$PHOTO_ID\",\"kind\":\"PHOTO\",\"name\":\"site.png\"}}"
+D2=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "the owner may attach too — it is any-role" 201 "b.role==='owner'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"doc_attach\",\"payload\":{\"record\":\"S1018\",\"doc_id\":\"$DOC_ID\",\"kind\":\"OTHER\",\"name\":\"note.pdf\"}}"
+D3=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "all three doc_attach events drained -> deleted 3" 200 "b.deleted===3" \
+  -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
+  -d "{\"ids\":[\"$D1\",\"$D2\",\"$D3\"]}"
+expect "pending back to baseline after the attaches" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
+expect "the crew PNG is deleted -> 200" 200 "b.deleted===true" \
+  -X DELETE "$WORKER/api/admin/doc/$PHOTO_ID" -H "X-Admin-Secret: $ADMIN_SECRET"
+
+expect "the crew PDF is deleted -> 200" 200 "b.deleted===true" \
+  -X DELETE "$WORKER/api/admin/doc/$DOC_ID" -H "X-Admin-Secret: $ADMIN_SECRET"
+expect "the doc store is back to baseline" 200 "b.docs.length===$DOCS_BEFORE" \
   "$WORKER/api/admin/docs" -H "X-Admin-Secret: $ADMIN_SECRET"
 fi
 

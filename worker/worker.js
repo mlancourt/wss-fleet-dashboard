@@ -49,6 +49,11 @@ const ACTION_ROLES = {
   lead_open: ALL_ROLES,
   lead_update: ALL_ROLES,
   lead_close: new Set(['owner', 'sales']),
+  // schema 6 / S2 (approved 2026-09-08). The TENTH action, and open to
+  // everyone: the person holding the phone in front of the machine is the
+  // person who has the photo. The binary never rides in the event — the file
+  // goes to POST /api/doc first and this carries only its id.
+  doc_attach: ALL_ROLES,
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -110,8 +115,14 @@ const DOC_ID_LEN = 16;
 // opens these in the OS viewer, and we are not in the business of serving
 // arbitrary content types back to a phone from our own origin.
 const DOC_MIMES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
-// `crew` arrives with POST /api/doc at S2; today only the engine writes.
-const DOC_SOURCES = new Set(['vault']);
+// Who put it there. `vault` = the engine's PUT, `crew` = a phone's POST (S2).
+const DOC_SOURCES = new Set(['vault', 'crew']);
+// What a phone may mint. QUOTE / PO / PM-REPORT / SERVICE-TICKET are the
+// vault's to issue — a tech photographing a nameplate is not writing a quote.
+const CREW_DOC_KINDS = new Set(['WORKORDER', 'PARTS-LIST', 'PHOTO', 'OTHER']);
+// A ticket ("S1018") or a lead ("L1005"). Shape only, as ever: whether that
+// record exists is the vault's call, not this file's.
+const DOC_RECORD_RE = /^[SL]\d{4}$/;
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const DOC_NAME_MAX = 120;
 
@@ -131,6 +142,7 @@ const ROUTES = [
   ['GET',  '/api/data',             'crew',  crewData],
   ['POST', '/api/event',            'crew',  crewEvent],
   ['GET',  '/api/health',           'crew',  crewHealth],
+  ['POST', '/api/doc',              'crew',  crewDocPost],
   ['POST', '/api/admin/publish',    'admin', adminPublish],
   ['GET',  '/api/admin/events',     'admin', adminEvents],
   ['POST', '/api/admin/events/ack', 'admin', adminAck],
@@ -202,9 +214,8 @@ async function route(request, env, url) {
 
   // /api/doc/<id> — the crew read. `?t=` has to work: this is opened in a new
   // tab by the OS viewer, and a new tab cannot send an Authorization header.
-  //
-  // STUB (S2): POST /api/doc — the crew upload — goes here, beside this block.
-  // It is deliberately NOT in this order; nothing below writes a doc.
+  // (The crew UPLOAD is POST /api/doc — no id segment, so it is an exact path
+  // in the table below; the phone never names an id, the Worker computes it.)
   const crewDoc = DOC_PATH_RE.exec(path);
   if (crewDoc) {
     if (method !== 'GET') {
@@ -360,6 +371,16 @@ async function crewEvent({ request, me, env }) {
   }
 
   const payload = cleanPayload(action, body.payload, me.role);
+
+  // THE ONE BUSINESS-STATE CHECK IN THIS FILE, and it is deliberate (S2).
+  // Every other action is shape-only because the vault owns state — but a
+  // doc_attach with no bytes behind it is not a proposal the vault can ever
+  // apply, it is a dangling pointer, and the store it points into is OURS.
+  // Checking our own KV is not checking the vault's business.
+  if (action === 'doc_attach') {
+    const meta = await env.FLEET_KV.get(`docmeta:${payload.doc_id}`, 'json');
+    if (!meta) throw httpError(400, 'unknown doc_id — upload the file first');
+  }
 
   // Server stamps everything the client must not be trusted with.
   const ts = new Date().toISOString();
@@ -589,6 +610,23 @@ function cleanPayload(action, p, role) {
     return out;
   }
 
+  /* ------------------------------------------------------------- schema 6 -- */
+
+  if (action === 'doc_attach') {
+    // Carries an id, never bytes — the file went to POST /api/doc first. Shape
+    // only here; crewEvent does the one existence check, on our own store.
+    const doc_id = str(obj.doc_id, 64, 'doc_id', true);
+    if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
+    const record = str(obj.record, 16, 'record', true).toUpperCase();
+    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket or lead id (S1018 / L1005)');
+    return {
+      record,
+      doc_id,
+      kind: oneOf(String(obj.kind || '').toUpperCase(), CREW_DOC_KINDS, 'kind'),
+      name: str(obj.name, DOC_NAME_MAX, 'name', true),
+    };
+  }
+
   if (action === 'lead_close') {
     // WON is not an outcome here: a win is reached by moving the stage to
     // INVOICED, which names the invoice. Closing is for the ones that didn't.
@@ -773,20 +811,15 @@ async function docGet(env, id) {
 }
 
 /**
- * PUT /api/admin/doc/<id> — the vault pushes a document down.
+ * Read and size-check the body of a doc write. Shared by both doors — the
+ * engine's PUT and a phone's POST — because "what counts as a document" must
+ * not be able to drift between them.
  *
- * Order matters: type, then name, then size, then hash. The cheap refusals come
- * first so an 11 MB body with the wrong content type is turned away on its
- * headers, and nothing is stored until the bytes have proved they are the
- * document the id names.
+ * -> { mime, bytes }   throws 415 / 413 / 400
  */
-async function adminDocPut({ request, env, id }) {
+async function readDocBody(request) {
   const mime = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
   if (!DOC_MIMES.has(mime)) throw httpError(415, `content-type must be one of ${[...DOC_MIMES].join(', ')}`);
-
-  const name = docName(request.headers.get('X-Doc-Name'));
-  const source = (request.headers.get('X-Doc-Source') || 'vault').trim().toLowerCase();
-  if (!DOC_SOURCES.has(source)) throw httpError(400, `x-doc-source must be one of ${[...DOC_SOURCES].join(', ')}`);
 
   // Refuse on the declared length when there is one, so an oversized upload
   // does not have to be read to be rejected. The real check is below it.
@@ -796,6 +829,49 @@ async function adminDocPut({ request, env, id }) {
   const bytes = await request.arrayBuffer();
   if (bytes.byteLength > MAX_DOC_BYTES) throw httpError(413, 'document too large (max 10 MB)');
   if (!bytes.byteLength) throw httpError(400, 'empty body');
+  return { mime, bytes };
+}
+
+/**
+ * Write the two keys, or notice we already have them.
+ *
+ * Bytes first, meta LAST: until `docmeta:` exists the document does not exist
+ * to any reader or to the listing, so a write that dies halfway leaves an
+ * orphan blob rather than a doc with no bytes.
+ *
+ * `existed` is the double-tap protection, and it is free: the id is the
+ * content, so the same file uploaded twice is the same document by definition.
+ *
+ * -> { existed }
+ */
+async function storeDoc(env, id, bytes, meta) {
+  const existing = await env.FLEET_KV.get(`docmeta:${id}`, 'json');
+  if (existing) return { existed: true };
+
+  await env.FLEET_KV.put(`doc:${id}`, bytes);
+  await env.FLEET_KV.put(`docmeta:${id}`, JSON.stringify({
+    id,
+    ...meta,
+    bytes: bytes.byteLength,
+    added_utc: new Date().toISOString(),
+  }));
+  return { existed: false };
+}
+
+/**
+ * PUT /api/admin/doc/<id> — the vault pushes a document down.
+ *
+ * Order matters: type, then name, then size, then hash. The cheap refusals come
+ * first so an 11 MB body with the wrong content type is turned away on its
+ * headers, and nothing is stored until the bytes have proved they are the
+ * document the id names.
+ */
+async function adminDocPut({ request, env, id }) {
+  const name = docName(request.headers.get('X-Doc-Name'));
+  const source = (request.headers.get('X-Doc-Source') || 'vault').trim().toLowerCase();
+  if (!DOC_SOURCES.has(source)) throw httpError(400, `x-doc-source must be one of ${[...DOC_SOURCES].join(', ')}`);
+
+  const { mime, bytes } = await readDocBody(request);
 
   const digest = await sha256Hex(bytes);
   const expected = digest.slice(0, DOC_ID_LEN);
@@ -806,22 +882,45 @@ async function adminDocPut({ request, env, id }) {
     return json({ error: 'hash mismatch', expected }, 409);
   }
 
-  // Immutable: if the meta is already there the bytes are already right, by
-  // definition of the id. Re-writing them would only burn a KV write.
-  const existing = await env.FLEET_KV.get(`docmeta:${id}`, 'json');
-  if (existing) return json({ id, existed: true });
+  const { existed } = await storeDoc(env, id, bytes, { name, mime, source, actor: 'engine' });
+  return existed ? json({ id, existed: true }) : json({ id, bytes: bytes.byteLength }, 201);
+}
 
-  await env.FLEET_KV.put(`doc:${id}`, bytes);
-  await env.FLEET_KV.put(`docmeta:${id}`, JSON.stringify({
-    id,
-    name,
-    mime,
-    bytes: bytes.byteLength,
-    added_utc: new Date().toISOString(),
-    source,
-    actor: 'engine',
-  }));
-  return json({ id, bytes: bytes.byteLength }, 201);
+/**
+ * POST /api/doc — a phone puts a document UP (S2). Any role.
+ *
+ * The client sends no id and could not usefully lie about one if it did: the
+ * Worker hashes the bytes and that IS the id. So there is no hash-mismatch case
+ * on this door — there is nothing to mismatch against.
+ *
+ * The record binding (`X-Doc-Record`) is stored in `docmeta`, NOT only in the
+ * `doc_attach` event that follows. That is the point of the design: if the
+ * event is lost — the tab closed between the two calls, the network died — the
+ * bytes are still in the store, still labelled with the ticket they belong to,
+ * and the engine sweeps unfiled crew docs on its next run. A lost event is not
+ * a lost document.
+ *
+ * Whether that record EXISTS is not checked. Same rule as every other write:
+ * the vault owns state.
+ */
+async function crewDocPost({ request, me, env }) {
+  const name = docName(request.headers.get('X-Doc-Name'));
+
+  const record = (request.headers.get('X-Doc-Record') || '').trim().toUpperCase();
+  if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'X-Doc-Record must be a ticket or lead id (S1018 / L1005)');
+
+  const kind = (request.headers.get('X-Doc-Kind') || '').trim().toUpperCase();
+  if (!CREW_DOC_KINDS.has(kind)) throw httpError(400, `X-Doc-Kind must be one of ${[...CREW_DOC_KINDS].join(', ')}`);
+
+  const { mime, bytes } = await readDocBody(request);
+  const id = (await sha256Hex(bytes)).slice(0, DOC_ID_LEN);
+
+  const { existed } = await storeDoc(env, id, bytes, {
+    name, mime, source: 'crew', actor: me.name, record, kind,
+  });
+  // 200 on a re-send rather than 201, so a double tap is visibly not a second
+  // document. The client fires its doc_attach either way — the engine files one.
+  return existed ? json({ id, existed: true }) : json({ id, bytes: bytes.byteLength, existed: false }, 201);
 }
 
 /** Drop a doc from the cache. The vault still has it; this is only the copy. */
@@ -924,7 +1023,7 @@ function corsHeaders(origin, env) {
   if (ok) {
     h['Access-Control-Allow-Origin'] = origin;
     h['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-    h['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, X-Admin-Secret, X-Doc-Name, X-Doc-Source';
+    h['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, X-Admin-Secret, X-Doc-Name, X-Doc-Source, X-Doc-Record, X-Doc-Kind';
     h['Access-Control-Max-Age'] = '86400';
   }
   return h;

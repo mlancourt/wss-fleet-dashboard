@@ -4,6 +4,15 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
+**v2.8 (schema 6 / S2)** — **upload from the phone.** 📷 Photo and 📎 File on
+ticket and lead detail, any role: the file goes to `POST /api/doc` (bytes only,
+no id — the Worker hashes them), then a `doc_attach` event carries the id. Photos
+are resized client-side to 1600 px at JPEG q0.7 with EXIF applied; **PDFs pass
+through untouched**. A failed send is one tap from a retry off the blob still in
+memory — **no queue, no background sync, nothing persisted**, and the copy says
+so. The record binding rides in `docmeta`, so a lost event is never a lost
+document.
+
 **v2.7 (schema 6)** — **document attachments, read path.** `service_queue[]`,
 `leads[]` and `agreements[]` each gain `docs[]` (`{id, name, kind, bytes,
 added}`); ticket and lead detail render a **Documents** group above the Notes
@@ -68,6 +77,7 @@ the hard rules — read it before changing anything here.
 | **v2.4 — Notes timeline** | ✅ built (Sep 4, 2026) | real `log[]` rows render on ticket + lead detail |
 | **v2.5 — lead logs money-free** | ✅ built (Sep 4, 2026) | service strip reversed; `npm run money-gate` green on the real snapshot |
 | **v2.7 — documents S1 (schema 6)** | ✅ built (Sep 8, 2026) | a real PDF round-trips through `npm run m1`; the hash check refuses a mismatched id |
+| **v2.8 — documents S2 (upload)** | ✅ built (Sep 8, 2026) | a phone-shaped upload + `doc_attach` round-trips through `npm run m1`; the resize is asserted in `npm test` |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -267,8 +277,55 @@ Three rules that are easy to break later:
   tapped, once; the browser's own HTTP cache handles the second read, because
   the Worker sends `immutable`.
 
-Uploading from a phone (`POST /api/doc`) is **S2** and is deliberately not
-built — there is a named stub comment in `worker/worker.js` where it goes.
+#### Uploading from a phone (S2)
+
+Two calls, never one, and the binary is only ever in the first:
+
+```bash
+# 1. the bytes. No id is sent — the Worker hashes the body and that IS the id.
+curl -s -X POST "$W/api/doc" -H "Authorization: Bearer <crew token>" \
+  -H 'Content-Type: application/pdf' -H 'X-Doc-Name: IMG_4821.pdf' \
+  -H 'X-Doc-Record: S1018' -H 'X-Doc-Kind: WORKORDER' \
+  --data-binary "@test/fixtures/sample-quote.pdf"      # -> 201 {"id":"…","bytes":24557,"existed":false}
+
+# 2. the event that points at it.
+curl -s -X POST "$W/api/event" -H "Authorization: Bearer <crew token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"doc_attach","payload":{"record":"S1018","doc_id":"<id>","kind":"WORKORDER","name":"IMG_4821.pdf"}}'
+```
+
+`X-Doc-Kind` from a phone is `WORKORDER · PARTS-LIST · PHOTO · OTHER` only —
+QUOTE, PO, PM-REPORT and SERVICE-TICKET are the vault's to issue. `X-Doc-Record`
+is a ticket or lead id (`^[SL]\d{4}$`) and is **not** checked for existence: the
+vault owns state, same as every other write.
+
+Four things here that are easy to undo by accident:
+
+- **The record binding is stored in `docmeta`, not only in the event.** If the
+  event never gets sent — the tab closed, the network died between the two
+  calls — the bytes are still in the store *labelled with the ticket they belong
+  to*, and the engine sweeps unfiled `source: "crew"` docs on its next run. A
+  lost event must never be a lost document.
+- **`doc_attach` is the one action the Worker checks state for**, returning 400
+  when `docmeta:<doc_id>` is absent. That is not the vault's business leaking
+  in: it is our own KV, and an attach with nothing behind it is a dangling
+  pointer the engine could never apply.
+- **The same bytes twice are one document** (`existed: true`), because the id is
+  the hash. That is the double-tap protection, and it costs nothing.
+- **Nothing about an upload is persisted client-side.** No `localStorage` blob
+  queue, no IndexedDB, no service-worker background sync. A failed send stays
+  one tap from a retry while the tech is looking at it and is gone if he leaves
+  — which is exactly what the copy on the row says. A queue that outlives the
+  page is a promise to deliver, and this app cannot keep it from a warehouse on
+  one bar.
+
+On the site: 📷 Photo uses `capture="environment"` (straight to the back camera,
+no picker) and 📎 File opens the Files app, where scan-to-PDF output lives.
+Single file each, **no `multiple`** — a two-page work order is two taps. Images
+are decoded with `createImageBitmap(file, {imageOrientation:'from-image'})` so
+EXIF rotation is applied (without it *every* portrait photo lands on its side),
+resized to a 1600 px long edge and re-encoded as JPEG at q0.7; PDFs never touch
+the canvas and nothing is ever converted *to* PDF.
 
 ### Icons
 
@@ -292,14 +349,14 @@ package.json            scripts; wrangler is the sole dev dependency
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
   app.js                routing, views, write forms, the twelve write actions
-  api.js                data source: Worker or mock (pure; covered by npm test)
+  api.js                data source + writes + doc upload (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
   holds.js              hold-list logic (pure)
   metrics.js            utilization, status board, recurring revenue (pure)
   service.js            service + dispatch logic, schema 3 (pure)
   leads.js              leads board, scoreboard + insights logic, schema 5 (pure)
   notes.js              log[] timeline rows, shared by tickets + leads (pure)
-  attachments.js        docs[] rows, icons, sizes, doc URL — schema 6 (pure)
+  attachments.js        docs[] rows + upload logic (kinds, names, pending rows) — schema 6 (pure)
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
   sw.js                 shell cache only; data is never cached
@@ -325,11 +382,12 @@ tools/
   selftest-service.mjs  schema-3 service + dispatch logic
   selftest-leads.mjs    schema-5 leads logic, incl. money-absent-not-zero
   selftest-notes.mjs    log[] rows — order kept, ts never Date-parsed
-  selftest-attachments.mjs  docs[] rows — id shape, order, sizes, doc URL
+  selftest-attachments.mjs  docs[] rows + upload logic — id shape, kinds, names, sizes
   selftest-render.mjs   every view, every mock variant, every role
 
 test/fixtures/
   sample-quote.pdf      a 24 KB SYNTHETIC PDF the m1 loop uploads and reads back
+  sample-photo.png      a 94-byte synthetic PNG — the image branch of the upload
   smoke-real.mjs        render a REAL snapshot by path — never copies it here
   money-gate.mjs        the §6 gate end to end on a real snapshot (npm run money-gate)
 ```
@@ -500,13 +558,14 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `GET /api/admin/events` | secret | `{count, events:[{id, key, event}]}` oldest first |
 | `POST /api/admin/events/ack` | secret | `{ids:[…]}` → deletes only those; `{deleted:n}` |
 | `POST /api/admin/tokens` | secret | replaces the map; echoes names + roles only |
+| `POST /api/doc` | token (any role) | **S2 — a phone uploads.** Body = raw bytes; headers `Content-Type`, `X-Doc-Name`, `X-Doc-Record` (`^[SL]\d{4}$`), `X-Doc-Kind` (`WORKORDER · PARTS-LIST · PHOTO · OTHER` only). No id is sent — the Worker hashes the body. `201 {id, bytes, existed:false}` / `200 {id, existed:true}` / `415` / `413` / `400` |
 | `GET /api/doc/<id>` | token (`?t=` **or** Bearer) | the bytes, `Content-Type` from the stored meta, `Content-Disposition: inline`, `Cache-Control: private, max-age=31536000, immutable`, `nosniff`. `404` unknown, `400` malformed id. `?t=` must work — a new tab cannot send a header. |
 | `PUT /api/admin/doc/<id>` | secret | body = raw bytes. `201 {id, bytes}`; `200 {id, existed:true}` if already cached; `409 {error:"hash mismatch", expected}` if `sha256(body)[0:16] != id` (**nothing is stored**); `415` bad type; `413` over 10 MB; `400` bad/missing `X-Doc-Name` |
 | `GET /api/admin/doc/<id>` | secret | same bytes as the token GET (the engine's down-leg) |
 | `DELETE /api/admin/doc/<id>` | secret | `200 {id, deleted:true}`, `404` if unknown. Drops both keys. |
 | `GET /api/admin/docs` | secret | `{count, docs:[…docmeta…]}` oldest first |
 
-#### The nine write actions
+#### The write actions
 
 | Action | Roles | `serial` | Payload |
 |---|---|---|---|
@@ -519,6 +578,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `dispatch_claim` | any | optional | `dispatch_id`, `rig`, `date`, `driver` |
 | `dispatch_done` | any | optional | `dispatch_id`, `note` |
 | `dispatch_cancel` | **owner** | optional | `dispatch_id` |
+| `doc_attach` | any | not used | `record`, `doc_id`, `kind`, `name` — **schema 6 / S2.** The one action the Worker checks state for: 400 if `docmeta:<doc_id>` is not in the store, because an attach with no bytes behind it is a dangling pointer into *our* KV. |
 
 Enums the Worker checks membership of, and nothing more:
 `machine_owner` CUSTOMER·WSS · `stage` RECEIVED·CONTACTED·WAITING-ON-CUSTOMER·WAITING-ON-PARTS·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·
