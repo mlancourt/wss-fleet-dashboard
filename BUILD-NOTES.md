@@ -1390,3 +1390,120 @@ and refused for an unknown/malformed doc_id, a bad record and a vault-only kind.
   (it is keyed on `record`, not `ticket`). The event is still undoable through
   the normal `DELETE /api/event/:id` path; there is just no button for it. Worth
   a decision if techs start asking.
+
+---
+
+# D52 — Map view on the Dispatch tab (2026-09-09, schema 7)
+
+Built from the D52 work order. `docs/wi-map.svg` committed **as received** — not
+regenerated, not hand-edited, not restyled (it paints from CSS variables). New
+pure module `docs/map.js`; the Dispatch tab gains a List | Map control.
+
+## What shipped
+
+**`docs/map.js`** (pure) — the projection read off the SVG root, viewBox math
+(project a lat/lng box, clamp, zoom-about-a-point), the §3.3 pin table,
+stacking, the off-map split, and the two Google Maps URL builders.
+
+**`docs/app.js`** — `#/dispatch/map`, the segmented control, the inlined SVG
+with pins spliced in as real children, pointer-event pinch/pan, the ⌂/⤢
+buttons, filter chips, the tap sheet, the route builder and the off-map list.
+
+**Mock** — `meta.geo` plus `geo` on all four row types, from a fake geocode
+cache **keyed on the address string**, exactly as the real one is.
+
+## Decisions I made
+
+- **Stacking keys on the exact coordinate, not a distance threshold.** The cache
+  is keyed on the address, so two rows at one plant carry byte-identical `geo`.
+  A radius would invent clusters the data never claimed and would make the
+  "1 pin, 6 rows" case depend on a magic number.
+
+- **`stackKind` is a priority order** (service → pickup → delivery → lead →
+  rental), so a broken machine at a plant colours the pin rather than whichever
+  row the loop happened to reach first. Work beats inventory.
+
+- **Shapes carry the same signal as the colours** — circle / square / diamond /
+  small dot, triangle for a demo lead. Five colours alone is a bad bet on a
+  phone in sunlight, and worse for a red-green reader.
+
+- **Pins counter-scale by the viewBox width**, so they stay the same size on
+  screen at any zoom, and labels vanish entirely above a 300-unit span (the
+  whole-state view), where they were an unreadable grey smear.
+
+- **`touch-action` is driven from the zoom level.** At minimum zoom the map has
+  nowhere to pan, so a one-finger drag belongs to the PAGE — the off-map list is
+  underneath and has to be reachable. Once you zoom in it flips to `none` and
+  the drag is the map's. Two fingers always zoom. That is the exit criterion
+  about not hijacking page scroll, implemented rather than hoped for.
+
+- **The gestures mutate the live `viewBox` attribute and re-scale the pins by
+  hand, instead of re-rendering.** A re-render per `pointermove` would rebuild
+  ~150 KB of innerHTML forty times a second. `render()` picks the parked
+  viewport back up the next time something real changes.
+
+- **A deep link to `#/dispatch/map` sets the tab for the session but does not
+  write `localStorage`.** Following somebody's map link should not silently
+  re-default a dispatcher who works off the list; tapping the control does
+  persist.
+
+- **Switching every filter chip off restores all five.** A blank map reads as a
+  broken map, and there is no way back from one except a chip nobody can see.
+
+## Tests
+
+`npm test` — **30 map + 88 render checks** (257 across the suite).
+
+The projection is asserted **against the shipped asset's own geometry**: the
+test ray-casts the projected shop coordinate through the 72 county polygons in
+`wi-map.svg` and requires Jefferson County, with Milwaukee, Madison and Green
+Bay as controls. A made-up-constants unit test cannot catch a regenerated asset;
+this one can.
+
+Render checks drive the real view: the SVG is inlined (asserted *not* an
+`<img>`) at the projected `default_view`; every pin matches `collect()` exactly
+and every off-map row appears **only** in the list; hollow-vs-solid follows
+precision; a stacked pin carries its count and its sheet lists every row with an
+Open link that is then **followed** to prove it is not a dead route; three
+tapped stops produce a directions URL with the shop as origin, the stops as
+waypoints in tap order, and `pending.length === 0` — nothing written; the List
+view still renders unchanged; a schema-6 snapshot says "No map in this snapshot"
+instead of drawing a blank one.
+
+I also parsed the spliced output as XML out-of-band: well-formed, 72 counties,
+27 pin groups.
+
+## Things worth flagging
+
+- **`CLAUDE.md` has an uncommitted edit that reverts the schema-6 sections.** I
+  left it exactly as I found it and staged nothing from it — see the session
+  report. It adds the v2.6/v2.8/D52 header lines and the `wi-map.svg` layout row
+  (all wanted), but also deletes the `doc:`/`docmeta:` KV rows, the five doc
+  endpoints, the `doc_attach` event shape and the Documents block, and puts the
+  write-model heading back to "nine actions". The header it adds says the five
+  doc endpoints exist while the table below no longer lists them, which is what
+  makes it look like a paste from an older base rather than a decision.
+
+- **Pinch/drag could not be exercised in the harness.** There is no pointer-event
+  DOM here. The arithmetic underneath (`clampViewBox`, `zoomAt`) is unit-tested,
+  including that a pinch holds its centre still; the px→units conversion and the
+  drag anchoring are reasoned about in comments and need a real phone.
+
+- **I found and fixed a pan bug while reviewing that code**: the drag anchor was
+  re-derived from the *live* viewBox each frame, so every move re-measured
+  against the position the previous move had just set and the map crawled behind
+  the finger. Both the anchor and the scale now come from the viewBox the
+  gesture started in.
+
+- **`Number(null)` is `0`** — the first version of `usableGeo` accepted a null
+  longitude as the prime meridian and would have pinned a Wisconsin customer off
+  the coast of Africa. Caught by the fixture test; the module now has one strict
+  numeric guard used everywhere, including the URL builders.
+
+- **The mock needed street-level job sites.** With town-level addresses every
+  row in a town collapsed onto one pixel — 10 pins for 41 rows — which made the
+  map a poor demo and meant stacking was only ever tested against an artefact.
+  Sites are now `<street>, <town>` and the fake cache offsets street/rooftop
+  hits deterministically from the whole string, so the same address is always
+  the same point and different ones are not. City-precision hits keep the town
+  centroid, which is exactly why they draw hollow.

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 6).
+ * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 7).
  *
  * EVERYTHING in this file is invented. Fake customers, fake serials, fake money.
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
  *
  * Emits three variants so every view can be exercised:
  *   mock-full.json    schema 5 — service queue, dispatch board, pick-ups, holds, leads
- *   mock-empty.json   schema 6 — service_queue: [], dispatch: [] and leads: [] (empty
+ *   mock-empty.json   schema 7 — service_queue: [], dispatch: [] and leads: [] (empty
  *                     states); ON-DEMO row = 0 on the status board
  *   mock-legacy.json  schema 2 — the pre-Dispatch snapshot, kept for one release
  *                     so the board still renders during the cutover
@@ -132,6 +132,94 @@ const SITES = [
   'Ixonia WI', 'Waukesha WI', 'Oconomowoc WI', 'Madison WI', 'Milwaukee WI',
   'Watertown WI', 'Jefferson WI', 'Sun Prairie WI', 'Beloit WI',
 ];
+
+/* ------------------------------------------------------- geo (schema 7, D52)
+ * A FAKE geocode cache, built the way the real one is: keyed on the ADDRESS
+ * STRING. That is the whole reason two rows at the same plant stack on the map
+ * — they do not "look close", they carry byte-identical `geo` because they went
+ * through the same cache entry. Faking it any other way (a random jitter per
+ * row) would produce a mock the stacking code can never be tested against.
+ *
+ * All of these are real Wisconsin town centroids to ~4dp. They are places, not
+ * customers: nothing here is a WSS address (the shop's own is in meta.geo, and
+ * it is a business address that is already on the company's website).
+ */
+const GEO = {
+  'Ixonia WI':      { lat: 43.1751, lng: -88.6009, precision: 'city' },
+  'Waukesha WI':    { lat: 43.0117, lng: -88.2315, precision: 'street' },
+  'Oconomowoc WI':  { lat: 43.1097, lng: -88.4996, precision: 'street' },
+  'Madison WI':     { lat: 43.0731, lng: -89.4012, precision: 'street' },
+  'Milwaukee WI':   { lat: 43.0389, lng: -87.9065, precision: 'rooftop' },
+  'Watertown WI':   { lat: 43.1947, lng: -88.7290, precision: 'rooftop' },
+  'Jefferson WI':   { lat: 43.0053, lng: -88.8073, precision: 'street' },
+  'Sun Prairie WI': { lat: 43.1836, lng: -89.2137, precision: 'street' },
+  'Beloit WI':      { lat: 42.5083, lng: -89.0318, precision: 'rooftop' },
+  'Franklin WI':    { lat: 42.8886, lng: -88.0126, precision: 'street' },
+  'Kenosha WI':     { lat: 42.5847, lng: -87.8212, precision: 'rooftop' },
+  'Janesville WI':  { lat: 42.6828, lng: -89.0187, precision: 'street' },
+  'Racine WI':      { lat: 42.7261, lng: -87.7829, precision: 'rooftop' },
+  'West Bend WI':   { lat: 43.4253, lng: -88.1834, precision: 'street' },
+  // City precision only — no street address on file. Renders hollow (§3.3).
+  'Fond du Lac WI': { lat: 43.7730, lng: -88.4470, precision: 'city' },
+  // Out of state. A real lead; just not on a map of Wisconsin (§3.7).
+  'Toledo OH':      { lat: 41.6528, lng: -83.5379, precision: 'street', in_wi: false },
+};
+
+// Fake street lines, so two customers in one town do not share a coordinate.
+// Real addresses are street-level; a mock where every row in Watertown lands on
+// the same pixel would collapse the whole map into nine pins and leave the
+// stacking code (§3.4) untested against anything but an artefact.
+const STREETS = [
+  '1400 Industrial Dr', '820 Commerce Pkwy', 'W229 N1433 Westwood Dr', '3050 Enterprise Ct',
+  '615 Distribution Way', '1201 Riverside Blvd', '4400 Innovation Dr', '77 Logistics Ln',
+  '910 Foundry Rd', '2280 Corporate Cir',
+];
+
+/** A stable 32-bit hash of a string — same address in, same number out, forever. */
+function hash32(v) {
+  let h = 2166136261;
+  for (let i = 0; i < v.length; i++) { h ^= v.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+/**
+ * `geo` for an address, or null — exactly the engine's contract. A miss is a
+ * miss: no jitter, no city fallback, no guess. The row lands on the off-map
+ * list, which is how Matt finds the address to fix in the vault.
+ */
+function geoFor(address) {
+  // The real cache is keyed on the raw address string. This one normalises a
+  // trailing ZIP away first ("Oconomowoc WI 53066" -> "Oconomowoc WI") because
+  // that is the MOCK's stand-in for a geocoder: two strings naming one town
+  // resolve to one point. The CONTRACT being modelled is the important half —
+  // the same place yields byte-identical `geo`, which is what makes §3.4
+  // stacking testable.
+  if (typeof address !== 'string' || !address.trim()) return null;
+  const full = address.trim().replace(/\s+\d{5}(-\d{4})?$/, '');
+  // The town is the tail of the string; anything before it is a street line.
+  const town = /(?:^|,\s*)([A-Za-z. ]+\s(?:WI|OH))$/.exec(full);
+  const hit = town ? GEO[town[1].trim()] : GEO[full];
+  if (!hit) return null;
+
+  // City precision means the geocoder gave us the town centroid and nothing
+  // finer — so every city-precision row in a town legitimately shares a point,
+  // and that is exactly what the hollow pin is telling the reader. Street and
+  // rooftop hits get a stable offset derived from the WHOLE address string, so
+  // two different addresses in one town are two places and the SAME address is
+  // always the same place. That second half is the contract §3.4 relies on.
+  let { lat, lng } = hit;
+  if (hit.precision !== 'city') {
+    const h = hash32(full);
+    lat += (((h & 0xffff) / 0xffff) - 0.5) * 0.07;          // ~±3.9 km
+    lng += ((((h >>> 16) & 0xffff) / 0xffff) - 0.5) * 0.09;  // ~±3.7 km
+  }
+  return {
+    lat: Math.round(lat * 1e6) / 1e6,
+    lng: Math.round(lng * 1e6) / 1e6,
+    precision: hit.precision,
+    in_wi: hit.in_wi !== false,
+  };
+}
 const NOTES_PREP = [
   'squeegee blades ordered', 'needs deck wash + charge', 'brush worn, swap before ship',
   'battery watering due', 'seat switch intermittent',
@@ -217,7 +305,7 @@ function build({ withServiceQueue }) {
         readiness === 'DOWN' ? pick(NOTES_DOWN) : null;
 
       const customer = out ? pick(CUSTOMERS) : null;
-      const job_site = out ? pick(SITES) : null;
+      const job_site = out ? `${pick(STREETS)}, ${pick(SITES)}` : null;
 
       const unit = {
         serial,
@@ -244,6 +332,9 @@ function build({ withServiceQueue }) {
           long_term_12mo: LONG_TERM[catIdx].m12,
         },
         job_site,
+        // schema 7 (D52): geocoded from job_site, so only an OUT unit has one.
+        // A unit at home is not a place a truck goes.
+        geo: geoFor(job_site),
         agreement,
         // D33: agreement customer for ON-RENT, placement customer for LOANER-OUT, else null (ON-DEMO too).
         customer: unit_state === 'ON-RENT' || isLoaner ? customer : null,
@@ -461,6 +552,10 @@ function build({ withServiceQueue }) {
       row.opened = d(opened);
       row.stage_since = d(stage_since);
       row.age_days = -opened;
+      // schema 7 (D52): geocoded from `site`. A machine already on our bench
+      // has nowhere to send a truck, so an IN-SHOP ticket carries geo: null
+      // however good its address is — the engine ships it that way too.
+      row.geo = row.location === 'IN-SHOP' ? null : geoFor(row.site);
       // A ticket on one of OUR machines points back at the unit, and the unit
       // points at the ticket (D35) — both directions, or the wrench chip lies.
       if (t.unit) {
@@ -614,7 +709,10 @@ function build({ withServiceQueue }) {
       stage: 'NEEDS-QUOTE', customer: 'Stillman Foundry',
       equipment: 'Ironline R-660 (customer owned)',
       issue: 'Deck rebuild — teardown done, parts list handed over',
-      location: 'AT-CUSTOMER', site: 'Waukesha WI', intake_move: 'PICKUP', return_move: 'DELIVER',
+      // D52 §4: a real-looking site the geocoder MISSED -> geo: null -> it shows
+      // in the off-map list with its raw address, which is how Matt finds the
+      // ones to fix in the vault. Do not add Portage to GEO to "fix" this test.
+      location: 'AT-CUSTOMER', site: 'Portage WI', intake_move: 'PICKUP', return_move: 'DELIVER',
       assigned: 'Zac', opened: -13, stage_since: -5, priority: 'LOW',
     });
 
@@ -631,6 +729,7 @@ function build({ withServiceQueue }) {
         rig: m.rig != null ? m.rig : null,
         status: m.status, note: m.note != null ? m.note : null,
         done: m.done != null ? m.done : null,
+        geo: geoFor(m.address),          // schema 7 (D52), from `address`
       });
     };
 
@@ -737,11 +836,27 @@ function build({ withServiceQueue }) {
 
   const snapshot = {
     meta: {
-      schema_version: 6,
+      schema_version: 7,
       generated_at: new Date().toISOString(),
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
       fleet_totals: totals,
       utilization,
+      // schema 7 (D52). The shop is WSS's own business address, which is on the
+      // company's website — not customer data. `bounds` is the SVG's projected
+      // box (the whole state); `default_view` is the SE-Wisconsin window the map
+      // opens on, because that is where every run actually goes.
+      geo: {
+        shop: { label: 'WSS — Ixonia', address: 'N8069 County Road F, Ste 106, Ixonia, WI 53036',
+          lat: 43.137422, lng: -88.592609 },
+        bounds:       { lat_min: 42.45, lat_max: 47.10, lng_min: -92.95, lng_max: -86.75 },
+        default_view: { lat_min: 42.45, lat_max: 43.90, lng_min: -90.15, lng_max: -87.70 },
+        precision_legend: {
+          rooftop: 'Exact street address',
+          street: 'Street address',
+          city: 'City only — no street address on file',
+          none: 'No usable address — fix it in the vault',
+        },
+      },
       // Deliberate unknown field — the app must ignore it silently.
       mock: true,
     },
@@ -823,6 +938,7 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       phone: o.phone || null,
       email: o.email || null,
       site: o.site || null,
+      geo: geoFor(o.site),               // schema 7 (D52), from `site`
       source: o.source,
       interest: o.interest,
       machine: o.machine || null,
@@ -867,8 +983,11 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       phone: '262-555-0148', email: 'dana@cedarridge.example', site: 'Oconomowoc WI 53066',
       source: 'WEB-FORM', interest: 'RENTAL', machine: '28" rider, 3 months', value: 9800,
       priority: 'HIGH', next_action: 'Call this morning', stageDays: 1, totalDays: 1 }),
+    // D52 §4: out of state. A real, open, working lead — it just has no place on
+    // a map of Wisconsin. in_wi: false, so it is NEVER pinned at the edge; it
+    // goes to the off-map list with its address intact.
     mk({ lead: 'L1002', stage: 'RECEIVED', customer: 'Bellmont Distribution', contact: 'Ray Ackerman',
-      phone: '414-555-0192', site: 'Franklin WI 53132', source: 'PAID-SEARCH', interest: 'SALE-NEW',
+      phone: '419-555-0192', site: 'Toledo OH 43604', source: 'PAID-SEARCH', interest: 'SALE-NEW',
       machine: 'Walk-behind, 20" disk', value: 12400, assigned: 'Matt', opened_by: 'Matt',
       stale: 'yellow', stale_reason: 'Four business days in Received with no call logged',
       next_action: 'Nobody has called — do it today', stageDays: 4, totalDays: 4 }),
@@ -927,8 +1046,11 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       next_action: 'Demo Tuesday, bring the small pad driver', stageDays: 3, totalDays: 11 }),
 
     // -- a SERVICE lead: no value, and therefore no commission, by contract.
+    // D52 §4: city precision only — the geocoder found the town and no street.
+    // Draws as a HOLLOW pin and says so in the sheet. Must stay on an OPEN lead:
+    // a closed one never reaches the map and would prove nothing.
     mk({ lead: 'L1009', stage: 'CONTACTED', customer: 'Meadowbrook Care', contact: 'Gail Ostrander',
-      email: 'gostrander@meadowbrook.example', site: 'Waukesha WI 53186', source: 'EMAIL',
+      email: 'gostrander@meadowbrook.example', site: 'Fond du Lac WI 54935', source: 'EMAIL',
       interest: 'SERVICE', machine: 'Their own Halstead T-320', value: null,
       contactHours: 6, next_action: 'Quote the annual PM', stageDays: 3, totalDays: 3 }),
 

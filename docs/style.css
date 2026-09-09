@@ -834,3 +834,141 @@ table.ins td.n { color: var(--slate-700); }
   padding: 10px 12px; margin: 10px 0; border-bottom: 0;
 }
 .nrow:not(.is-pending) + .nrow.is-pending { border-top: 1px solid var(--slate-100); }
+
+
+/* ===================================================== the map (D52) ======
+   The vendored SVG paints itself from these five variables (with its own
+   fallbacks baked in, so it still reads standalone). Overriding them here is
+   how the map joins the app's palette WITHOUT anyone editing the asset — the
+   vault owns that file and regenerates it. */
+
+:root {
+  --map-land: #F4F1EA;      /* warm paper, so the pins are the only saturated thing */
+  --map-line: #DDD6C8;      /* county hairlines — present, never competing */
+  --map-us:   #E4D8BC;
+  --map-i:    #C9BC88;
+  --map-city: #9A9384;
+
+  --pin-service:  var(--bad);
+  --pin-pickup:   #C2410C;  /* D32's pick-up orange, so the board and the map agree */
+  --pin-delivery: var(--rent);
+  --pin-lead:     var(--ok);
+  --pin-rental:   var(--slate-500);
+}
+
+/* --- List | Map ---------------------------------------------------------- */
+.segbar { display: flex; gap: 0; margin: 0 0 12px; border: 1px solid var(--slate-300); border-radius: 12px; overflow: hidden; }
+.seg {
+  flex: 1 1 0; min-height: var(--tap); padding: 8px 12px; border: 0; cursor: pointer;
+  background: var(--white); color: var(--slate-700); font: inherit; font-weight: 650; font-size: 14.5px;
+}
+.seg + .seg { border-left: 1px solid var(--slate-300); }
+.seg.on { background: var(--red); color: var(--white); }
+
+/* --- filter chips -------------------------------------------------------- */
+.mapchips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 4px; -webkit-overflow-scrolling: touch; }
+.mapchips .fchip { flex: 0 0 auto; }
+.mapchips .fchip::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: 0; background: currentColor; }
+.fchip.mk-service::before  { background: var(--pin-service); }
+.fchip.mk-pickup::before   { background: var(--pin-pickup); }
+.fchip.mk-delivery::before { background: var(--pin-delivery); }
+.fchip.mk-lead::before     { background: var(--pin-lead); }
+.fchip.mk-rental::before   { background: var(--pin-rental); }
+
+/* --- the surface --------------------------------------------------------- */
+.mapwrap { position: relative; margin-bottom: 10px; }
+.wimap {
+  display: block; width: 100%; height: 60vh; min-height: 320px; max-height: 78vh;
+  background: #DCE7EE;                    /* water: everything outside a county path */
+  border: 1px solid var(--line); border-radius: var(--radius);
+  touch-action: pan-y;                    /* JS tightens this to `none` once there is somewhere to pan */
+  user-select: none; -webkit-user-select: none;
+}
+@media (min-width: 900px) { .wimap { height: 70vh; } }
+
+.mapbtns { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.mapbtn {
+  width: 38px; height: 38px; border-radius: 10px; cursor: pointer;
+  background: rgba(255, 255, 255, .94); border: 1px solid var(--slate-300);
+  color: var(--slate-700); font-size: 17px; line-height: 1; box-shadow: var(--shadow);
+}
+.mapbtn:active { background: var(--slate-100); }
+
+/* --- pins ---------------------------------------------------------------- */
+/* Solid = we know the street. Hollow = we know the town and no more, which is
+   a real difference to a driver and so it is a visible one. */
+.pin { cursor: pointer; }
+.pin .pg { stroke: var(--white); stroke-width: 1.5; paint-order: stroke; }
+.pin.hollow .pg { fill: var(--map-land) !important; stroke-width: 2.5; }
+.pin.k-service  .pg { fill: var(--pin-service); }
+.pin.k-pickup   .pg { fill: var(--pin-pickup); }
+.pin.k-delivery .pg { fill: var(--pin-delivery); }
+.pin.k-lead     .pg { fill: var(--pin-lead); }
+.pin.k-rental   .pg { fill: var(--pin-rental); }
+.pin.hollow.k-service  .pg { stroke: var(--pin-service); }
+.pin.hollow.k-pickup   .pg { stroke: var(--pin-pickup); }
+.pin.hollow.k-delivery .pg { stroke: var(--pin-delivery); }
+.pin.hollow.k-lead     .pg { stroke: var(--pin-lead); }
+.pin.hollow.k-rental   .pg { stroke: var(--pin-rental); }
+.pin.shop .pg { fill: var(--red); stroke: var(--white); stroke-width: 1.8; }
+.pin.on .pg { stroke: var(--slate-900); stroke-width: 2.5; }
+
+.pin-label {
+  font: 700 11px system-ui, -apple-system, sans-serif; fill: var(--slate-900);
+  text-anchor: middle; paint-order: stroke; stroke: var(--map-land); stroke-width: 3.5px; stroke-linejoin: round;
+  pointer-events: none;
+}
+/* Zoomed out to the whole state, labels are a grey smear — dots only. */
+.wimap.far .pin-label { display: none; }
+
+.pin .badge circle { fill: var(--slate-900); stroke: var(--white); stroke-width: 1.5; }
+.pin .badge text { font: 700 7.5px system-ui, sans-serif; fill: var(--white); text-anchor: middle; }
+.pin .stopbadge circle { fill: var(--red); stroke: var(--white); stroke-width: 1.5; }
+.pin .stopbadge text { font: 700 8px system-ui, sans-serif; fill: var(--white); text-anchor: middle; }
+/* In select mode the map is a picker, so say so with the cursor. */
+.wimap.planning .pin { cursor: copy; }
+
+/* --- legend -------------------------------------------------------------- */
+.maplegend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 12px; }
+.maplegend .lg { display: inline-flex; align-items: center; gap: 5px; }
+.maplegend .muted { color: var(--ink-3); }
+.maplegend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.sw.k-service  { background: var(--pin-service); }
+.sw.k-pickup   { background: var(--pin-pickup); }
+.sw.k-delivery { background: var(--pin-delivery); }
+.sw.k-lead     { background: var(--pin-lead); }
+.sw.k-rental   { background: var(--pin-rental); }
+.sw.shop       { background: var(--red); }
+
+/* --- plan a run ---------------------------------------------------------- */
+.planbar { display: flex; gap: 8px; margin-bottom: 10px; }
+.planlist .prow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 0; border-bottom: 1px solid var(--slate-100); }
+.planlist .prow:last-of-type { border-bottom: 0; }
+.pnum {
+  flex: 0 0 auto; width: 22px; height: 22px; border-radius: 999px; background: var(--red); color: var(--white);
+  font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+}
+.pwhat { flex: 1 1 auto; min-width: 0; font-weight: 650; color: var(--slate-800); font-size: 14px; }
+.paddr { font-size: 12.5px; color: var(--ink-3); flex: 1 1 100%; }
+.chk { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--slate-800); margin: 10px 0; min-height: var(--tap); }
+.chk input { width: 20px; height: 20px; }
+
+/* --- the tap sheet + the off-map list ------------------------------------ */
+.mapsheet {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 14px 16px; margin-bottom: 12px;
+}
+@media (min-width: 900px) { .mapsheet { position: sticky; top: 12px; } }
+.sheet-addr { font-size: 13.5px; color: var(--slate-700); margin-bottom: 4px; }
+.sheet-prec { font-size: 12.5px; color: var(--warn); font-weight: 600; margin-bottom: 8px; }
+.srow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--slate-100); min-height: var(--tap); }
+.srow:last-child { border-bottom: 0; }
+.sid { font-weight: 700; color: var(--slate-900); font-size: 14px; }
+.sline { flex: 1 1 40%; min-width: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.chip.mk-service  { background: var(--bad-bg);  color: var(--bad); }
+.chip.mk-pickup   { background: #FFEDD5;        color: #C2410C; }
+.chip.mk-delivery { background: var(--rent-bg); color: var(--rent); }
+.chip.mk-lead     { background: var(--ok-bg);   color: var(--ok); }
+.chip.mk-rental   { background: var(--slate-100); color: var(--slate-700); }
+.offmap .offgrp + .offgrp { margin-top: 10px; }
+.offhead { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); margin: 8px 0 2px; }

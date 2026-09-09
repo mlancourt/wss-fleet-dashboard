@@ -30,6 +30,11 @@ import {
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
 import {
+  projector, boxToViewBox, viewBoxStr, clampViewBox, zoomAt,
+  collect, stack, stackKind, groupOff, geoMeta, hasGeo,
+  navUrl, routeUrl, MAX_STOPS, KINDS as MAP_KINDS, KIND_LABEL as MAP_KIND_LABEL,
+} from './map.js';
+import {
   docRows, docUrl, pendingDocRows, resolveKind, sanitizeName, retypeName, cameraName,
   isImageMime, humanBytes, kindLabel, docIcon, KIND_CHOICES, DOC_RECORD_RE,
 } from './attachments.js';
@@ -45,7 +50,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-09-d51';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-09-d52-map';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -109,6 +114,30 @@ function storedFilter() {
 
 // The Leads chip is remembered the same way. 'mine' is the one a salesperson
 // lives in, so it has to survive a reload or it isn't worth having.
+// D52. The segmented control and the pin filters are remembered per device, for
+// the same reason every other chip in this app is: a dispatcher who works off
+// the map should land on the map, and a tech who only ever wants pick-ups
+// should not re-tap four chips every morning. Storage can be blocked or purged
+// — every failure falls back to the useful default, never to an error.
+const DISPATCH_VIEW_KEY = 'wss.dispatch.view';
+function storedDispatchView() {
+  try { return localStorage.getItem(DISPATCH_VIEW_KEY) === 'map' ? 'map' : 'list'; } catch (_) { return 'list'; }
+}
+const MAP_KINDS_KEY = 'wss.dispatch.mapkinds';
+function storedMapKinds() {
+  try {
+    const raw = localStorage.getItem(MAP_KINDS_KEY);
+    if (!raw) return new Set(MAP_KINDS);
+    const on = String(raw).split(',').filter((k) => MAP_KINDS.includes(k));
+    // An empty set is a blank map, which reads as a broken map. If somebody
+    // switched everything off and left, give them everything back.
+    return on.length ? new Set(on) : new Set(MAP_KINDS);
+  } catch (_) { return new Set(MAP_KINDS); }
+}
+const rememberMapKinds = () => {
+  try { localStorage.setItem(MAP_KINDS_KEY, [...ui.mapKinds].join(',')); } catch (_) { /* ignore */ }
+};
+
 const LEAD_FILTER_KEY = 'wss_fleet_lead_filter';
 function storedLeadFilter() {
   try {
@@ -118,6 +147,12 @@ function storedLeadFilter() {
 }
 
 const ui = {
+  dispatchView: storedDispatchView(),  // 'list' | 'map' (D52)
+  mapKinds: storedMapKinds(),          // Set of the five pin kinds currently on
+  mapSheet: null,                      // the stack key whose detail sheet is open
+  mapPlan: false,                      // "Plan a run" select mode
+  mapStops: [],                        // stack keys, in tap order
+  mapBackToShop: true,
   ticketFilter: storedFilter(),   // 'all' | 'CUSTOMER' | 'WSS'
   leadFilter: storedLeadFilter(), // 'all' | 'mine' | 'stale'
   form: null,            // { kind, id } — the one open sheet, if any
@@ -151,6 +186,28 @@ const ui = {
  */
 const uploads = new Map();
 const thumbs = new Map();
+
+/* ---- the map (D52) -------------------------------------------------------
+ * Module scope, because render() rewrites the view's innerHTML on every change
+ * and none of this comes from the snapshot:
+ *
+ *   mapSvg      the vendored asset's source text, fetched ONCE. It is ~145 KB
+ *               and identical every time; re-fetching it on every render would
+ *               be the single most expensive thing this app does.
+ *   mapProject  the projection built from the SVG root's data-lat0/lng0/kx/ky.
+ *               Read off the file, never hardcoded — the vault regenerates the
+ *               asset and the constants travel with it.
+ *   mapView     the live viewBox. Pan and zoom mutate the SVG attribute
+ *               directly (no re-render — a 145 KB innerHTML per pointermove is
+ *               not a gesture, it is a slideshow) and park the result here so
+ *               the next real render picks up where the finger left off.
+ */
+let mapSvg = null;
+let mapSvgState = 'idle';        // 'idle' | 'loading' | 'ready' | 'error'
+let mapProject = null;
+let mapOuter = null;             // the whole-state viewBox — the pan/zoom clamp
+let mapHome = null;              // meta.geo.default_view, projected
+let mapView = null;
 let uploadSeq = 0;
 // The file chosen but not yet given a kind. Held here rather than in `ui` so a
 // File object never lands in something we might one day serialise.
@@ -1381,12 +1438,23 @@ function moveForm(t, which) {
 /* ============================================================== dispatch == */
 
 function viewDispatch(highlight) {
+  // D52: `#/dispatch/map` selects the map so a run report can link straight to
+  // it. Dispatch ids all look like "m-…", so "map" can never be one — but the
+  // check is explicit rather than relying on that.
+  if (highlight === 'map' || (highlight == null && ui.dispatchView === 'map')) {
+    // A deep link sets the tab's view for THIS session but is not written to
+    // storage: following somebody's map link should not silently re-default a
+    // dispatcher who works off the list. Tapping the control does persist.
+    ui.dispatchView = 'map';
+    return viewDispatchMap();
+  }
+
   const all = dispatchRows();
   const s = dispatchSections(all);
   const adds = pendingDispatchAdds();
   const unbooked = unbookedPickups(pickupsList(), all);
 
-  const head = html`<h1>Dispatch</h1>${raw(msgBlock())}
+  const head = html`<h1>Dispatch</h1>${raw(msgBlock())}${raw(dispatchSwitch('list'))}
     <div class="actions"><button class="btn" type="button" data-sheet="add-run">+ Add a run</button></div>
     ${sheetOpen('add-run') ? raw(addRunForm((ui.form && ui.form.arg) || {})) : ''}
     ${adds.length ? raw(html`<div class="note"><strong>⏳ ${adds.length} new run${adds.length > 1 ? 's' : ''} pending</strong>
@@ -1433,6 +1501,283 @@ function viewDispatch(highlight) {
     </div>`) : ''}`;
 
   return head + openSec + gapSec + schedSec + doneSec;
+}
+
+/* ================================================ the map (D52) =========== */
+
+/**
+ * Fetch the vendored map ONCE and read its projection contract off the root.
+ *
+ * The four constants (`data-lat0/lng0/kx/ky`) live on the asset because the
+ * vault generates the asset — a different projection ships as a different file,
+ * and a hardcoded constant here would put every pin in the wrong place with no
+ * error to notice. So: parse the root tag, build the projector, and if any of
+ * it is missing refuse to draw rather than draw a lie.
+ */
+async function loadMap() {
+  if (mapSvgState === 'loading' || mapSvgState === 'ready') return;
+  mapSvgState = 'loading';
+  try {
+    const res = await fetch('wi-map.svg', { cache: 'force-cache' });
+    if (!res.ok) throw new Error(`map ${res.status}`);
+    const text = await res.text();
+    const root = /<svg\b[^>]*>/i.exec(text);
+    if (!root) throw new Error('no <svg> root');
+
+    const attrs = new Map();
+    for (const m of root[0].matchAll(/([a-zA-Z0-9-]+)\s*=\s*"([^"]*)"/g)) attrs.set(m[1], m[2]);
+    const project = projector(attrs);
+    if (!project) throw new Error('the map is missing its projection constants');
+
+    const vb = String(attrs.get('viewBox') || '').trim().split(/\s+/).map(Number);
+    if (vb.length !== 4 || vb.some((n) => !isFinite(n))) throw new Error('no viewBox');
+
+    mapSvg = text.slice(root.index + root[0].length).replace(/<\/svg>\s*$/i, '');
+    mapProject = project;
+    mapOuter = { x: vb[0], y: vb[1], w: vb[2], h: vb[3] };
+    mapSvgState = 'ready';
+  } catch (err) {
+    mapSvgState = 'error';
+    console.warn('[wss-fleet] map:', err.message);
+  }
+  render();
+}
+
+/** The opening window: meta.geo.default_view, or the whole state if it is absent. */
+function mapDefaultView(g) {
+  const wanted = g && g.default_view ? boxToViewBox(g.default_view, mapProject) : null;
+  return clampViewBox(wanted || mapOuter, mapOuter);
+}
+
+/**
+ * Pin sizes are in SVG user units, so they grow as you zoom in — which would
+ * turn a 7-unit dot into a dinner plate. Counter-scaling by the viewBox width
+ * keeps every pin and label the same size ON SCREEN at any zoom, which is the
+ * only size that matters to the person holding the phone.
+ */
+const MAP_ZOOM_MIN_SPAN = 40;              // ~25 km across: tight enough for one industrial park
+const LABEL_HIDE_SPAN = 300;               // wider than this is the whole-state view: dots only
+const pinScale = () => {
+  const base = mapHome ? mapHome.w : (mapOuter ? mapOuter.w : 350);
+  return Math.max(0.35, Math.min(2.6, (mapView ? mapView.w : base) / base));
+};
+
+/* Shapes carry the same signal as the colours, for the reader who cannot tell
+ * the red from the green: service is a circle, a pick-up is a square, a
+ * delivery is a diamond, a rental is a small dot, a demo lead is a triangle. */
+function pinShape(kind, demo) {
+  if (kind === 'pickup') return '<rect class="pg" x="-6.5" y="-6.5" width="13" height="13" rx="1.5"/>';
+  if (kind === 'delivery') return '<path class="pg" d="M0,-8 L8,0 L0,8 L-8,0 Z"/>';
+  if (kind === 'rental') return '<circle class="pg" r="5"/>';
+  if (kind === 'lead') return demo ? '<path class="pg" d="M0,-8 L7.5,6 L-7.5,6 Z"/>' : '<circle class="pg" r="6.5"/>';
+  return '<circle class="pg" r="7"/>';     // service
+}
+
+/** The Dispatch map. Chips, the surface, the stop strip, the off-map list. */
+function viewDispatchMap() {
+  const g = geoMeta(state.snapshot);
+  const head = html`<h1>Dispatch</h1>${raw(msgBlock())}${raw(dispatchSwitch('map'))}`;
+
+  if (!g) {
+    return head + emptyState('No map in this snapshot.',
+      'The engine has not sent geo data yet — the List view has everything.');
+  }
+  if (mapSvgState === 'error') {
+    return head + emptyState('The map did not load.', 'Pull to refresh, or use the List view.');
+  }
+  if (mapSvgState !== 'ready') return head + '<div class="loading">Loading the map…</div>';
+
+  const { pins, off } = collect(state.snapshot);
+  const on = ui.mapKinds;
+  const shown = pins.filter((p) => on.has(p.kind));
+  const stacks = stack(shown);
+  const offShown = off.filter((r) => on.has(r.kind));
+
+  if (!mapHome) mapHome = mapDefaultView(g);
+  if (!mapView) mapView = mapHome;
+
+  const counts = {};
+  for (const k of MAP_KINDS) counts[k] = pins.filter((p) => p.kind === k).length;
+
+  const chips = MAP_KINDS.map((k) => html`
+    <button type="button" class="fchip${on.has(k) ? ' on' : ''} mk-${k}" data-mapkind="${k}"
+      aria-pressed="${on.has(k) ? 'true' : 'false'}">${MAP_KIND_LABEL[k]}<span class="c">${counts[k]}</span></button>`).join('');
+
+  const stops = ui.mapStops.map((key) => stacks.find((st) => st.key === key)).filter(Boolean);
+
+  return html`
+    ${raw(head)}
+    <div class="mapchips">${raw(chips)}</div>
+    <div class="mapwrap">
+      ${raw(mapSurface(g, stacks))}
+      <div class="mapbtns">
+        <button class="mapbtn" type="button" data-map="home" title="Back to the usual view" aria-label="Default view">⌂</button>
+        <button class="mapbtn" type="button" data-map="fit" title="Fit the whole state" aria-label="Whole state">⤢</button>
+      </div>
+    </div>
+    ${raw(mapLegend())}
+    ${raw(planStrip(stops, g))}
+    ${ui.mapSheet ? raw(stackSheet(stacks.find((st) => st.key === ui.mapSheet), g)) : ''}
+    ${raw(offMapList(offShown))}`;
+}
+
+/**
+ * The SVG, inline.
+ *
+ * Inline and not an <img>, because pins have to be real children of the same
+ * document: an <img> would isolate them, and the CSS variables that repaint the
+ * counties to match the app palette would never reach it.
+ *
+ * The whole thing is a string, like every other view here — the map's own
+ * markup with our root tag and our pins spliced in. Pan and zoom then mutate
+ * the live viewBox attribute in place, so a gesture never costs a re-render.
+ */
+function mapSurface(g, stacks) {
+  const scale = pinScale();
+  const small = mapView.w > LABEL_HIDE_SPAN;
+  const stopIndex = new Map(ui.mapStops.map((k, i) => [k, i + 1]));
+
+  const shop = g.shop ? (() => {
+    const p = mapProject(g.shop.lat, g.shop.lng);
+    return html`<g class="pin shop" data-x="${p.x}" data-y="${p.y}" transform="translate(${p.x},${p.y}) scale(${scale})">
+      <path class="pg" d="M0,-9 L9,-1 L6,-1 L6,8 L-6,8 L-6,-1 L-9,-1 Z"/>
+      <text class="pin-label" y="-13">WSS</text>
+    </g>`;
+  })() : '';
+
+  const pins = stacks.map((st) => {
+    const p = mapProject(st.lat, st.lng);
+    const kind = stackKind(st);
+    const first = st.rows[0];
+    const n = st.rows.length;
+    const stop = stopIndex.get(st.key);
+    // One stacked pin says how many rows are under it, and takes the label of
+    // the first — never five overlapping labels nobody can read.
+    return html`<g class="pin k-${kind}${st.solid ? '' : ' hollow'}${ui.mapSheet === st.key ? ' on' : ''}${stop ? ' stop' : ''}"
+        data-stack="${st.key}" data-x="${p.x}" data-y="${p.y}" transform="translate(${p.x},${p.y}) scale(${scale})"
+        role="button" tabindex="0" aria-label="${n > 1 ? `${n} at this address` : `${first.label} ${first.customer || ''}`}">
+      ${raw(pinShape(kind, !!first.demo))}
+      ${n > 1 ? raw(html`<g class="badge"><circle cx="7" cy="-7" r="5.5"/><text x="7" y="-5">${n}</text></g>`) : ''}
+      ${stop ? raw(html`<g class="stopbadge"><circle cx="-8" cy="-8" r="6.5"/><text x="-8" y="-5.6">${stop}</text></g>`) : ''}
+      <text class="pin-label" y="-12">${n > 1 ? `${first.label} +${n - 1}` : first.label}</text>
+    </g>`;
+  }).join('');
+
+  return html`<svg id="wimap" class="wimap${small ? ' far' : ''}${ui.mapPlan ? ' planning' : ''}"
+      viewBox="${raw(viewBoxStr(mapView))}" role="img" aria-label="Wisconsin — dispatch map" data-scale="${scale}">
+    ${raw(mapSvg)}
+    <g id="pins">${raw(pins)}${raw(shop)}</g>
+  </svg>`;
+}
+
+function mapLegend() {
+  const sw = MAP_KINDS.map((k) => html`<span class="lg"><i class="sw k-${k}"></i>${MAP_KIND_LABEL[k]}</span>`).join('');
+  return html`<div class="maplegend">
+    ${raw(sw)}<span class="lg"><i class="sw shop"></i>WSS</span>
+    <span class="lg muted">solid = street address · hollow = city only</span>
+  </div>`;
+}
+
+/**
+ * "Plan a run" — a stop list that exists only in a URL.
+ *
+ * Nothing here is written anywhere: no event, no snapshot field, no storage.
+ * The route is handed to the driver's phone as a Google Maps link and that is
+ * the end of it. (Assigning a planned run to a rig WOULD be a dispatch event,
+ * and is deliberately not in D52.)
+ */
+function planStrip(stops, g) {
+  const toggle = html`<button class="btn sm${ui.mapPlan ? '' : ' ghost'}" type="button" data-map="plan">
+    ${ui.mapPlan ? '✓ Planning a run' : 'Plan a run'}</button>`;
+  if (!ui.mapPlan) return html`<div class="planbar">${raw(toggle)}</div>`;
+
+  const url = g.shop ? routeUrl(g.shop, stops.map((st) => ({ lat: st.lat, lng: st.lng })), ui.mapBackToShop) : null;
+  const full = stops.length >= MAX_STOPS;
+
+  return html`
+    <div class="planbar">
+      ${raw(toggle)}
+      ${stops.length ? raw(html`<button class="btn sm ghost" type="button" data-map="clear">Clear</button>`) : ''}
+    </div>
+    <div class="card planlist">
+      ${stops.length ? raw(stops.map((st, i) => html`
+        <div class="prow">
+          <span class="pnum">${i + 1}</span>
+          <span class="pwhat">${st.rows[0].customer || st.rows[0].label}${st.rows.length > 1 ? raw(html` <span class="muted">+${st.rows.length - 1}</span>`) : ''}</span>
+          <span class="paddr">${st.rows[0].address || ''}</span>
+          <button class="btn sm ghost" type="button" data-map="drop" data-key="${st.key}">Remove</button>
+        </div>`).join('')) : raw('<div class="hold-empty">Tap pins to add stops. They go in the order you tap them.</div>')}
+      ${full ? raw('<div class="form-note">Nine stops is the most a directions link can carry.</div>') : ''}
+      <label class="chk"><input type="checkbox" data-map="back"${ui.mapBackToShop ? ' checked' : ''}> Back to the shop at the end</label>
+      <div class="actions row">
+        ${url ? raw(html`<a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">Open route (${stops.length})</a>`)
+              : raw('<button class="btn" type="button" disabled>Open route</button>')}
+      </div>
+      <div class="form-note">Opens Google Maps. Nothing is saved — the run lives in the link.</div>
+    </div>`;
+}
+
+/** Tap a pin: everything at that address, and the two ways out of it. */
+function stackSheet(st, g) {
+  if (!st) return '';
+  const first = st.rows[0];
+  const nav = navUrl(st.lat, st.lng);
+  const planned = ui.mapStops.includes(st.key);
+  return html`
+    <div class="sheet mapsheet">
+      <div class="sheet-h">${first.customer || first.label}${st.rows.length > 1 ? raw(html` <span class="count">${st.rows.length}</span>`) : ''}</div>
+      <div class="sheet-addr">${first.address || 'No address on file'}</div>
+      ${!st.solid ? raw(html`<div class="sheet-prec">${(g.precision_legend && g.precision_legend.city) || 'City only — no street address on file'}</div>`) : ''}
+      <div class="card dlist">
+        ${raw(st.rows.map((r) => html`
+          <div class="srow">
+            <span class="chip mk-${r.kind}">${MAP_KIND_LABEL[r.kind]}</span>
+            <span class="sid">${r.label}</span>
+            <span class="sline">${r.line}</span>
+            <a class="btn sm ghost" href="${r.href}">Open</a>
+          </div>`).join(''))}
+      </div>
+      <div class="actions row">
+        ${nav ? raw(html`<a class="btn" href="${nav}" target="_blank" rel="noopener noreferrer">Navigate</a>`) : ''}
+        ${ui.mapPlan ? raw(html`<button class="btn ghost" type="button" data-map="${planned ? 'drop' : 'add'}" data-key="${st.key}">
+          ${planned ? 'Remove from run' : 'Add to run'}</button>`) : ''}
+        <button class="btn ghost" type="button" data-map="close">Close</button>
+      </div>
+    </div>`;
+}
+
+/**
+ * Off the map — the rows that wanted a pin and could not have one.
+ *
+ * This is not an error list, it is a WORK list: every line is an address the
+ * vault needs fixed, or a customer who is genuinely out of state. Hiding them
+ * would make the map quietly lie about how much work it is showing.
+ */
+function offMapList(rows) {
+  if (!rows.length) return '';
+  const groups = groupOff(rows);
+  return html`
+    <h2>Off the map <span class="count">${rows.length}</span></h2>
+    <div class="card dlist offmap">
+      <div class="form-note">No usable address — fix these in the vault and they appear next run.</div>
+      ${raw(groups.map((grp) => html`
+        <div class="offgrp"><div class="offhead">${grp.label}</div>
+          ${raw(grp.rows.map((r) => html`
+            <div class="srow">
+              <span class="sid">${r.label}</span>
+              <span class="sline">${r.customer || r.line}</span>
+              <span class="paddr">${r.address || '(no address)'}</span>
+              <a class="btn sm ghost" href="${r.href}">Open</a>
+            </div>`).join(''))}
+        </div>`).join(''))}
+    </div>`;
+}
+
+/** List | Map. The List view below it is untouched by D52. */
+function dispatchSwitch(nowShowing) {
+  const tab = (v, label) => html`<button type="button" class="seg${nowShowing === v ? ' on' : ''}"
+    data-dview="${v}" aria-pressed="${nowShowing === v ? 'true' : 'false'}">${label}</button>`;
+  return html`<div class="segbar">${raw(tab('list', 'List'))}${raw(tab('map', 'Map'))}</div>`;
 }
 
 const KIND_LABEL = { PICKUP: 'PICKUP', DELIVER: 'DELIVER' };
@@ -2323,9 +2668,17 @@ function render() {
   ui.msg = null;                 // the confirmation line shows once, then clears
   renderHeader();
 
+  // D52: the map asset is fetched once, lazily — nobody who never opens the map
+  // pays for 145 KB. loadMap() re-renders when it lands.
+  if (section === 'dispatch' && (arg === 'map' || (!arg && ui.dispatchView === 'map'))) {
+    if (mapSvgState === 'idle') loadMap();
+    else if (mapSvgState === 'ready') bindMap();
+  }
+
   // Deep link from a ticket or a unit page: put the named run on screen rather
   // than dumping the reader at the top of a long board.
-  const hot = arg && section === 'dispatch' ? $(`#d-${CSS.escape(decodeURIComponent(arg))}`) : null;
+  const hot = arg && section === 'dispatch' && arg !== 'map'
+    ? $(`#d-${CSS.escape(decodeURIComponent(arg))}`) : null;
   if (hot) { hot.scrollIntoView({ block: 'center' }); return; }
   view.scrollTop = 0;
   window.scrollTo(0, 0);
@@ -2352,6 +2705,145 @@ async function refresh() {
     render();
   }
 }
+
+/* ---- map gestures (D52) --------------------------------------------------
+ * Pinch-zoom and drag-pan, on pointer events, with no library.
+ *
+ * The viewBox attribute is mutated IN PLACE and the pins are re-scaled by hand.
+ * A re-render per pointermove would rebuild 145 KB of innerHTML forty times a
+ * second, which is not a gesture — it is a slideshow. render() picks the live
+ * viewBox back up out of `mapView` the next time something real changes.
+ *
+ * THE SCROLL RULE (exit criterion): at minimum zoom the map is showing the
+ * whole state and cannot pan anywhere, so a drag there must belong to the PAGE
+ * — the off-map list is underneath and a tech has to be able to reach it. So
+ * `touch-action` is set from the zoom level: `pan-y` when we are at the bottom
+ * stop, `none` once there is somewhere to pan to. Two fingers always zoom.
+ */
+function bindMap() {
+  const svg = document.getElementById('wimap');
+  if (!svg || svg.dataset.bound === '1') return;
+  svg.dataset.bound = '1';
+
+  const pts = new Map();               // live pointers, for the pinch
+  let start = null;                    // the gesture's anchor
+  let moved = false;
+
+  const atMinZoom = () => !!mapOuter && !!mapView && mapView.w >= mapOuter.w - 0.5;
+  const syncTouchAction = () => { svg.style.touchAction = atMinZoom() ? 'pan-y' : 'none'; };
+
+  /**
+   * Client px -> SVG user units, through a GIVEN viewBox.
+   *
+   * The view is an argument and not `mapView` on purpose. A gesture anchors on
+   * the viewBox it STARTED in; re-deriving the anchor from the live one every
+   * frame makes each move re-measure against the position the previous move
+   * just set, so a drag tracks only the last few pixels and the map crawls
+   * behind the finger. That reads as lag and is actually arithmetic.
+   *
+   * preserveAspectRatio is the default (meet), so the drawing is letterboxed:
+   * one scale for both axes, centred. Ignoring the letterbox puts every gesture
+   * a few pixels out, which feels like drift.
+   */
+  const unitsPerPx = (view, r) => Math.max(view.w / r.width, view.h / r.height);
+  const toSvg = (cx, cy, view) => {
+    const r = svg.getBoundingClientRect();
+    const k = unitsPerPx(view, r);
+    return {
+      x: view.x + (cx - r.left - (r.width - view.w / k) / 2) * k,
+      y: view.y + (cy - r.top - (r.height - view.h / k) / 2) * k,
+    };
+  };
+
+  const apply = (next) => {
+    mapView = clampViewBox(next, mapOuter, MAP_ZOOM_MIN_SPAN);
+    svg.setAttribute('viewBox', viewBoxStr(mapView));
+    const scale = pinScale();
+    svg.classList.toggle('far', mapView.w > LABEL_HIDE_SPAN);
+    for (const pin of svg.querySelectorAll('#pins .pin')) {
+      pin.setAttribute('transform', `translate(${pin.dataset.x},${pin.dataset.y}) scale(${scale})`);
+    }
+    syncTouchAction();
+  };
+  mapApply = apply;
+  syncTouchAction();
+
+  const spread = () => {
+    const [a, b] = [...pts.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const mid = () => {
+    const [a, b] = [...pts.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+
+  svg.addEventListener('pointerdown', (ev) => {
+    pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    moved = false;
+    if (pts.size === 1) {
+      if (atMinZoom()) { start = null; return; }   // let the page scroll
+      svg.setPointerCapture(ev.pointerId);
+      start = { mode: 'pan', client: { x: ev.clientX, y: ev.clientY }, view: { ...mapView } };
+    } else if (pts.size === 2) {
+      const m = mid();
+      start = { mode: 'pinch', dist: spread(), at: toSvg(m.x, m.y, mapView), view: { ...mapView } };
+    }
+  });
+
+  svg.addEventListener('pointermove', (ev) => {
+    if (!pts.has(ev.pointerId)) return;
+    pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (!start) return;
+
+    if (start.mode === 'pan' && pts.size === 1) {
+      // Both the anchor and the scale come from start.view, so the map stays
+      // welded to the finger for the whole drag however far it travels.
+      const k = unitsPerPx(start.view, svg.getBoundingClientRect());
+      const dx = (start.client.x - ev.clientX) * k;
+      const dy = (start.client.y - ev.clientY) * k;
+      if (Math.abs(dx) + Math.abs(dy) > 1.5) moved = true;
+      apply({ ...start.view, x: start.view.x + dx, y: start.view.y + dy });
+    } else if (start.mode === 'pinch' && pts.size === 2) {
+      moved = true;
+      const d = spread();
+      if (!start.dist || !d) return;
+      apply(zoomAt(start.view, d / start.dist, start.at.x, start.at.y));
+    }
+  });
+
+  const release = (ev) => {
+    pts.delete(ev.pointerId);
+    // Lifting one finger out of a pinch re-anchors the survivor as a pan,
+    // rather than leaving a dead gesture that ignores the finger still down.
+    const left = [...pts.values()][0];
+    start = pts.size === 1 && left && !atMinZoom()
+      ? { mode: 'pan', client: { x: left.x, y: left.y }, view: { ...mapView } }
+      : pts.size >= 2 ? start : null;
+    if (svg.hasPointerCapture && svg.hasPointerCapture(ev.pointerId)) svg.releasePointerCapture(ev.pointerId);
+  };
+  svg.addEventListener('pointerup', release);
+  svg.addEventListener('pointercancel', release);
+
+  // Desktop: the wheel zooms about the cursor. Only with a real map under it,
+  // and only when it is actually zoomable, so the page keeps its scroll.
+  svg.addEventListener('wheel', (ev) => {
+    if (atMinZoom() && ev.deltaY > 0) return;
+    ev.preventDefault();
+    const at = toSvg(ev.clientX, ev.clientY, mapView);
+    apply(zoomAt(mapView, ev.deltaY < 0 ? 1.18 : 1 / 1.18, at.x, at.y));
+  }, { passive: false });
+
+  // A pin tap that was really the end of a drag must not open a sheet.
+  svg.addEventListener('click', (ev) => {
+    if (!moved) return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    moved = false;
+  }, true);
+}
+
+// Set by bindMap so the ⌂ / ⤢ buttons can move the map without a full re-render.
+let mapApply = null;
 
 /* ---- schema-3 interaction: sheets, segmented toggles, tap-to-copy ---- */
 
@@ -2653,6 +3145,69 @@ document.addEventListener('click', async (ev) => {
   // file would come through this page's memory to no purpose. The token rides
   // in `?t=` because a new tab cannot send an Authorization header. The OS
   // viewer is the viewer — we do not have one and are not building one.
+  /* ---- map (D52) ---- */
+
+  // List | Map. The route carries it so a run report can link to the map, and
+  // localStorage carries it so the choice survives the next visit.
+  const dv = ev.target.closest('[data-dview]');
+  if (dv) {
+    const v = dv.dataset.dview === 'map' ? 'map' : 'list';
+    ui.dispatchView = v;
+    try { localStorage.setItem(DISPATCH_VIEW_KEY, v); } catch (_) { /* ignore */ }
+    ui.mapSheet = null;
+    // replace(), not assign(): flipping the segmented control is not a place in
+    // history a Back tap should have to walk through.
+    window.location.replace(v === 'map' ? '#/dispatch/map' : '#/dispatch');
+    render();
+    return;
+  }
+
+  const mk = ev.target.closest('[data-mapkind]');
+  if (mk) {
+    const k = mk.dataset.mapkind;
+    if (ui.mapKinds.has(k)) ui.mapKinds.delete(k); else ui.mapKinds.add(k);
+    if (!ui.mapKinds.size) ui.mapKinds = new Set(MAP_KINDS);   // a blank map reads as a broken one
+    rememberMapKinds();
+    // A filtered-out stop is not on the map any more, so it is not in the run.
+    ui.mapStops = ui.mapStops.filter((key) => stackKeysOnScreen().has(key));
+    if (ui.mapSheet && !stackKeysOnScreen().has(ui.mapSheet)) ui.mapSheet = null;
+    render();
+    return;
+  }
+
+  const pin = ev.target.closest('[data-stack]');
+  if (pin) {
+    const key = pin.dataset.stack;
+    if (ui.mapPlan) { toggleStop(key); return; }
+    ui.mapSheet = ui.mapSheet === key ? null : key;
+    render();
+    return;
+  }
+
+  const mb = ev.target.closest('[data-map]');
+  if (mb) {
+    const what = mb.dataset.map;
+    if (what === 'home' || what === 'fit') {
+      // Move the live viewBox rather than re-rendering: same reason the
+      // gestures do, and it keeps the reset instant on a phone.
+      const next = what === 'home' ? mapHome : mapOuter;
+      if (next && mapApply) mapApply(next);
+      else if (next) { mapView = next; render(); }
+      return;
+    }
+    if (what === 'plan') {
+      ui.mapPlan = !ui.mapPlan;
+      ui.mapSheet = null;
+      if (!ui.mapPlan) ui.mapStops = [];
+      render();
+      return;
+    }
+    if (what === 'clear') { ui.mapStops = []; render(); return; }
+    if (what === 'add' || what === 'drop') { toggleStop(mb.dataset.key); return; }
+    if (what === 'close') { ui.mapSheet = null; render(); return; }
+    return;
+  }
+
   // 📷 / 📎 — the buttons click the hidden inputs. Nothing else happens here;
   // the work starts when the OS hands a file back (the 'change' listener).
   const pick = ev.target.closest('[data-doc-pick]');
@@ -2827,6 +3382,25 @@ document.addEventListener('input', (ev) => {
   if (form.dataset.action === 'ticket_open') applyConditionals(form);
   if (form.dataset.action === 'dispatch_claim' && ['rig', 'date'].includes(ev.target.name)) updateRigHint(form);
 });
+/** The stack keys currently drawable — used to drop stops a filter just hid. */
+function stackKeysOnScreen() {
+  const { pins } = collect(state.snapshot);
+  return new Set(stack(pins.filter((p) => ui.mapKinds.has(p.kind))).map((st) => st.key));
+}
+
+/** Add or remove a stop, in tap order. Nine is Google's ceiling, not ours. */
+function toggleStop(key) {
+  if (!key) return;
+  const at = ui.mapStops.indexOf(key);
+  if (at >= 0) ui.mapStops.splice(at, 1);
+  else if (ui.mapStops.length >= MAX_STOPS) {
+    ui.msg = { tone: 'bad', text: `Nine stops is the most a directions link can carry.` };
+  } else {
+    ui.mapStops.push(key);
+  }
+  render();
+}
+
 /**
  * A file came back from the camera or the Files picker.
  *
@@ -2835,6 +3409,11 @@ document.addEventListener('input', (ev) => {
  * its `.files` list with it. Read it late and it is gone.
  */
 document.addEventListener('change', async (ev) => {
+  // D52: "Back to the shop" reshapes the directions URL — the shop becomes the
+  // destination and every stop moves into the waypoints.
+  const back = ev.target.closest('input[data-map="back"]');
+  if (back) { ui.mapBackToShop = !!back.checked; render(); return; }
+
   const input = ev.target.closest('[data-doc-input]');
   if (input) {
     const file = input.files && input.files[0];
@@ -3061,7 +3640,13 @@ document.addEventListener('submit', async (ev) => {
   }
 });
 
-window.addEventListener('hashchange', () => { ui.form = null; ui.msg = null; pendingPick = null; render(); });
+window.addEventListener('hashchange', () => {
+  ui.form = null; ui.msg = null; pendingPick = null;
+  // The sheet is about one pin and does not survive a navigation. The VIEWPORT
+  // does: coming back to the map should land where you left it, not re-home.
+  ui.mapSheet = null;
+  render();
+});
 
 // Service worker on real hosts only. On localhost a cached shell just makes you
 // debug yesterday's CSS; iOS requires HTTPS for install anyway, so dev loses nothing.

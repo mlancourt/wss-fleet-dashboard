@@ -97,7 +97,12 @@ globalThis.document = {
   addEventListener(type, fn) { listeners.set(type, (listeners.get(type) || []).concat(fn)); },
   createRange: () => ({ selectNodeContents() {} }),
   createElement: (tag) => (String(tag).toLowerCase() === 'canvas' ? canvasEl() : el(tag)),
+  // D52: the map binds its gestures to the injected <svg>. In this DOM there is
+  // no element to bind to, so bindMap() finds nothing and returns — which is
+  // the point: every assertion below is about the MARKUP the view produces.
+  getElementById: (id) => mapNodes[id] || null,
 };
+const mapNodes = {};
 
 // The page fetches its own mock file relative to docs/.
 globalThis.fetch = async (url) => {
@@ -1322,6 +1327,272 @@ await check('a malformed pending doc_attach is dropped, never drawn as a broken 
   assert.ok(!out.includes('is-pending'), 'neither row may draw');
   app.__state().pending.length = 0;
   await asFull('owner');
+});
+
+/* ==================================================== the map — D52 ======== */
+
+import { collect, stack, geoMeta, projector, boxToViewBox } from '../docs/map.js';
+
+/** Render #/dispatch/map, giving the lazily-fetched asset time to land. */
+async function mapView(role = 'owner') {
+  window.location.href = `http://localhost:8787/?mock=full&role=${role}`;
+  window.location.search = `?mock=full&role=${role}`;
+  await app.__refresh();
+  let out = await renderRoute('#/dispatch/map');
+  // loadMap() fetches once and re-renders; the first pass is the loading state.
+  for (let i = 0; i < 6 && !out.includes('id="wimap"'); i++) {
+    await settle();
+    out = view._html;
+  }
+  return out;
+}
+
+const mapClick = async (target) => {
+  for (const fn of listeners.get('click') || []) await fn({ target });
+  await settle();
+};
+const pick = (sel, dataset) => {
+  const node = { dataset, disabled: false };
+  node.closest = (q) => (q === sel ? node : null);
+  node.parentNode = { querySelector: () => null };
+  return node;
+};
+
+await check('#/dispatch/map draws the asset inline at the SE-Wisconsin default view', async () => {
+  const out = await mapView();
+  assert.ok(out.includes('id="wimap"'), 'the map never rendered');
+  // Inline, not an <img>: pins must be children of the same document or the
+  // CSS variables that repaint the counties never reach them.
+  assert.ok(!/<img[^>]+wi-map\.svg/.test(out), 'the map must be inlined, not <img>-ed');
+  assert.ok(out.includes('id="counties"') && out.includes('class="county"'), 'the asset body is missing');
+  assert.ok(out.includes('id="interstates"'), 'the asset was truncated');
+
+  // The opening viewport is meta.geo.default_view, projected — not the whole state.
+  const snap = app.__state().snapshot;
+  const g = geoMeta(snap);
+  const project = projector(new Map([...String(fs.readFileSync(path.join(DOCS, 'wi-map.svg'), 'utf8'))
+    .match(/<svg\b[^>]*>/i)[0].matchAll(/([a-zA-Z0-9-]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2]])));
+  const want = boxToViewBox(g.default_view, project);
+  const got = /id="wimap"[^>]*viewBox="([^"]+)"/.exec(out);
+  assert.ok(got, 'no viewBox on the map');
+  const [x, y, w, h] = got[1].split(/\s+/).map(Number);
+  assert.ok(Math.abs(x - want.x) < 0.5 && Math.abs(y - want.y) < 0.5, `opened at ${got[1]}`);
+  assert.ok(Math.abs(w - want.w) < 0.5 && Math.abs(h - want.h) < 0.5);
+  assert.ok(w < 880, 'the default view must be a window, not the whole state');
+
+  assert.ok(out.includes('data-map="home"') && out.includes('data-map="fit"'), '⌂ and ⤢ must both be there');
+});
+
+await check('the shop pin lands on Ixonia and is never filterable', async () => {
+  const out = await mapView();
+  const g = geoMeta(app.__state().snapshot);
+  const m = /<g class="pin shop" data-x="([\d.]+)" data-y="([\d.]+)"/.exec(out);
+  assert.ok(m, 'no shop pin');
+  // 618.4, 792.5 is Jefferson County — asserted against the real county
+  // polygons in tools/selftest-map.mjs; here we only check it is that point.
+  assert.ok(Math.abs(Number(m[1]) - 618.4) < 1, `shop x ${m[1]}`);
+  assert.ok(Math.abs(Number(m[2]) - 792.5) < 1, `shop y ${m[2]}`);
+  assert.ok(out.includes('>WSS</text>'));
+  assert.ok(!/data-mapkind="shop"/.test(out), 'the shop is not a filter chip');
+});
+
+await check('every pin obeys the §3.3 table, and nothing else is drawn', async () => {
+  const out = await mapView();
+  const snap = app.__state().snapshot;
+  const { pins, off } = collect(snap);
+  const stacks = stack(pins);
+
+  const drawn = [...out.matchAll(/data-stack="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(drawn.length, stacks.length, 'one pin per stack, no more');
+  assert.deepEqual(new Set(drawn), new Set(stacks.map((s) => s.key)));
+
+  // A geo:null row and an out-of-state row are in the off-map list and NOWHERE
+  // else. This is the assertion that stops a bad address becoming a wrong pin.
+  assert.ok(off.length, 'the fixture must carry off-map rows');
+  for (const r of off) {
+    assert.ok(!drawn.some((k) => k.includes(String(r.lat))), `${r.id} must not be pinned`);
+    assert.ok(out.includes(`>${r.address || '(no address)'}<`), `${r.id} must be listed with its raw address`);
+  }
+  assert.ok(out.includes('Off the map'), 'the off-map block is missing');
+});
+
+await check('solid vs hollow follows precision', async () => {
+  const out = await mapView();
+  const { pins } = collect(app.__state().snapshot);
+  const stacks = stack(pins);
+  const hollow = stacks.filter((s) => !s.solid);
+  const solid = stacks.filter((s) => s.solid);
+  assert.ok(hollow.length && solid.length, 'the fixture needs both');
+  for (const s of hollow) {
+    assert.ok(new RegExp(`class="pin [^"]*hollow[^"]*"[^>]*data-stack="${s.key}"`).test(out), `${s.key} should be hollow`);
+  }
+  for (const s of solid) {
+    assert.ok(!new RegExp(`class="pin [^"]*hollow[^"]*"[^>]*data-stack="${s.key}"`).test(out), `${s.key} should be solid`);
+  }
+});
+
+await check('a stacked pin shows its count and the sheet lists every row', async () => {
+  await mapView();
+  const { pins } = collect(app.__state().snapshot);
+  const multi = stack(pins).filter((s) => s.rows.length > 1)[0];
+  assert.ok(multi, 'the fixture must carry a stack');
+
+  let out = view._html;
+  assert.ok(new RegExp(`data-stack="${multi.key}"[\\s\\S]{0,400}<text x="7" y="-5">${multi.rows.length}</text>`).test(out),
+    'a stacked pin must carry a count badge');
+
+  await mapClick(pick('[data-stack]', { stack: multi.key }));
+  out = view._html;
+  assert.ok(out.includes('class="sheet mapsheet"'), 'the sheet did not open');
+  for (const r of multi.rows) {
+    assert.ok(out.includes(`>${r.label}</span>`), `${r.label} is missing from the sheet`);
+    assert.ok(out.includes(`href="${r.href}"`), `${r.label} has no Open link`);
+  }
+  // Navigate goes to coordinates, in a new tab.
+  const nav = /<a class="btn" href="(https:\/\/www\.google\.com\/maps\/dir[^"]+)" target="_blank" rel="noopener noreferrer">Navigate<\/a>/.exec(out);
+  assert.ok(nav, 'no Navigate button');
+  assert.ok(nav[1].includes(encodeURIComponent(`${multi.lat.toFixed(6)},${multi.lng.toFixed(6)}`)));
+
+  await mapClick(pick('[data-map]', { map: 'close' }));
+});
+
+await check('every Open link in the sheet lands on a route the app actually has', async () => {
+  await mapView();
+  const { pins } = collect(app.__state().snapshot);
+  const snap = app.__state().snapshot;
+  for (const st of stack(pins)) {
+    await mapClick(pick('[data-stack]', { stack: st.key }));
+    const out = view._html;
+    for (const r of st.rows) {
+      assert.ok(out.includes(`href="${r.href}"`), `${r.id}: ${r.href}`);
+      // Follow it: a link to a detail page that does not exist is a dead end.
+      const page = await renderRoute(r.href);
+      assert.ok(!/not found\./i.test(page), `${r.href} is a dead link`);
+      assert.ok(!page.includes('undefined'), `${r.href} leaked undefined`);
+      await renderRoute('#/dispatch/map');
+    }
+  }
+  assert.ok(snap.units.length, 'sanity');
+  await mapClick(pick('[data-map]', { map: 'close' }));
+});
+
+await check('filter chips add and remove whole kinds', async () => {
+  let out = await mapView();
+  const { pins } = collect(app.__state().snapshot);
+  const rentals = stack(pins.filter((p) => p.kind === 'rental'));
+  assert.ok(rentals.length, 'the fixture needs rentals');
+  assert.ok(out.includes('class="pin k-rental'), 'rentals start on');
+
+  await mapClick(pick('[data-mapkind]', { mapkind: 'rental' }));
+  out = view._html;
+  assert.ok(!out.includes('class="pin k-rental'), 'switching Rentals off must remove them');
+  assert.ok(out.includes('class="pin k-service') || out.includes('class="pin k-pickup'), 'and leave the rest');
+  assert.ok(/data-mapkind="rental"[^>]*aria-pressed="false"/.test(out.replace(/class="[^"]*"/g, (c) => c)) ||
+    out.includes('aria-pressed="false"'), 'the chip must show as off');
+
+  await mapClick(pick('[data-mapkind]', { mapkind: 'rental' }));
+  assert.ok(view._html.includes('class="pin k-rental'), 'and back on again');
+});
+
+await check('turning every chip off gives you the map back, not a blank one', async () => {
+  await mapView();
+  for (const k of ['service', 'pickup', 'delivery', 'lead', 'rental']) {
+    await mapClick(pick('[data-mapkind]', { mapkind: k }));
+  }
+  const out = view._html;
+  assert.ok(out.includes('class="pin k-'), 'a blank map reads as a broken map');
+  assert.equal(app.__ui().mapKinds.size, 5);
+});
+
+await check('Plan a run: three stops become a multi-stop directions URL from the shop', async () => {
+  await mapView();
+  const { pins } = collect(app.__state().snapshot);
+  const stacks = stack(pins).slice(0, 3);
+  const g = geoMeta(app.__state().snapshot);
+
+  await mapClick(pick('[data-map]', { map: 'plan' }));
+  assert.ok(view._html.includes('Planning a run'));
+
+  for (const st of stacks) await mapClick(pick('[data-stack]', { stack: st.key }));
+  const out = view._html;
+
+  // ①②③ on the pins, in tap order.
+  for (let i = 0; i < stacks.length; i++) {
+    assert.ok(new RegExp(`data-stack="${stacks[i].key}"[\\s\\S]{0,500}class="stopbadge"[\\s\\S]{0,120}>${i + 1}<`).test(out),
+      `stop ${i + 1} has no numbered badge`);
+  }
+
+  const href = /<a class="btn" href="(https:\/\/www\.google\.com\/maps\/dir[^"]+)"[^>]*>Open route \(3\)/.exec(out);
+  assert.ok(href, 'no Open route button');
+  const q = new URL(href[1].replace(/&amp;/g, '&')).searchParams;
+  assert.equal(q.get('origin'), `${g.shop.lat.toFixed(6)},${g.shop.lng.toFixed(6)}`, 'the shop is the origin');
+  assert.equal(q.get('travelmode'), 'driving');
+  // Default is "back to the shop": destination = shop, all three are waypoints.
+  assert.equal(q.get('destination'), q.get('origin'));
+  assert.equal(q.get('waypoints').split('|').length, 3);
+  assert.deepEqual(q.get('waypoints').split('|'), stacks.map((s) => `${s.lat.toFixed(6)},${s.lng.toFixed(6)}`));
+
+  // Nothing was written. Not one event, not one byte of snapshot.
+  assert.equal(app.__state().pending.length, 0, 'planning a run must never write an event');
+
+  await mapClick(pick('[data-map]', { map: 'plan' }));
+  assert.deepEqual(app.__ui().mapStops, [], 'leaving select mode clears the run');
+});
+
+await check('the List view is byte-for-byte what it was, plus the switch', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  // Tap List, the way a person would — the map tests above left the tab on Map,
+  // which is itself the remembered-choice behaviour working.
+  await mapClick(pick('[data-dview]', { dview: 'list' }));
+  const list = await renderRoute('#/dispatch');
+  assert.ok(list.includes('<h2>Open'), 'the Open block');
+  assert.ok(list.includes('Scheduled') && list.includes('Done this week'));
+  assert.ok(list.includes('data-sheet="add-run"'), '+ Add a run');
+  assert.ok(!list.includes('id="wimap"'), 'no map on the list view');
+  // The only thing D52 added to it.
+  assert.ok(list.includes('data-dview="map"') && list.includes('data-dview="list"'));
+  assert.ok(/<div class="segbar">[\s\S]*?<\/div>\s*\n\s*<div class="actions">/.test(list),
+    'the switch sits above the existing blocks, not inside them');
+});
+
+await check('the Dispatch tab remembers Map, and List takes it back', async () => {
+  await mapView();                       // lands on #/dispatch/map
+  assert.equal(app.__ui().dispatchView, 'map', 'a deep link sets the tab for this session');
+  assert.ok((await renderRoute('#/dispatch')).includes('id="wimap"'), 'the bare tab route follows the choice');
+  await mapClick(pick('[data-dview]', { dview: 'list' }));
+  assert.equal(app.__ui().dispatchView, 'list');
+  assert.ok(!(await renderRoute('#/dispatch')).includes('id="wimap"'));
+});
+
+await check('a schema-6 snapshot (no geo anywhere) says so instead of drawing a blank map', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  const snap = app.__state().snapshot;
+  delete snap.meta.geo;
+  const out = await renderRoute('#/dispatch/map');
+  assert.ok(out.includes('No map in this snapshot'), 'it must say why, not draw an empty state');
+  assert.ok(!out.includes('undefined'));
+  assert.ok(out.includes('data-dview="list"'), 'and leave the way back to the List view');
+
+  // And the List view is completely unaffected by a missing meta.geo — the way
+  // back has to work even when the map cannot draw, which is the whole point of
+  // leaving the switch on screen.
+  await mapClick(pick('[data-dview]', { dview: 'list' }));
+  const list = await renderRoute('#/dispatch');
+  assert.ok(list.includes('<h2>Open') && !list.includes('undefined'));
+});
+
+await check('the map renders for every role — geo is not money and is not gated', async () => {
+  for (const who of ['owner', 'sales', 'service']) {
+    const out = await mapView(who);
+    assert.ok(out.includes('id="wimap"'), `${who} got no map`);
+    assert.ok(!out.includes('undefined'), `${who} leaked undefined`);
+    // Leads render on the map exactly as they do on the Leads tab.
+    assert.ok(out.includes('class="pin k-lead') || out.includes('data-mapkind="lead"'), `${who}: leads missing`);
+  }
 });
 
 console.log(`\n${passed} checks passed.`);

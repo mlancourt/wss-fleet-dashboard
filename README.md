@@ -4,6 +4,17 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
+**v2.9 (schema 7, D52)** — a **Map** view on the Dispatch tab. `geo`
+(`{lat,lng,precision,in_wi}` or `null`) on units, tickets, leads and dispatch
+rows, plus `meta.geo` (shop, projected bounds, opening viewport). **The page
+never geocodes and never loads a map tile** — the engine geocodes once into the
+vault, and the pins are drawn on the vendored `docs/wi-map.svg`, whose
+projection constants live on its own root. Pins by kind, solid = street address
+and hollow = city only, stacked when they share an address, with an "off the
+map" list for everything that has no usable one. **Navigate** and **Plan a run**
+build Google Maps directions URLs from coordinates — links, not assets, and
+nothing is ever written.
+
 **v2.8 (schema 6 / S2)** — **upload from the phone.** 📷 Photo and 📎 File on
 ticket and lead detail, any role: the file goes to `POST /api/doc` (bytes only,
 no id — the Worker hashes them), then a `doc_attach` event carries the id. Photos
@@ -78,6 +89,7 @@ the hard rules — read it before changing anything here.
 | **v2.5 — lead logs money-free** | ✅ built (Sep 4, 2026) | service strip reversed; `npm run money-gate` green on the real snapshot |
 | **v2.7 — documents S1 (schema 6)** | ✅ built (Sep 8, 2026) | a real PDF round-trips through `npm run m1`; the hash check refuses a mismatched id |
 | **v2.8 — documents S2 (upload)** | ✅ built (Sep 8, 2026) | a phone-shaped upload + `doc_attach` round-trips through `npm run m1`; the resize is asserted in `npm test` |
+| **v2.9 — Map view (D52)** | ✅ built (Sep 9, 2026) | `#/dispatch/map` draws the state with pins; route builder opens a multi-stop Google Maps link; projection asserted against the real county polygons |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -327,6 +339,52 @@ EXIF rotation is applied (without it *every* portrait photo lands on its side),
 resized to a 1600 px long edge and re-encoded as JPEG at q0.7; PDFs never touch
 the canvas and nothing is ever converted *to* PDF.
 
+### The map (schema 7, D52)
+
+**No tiles, no map SDK, no geocoding in the browser.** The engine geocodes each
+address once, caches it in the vault, and ships `geo` already resolved; the page
+draws pins on a vendored SVG of Wisconsin. That is what keeps hard rule 4 (no
+external CDNs or assets) intact and what makes the map load on one bar of LTE.
+
+**`docs/wi-map.svg` is vendored, not ours.** The vault generates it and may
+regenerate it. Never hand-edit it, and never restyle it by editing it — it
+paints itself from five CSS variables (`--map-land`, `--map-line`, `--map-us`,
+`--map-i`, `--map-city`) which `style.css` overrides.
+
+**The projection lives on the asset.** Its root carries `data-lat0`,
+`data-lng0`, `data-kx`, `data-ky`, and a pin goes at
+
+```
+x = (lng − lng0) × kx        y = (lat0 − lat) × ky
+```
+
+`docs/map.js` reads those four numbers off the file at load and hardcodes none
+of them; `projector()` returns `null` if any is missing, so a bad asset draws no
+map rather than a map with every pin in the wrong place. `tools/selftest-map.mjs`
+ray-casts the projected shop coordinate against the asset's **own county
+polygons** and fails unless it lands in Jefferson County — which is the only
+check that would actually catch a regenerated file with new constants.
+
+Three rules that are easy to break later:
+
+- **`geo: null` and `in_wi: false` are never pinned.** They go to the "Off the
+  map" list with their raw address, which is how Matt finds the ones to fix in
+  the vault. They are not the same as a row that is off the board entirely: a
+  CLOSED ticket or an IN-SHOP repair is neither pinned nor listed.
+- **Identical coordinates are one place.** The geocode cache is keyed on the
+  address string, so an ON-RENT unit and its own pick-up run carry byte-identical
+  `geo` and stack into one pin with a count. That is an exact match, deliberately
+  — a distance threshold would invent clusters the data does not claim.
+- **Directions are built from coordinates, never the address string.** The
+  string is the thing that geocoded badly enough to need a map in the first
+  place. Navigate and Plan-a-run write nothing anywhere: the route lives in the
+  URL on the driver's phone. (Assigning a planned run to a rig would be a
+  dispatch event — ask Matt first; it is deliberately not in D52.)
+
+The Dispatch tab carries a **List | Map** segmented control (remembered in
+`localStorage`, `wss.dispatch.view`); `#/dispatch/map` links straight to the map
+so a run report can point at it. The List view is unchanged by D52.
+
 ### Icons
 
 ```bash
@@ -357,6 +415,8 @@ docs/                   GitHub Pages root — the app shell
   leads.js              leads board, scoreboard + insights logic, schema 5 (pure)
   notes.js              log[] timeline rows, shared by tickets + leads (pure)
   attachments.js        docs[] rows + upload logic (kinds, names, pending rows) — schema 6 (pure)
+  map.js                projection, pins, stacking, viewport, directions URLs — schema 7 (pure)
+  wi-map.svg            VENDORED Wisconsin map — vault-generated, never hand-edited
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
   sw.js                 shell cache only; data is never cached
@@ -383,6 +443,7 @@ tools/
   selftest-leads.mjs    schema-5 leads logic, incl. money-absent-not-zero
   selftest-notes.mjs    log[] rows — order kept, ts never Date-parsed
   selftest-attachments.mjs  docs[] rows + upload logic — id shape, kinds, names, sizes
+  selftest-map.mjs      D52 map logic, incl. the projection against the real asset
   selftest-render.mjs   every view, every mock variant, every role
 
 test/fixtures/
