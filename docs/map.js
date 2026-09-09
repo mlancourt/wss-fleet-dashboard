@@ -113,7 +113,7 @@ export const viewBoxStr = (v) => (v ? `${round(v.x)} ${round(v.y)} ${round(v.w)}
  * If a future snapshot widens `default_view` past the labels on its own (about
  * lng_max −87.22), set this to 1 and the box becomes the plain view ratio.
  */
-export const EDGE_LABEL_ALLOWANCE = 1.20;
+export const EDGE_LABEL_ALLOWANCE = 1;   // D53: default_view lng_max moved to -87.22 in the engine; labels clear unaided
 
 /** The lat/lng actually on screen, given the box's aspect. -> {x,y,w,h} in SVG units. */
 export function visibleBox(view, boxAspect) {

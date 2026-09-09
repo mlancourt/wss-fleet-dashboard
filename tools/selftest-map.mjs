@@ -105,7 +105,7 @@ check('the projection is invertible — a dragged viewBox becomes a lat/lng box 
 /* ------------------------------------------------------------ viewBox --- */
 
 const BOUNDS = { lat_min: 42.45, lat_max: 47.10, lng_min: -92.95, lng_max: -86.75 };
-const DEFAULT = { lat_min: 42.45, lat_max: 43.85, lng_min: -90.05, lng_max: -87.45 };   // D53
+const DEFAULT = { lat_min: 42.45, lat_max: 43.85, lng_min: -90.05, lng_max: -87.22 };   // D53 (engine value)
 const outer = boxToViewBox(BOUNDS, project);
 
 check('the declared bounds project onto the asset\'s own viewBox', () => {
@@ -117,7 +117,7 @@ check('the declared bounds project onto the asset\'s own viewBox', () => {
 
 check('the default view is the SE corner, right-way-up', () => {
   const v = boxToViewBox(DEFAULT, project);
-  assert.equal(viewBoxStr(v), '411.55 650 368.98 280');
+  assert.equal(viewBoxStr(v), '411.55 650 401.62 280');
   // lat_max is the TOP edge. Getting this backwards renders an upside-down
   // state and still "works", which is why it is asserted rather than eyeballed.
   const top = project(DEFAULT.lat_max, DEFAULT.lng_min);
@@ -477,15 +477,8 @@ const cityLabels = [...svgText.matchAll(
     return { name, tier, size, y: Number(y), left, right: left + w };
   });
 
-check('the asset really does hang its eastern labels past the default view', () => {
-  // The premise of EDGE_LABEL_ALLOWANCE. If a regenerated asset ever stops
-  // doing this, the allowance can go to 1 — and this check is how you find out.
-  const v = boxToViewBox(DEFAULT, project);
-  const east = v.x + v.w;
-  const over = cityLabels.filter((c) => c.y >= v.y && c.y <= v.y + v.h && c.right > east);
-  assert.ok(over.length, 'no label overhangs — set EDGE_LABEL_ALLOWANCE to 1 and delete this check');
-  assert.ok(over.some((c) => c.name === 'Milwaukee'), 'Milwaukee is the one D53 names');
-});
+// (The 'asset hangs its eastern labels' premise check was deleted 2026-09-09 when the engine moved
+// default_view.lng_max to -87.22 and EDGE_LABEL_ALLOWANCE went to 1 — exactly as it instructed.)
 
 check('at the opening frame, every eastern city label is fully on screen', () => {
   // THE D53 exit criterion, as arithmetic: box aspect -> visible extent ->

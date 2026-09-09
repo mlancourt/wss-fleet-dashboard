@@ -849,7 +849,7 @@ function build({ withServiceQueue }) {
         shop: { label: 'WSS — Ixonia', address: 'N8069 County Road F, Ste 106, Ixonia, WI 53036',
           lat: 43.137422, lng: -88.592609 },
         bounds:       { lat_min: 42.45, lat_max: 47.10, lng_min: -92.95, lng_max: -86.75 },
-        default_view: { lat_min: 42.45, lat_max: 43.85, lng_min: -90.05, lng_max: -87.45 },   // D53
+        default_view: { lat_min: 42.45, lat_max: 43.85, lng_min: -90.05, lng_max: -87.22 },   // D53 (engine value; -87.45 clipped Milwaukee)
         precision_legend: {
           rooftop: 'Exact street address',
           street: 'Street address',
