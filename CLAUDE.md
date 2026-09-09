@@ -7,7 +7,7 @@ You are building the employee-facing operations website for **Wisconsin Scrub & 
 
 **v2.4 (2026-09-04, 11:20):** `service_queue[].log[]` and `leads[].log[]` — the ticket/lead body as `{ts, who, text}` rows (last 30, oldest first). Additive. Render it as a **Notes** timeline in ticket detail and lead detail; Matt needs the tech's diagnosis on his phone to quote. `who` is a best-effort parse — display `text` as primary, `who` as a chip only when present.
 
-**v2.7 (2026-09-08, D48):** `READY-TO-SCHEDULE` service stage between WAITING-ON-PARTS and SCHEDULED — ten stages; *both* machine owners take it (the WSS skip set is unchanged at three), so Fleet draws seven columns and the pipeline nine rows. Meaning: approval + parts in hand, WSS owes the customer a date — our court, maroon. The engine auto-moves READY-TO-SCHEDULE → SCHEDULED when a `scheduled` date lands. Spec: [[Ready-To-Schedule-Site-Spec]]. **v2.3 (2026-09-04, D47):** `NEEDS-QUOTE` service stage — nine stages, three-value WSS skip set; kanban/picker/pipeline derive from `stagesFor()`. Shipped Worker 8b690e5a · Pages 5cd6fda. *(v1.7/v1.8 lines below still say eight stages / seven pipeline rows — 🕰️ historical, accurate for their date.)*
+**v2.8 (2026-09-09, D52) — schema 7:** `geo: {lat,lng,precision,in_wi} | null` on `units[]` (job_site, out states only), `service_queue[]` (site), `leads[]` (site), `dispatch[]` (address) + `meta.geo` (shop pin, projected bounds, default SE viewport). Engine geocodes once and caches in the vault; the page never geocodes and never loads tiles — it draws pins on the vendored `docs/wi-map.svg` (counties + interstates + city labels; projection constants on the SVG root as `data-lat0/lng0/kx/ky`). Map lives on the **Dispatch** tab as a List | Map segmented control; pins by kind (Service/Pickup/Delivery/Lead/Rental), solid = street precision, hollow = city, off-map list for `geo:null`/`in_wi:false`; Navigate + Plan-a-run open Google Maps directions URLs (links, not assets). Spec: [[Map-View-Site-Spec]]. **v2.7 (2026-09-08, D48):** `READY-TO-SCHEDULE` service stage between WAITING-ON-PARTS and SCHEDULED — ten stages; *both* machine owners take it (the WSS skip set is unchanged at three), so Fleet draws seven columns and the pipeline nine rows. Meaning: approval + parts in hand, WSS owes the customer a date — our court, maroon. The engine auto-moves READY-TO-SCHEDULE → SCHEDULED when a `scheduled` date lands. Spec: [[Ready-To-Schedule-Site-Spec]]. **v2.3 (2026-09-04, D47):** `NEEDS-QUOTE` service stage — nine stages, three-value WSS skip set; kanban/picker/pipeline derive from `stagesFor()`. Shipped Worker 8b690e5a · Pages 5cd6fda. *(v1.7/v1.8 lines below still say eight stages / seven pipeline rows — 🕰️ historical, accurate for their date.)*
 
 **v2.1 (2026-09-03, D46):** `DELETE /api/event/:id` (undo your own pending tap), Dispatch lists DELIVER before PICKUP in Open/Scheduled, "Fleet value on rent" caption under the dollar bar. Spec: [[Undo-Pending-Site-Spec]]. **v2.0 (2026-09-03, D45) — schema 4:** `acquisition_cost` + `book` are GONE from `units[]` (only `ask` survives), `meta.fleet_totals` = `{units}` only, new `meta.utilization` carries the D19/D44 bars as engine-computed percentages — no dollar amount ships, ever (same reasoning as D16's floor). Spec: [[Cost-Privacy-Site-Spec]]. **v1.9 (2026-09-03, D44):** landing utilization card carries a second bar by dollars (acquisition cost). Spec: [[Dollar-Utilization-Site-Spec]]. **v1.8 (2026-09-03, D43):** Service tab is chip-driven — All · Fleet · Customer choose the widget zone; new **Service Pipeline** widget (seven stage rows over open customer tickets, `N open` + `N closed this week` pills), client-computed, no contract change. Spec: [[Service-Pipeline-Widget-Site-Spec]]. **v1.7 (2026-09-03, D42):** service stages are now RECEIVED · CONTACTED · WAITING-ON-CUSTOMER · WAITING-ON-PARTS · SCHEDULED · IN-PROGRESS · READY-TO-INVOICE · COMPLETE (whose-court model); WSS-owned tickets skip WAITING-ON-CUSTOMER + READY-TO-INVOICE. **v1.6 (2026-09-03) — schema 3:** Billing tab retired → **Dispatch**; Service tab real; six new write actions. Work order: [[Service-Dispatch-Site-Spec]]. Sections below are updated in place; where a v1.5 rule survives it's unchanged.
 
@@ -60,6 +60,7 @@ If real data ever looks wrong, **report it — never "fix" data**. The vault win
   index.html
   app.js  style.css
   manifest.webmanifest  sw.js  icons/
+  wi-map.svg            ← D52: vendored Wisconsin map (vault-generated; never hand-edit — projection constants on its root)
   CNAME                 ← "fleet.wisconsinscrubandsweep.com" (add at M3, not before)
 /worker/
   worker.js             ← entire Worker, single file
@@ -139,7 +140,7 @@ UI rules: **Reserve is offered on any non-RETIRED unit** (D28 — a machine out 
 
 Site: 📷 Photo (`capture="environment"`) and 📎 File on ticket + lead detail, any role. One file per tap, **no `multiple`**. Images resize on a canvas to a 1600 px long edge at JPEG q0.7 with EXIF orientation applied; **PDFs pass through untouched** and nothing is ever converted *to* PDF. A failed send shows "Didn't send — tap to retry" against the blob still in memory: **no persistent queue, no background sync, no `localStorage` of blobs** — and the copy says so ("leaving this page discards it"). A pending `doc_attach` renders as a pending row in that record's Documents group and is not openable until the engine files it.
 
-## Snapshot contract — `dashboard-data.json` (schema_version 4 → 5 → **6 as of 2026-09-08**)
+## Snapshot contract — `dashboard-data.json` (schema_version 4 → 5 → 6 → **7 as of 2026-09-09**)
 
 > **Schema 6 (LIVE, additive):** `service_queue[]`, `leads[]` and `agreements[]` each gain `docs[]` — `{id, name, kind, bytes, added}`, always present, may be `[]`. `id` is 16 lowercase hex (the content hash); `kind` ∈ `QUOTE · WORKORDER · PARTS-LIST · PM-REPORT · SERVICE-TICKET · PO · PHOTO · OTHER`. Read at `GET /api/doc/<id>` (token, `?t=` or Bearer). **Docs are never stripped and never role-gated** — the §6 money gate does not touch them. A schema-5 snapshot (no `docs` key) must render unchanged. Upload: the documents block above.
 
@@ -152,7 +153,11 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
   "meta": { "schema_version": 4, "generated_at": "<UTC ISO>", "run_id": "…",
             "fleet_totals": { "units": 36 },                       // D45: units only — no cost/book/ask totals ship
             "utilization": { "units": { "on_rent": 18, "total": 35, "pct": 51 },
-                             "dollars": { "pct": 60, "excluded": 0 } } },   // D45: the D19 + D44 bars, engine-computed; dollars carries NO amounts
+                             "dollars": { "pct": 60, "excluded": 0 } },     // D45: the D19 + D44 bars, engine-computed; dollars carries NO amounts
+            "geo": { "shop": { "label": "WSS — Ixonia", "address": "…", "lat": 43.137422, "lng": -88.592609 },   // D52
+                     "bounds": { "lat_min": 42.45, "lat_max": 47.10, "lng_min": -92.95, "lng_max": -86.75 },
+                     "default_view": { "lat_min": 42.45, "lat_max": 43.90, "lng_min": -90.15, "lng_max": -87.70 },
+                     "precision_legend": { "rooftop": "…", "street": "…", "city": "…", "none": "…" } } },
   "categories": ["…9 rental-rate-matrix band names, display order…"],
   "units": [ {
     "serial": "150074", "asset_item": "…", "brand": "…", "model": "…", "description": "…",
@@ -178,7 +183,11 @@ The engine emits this; you consume it and also generate FAKE versions of it in `
     "reservations": [ { "id": "h2812b2", "held_by": "Kevin", "customer": "…", "purpose": "…",
                         "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "created": "YYYY-MM-DD",
                         "status": "current" } ],
-    "service_ticket": null                       // schema 3: "S1001" when the unit has an OPEN ticket (D35), else null. (The singular `reservation` object is GONE at schema 3.)
+    "service_ticket": null,                      // schema 3: "S1001" when the unit has an OPEN ticket (D35), else null. (The singular `reservation` object is GONE at schema 3.)
+  // D52 (schema 7) — on units[] (out states only), service_queue[], leads[], dispatch[]; null when no usable address.
+  // Engine-geocoded + vault-cached; the page NEVER geocodes. Pin math: x=(lng−lng0)·kx, y=(lat0−lat)·ky with the
+  // constants read off wi-map.svg's root. precision rooftop/street → solid pin · city → hollow · in_wi:false → off-map list.
+  "geo": { "lat": 43.074846, "lng": -88.478582, "precision": "rooftop|street|city", "in_wi": true },
   } ],
   "reservations": { "upcoming": [ { "serial","model","category","id","held_by","customer",
                                     "purpose","start","end","status" } ],
