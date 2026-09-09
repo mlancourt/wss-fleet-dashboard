@@ -1507,3 +1507,115 @@ I also parsed the spliced output as XML out-of-band: well-formed, 72 counties,
   hits deterministically from the whole string, so the same address is always
   the same point and different ones are not. City-precision hits keep the town
   centroid, which is exactly why they draw hollow.
+
+---
+
+# D53 — Map facelift (2026-09-09)
+
+Amends D52. Schema stays 7; the one contract change is `meta.geo.default_view`,
+read from the snapshot as before. `docs/wi-map.svg` committed **as received**
+(`sha256 a49c17f0176e7d1406e3bd08aa574573b38a77b1a0096cf10de8d726d7fa50ff`) —
+not regenerated, not hand-edited, not restyled.
+
+## What shipped
+
+**The overrides are gone.** `style.css` no longer declares a single `--map-*`
+variable. The asset carries the intended values as fallbacks, so it now renders
+as designed: light grey land, blue water, white roads on grey casing, tiered
+city labels. A test fails if any override comes back.
+
+**New pin palette, nothing red** — purple / orange / blue / green / teal, plus
+the brand-red shop house. Filter chips wear their own kind's colour (filled on,
+outlined off) and the legend swatches match.
+
+**Teardrop markers with ID chips.** Tip on the coordinate, ~22 px tall,
+counter-scaled. A white pill beside the head carries the ticket number, lead id
+or serial in the kind's colour, visible at the default zoom and anything
+tighter, hidden above 1.6× the opening view.
+
+**Hollow markers retired.** `solid` is gone from `map.js`, `app.js` and the CSS.
+Precision is now a sentence in the tap sheet: "**City center** — no street
+address on file" / "**Approximate** — street, no number", and nothing at all for
+a rooftop hit. A stack reports the *best* precision of its rows.
+
+**Box sized to the opening view**, so the dead band under the state is gone.
+
+## Decisions I made
+
+- **The box is 1.20× wider than the view, not exactly its aspect.** §4's formula
+  produces a frame that ends at `default_view`'s east edge — and I measured the
+  asset's own label geometry against it: **"Milwaukee" runs 14.7 user units past
+  that edge, "Kenosha" 3.3, "Sheboygan" 31.9.** Sized exactly to the view, the
+  biggest label on the board loses its tail, which is the opposite of the
+  §8 exit criterion. SVG's `meet` fit fills leftover room with adjacent map, so
+  a slightly wider box buys the labels back horizontally and costs only height —
+  and vertical dead space was the thing being removed, so the trade is the right
+  way round. On a 375 px phone the box is 237 px tall and the frame runs
+  374.7–817.4 user units, clearing all three labels. See the contract note below.
+
+- **The lead-in words are the site's, not the snapshot's.** `precision_legend`
+  supplies only the explanatory half ("no street address on file"); "City
+  center" and "Approximate" are hardcoded. A thin or missing legend can then
+  never collapse the two cases into one indistinguishable line.
+
+- **A rooftop hit says nothing.** Printing "Exact address" on nine pins out of
+  ten trains people to stop reading the line, and then the one that matters gets
+  skipped too.
+
+- **A stack takes the best precision of its rows**, not the first or the worst:
+  if one row is known to the rooftop then the *place* is.
+
+- **Chip width is estimated, not measured.** This markup is built as a string
+  like every other view here, and measuring needs a laid-out DOM. 5.4 units per
+  character at 9 px is slightly generous for a bold sans — the right way to be
+  wrong, since a pill a shade too wide looks deliberate and one too narrow clips
+  the text it exists to show.
+
+- **"Not red" is a hue test.** The mandated pick-up orange `#F97316` is 98% red
+  channel; a naive channel test rejects it. The check computes hue, requires
+  every kind outside 345°–15°, and additionally requires the five to sit >25°
+  apart from each other — so a future palette tweak cannot quietly make two
+  kinds look the same.
+
+## Tests
+
+`npm test` — **268 checks** (was 257), 36 map + 93 render.
+
+New coverage: the hollow marker is gone from code *and* markup; a stack reports
+the best precision; the precision line appears for city/street and not for
+rooftop; every marker is the same teardrop; no pin colour is in the red band and
+no two are within 25°; `style.css` declares no `--map-*` override and the asset
+still carries its fallbacks; every pin has an ID chip at the default view, the
+whole state switches them off and coming home switches them back; the box
+aspect is wider than the view and narrower than a letterbox.
+
+The frame check is the one worth keeping: it parses the **asset's own** city
+labels, estimates their widths from bold-grotesque advance tables, computes the
+visible extent from the box aspect, and fails if any label overlapping the frame
+is drawn half off it. That is the D53 exit criterion as arithmetic rather than
+as an eyeball, and it survives a regenerated asset. Monroe and Beloit are
+asserted to clear the bottom edge, descenders included.
+
+I also re-parsed the rendered map as XML out-of-band: well-formed, 72 counties,
+48 lakes, 28 teardrops, 28 ID chips, 11 count badges, zero "hollow".
+
+## Things worth flagging
+
+- **`default_view` is ~0.09° short of clearing "Milwaukee" on its own.** The
+  allowance handles it today, but the clean fix is in the contract: **`lng_max`
+  −87.22** (instead of −87.45) puts the east edge past "Sheboygan", the widest
+  overhang, with no allowance at all. Ship that and
+  `EDGE_LABEL_ALLOWANCE` in `docs/map.js` goes to 1 — one constant, and the test
+  that measures the labels tells you immediately whether it worked.
+
+- **The bleed reveals a sliver of the west.** At the opening frame the left edge
+  sits at lng −90.31 rather than the contract's −90.05. Nothing is clipped
+  there (La Crosse is well outside), and it costs nothing; it is simply what
+  centring the extra width does.
+
+- **`CLAUDE.md` still has the uncommitted edit that reverts the schema-6
+  sections** — unchanged from the D52 report, still staged out of my commits,
+  still worth resolving before another session reads it as the brief.
+
+- **Pinch/drag remains unverified on hardware.** Unchanged by D53; the clamp and
+  zoom arithmetic are unit-tested, the gesture feel still needs a phone.

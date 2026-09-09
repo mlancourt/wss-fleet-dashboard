@@ -25,8 +25,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   projector, boxToViewBox, viewBoxStr, clampViewBox, zoomAt,
-  collect, stack, stackKind, groupOff, geoMeta, hasGeo, usableGeo,
-  navUrl, routeUrl, MAX_STOPS, KINDS,
+  collect, stack, stackKind, groupOff, geoMeta, hasGeo, usableGeo, precisionNote,
+  navUrl, routeUrl, MAX_STOPS, KINDS, EDGE_LABEL_ALLOWANCE, visibleBox,
 } from '../docs/map.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +47,9 @@ check('the shipped asset carries its own projection contract', () => {
   for (const k of ['data-lat0', 'data-lng0', 'data-kx', 'data-ky', 'viewBox']) {
     assert.ok(rootAttrs.has(k), `wi-map.svg root is missing ${k}`);
   }
+  // D53's regenerated build. The projection constants are unchanged from D52 —
+  // asserted by the county ray-cast below, which would fail loudly otherwise.
+  assert.equal(rootAttrs.get('data-style'), 'd53', 'this is not the D53 asset');
   // If this ever fails, the vault regenerated the asset — which is allowed.
   // Nothing in docs/map.js hardcodes these; only this assertion knows them.
   assert.equal(rootAttrs.get('viewBox'), '0 0 880 930');
@@ -102,7 +105,7 @@ check('the projection is invertible — a dragged viewBox becomes a lat/lng box 
 /* ------------------------------------------------------------ viewBox --- */
 
 const BOUNDS = { lat_min: 42.45, lat_max: 47.10, lng_min: -92.95, lng_max: -86.75 };
-const DEFAULT = { lat_min: 42.45, lat_max: 43.90, lng_min: -90.15, lng_max: -87.70 };
+const DEFAULT = { lat_min: 42.45, lat_max: 43.85, lng_min: -90.05, lng_max: -87.45 };   // D53
 const outer = boxToViewBox(BOUNDS, project);
 
 check('the declared bounds project onto the asset\'s own viewBox', () => {
@@ -114,7 +117,7 @@ check('the declared bounds project onto the asset\'s own viewBox', () => {
 
 check('the default view is the SE corner, right-way-up', () => {
   const v = boxToViewBox(DEFAULT, project);
-  assert.equal(viewBoxStr(v), '397.36 640 347.69 290');
+  assert.equal(viewBoxStr(v), '411.55 650 368.98 280');
   // lat_max is the TOP edge. Getting this backwards renders an upside-down
   // state and still "works", which is why it is asserted rather than eyeballed.
   const top = project(DEFAULT.lat_max, DEFAULT.lng_min);
@@ -230,13 +233,45 @@ check('every pin carries what the sheet needs, and a route that exists', () => {
   assert.equal(pins.find((p) => p.id === '900149').line, 'Factory Cat Model 34');
 });
 
-check('solid vs hollow follows precision, and nothing else', () => {
-  const { pins } = collect(SNAP);
-  assert.equal(pins.find((p) => p.id === 'L1').solid, false, 'city precision draws hollow');
-  assert.equal(pins.find((p) => p.id === 'S1').solid, true, 'street draws solid');
-  assert.equal(usableGeo(GEO(43, -88, 'rooftop')).solid, true);
-  assert.equal(usableGeo(GEO(43, -88, 'city')).solid, false);
-  assert.equal(usableGeo(GEO(43, -88, null)).solid, false, 'no precision is not a promise of one');
+check('the hollow marker is GONE — `solid` exists nowhere (D53)', () => {
+  // Every pinned row now draws the same marker whatever its precision. If
+  // `solid` ever comes back, the shape is hiding the kind colour again.
+  const { pins, off } = collect(SNAP);
+  for (const p of [...pins, ...off]) assert.ok(!('solid' in p), `${p.id} still carries solid`);
+  assert.ok(!('solid' in usableGeo(GEO(43, -88, 'city'))));
+  for (const st of stack(pins)) assert.ok(!('solid' in st), 'a stack must not carry solid either');
+  // Precision survives — it is what the sheet's line is made of.
+  assert.equal(pins.find((p) => p.id === 'L1').precision, 'city');
+  assert.equal(pins.find((p) => p.id === 'S1').precision, 'street');
+});
+
+check('a stack reports the BEST precision of its rows', () => {
+  const s = stack([
+    { kind: 'lead', id: 'a', lat: 43, lng: -88, precision: 'city' },
+    { kind: 'service', id: 'b', lat: 43, lng: -88, precision: 'rooftop' },
+  ]);
+  assert.equal(s[0].precision, 'rooftop', 'one rooftop row means the place IS known');
+  // An unknown precision ranks below city — never claim more than we were told.
+  assert.equal(stack([
+    { kind: 'lead', id: 'a', lat: 43, lng: -88, precision: null },
+    { kind: 'lead', id: 'b', lat: 43, lng: -88, precision: 'city' },
+  ])[0].precision, 'city');
+  assert.equal(stack([{ kind: 'lead', id: 'a', lat: 43, lng: -88, precision: null }])[0].precision, null);
+});
+
+check('the precision line says something only when there is something to say', () => {
+  const legend = { city: 'no street address on file', street: 'street, no number' };
+  assert.deepEqual(precisionNote('city', legend), { lead: 'City center', rest: 'no street address on file' });
+  assert.deepEqual(precisionNote('street', legend), { lead: 'Approximate', rest: 'street, no number' });
+  // A rooftop hit is the normal case. Saying "exact address" on nine pins out
+  // of ten is noise that trains people to stop reading the line at all.
+  assert.equal(precisionNote('rooftop', legend), null);
+  assert.equal(precisionNote(null, legend), null);
+  assert.equal(precisionNote('city', null).rest, 'no street address on file', 'a snapshot with no legend still reads');
+  // The lead-in is OURS, not the snapshot's, so a thin legend cannot erase the
+  // distinction between "city center" and "approximate".
+  assert.equal(precisionNote('city', {}).lead, 'City center');
+  assert.equal(precisionNote('street', {}).lead, 'Approximate');
 });
 
 check('a demo lead is flagged for its own glyph', () => {
@@ -269,19 +304,10 @@ check('identical coordinates collapse into one pin (§3.4)', () => {
   assert.equal(stacks.reduce((n, s) => n + s.rows.length, 0), pins.length, 'no row may be lost in a stack');
 });
 
-check('a stack is solid if ANY row in it knows the street', () => {
-  const s = stack([
-    { kind: 'lead', id: 'a', lat: 43, lng: -88, solid: false },
-    { kind: 'service', id: 'b', lat: 43, lng: -88, solid: true },
-  ]);
-  assert.equal(s.length, 1);
-  assert.equal(s[0].solid, true, 'the place is known to the street; say so');
-});
-
 check('stackKind is a priority order, not whichever row came first', () => {
   const s = stack([
-    { kind: 'rental', id: 'a', lat: 43, lng: -88, solid: true },
-    { kind: 'service', id: 'b', lat: 43, lng: -88, solid: true },
+    { kind: 'rental', id: 'a', lat: 43, lng: -88, precision: 'street' },
+    { kind: 'service', id: 'b', lat: 43, lng: -88, precision: 'street' },
   ]);
   // Work beats inventory: a broken machine at a plant is the reason to go.
   assert.equal(stackKind(s[0]), 'service');
@@ -291,8 +317,8 @@ check('stackKind is a priority order, not whichever row came first', () => {
 
 check('coordinates that differ at all are two places', () => {
   const s = stack([
-    { kind: 'lead', id: 'a', lat: 43.000000, lng: -88, solid: true },
-    { kind: 'lead', id: 'b', lat: 43.000002, lng: -88, solid: true },
+    { kind: 'lead', id: 'a', lat: 43.000000, lng: -88, precision: 'street' },
+    { kind: 'lead', id: 'b', lat: 43.000002, lng: -88, precision: 'street' },
   ]);
   assert.equal(s.length, 2, 'no distance threshold — the cache gives exact matches or nothing');
 });
@@ -381,7 +407,9 @@ check('the mock carries every case the map has to survive (§4)', () => {
 
   assert.ok(pins.length > 20, 'a realistic scatter, not three pins');
   assert.ok(stacks.filter((s) => s.rows.length > 1).length >= 1, 'at least one stack');
-  assert.ok(pins.some((p) => !p.solid), 'a city-precision row, for the hollow pin');
+  assert.ok(pins.some((p) => p.precision === 'city'), 'a city-precision row, for the sheet line');
+  assert.ok(pins.some((p) => p.precision === 'street'), 'and a street-precision one (D53 §6)');
+  assert.ok(pins.some((p) => p.precision === 'rooftop'), 'and a rooftop one, which says nothing');
   assert.ok(off.some((r) => r.kind === 'service' && r.address), 'a geo:null ticket with a real-looking site');
   assert.ok(mock.leads.some((l) => l.geo && l.geo.in_wi === false), 'an out-of-state lead');
   assert.ok(mock.service_queue.some((t) => t.location === 'IN-SHOP' && t.geo === null), 'an IN-SHOP ticket');
@@ -422,6 +450,100 @@ check('the mock projects onto the real asset — every pin inside the drawing', 
   }
   // And the shop lands in Jefferson County, from the mock's own meta.geo.
   assert.deepEqual(countyAt(g.shop.lat, g.shop.lng), ['Jefferson']);
+});
+
+/* ------------------------------------------ the opening frame (D53) ------ */
+
+/**
+ * Advance widths for a bold/semibold grotesque, per 1000 em (Helvetica-Bold).
+ * The asset asks for system-ui, which is SF Pro / Segoe / Roboto depending on
+ * the phone — all close enough to Helvetica for a CLIPPING test, and Helvetica
+ * runs slightly wide, so an estimate that fits here fits in practice.
+ */
+const ADV = { M: 889, i: 278, l: 222, w: 722, a: 556, u: 611, k: 611, e: 556, o: 611, n: 611, r: 389,
+  B: 722, t: 333, J: 611, s: 556, v: 611, c: 556, W: 944, K: 722, S: 667, h: 611, b: 611, g: 611,
+  d: 611, F: 611, L: 611, G: 778, y: 611, P: 667, m: 889, A: 722, C: 722, p: 611, f: 333, '.': 278,
+  ' ': 278, '-': 333, R: 722, E: 667, O: 778, N: 722, I: 278, T: 611, D: 722, U: 722, x: 556, z: 500 };
+const TIER_SIZE = { t1: 14, t2: 11, t3: 9.5 };
+const textWidth = (t, size) => ([...t].reduce((n, c) => n + (ADV[c] || 600), 0) / 1000) * size + 3.5; // +halo
+
+const cityLabels = [...svgText.matchAll(
+  /<text class="city (t\d)" x="([\d.]+)" y="([\d.]+)"(?: text-anchor="(\w+)")?>([^<]+)<\/text>/g)]
+  .map(([, tier, x, y, anchor, name]) => {
+    const size = TIER_SIZE[tier];
+    const w = textWidth(name, size);
+    const a = anchor || 'start';
+    const left = a === 'start' ? Number(x) : a === 'middle' ? Number(x) - w / 2 : Number(x) - w;
+    return { name, tier, size, y: Number(y), left, right: left + w };
+  });
+
+check('the asset really does hang its eastern labels past the default view', () => {
+  // The premise of EDGE_LABEL_ALLOWANCE. If a regenerated asset ever stops
+  // doing this, the allowance can go to 1 — and this check is how you find out.
+  const v = boxToViewBox(DEFAULT, project);
+  const east = v.x + v.w;
+  const over = cityLabels.filter((c) => c.y >= v.y && c.y <= v.y + v.h && c.right > east);
+  assert.ok(over.length, 'no label overhangs — set EDGE_LABEL_ALLOWANCE to 1 and delete this check');
+  assert.ok(over.some((c) => c.name === 'Milwaukee'), 'Milwaukee is the one D53 names');
+});
+
+check('at the opening frame, every eastern city label is fully on screen', () => {
+  // THE D53 exit criterion, as arithmetic: box aspect -> visible extent ->
+  // does the widest label on the eastern shore fit? Screen width cancels out,
+  // because the asset's font sizes are in SVG user units.
+  const v = boxToViewBox(DEFAULT, project);
+  const box = visibleBox(v, (v.w * EDGE_LABEL_ALLOWANCE) / v.h);
+
+  assert.ok(Math.abs(box.y - v.y) < 0.01 && Math.abs(box.h - v.h) < 0.01,
+    'the allowance must buy width only — vertical dead space is what D53 is removing');
+
+  // A label wholly outside the frame is not clipped, it is simply not shown —
+  // only one that OVERLAPS an edge is half-drawn, and only those are the bug.
+  const overlapping = cityLabels.filter((c) =>
+    c.y >= box.y && c.y <= box.y + box.h && c.right > box.x && c.left < box.x + box.w);
+  const clipped = overlapping.filter((c) => c.left < box.x || c.right > box.x + box.w);
+  assert.deepEqual(clipped.map((c) => c.name), [], 'these labels are drawn half off the frame');
+  assert.ok(overlapping.length > 10, 'sanity: the frame should carry most of SE Wisconsin');
+
+  const mke = cityLabels.find((c) => c.name === 'Milwaukee');
+  assert.ok(mke.right <= box.x + box.w, `Milwaukee needs ${mke.right.toFixed(1)}, frame ends ${(box.x + box.w).toFixed(1)}`);
+});
+
+check('Monroe and Beloit sit inside the bottom edge, unclipped', () => {
+  const v = boxToViewBox(DEFAULT, project);
+  for (const name of ['Monroe', 'Beloit']) {
+    const c = cityLabels.find((x) => x.name === name);
+    assert.ok(c, `${name} is not on the asset`);
+    // Baseline plus a descender's worth has to clear the south edge.
+    assert.ok(c.y + c.size * 0.22 <= v.y + v.h, `${name} baseline ${c.y} is below the frame`);
+    assert.ok(c.y >= v.y, `${name} is above the frame`);
+  }
+});
+
+check('visibleBox trades in one direction at a time', () => {
+  const v = { x: 100, y: 100, w: 400, h: 200 };          // aspect 2
+  const wide = visibleBox(v, 4);                          // wider box -> more width
+  assert.equal(wide.h, 200);
+  assert.equal(wide.w, 800);
+  assert.equal(wide.x, -100, 'the extra splits evenly, because meet centres');
+  const tall = visibleBox(v, 1);                          // taller box -> more height
+  assert.equal(tall.w, 400);
+  assert.equal(tall.h, 400);
+  assert.equal(tall.y, 0);
+  assert.deepEqual(visibleBox(v, 2), { x: 100, y: 100, w: 400, h: 200 }, 'an exact match reveals nothing');
+  assert.equal(visibleBox(null, 2), null);
+});
+
+check('the chip-hide threshold shows chips at the default view and hides them state-wide', () => {
+  // D53: "hide chips only when the viewBox is wider than ~1.6x the default view".
+  const FACTOR = 1.6;
+  const v = boxToViewBox(DEFAULT, project);
+  const hideAbove = v.w * FACTOR;
+  assert.ok(v.w <= hideAbove, 'the default view must show chips');
+  assert.ok(v.w * 0.5 <= hideAbove, 'and so must anything tighter');
+  assert.ok(outer.w > hideAbove, 'the whole state must hide them');
+  // And the threshold sits inside the range the work order allows.
+  assert.ok(FACTOR >= 1.4 && FACTOR <= 1.8);
 });
 
 console.log(`\n${passed} checks passed`);

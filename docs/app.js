@@ -31,8 +31,9 @@ import {
 import { logRows, pendingNotes } from './notes.js';
 import {
   projector, boxToViewBox, viewBoxStr, clampViewBox, zoomAt,
-  collect, stack, stackKind, groupOff, geoMeta, hasGeo,
+  collect, stack, stackKind, groupOff, geoMeta, hasGeo, precisionNote,
   navUrl, routeUrl, MAX_STOPS, KINDS as MAP_KINDS, KIND_LABEL as MAP_KIND_LABEL,
+  EDGE_LABEL_ALLOWANCE,
 } from './map.js';
 import {
   docRows, docUrl, pendingDocRows, resolveKind, sanitizeName, retypeName, cameraName,
@@ -1556,21 +1557,84 @@ function mapDefaultView(g) {
  * only size that matters to the person holding the phone.
  */
 const MAP_ZOOM_MIN_SPAN = 40;              // ~25 km across: tight enough for one industrial park
-const LABEL_HIDE_SPAN = 300;               // wider than this is the whole-state view: dots only
+
+/**
+ * Chips disappear above 1.6x the opening view — i.e. only when you have zoomed
+ * out past the region and are looking at the whole state, where the pills would
+ * overlap into a grey smear. Anywhere at or tighter than the default view, every
+ * pin shows its ID; that is the point of D53.
+ */
+const CHIP_HIDE_FACTOR = 1.6;
+const chipHideSpan = () => (mapHome ? mapHome.w : (mapOuter ? mapOuter.w : 370)) * CHIP_HIDE_FACTOR;
+
+/**
+ * The map box is sized to the OPENING VIEW's shape, not the whole state's —
+ * D52 sized it square-ish and left a band of empty map under Wisconsin on every
+ * phone.
+ *
+ * The ratio is deliberately a little WIDER than the view itself — see
+ * EDGE_LABEL_ALLOWANCE in docs/map.js for why (the asset's eastern city labels
+ * run past `default_view`'s east edge, and a box matched exactly to the view
+ * slices the tail off "Milwaukee").
+ *
+ * The allowance itself lives in docs/map.js so tools/selftest-map.mjs can hold
+ * it to account against the asset's real label geometry.
+ */
+const mapBoxRatio = () => {
+  const v = mapHome || mapOuter;
+  if (!v || !(v.h > 0)) return '4 / 3';
+  return `${(v.w * EDGE_LABEL_ALLOWANCE).toFixed(2)} / ${v.h.toFixed(2)}`;
+};
+
+/**
+ * Markers are drawn in SVG user units, so they grow as you zoom in — a 22 px
+ * teardrop would become a dinner plate. Counter-scaling by the viewBox width
+ * holds every pin, chip and badge at one size ON SCREEN, which is the only size
+ * the person holding the phone experiences.
+ */
 const pinScale = () => {
   const base = mapHome ? mapHome.w : (mapOuter ? mapOuter.w : 350);
   return Math.max(0.35, Math.min(2.6, (mapView ? mapView.w : base) / base));
 };
 
-/* Shapes carry the same signal as the colours, for the reader who cannot tell
- * the red from the green: service is a circle, a pick-up is a square, a
- * delivery is a diamond, a rental is a small dot, a demo lead is a triangle. */
+/**
+ * A teardrop whose TIP sits on the coordinate (0,0) and whose head is above it,
+ * so the marker points at the place rather than covering it. ~22 units tall,
+ * which is ~22 px at the opening zoom after counter-scaling.
+ *
+ * A demo lead keeps its own glyph — a triangle inside the head instead of the
+ * usual dot — because a demo is the one lead with a truck and a date already
+ * attached to it, and that is worth seeing without tapping.
+ */
+const TEARDROP = 'M0,0 C-3.4,-6.2 -8,-8.6 -8,-13.6 A8,8 0 1 1 8,-13.6 C8,-8.6 3.4,-6.2 0,0 Z';
+const PIN_HEAD_Y = -13.6;
+
 function pinShape(kind, demo) {
-  if (kind === 'pickup') return '<rect class="pg" x="-6.5" y="-6.5" width="13" height="13" rx="1.5"/>';
-  if (kind === 'delivery') return '<path class="pg" d="M0,-8 L8,0 L0,8 L-8,0 Z"/>';
-  if (kind === 'rental') return '<circle class="pg" r="5"/>';
-  if (kind === 'lead') return demo ? '<path class="pg" d="M0,-8 L7.5,6 L-7.5,6 Z"/>' : '<circle class="pg" r="6.5"/>';
-  return '<circle class="pg" r="7"/>';     // service
+  const eye = demo
+    ? `<path class="eye" d="M0,${PIN_HEAD_Y - 3.4} L3,${PIN_HEAD_Y + 2.2} L-3,${PIN_HEAD_Y + 2.2} Z"/>`
+    : `<circle class="eye" cy="${PIN_HEAD_Y}" r="3"/>`;
+  return `<path class="pg" d="${TEARDROP}"/>${eye}`;
+}
+
+/**
+ * The ID chip: a white pill just right of the pin head carrying the ticket
+ * number, lead id or serial in the kind's colour.
+ *
+ * Width is estimated from the character count rather than measured — measuring
+ * needs a laid-out DOM and this markup is built as a string like every other
+ * view in this app. 5.4 units per character at 9px is a shade generous for a
+ * bold sans, which is the right way to be wrong: a pill slightly too wide looks
+ * deliberate, one too narrow clips the text it exists to show.
+ */
+function pinChip(text) {
+  const t = String(text == null ? '' : text);
+  if (!t) return '';
+  const w = Math.max(18, t.length * 5.4 + 8);
+  const h = 13;
+  const x = 9;
+  const y = PIN_HEAD_Y - h / 2;
+  return `<g class="chip"><rect class="chip-bg" x="${x}" y="${y}" width="${w.toFixed(1)}" height="${h}" rx="${h / 2}"/>` +
+    `<text class="chip-tx" x="${(x + w / 2).toFixed(1)}" y="${PIN_HEAD_Y + 0.4}" text-anchor="middle">${esc(t)}</text></g>`;
 }
 
 /** The Dispatch map. Chips, the surface, the stop strip, the off-map list. */
@@ -1634,14 +1698,17 @@ function viewDispatchMap() {
  */
 function mapSurface(g, stacks) {
   const scale = pinScale();
-  const small = mapView.w > LABEL_HIDE_SPAN;
+  const far = mapView.w > chipHideSpan();
   const stopIndex = new Map(ui.mapStops.map((k, i) => [k, i + 1]));
 
+  // The shop is always drawn, never filterable, and keeps the brand red — it is
+  // the one marker on this map that is not a job.
   const shop = g.shop ? (() => {
     const p = mapProject(g.shop.lat, g.shop.lng);
     return html`<g class="pin shop" data-x="${p.x}" data-y="${p.y}" transform="translate(${p.x},${p.y}) scale(${scale})">
-      <path class="pg" d="M0,-9 L9,-1 L6,-1 L6,8 L-6,8 L-6,-1 L-9,-1 Z"/>
-      <text class="pin-label" y="-13">WSS</text>
+      <path class="pg" d="M0,0 C-3.4,-6.2 -8,-8.6 -8,-13.6 A8,8 0 1 1 8,-13.6 C8,-8.6 3.4,-6.2 0,0 Z"/>
+      <path class="house" d="M0,-18.6 L5.6,-13.6 L3.8,-13.6 L3.8,-8.6 L-3.8,-8.6 L-3.8,-13.6 L-5.6,-13.6 Z"/>
+      ${raw(pinChip('WSS'))}
     </g>`;
   })() : '';
 
@@ -1651,19 +1718,20 @@ function mapSurface(g, stacks) {
     const first = st.rows[0];
     const n = st.rows.length;
     const stop = stopIndex.get(st.key);
-    // One stacked pin says how many rows are under it, and takes the label of
-    // the first — never five overlapping labels nobody can read.
-    return html`<g class="pin k-${kind}${st.solid ? '' : ' hollow'}${ui.mapSheet === st.key ? ' on' : ''}${stop ? ' stop' : ''}"
+    // A stack draws ONE marker with a count on its head, and its chip names the
+    // first row plus how many more — never five pills fighting over one point.
+    return html`<g class="pin k-${kind}${ui.mapSheet === st.key ? ' on' : ''}${stop ? ' stop' : ''}"
         data-stack="${st.key}" data-x="${p.x}" data-y="${p.y}" transform="translate(${p.x},${p.y}) scale(${scale})"
         role="button" tabindex="0" aria-label="${n > 1 ? `${n} at this address` : `${first.label} ${first.customer || ''}`}">
       ${raw(pinShape(kind, !!first.demo))}
-      ${n > 1 ? raw(html`<g class="badge"><circle cx="7" cy="-7" r="5.5"/><text x="7" y="-5">${n}</text></g>`) : ''}
-      ${stop ? raw(html`<g class="stopbadge"><circle cx="-8" cy="-8" r="6.5"/><text x="-8" y="-5.6">${stop}</text></g>`) : ''}
-      <text class="pin-label" y="-12">${n > 1 ? `${first.label} +${n - 1}` : first.label}</text>
+      ${n > 1 ? raw(html`<g class="badge"><circle cx="0" cy="${raw(String(PIN_HEAD_Y))}" r="5.4"/><text x="0" y="${raw(String(PIN_HEAD_Y + 2.6))}">${n}</text></g>`) : ''}
+      ${stop ? raw(html`<g class="stopbadge"><circle cx="-8.5" cy="-20" r="6.5"/><text x="-8.5" y="-17.4">${stop}</text></g>`) : ''}
+      ${raw(pinChip(n > 1 ? `${first.label} +${n - 1}` : first.label))}
     </g>`;
   }).join('');
 
-  return html`<svg id="wimap" class="wimap${small ? ' far' : ''}${ui.mapPlan ? ' planning' : ''}"
+  return html`<svg id="wimap" class="wimap${far ? ' far' : ''}${ui.mapPlan ? ' planning' : ''}"
+      style="aspect-ratio: ${raw(mapBoxRatio())}"
       viewBox="${raw(viewBoxStr(mapView))}" role="img" aria-label="Wisconsin — dispatch map" data-scale="${scale}">
     ${raw(mapSvg)}
     <g id="pins">${raw(pins)}${raw(shop)}</g>
@@ -1671,10 +1739,11 @@ function mapSurface(g, stacks) {
 }
 
 function mapLegend() {
-  const sw = MAP_KINDS.map((k) => html`<span class="lg"><i class="sw k-${k}"></i>${MAP_KIND_LABEL[k]}</span>`).join('');
+  // Kind swatches and the shop, and nothing else. The solid/hollow sentence went
+  // with the hollow marker (D53) — precision is a line in the tap sheet now.
+  const sw = MAP_KINDS.map((k) => html`<span class="lg mk-${k}"><i class="sw k-${k}"></i>${MAP_KIND_LABEL[k]}</span>`).join('');
   return html`<div class="maplegend">
     ${raw(sw)}<span class="lg"><i class="sw shop"></i>WSS</span>
-    <span class="lg muted">solid = street address · hollow = city only</span>
   </div>`;
 }
 
@@ -1723,11 +1792,14 @@ function stackSheet(st, g) {
   const first = st.rows[0];
   const nav = navUrl(st.lat, st.lng);
   const planned = ui.mapStops.includes(st.key);
+  // D53: precision is said in words, here, instead of being drawn as a shape.
+  // Rooftop says nothing — it is the normal case and needs no apology.
+  const prec = precisionNote(st.precision, g.precision_legend);
   return html`
     <div class="sheet mapsheet">
       <div class="sheet-h">${first.customer || first.label}${st.rows.length > 1 ? raw(html` <span class="count">${st.rows.length}</span>`) : ''}</div>
       <div class="sheet-addr">${first.address || 'No address on file'}</div>
-      ${!st.solid ? raw(html`<div class="sheet-prec">${(g.precision_legend && g.precision_legend.city) || 'City only — no street address on file'}</div>`) : ''}
+      ${prec ? raw(html`<div class="sheet-prec"><strong>${prec.lead}</strong> — ${prec.rest}</div>`) : ''}
       <div class="card dlist">
         ${raw(st.rows.map((r) => html`
           <div class="srow">
@@ -2759,7 +2831,7 @@ function bindMap() {
     mapView = clampViewBox(next, mapOuter, MAP_ZOOM_MIN_SPAN);
     svg.setAttribute('viewBox', viewBoxStr(mapView));
     const scale = pinScale();
-    svg.classList.toggle('far', mapView.w > LABEL_HIDE_SPAN);
+    svg.classList.toggle('far', mapView.w > chipHideSpan());
     for (const pin of svg.querySelectorAll('#pins .pin')) {
       pin.setAttribute('transform', `translate(${pin.dataset.x},${pin.dataset.y}) scale(${scale})`);
     }

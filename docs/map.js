@@ -92,6 +92,41 @@ export function boxToViewBox(box, project) {
 }
 
 export const viewBoxStr = (v) => (v ? `${round(v.x)} ${round(v.y)} ${round(v.w)} ${round(v.h)}` : '');
+
+/**
+ * How much wider than the opening view the map BOX is drawn (D53).
+ *
+ * SVG's default `meet` fit scales the viewBox to fit and fills the leftover
+ * room with whatever is next to it — content outside the viewBox is clipped at
+ * the viewport, not at the viewBox. So a box shaped a little wider than the
+ * view reveals a sliver of extra map to the left and right, and nothing extra
+ * above or below.
+ *
+ * That sliver is not decoration. The asset anchors its eastern city labels to
+ * the RIGHT of their dots, and at `default_view`'s east edge "Milwaukee",
+ * "Kenosha" and "Sheboygan" all run past it — the biggest label on the board
+ * would lose its tail. 1.20 buys back ~37 user units on each side, which clears
+ * all three, and it costs only box height: the dead band D53 is fixing was
+ * VERTICAL, so trading a little height for readable labels is the right way
+ * round.
+ *
+ * If a future snapshot widens `default_view` past the labels on its own (about
+ * lng_max −87.22), set this to 1 and the box becomes the plain view ratio.
+ */
+export const EDGE_LABEL_ALLOWANCE = 1.20;
+
+/** The lat/lng actually on screen, given the box's aspect. -> {x,y,w,h} in SVG units. */
+export function visibleBox(view, boxAspect) {
+  if (!view || !(view.h > 0) || !(boxAspect > 0)) return view || null;
+  const viewAspect = view.w / view.h;
+  // Wider box than view -> height-limited -> extra width. Taller box -> extra height.
+  if (boxAspect > viewAspect) {
+    const w = view.h * boxAspect;
+    return { x: view.x - (w - view.w) / 2, y: view.y, w, h: view.h };
+  }
+  const h = view.w / boxAspect;
+  return { x: view.x, y: view.y - (h - view.h) / 2, w: view.w, h };
+}
 const round = (n) => Math.round(n * 100) / 100;
 
 /**
@@ -139,8 +174,11 @@ export function usableGeo(geo) {
   // `in_wi: false` is not a failure — it is a real row somewhere else, and the
   // one thing we must not do is pin it to the edge of a map it is not on.
   if (geo.in_wi === false) return null;
-  const precision = typeof geo.precision === 'string' ? geo.precision : null;
-  return { lat, lng, precision, solid: precision === 'rooftop' || precision === 'street' };
+  // D53: no `solid`. The hollow marker is retired — precision is a sentence in
+  // the tap sheet, not a shape. A 2px ring and a filled dot are not reliably
+  // different at arm's length on a phone, and the ring was hiding the one thing
+  // the marker exists to say, which is what KIND of work is at this address.
+  return { lat, lng, precision: typeof geo.precision === 'string' ? geo.precision : null };
 }
 
 const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
@@ -164,7 +202,7 @@ export function collect(snapshot) {
   const take = (row, geo) => {
     const g = usableGeo(geo);
     if (g) pins.push({ ...row, ...g, geo });
-    else off.push({ ...row, lat: null, lng: null, precision: (geo && geo.precision) || null, solid: false });
+    else off.push({ ...row, lat: null, lng: null, precision: (geo && geo.precision) || null });
   };
 
   for (const t of arr(snap.service_queue)) {
@@ -228,11 +266,11 @@ const arr = (v) => (Array.isArray(v) ? v : []);
  * address — so an exact match is the honest test, and a distance threshold
  * would invent clusters the data does not claim.
  *
- * A stack is solid if ANY row in it has street precision: the place is known to
- * the street, and drawing it hollow because one of its rows is vaguer would
- * understate what we actually know.
+ * A stack takes the BEST precision of its rows: if one of them is known to the
+ * rooftop then the place is, and reporting the vaguest row's precision would
+ * understate what we actually have.
  *
- * -> [{ key, lat, lng, solid, rows, kinds }]  in first-seen order
+ * -> [{ key, lat, lng, precision, rows, kinds }]  in first-seen order
  */
 export function stack(pins) {
   const by = new Map();
@@ -240,14 +278,43 @@ export function stack(pins) {
     const key = `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
     let s = by.get(key);
     if (!s) {
-      s = { key, lat: p.lat, lng: p.lng, solid: false, rows: [], kinds: [] };
+      s = { key, lat: p.lat, lng: p.lng, precision: null, rows: [], kinds: [] };
       by.set(key, s);
     }
     s.rows.push(p);
-    if (p.solid) s.solid = true;
+    if (rank(p.precision) > rank(s.precision)) s.precision = p.precision;
     if (!s.kinds.includes(p.kind)) s.kinds.push(p.kind);
   }
   return [...by.values()];
+}
+
+// Best to worst. An unknown or absent precision ranks 0 — below `city` — so we
+// never claim more than the engine told us. The `|| 0` matters: comparing
+// against `undefined` is always false, which would silently keep the FIRST
+// row's precision instead of the best one.
+const PRECISION_RANK = { rooftop: 3, street: 2, city: 1 };
+const rank = (p) => PRECISION_RANK[p] || 0;
+
+/**
+ * What the tap sheet says about an address, or '' when there is nothing to say.
+ *
+ * Only two cases earn a line. A rooftop hit is the normal case and needs no
+ * apology; anything vaguer is something a driver has to know BEFORE he sets
+ * off, because "the pin is 400 m from the gate" is a different day than "the
+ * pin is the gate". Rendered as a lead-in and a plain-English half so it reads
+ * as information rather than an error.
+ *
+ * -> { lead, rest } | null
+ */
+export function precisionNote(precision, legend) {
+  const l = legend && typeof legend === 'object' ? legend : {};
+  if (precision === 'city') {
+    return { lead: 'City center', rest: str(l.city) || 'no street address on file' };
+  }
+  if (precision === 'street') {
+    return { lead: 'Approximate', rest: str(l.street) || 'street, no number' };
+  }
+  return null;
 }
 
 /** The kind a stack draws as: the first of KINDS present, so the order is the priority. */

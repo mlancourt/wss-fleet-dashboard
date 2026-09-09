@@ -849,11 +849,15 @@ function build({ withServiceQueue }) {
         shop: { label: 'WSS — Ixonia', address: 'N8069 County Road F, Ste 106, Ixonia, WI 53036',
           lat: 43.137422, lng: -88.592609 },
         bounds:       { lat_min: 42.45, lat_max: 47.10, lng_min: -92.95, lng_max: -86.75 },
-        default_view: { lat_min: 42.45, lat_max: 43.90, lng_min: -90.15, lng_max: -87.70 },
+        default_view: { lat_min: 42.45, lat_max: 43.85, lng_min: -90.05, lng_max: -87.45 },   // D53
         precision_legend: {
           rooftop: 'Exact street address',
           street: 'Street address',
-          city: 'City only — no street address on file',
+          // D53: the sheet renders these as "<lead> — <rest>"; these are the
+          // `rest` halves. The lead-in ("City center" / "Approximate") is the
+          // site's, so a snapshot cannot accidentally drop the distinction.
+          city: 'no street address on file',
+          street: 'street, no number',
           none: 'No usable address — fix it in the vault',
         },
       },

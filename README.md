@@ -4,6 +4,15 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
+**v3.0 (D53)** — **map facelift.** The regenerated `wi-map.svg` is a modern
+light-grey map with blue water, white interstates on grey casing and tiered city
+labels — and **`style.css` no longer overrides its colours**: the asset's own
+fallbacks *are* the design. Pins moved off the brand-red family (purple ·
+orange · blue · green · teal), became **teardrops with a readable ID chip** at
+the default zoom, and the hollow "city precision" marker is **retired** —
+precision is a sentence in the tap sheet now. The box is sized to the opening
+view's shape, so there is no dead band under the state.
+
 **v2.9 (schema 7, D52)** — a **Map** view on the Dispatch tab. `geo`
 (`{lat,lng,precision,in_wi}` or `null`) on units, tickets, leads and dispatch
 rows, plus `meta.geo` (shop, projected bounds, opening viewport). **The page
@@ -90,6 +99,7 @@ the hard rules — read it before changing anything here.
 | **v2.7 — documents S1 (schema 6)** | ✅ built (Sep 8, 2026) | a real PDF round-trips through `npm run m1`; the hash check refuses a mismatched id |
 | **v2.8 — documents S2 (upload)** | ✅ built (Sep 8, 2026) | a phone-shaped upload + `doc_attach` round-trips through `npm run m1`; the resize is asserted in `npm test` |
 | **v2.9 — Map view (D52)** | ✅ built (Sep 9, 2026) | `#/dispatch/map` draws the state with pins; route builder opens a multi-stop Google Maps link; projection asserted against the real county polygons |
+| **v3.0 — Map facelift (D53)** | ✅ built (Sep 9, 2026) | modern palette from the asset, no red pins, ID chips readable at the default zoom, no hollow markers |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**
@@ -347,9 +357,18 @@ draws pins on a vendored SVG of Wisconsin. That is what keeps hard rule 4 (no
 external CDNs or assets) intact and what makes the map load on one bar of LTE.
 
 **`docs/wi-map.svg` is vendored, not ours.** The vault generates it and may
-regenerate it. Never hand-edit it, and never restyle it by editing it — it
-paints itself from five CSS variables (`--map-land`, `--map-line`, `--map-us`,
-`--map-i`, `--map-city`) which `style.css` overrides.
+regenerate it (the current build tags itself `data-style="d53"`). Never
+hand-edit it.
+
+**Do not restyle the map from `style.css` either.** The asset paints itself from
+CSS variables that already carry the intended values as fallbacks —
+`--map-water`, `--map-water-edge`, `--map-land`, `--map-line`,
+`--map-road-casing` / `--map-road`, `--map-i-casing` / `--map-i`, `--map-city` /
+`--map-city-minor` / `--map-halo`. D52 overrode five of them with a beige
+palette and then fought the regenerated file; D53 deleted the overrides. **The
+asset's fallbacks are the design.** `npm test` fails if any `--map-*` override
+comes back. If the app ever gets a dark mode, that is where these belong — the
+whole set at once, in one `prefers-color-scheme` block, not before.
 
 **The projection lives on the asset.** Its root carries `data-lat0`,
 `data-lng0`, `data-kx`, `data-ky`, and a pin goes at
@@ -375,6 +394,19 @@ Three rules that are easy to break later:
   address string, so an ON-RENT unit and its own pick-up run carry byte-identical
   `geo` and stack into one pin with a count. That is an exact match, deliberately
   — a distance threshold would invent clusters the data does not claim.
+- **No pin is red, and no pin is hollow.** The chrome is brand maroon, so a red
+  pin disappears into it — kinds are purple / orange / blue / green / teal, with
+  distinct shapes behind the colours. Precision used to be drawn as a hollow
+  marker; it is a line in the tap sheet now ("**City center** — no street
+  address on file"), because a 2 px ring is not readable at arm's length and it
+  was hiding the one thing the marker exists to say.
+- **The map box is sized a little wider than the opening view.** SVG's `meet`
+  fit fills the leftover room with adjacent map, and the asset hangs its eastern
+  city labels to the *right* of their dots — matched exactly to `default_view`,
+  the frame slices the tail off "Milwaukee". `EDGE_LABEL_ALLOWANCE` in
+  `docs/map.js` buys that back horizontally, which costs only height and never
+  the vertical dead band D53 removed. A test measures the asset's real label
+  geometry and fails if any of them clip.
 - **Directions are built from coordinates, never the address string.** The
   string is the thing that geocoded badly enough to need a map in the first
   place. Navigate and Plan-a-run write nothing anywhere: the route lives in the
@@ -415,7 +447,7 @@ docs/                   GitHub Pages root — the app shell
   leads.js              leads board, scoreboard + insights logic, schema 5 (pure)
   notes.js              log[] timeline rows, shared by tickets + leads (pure)
   attachments.js        docs[] rows + upload logic (kinds, names, pending rows) — schema 6 (pure)
-  map.js                projection, pins, stacking, viewport, directions URLs — schema 7 (pure)
+  map.js                projection, pins, stacking, viewport, precision lines, directions URLs (pure)
   wi-map.svg            VENDORED Wisconsin map — vault-generated, never hand-edited
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)

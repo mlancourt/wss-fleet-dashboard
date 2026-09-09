@@ -1347,6 +1347,9 @@ async function mapView(role = 'owner') {
   return out;
 }
 
+const projectFromAsset = () => projector(new Map([...fs.readFileSync(path.join(DOCS, 'wi-map.svg'), 'utf8')
+  .match(/<svg\b[^>]*>/i)[0].matchAll(/([a-zA-Z0-9-]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2]])));
+
 const mapClick = async (target) => {
   for (const fn of listeners.get('click') || []) await fn({ target });
   await settle();
@@ -1370,8 +1373,7 @@ await check('#/dispatch/map draws the asset inline at the SE-Wisconsin default v
   // The opening viewport is meta.geo.default_view, projected — not the whole state.
   const snap = app.__state().snapshot;
   const g = geoMeta(snap);
-  const project = projector(new Map([...String(fs.readFileSync(path.join(DOCS, 'wi-map.svg'), 'utf8'))
-    .match(/<svg\b[^>]*>/i)[0].matchAll(/([a-zA-Z0-9-]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2]])));
+  const project = projectFromAsset();
   const want = boxToViewBox(g.default_view, project);
   const got = /id="wimap"[^>]*viewBox="([^"]+)"/.exec(out);
   assert.ok(got, 'no viewBox on the map');
@@ -1416,19 +1418,147 @@ await check('every pin obeys the §3.3 table, and nothing else is drawn', async 
   assert.ok(out.includes('Off the map'), 'the off-map block is missing');
 });
 
-await check('solid vs hollow follows precision', async () => {
+await check('every marker is the same teardrop, whatever its precision (D53)', async () => {
   const out = await mapView();
   const { pins } = collect(app.__state().snapshot);
   const stacks = stack(pins);
-  const hollow = stacks.filter((s) => !s.solid);
-  const solid = stacks.filter((s) => s.solid);
-  assert.ok(hollow.length && solid.length, 'the fixture needs both');
-  for (const s of hollow) {
-    assert.ok(new RegExp(`class="pin [^"]*hollow[^"]*"[^>]*data-stack="${s.key}"`).test(out), `${s.key} should be hollow`);
+  assert.ok(stacks.some((s) => s.precision === 'city'), 'the fixture needs a city-precision place');
+  assert.ok(stacks.some((s) => s.precision !== 'city'), 'and a finer one');
+
+  // The hollow variant is gone from the code and from the screen.
+  assert.ok(!out.includes('hollow'), 'no hollow markers may render');
+  assert.ok(!/solid = |hollow = /.test(out), 'and the legend must not still explain them');
+
+  // One teardrop path, used by every pin, tip on the coordinate (0,0).
+  const teardrops = [...out.matchAll(/<path class="pg" d="M0,0 C[^"]+"/g)];
+  assert.equal(teardrops.length, stacks.length + 1, 'one teardrop per stack, plus the shop');
+  for (const st of stacks) {
+    assert.ok(new RegExp(`data-stack="${st.key}"[\\s\\S]{0,400}<path class="pg" d="M0,0 C`).test(out),
+      `${st.key} is not a teardrop`);
   }
-  for (const s of solid) {
-    assert.ok(!new RegExp(`class="pin [^"]*hollow[^"]*"[^>]*data-stack="${s.key}"`).test(out), `${s.key} should be solid`);
+});
+
+await check('no pin is red — the brand colour is the shop and the chrome only', async () => {
+  const css = fs.readFileSync(path.join(DOCS, 'style.css'), 'utf8');
+  const block = /--pin-service:([^;]+);[\s\S]*?--pin-rental:([^;]+);/.exec(css);
+  assert.ok(block, 'the pin palette is missing');
+  const kinds = [...css.matchAll(/--pin-(service|pickup|delivery|lead|rental):\s*([^;]+);/g)]
+    .map(([, k, v]) => [k, v.trim()]);
+  assert.equal(kinds.length, 5);
+  // "Not red" is a question about HUE, not about how much red channel a colour
+  // has — the mandated pick-up orange #F97316 is 98% red channel and is plainly
+  // not red. The brand maroons sit at hue ~0; anything within 15 degrees of
+  // that would disappear into the app's own chrome.
+  const hue = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    if (max === min) return 0;
+    const d = max - min;
+    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  };
+  assert.ok(hue('#B71C1C') < 5, 'sanity: the brand maroon sits at hue ~0');
+  for (const [k, v] of kinds) {
+    assert.ok(/^#[0-9A-Fa-f]{6}$/.test(v), `${k} should be a literal hex, got ${v}`);
+    // Nothing that resolves to a brand variable, either.
+    assert.ok(!/var\(--red/.test(v) && !/var\(--bad/.test(v), `${k} is brand red`);
+    const h = hue(v);
+    assert.ok(h > 15 && h < 345, `${k} (${v}) is hue ${h.toFixed(0)} — inside the brand-red band`);
   }
+  // And they have to hold apart from EACH OTHER, not just from the brand.
+  const hues = kinds.map(([, v]) => hue(v)).sort((a, b) => a - b);
+  for (let i = 1; i < hues.length; i++) {
+    assert.ok(hues[i] - hues[i - 1] > 25, `two kinds are ${(hues[i] - hues[i - 1]).toFixed(0)} degrees apart`);
+  }
+  // Five distinct hues, and the filter chips wear them too.
+  assert.equal(new Set(kinds.map(([, v]) => v.toLowerCase())).size, 5);
+  for (const [k] of kinds) assert.ok(css.includes(`.mk-${k}`), `no chip swatch for ${k}`);
+});
+
+await check('the beige D52 overrides are gone; the asset paints itself', async () => {
+  const css = fs.readFileSync(path.join(DOCS, 'style.css'), 'utf8');
+  for (const dead of ['#F4F1EA', '#DDD6C8', '#E4D8BC', '#C9BC88', '#9A9384']) {
+    assert.ok(!css.includes(dead), `style.css still carries the beige ${dead}`);
+  }
+  // No --map-* override at all: the asset's own fallbacks are the design.
+  const overrides = [...css.matchAll(/^\s*--map-[a-z-]+:/gm)].map((m) => m[0].trim());
+  assert.deepEqual(overrides, [], `style.css must not re-declare ${overrides.join(', ')}`);
+  // And the asset does carry them, with the D53 values.
+  const svg = fs.readFileSync(path.join(DOCS, 'wi-map.svg'), 'utf8');
+  for (const [v, fallback] of [['--map-water', '#CDE3F6'], ['--map-land', '#F1F3F5'],
+    ['--map-line', '#D3D8DE'], ['--map-road', '#FFFFFF'], ['--map-i', '#FFFFFF']]) {
+    assert.ok(svg.includes(`var(${v},${fallback})`), `the asset lost ${v}'s fallback`);
+  }
+});
+
+await check('every pin shows its ID chip at the default view, and loses it state-wide', async () => {
+  const out = await mapView();
+  const { pins } = collect(app.__state().snapshot);
+  const stacks = stack(pins);
+
+  // At the opening zoom: a chip per pin, carrying the row's own id.
+  assert.ok(!/class="wimap[^"]*\bfar\b/.test(out), 'the default view must NOT be in chips-off mode');
+  const chips = [...out.matchAll(/<g class="chip">/g)];
+  assert.equal(chips.length, stacks.length + 1, 'one chip per pin, plus the shop');
+  for (const st of stacks) {
+    const one = st.rows.length === 1;
+    const want = one ? st.rows[0].label : `${st.rows[0].label} +${st.rows.length - 1}`;
+    assert.ok(out.includes(`>${want}</text>`), `${st.key} chip should read "${want}"`);
+  }
+  assert.ok(out.includes('>WSS</text>'), 'the shop keeps its chip');
+
+  // Zoomed out to the whole state, the chips go away — CSS hides them off the
+  // `far` class, so the markup keeps them and the class is the switch.
+  await mapClick(pick('[data-map]', { map: 'fit' }));
+  const wide = await renderRoute('#/dispatch/map');
+  assert.ok(/class="wimap[^"]*\bfar\b/.test(wide), 'the whole state must switch chips off');
+  const css = fs.readFileSync(path.join(DOCS, 'style.css'), 'utf8');
+  assert.ok(/\.wimap\.far \.pin \.chip \{ display: none/.test(css), 'nothing actually hides them');
+
+  // And back in restores them.
+  await mapClick(pick('[data-map]', { map: 'home' }));
+  const back = await renderRoute('#/dispatch/map');
+  assert.ok(!/class="wimap[^"]*\bfar\b/.test(back), 'coming home must bring the chips back');
+});
+
+await check('the sheet says the precision in words, and says nothing for a rooftop', async () => {
+  await mapView();
+  const { pins } = collect(app.__state().snapshot);
+  const stacks = stack(pins);
+  const city = stacks.find((s) => s.precision === 'city');
+  const street = stacks.find((s) => s.precision === 'street');
+  const roof = stacks.find((s) => s.precision === 'rooftop');
+  assert.ok(city && street && roof, 'the fixture must cover all three (§6)');
+
+  await mapClick(pick('[data-stack]', { stack: city.key }));
+  let out = view._html;
+  assert.ok(/<div class="sheet-prec"><strong>City center<\/strong> — no street address on file<\/div>/.test(out),
+    'the city line is missing or reworded');
+  // The marker itself says nothing about precision any more.
+  assert.ok(!out.includes('hollow'));
+
+  await mapClick(pick('[data-stack]', { stack: street.key }));
+  out = view._html;
+  assert.ok(/<strong>Approximate<\/strong> — street, no number/.test(out), 'the street line is missing');
+
+  await mapClick(pick('[data-stack]', { stack: roof.key }));
+  out = view._html;
+  assert.ok(!out.includes('sheet-prec'), 'a rooftop address needs no apology');
+  await mapClick(pick('[data-map]', { map: 'close' }));
+});
+
+await check('the map box is sized to the opening view, not the whole state', async () => {
+  const out = await mapView();
+  const m = /style="aspect-ratio: ([\d.]+) \/ ([\d.]+)"/.exec(out);
+  assert.ok(m, 'the box has no aspect ratio, so the state will float in dead space');
+  const ratio = Number(m[1]) / Number(m[2]);
+  const g = geoMeta(app.__state().snapshot);
+  const v = boxToViewBox(g.default_view, projectFromAsset());
+  assert.ok(ratio > v.w / v.h, 'the box must be a little wider than the view (edge labels)');
+  assert.ok(ratio < (v.w / v.h) * 1.35, 'but not so wide it becomes a letterbox');
+  // The whole-state viewBox is much squarer; sizing to it is what left the band.
+  assert.ok(ratio > 880 / 930, 'sized to the state, not the view');
 });
 
 await check('a stacked pin shows its count and the sheet lists every row', async () => {
@@ -1438,8 +1568,12 @@ await check('a stacked pin shows its count and the sheet lists every row', async
   assert.ok(multi, 'the fixture must carry a stack');
 
   let out = view._html;
-  assert.ok(new RegExp(`data-stack="${multi.key}"[\\s\\S]{0,400}<text x="7" y="-5">${multi.rows.length}</text>`).test(out),
+  // D53: the badge moved onto the pin HEAD (the teardrop's circle) rather than
+  // hanging off its shoulder, and the chip beside it carries "first +N".
+  assert.ok(new RegExp(`data-stack="${multi.key}"[\\s\\S]{0,700}<g class="badge">[\\s\\S]{0,160}>${multi.rows.length}</text>`).test(out),
     'a stacked pin must carry a count badge');
+  assert.ok(out.includes(`>${multi.rows[0].label} +${multi.rows.length - 1}</text>`),
+    'and its chip must say how many more are under it');
 
   await mapClick(pick('[data-stack]', { stack: multi.key }));
   out = view._html;

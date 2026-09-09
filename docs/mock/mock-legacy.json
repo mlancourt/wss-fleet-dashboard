@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-09T19:25:28.002Z",
+    "generated_at": "2026-09-09T22:03:05.475Z",
     "run_id": "mock-legacy-2026-09-09",
     "fleet_totals": {
       "units": 39,
@@ -24,14 +24,14 @@
       },
       "default_view": {
         "lat_min": 42.45,
-        "lat_max": 43.9,
-        "lng_min": -90.15,
-        "lng_max": -87.7
+        "lat_max": 43.85,
+        "lng_min": -90.05,
+        "lng_max": -87.45
       },
       "precision_legend": {
         "rooftop": "Exact street address",
-        "street": "Street address",
-        "city": "City only — no street address on file",
+        "street": "street, no number",
+        "city": "no street address on file",
         "none": "No usable address — fix it in the vault"
       }
     },

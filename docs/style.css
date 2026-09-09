@@ -836,24 +836,31 @@ table.ins td.n { color: var(--slate-700); }
 .nrow:not(.is-pending) + .nrow.is-pending { border-top: 1px solid var(--slate-100); }
 
 
-/* ===================================================== the map (D52) ======
-   The vendored SVG paints itself from these five variables (with its own
-   fallbacks baked in, so it still reads standalone). Overriding them here is
-   how the map joins the app's palette WITHOUT anyone editing the asset — the
-   vault owns that file and regenerates it. */
+/* ================================================ the map (D52/D53) =======
+   THE ASSET IS THE DESIGN. docs/wi-map.svg paints itself from CSS variables
+   with the intended values baked in as fallbacks, so the map renders correctly
+   with NO overrides here at all — which is exactly what D53 asked for after
+   D52's beige "warm paper" overrides fought the regenerated file.
+        --map-water / --map-water-edge   Lake Michigan, Superior, inland lakes
+        --map-land / --map-line          county fill + hairlines
+        --map-road-casing / --map-road   US highways (white on grey casing)
+        --map-i-casing / --map-i         interstates
+        --map-city / --map-city-minor / --map-halo   labels
+   Do NOT re-declare them to "theme" the map. If the app ever gets a dark mode,
+   THIS is where they go — a `@media (prefers-color-scheme: dark)` block that
+   sets the whole set at once. Not before. */
 
 :root {
-  --map-land: #F4F1EA;      /* warm paper, so the pins are the only saturated thing */
-  --map-line: #DDD6C8;      /* county hairlines — present, never competing */
-  --map-us:   #E4D8BC;
-  --map-i:    #C9BC88;
-  --map-city: #9A9384;
-
-  --pin-service:  var(--bad);
-  --pin-pickup:   #C2410C;  /* D32's pick-up orange, so the board and the map agree */
-  --pin-delivery: var(--rent);
-  --pin-lead:     var(--ok);
-  --pin-rental:   var(--slate-500);
+  /* Pin kinds (D53). Nothing in the brand-red family: the app's chrome is
+     maroon, and a red pin disappears into it. Five hues that hold apart from
+     each other AND from the map's greys, blues and whites. Shapes back them up
+     for anyone who cannot separate the green from the orange. */
+  --pin-service:  #7C3AED;   /* purple  */
+  --pin-pickup:   #F97316;   /* orange — D32's pick-up family, brightened */
+  --pin-delivery: #2563EB;   /* blue    */
+  --pin-lead:     #16A34A;   /* green   */
+  --pin-rental:   #0D9488;   /* teal    */
+  --pin-shop:     var(--red);
 }
 
 /* --- List | Map ---------------------------------------------------------- */
@@ -865,26 +872,37 @@ table.ins td.n { color: var(--slate-700); }
 .seg + .seg { border-left: 1px solid var(--slate-300); }
 .seg.on { background: var(--red); color: var(--white); }
 
-/* --- filter chips -------------------------------------------------------- */
+/* --- filter chips --------------------------------------------------------
+   A chip wears its own kind's colour, not the brand's: on = filled, off =
+   outlined in the same hue. The chip and the pin it controls have to be the
+   same thing at a glance or the filter row is just five words. */
 .mapchips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 4px; -webkit-overflow-scrolling: touch; }
-.mapchips .fchip { flex: 0 0 auto; }
-.mapchips .fchip::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: 0; background: currentColor; }
-.fchip.mk-service::before  { background: var(--pin-service); }
-.fchip.mk-pickup::before   { background: var(--pin-pickup); }
-.fchip.mk-delivery::before { background: var(--pin-delivery); }
-.fchip.mk-lead::before     { background: var(--pin-lead); }
-.fchip.mk-rental::before   { background: var(--pin-rental); }
+.mapchips .fchip {
+  flex: 0 0 auto; min-height: 36px;
+  background: var(--white); border: 1.5px solid var(--kc); color: var(--kc); font-weight: 700;
+}
+.mapchips .fchip.on { background: var(--kc); border-color: var(--kc); color: var(--white); }
+.mapchips .fchip .c { background: rgba(255, 255, 255, .28); color: inherit; }
+.mapchips .fchip:not(.on) .c { background: var(--slate-100); color: var(--kc); }
+.mk-service  { --kc: var(--pin-service); }
+.mk-pickup   { --kc: var(--pin-pickup); }
+.mk-delivery { --kc: var(--pin-delivery); }
+.mk-lead     { --kc: var(--pin-lead); }
+.mk-rental   { --kc: var(--pin-rental); }
 
-/* --- the surface --------------------------------------------------------- */
+/* --- the surface ---------------------------------------------------------
+   The box is sized to the OPENING VIEW's aspect (set inline, per render), not
+   to the whole-state viewBox — D52 left a dead band of empty map under the
+   state on every phone. Height is a consequence of that ratio, capped so the
+   map can never eat a whole screen. */
 .mapwrap { position: relative; margin-bottom: 10px; }
 .wimap {
-  display: block; width: 100%; height: 60vh; min-height: 320px; max-height: 78vh;
-  background: #DCE7EE;                    /* water: everything outside a county path */
+  display: block; width: 100%; max-height: 70vh;
+  background: var(--map-water, #CDE3F6);   /* the great lakes, behind everything */
   border: 1px solid var(--line); border-radius: var(--radius);
-  touch-action: pan-y;                    /* JS tightens this to `none` once there is somewhere to pan */
+  touch-action: pan-y;                     /* JS tightens this to `none` once there is somewhere to pan */
   user-select: none; -webkit-user-select: none;
 }
-@media (min-width: 900px) { .wimap { height: 70vh; } }
 
 .mapbtns { position: absolute; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .mapbtn {
@@ -894,32 +912,49 @@ table.ins td.n { color: var(--slate-700); }
 }
 .mapbtn:active { background: var(--slate-100); }
 
-/* --- pins ---------------------------------------------------------------- */
-/* Solid = we know the street. Hollow = we know the town and no more, which is
-   a real difference to a driver and so it is a visible one. */
+/* --- pins ----------------------------------------------------------------
+   A teardrop whose TIP is the coordinate, so the marker points at the place
+   instead of covering it. Every pin gets a white stroke: without it a blue
+   delivery on Lake Michigan and a white interstate through a pin both vanish.
+
+   D53 retired the hollow variant. Precision is a sentence in the tap sheet
+   now, not a shape — a driver reading a map at arm's length cannot reliably
+   tell a 2px ring from a filled dot, and it was hiding the pin's colour. */
 .pin { cursor: pointer; }
 .pin .pg { stroke: var(--white); stroke-width: 1.5; paint-order: stroke; }
-.pin.hollow .pg { fill: var(--map-land) !important; stroke-width: 2.5; }
 .pin.k-service  .pg { fill: var(--pin-service); }
 .pin.k-pickup   .pg { fill: var(--pin-pickup); }
 .pin.k-delivery .pg { fill: var(--pin-delivery); }
 .pin.k-lead     .pg { fill: var(--pin-lead); }
 .pin.k-rental   .pg { fill: var(--pin-rental); }
-.pin.hollow.k-service  .pg { stroke: var(--pin-service); }
-.pin.hollow.k-pickup   .pg { stroke: var(--pin-pickup); }
-.pin.hollow.k-delivery .pg { stroke: var(--pin-delivery); }
-.pin.hollow.k-lead     .pg { stroke: var(--pin-lead); }
-.pin.hollow.k-rental   .pg { stroke: var(--pin-rental); }
-.pin.shop .pg { fill: var(--red); stroke: var(--white); stroke-width: 1.8; }
-.pin.on .pg { stroke: var(--slate-900); stroke-width: 2.5; }
+.pin.shop .pg { fill: var(--pin-shop); }
+/* The head glyph sits ON the teardrop: a white dot for a job, a house for the
+   shop, a triangle for a lead with a demo booked. */
+.pin .eye { fill: rgba(255, 255, 255, .92); }
+.pin.shop .house { fill: var(--white); }
+.pin.on .pg { stroke: var(--slate-900); stroke-width: 2; }
 
-.pin-label {
-  font: 700 11px system-ui, -apple-system, sans-serif; fill: var(--slate-900);
-  text-anchor: middle; paint-order: stroke; stroke: var(--map-land); stroke-width: 3.5px; stroke-linejoin: round;
-  pointer-events: none;
-}
-/* Zoomed out to the whole state, labels are a grey smear — dots only. */
-.wimap.far .pin-label { display: none; }
+/* The ID chip: a white pill beside the pin head, text in the kind's colour.
+   It has to be readable at the default zoom — that is the whole point of D53 —
+   so it is a solid pill rather than haloed text over a busy map. */
+.pin .chip-bg { fill: var(--white); stroke: rgba(15, 23, 42, .16); stroke-width: 0.7; }
+.pin .chip-tx { font: 700 9px system-ui, -apple-system, sans-serif; dominant-baseline: middle; }
+.pin.k-service  .chip-tx { fill: var(--pin-service); }
+.pin.k-pickup   .chip-tx { fill: #C2410C; }        /* the orange darkened for text contrast on white */
+.pin.k-delivery .chip-tx { fill: var(--pin-delivery); }
+.pin.k-lead     .chip-tx { fill: #15803D; }
+.pin.k-rental   .chip-tx { fill: #0F766E; }
+.pin.shop .chip-tx { fill: var(--red); }
+/* Zoomed out past ~1.6x the opening view there is no room for chips; the map
+   goes back to plain dots rather than a grey smear of overlapping pills. */
+.wimap.far .pin .chip { display: none; }
+
+.pin .badge circle { fill: var(--white); stroke: rgba(15, 23, 42, .25); stroke-width: 0.8; }
+.pin .badge text { font: 700 7.5px system-ui, sans-serif; fill: var(--slate-900); text-anchor: middle; }
+.pin .stopbadge circle { fill: var(--red); stroke: var(--white); stroke-width: 1.5; }
+.pin .stopbadge text { font: 700 8px system-ui, sans-serif; fill: var(--white); text-anchor: middle; }
+.wimap.planning .pin { cursor: copy; }
+
 
 .pin .badge circle { fill: var(--slate-900); stroke: var(--white); stroke-width: 1.5; }
 .pin .badge text { font: 700 7.5px system-ui, sans-serif; fill: var(--white); text-anchor: middle; }
@@ -938,7 +973,7 @@ table.ins td.n { color: var(--slate-700); }
 .sw.k-delivery { background: var(--pin-delivery); }
 .sw.k-lead     { background: var(--pin-lead); }
 .sw.k-rental   { background: var(--pin-rental); }
-.sw.shop       { background: var(--red); }
+.sw.shop       { background: var(--pin-shop); border-radius: 2px 2px 0 0; }
 
 /* --- plan a run ---------------------------------------------------------- */
 .planbar { display: flex; gap: 8px; margin-bottom: 10px; }
@@ -960,15 +995,18 @@ table.ins td.n { color: var(--slate-700); }
 }
 @media (min-width: 900px) { .mapsheet { position: sticky; top: 12px; } }
 .sheet-addr { font-size: 13.5px; color: var(--slate-700); margin-bottom: 4px; }
-.sheet-prec { font-size: 12.5px; color: var(--warn); font-weight: 600; margin-bottom: 8px; }
+/* Not a warning — a fact about the address. "City center" is still a place to
+   drive to; it just is not a loading dock. */
+.sheet-prec { font-size: 12.5px; color: var(--ink-2); margin-bottom: 8px; }
+.sheet-prec strong { color: var(--slate-800); }
 .srow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--slate-100); min-height: var(--tap); }
 .srow:last-child { border-bottom: 0; }
 .sid { font-weight: 700; color: var(--slate-900); font-size: 14px; }
 .sline { flex: 1 1 40%; min-width: 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
-.chip.mk-service  { background: var(--bad-bg);  color: var(--bad); }
-.chip.mk-pickup   { background: #FFEDD5;        color: #C2410C; }
-.chip.mk-delivery { background: var(--rent-bg); color: var(--rent); }
-.chip.mk-lead     { background: var(--ok-bg);   color: var(--ok); }
-.chip.mk-rental   { background: var(--slate-100); color: var(--slate-700); }
+/* Sheet + off-map row chips: the kind's colour, filled, white text (D53) —
+   the same swatch as the pin and the filter chip, so one glance ties all three. */
+.chip.mk-service, .chip.mk-pickup, .chip.mk-delivery, .chip.mk-lead, .chip.mk-rental {
+  background: var(--kc); color: var(--white); border-color: transparent;
+}
 .offmap .offgrp + .offgrp { margin-top: 10px; }
 .offhead { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); margin: 8px 0 2px; }
