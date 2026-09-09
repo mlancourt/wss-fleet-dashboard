@@ -706,11 +706,11 @@ async function leadsAsStrippedService(hash = '#/leads', openScore = false) {
   return renderRoute(hash);
 }
 
-await check('the Leads board draws five columns, RECEIVED first and Won last', async () => {
+await check('the Leads board draws six columns, RECEIVED first and Won last', async () => {
   const out = await leadsAs('sales');
   const heads = [...out.matchAll(/<div class="kan-head"><span>([^<]+)</g)].map((m) => m[1]);
-  assert.deepEqual(heads.slice(0, 4), BOARD_STAGES.map((s) => STAGE_LABEL[s] || s).map((x, i) =>
-    ['Received', 'Contacted', 'Quoted', 'Demo booked'][i]), 'the four open stages, in pipeline order');
+  assert.deepEqual(heads.slice(0, 5), BOARD_STAGES.map((s) => STAGE_LABEL[s] || s).map((x, i) =>
+    ['Received', 'Contacted', 'Quoted', 'Demo booked', 'Demo done'][i]), 'the five open stages, in pipeline order');
   assert.equal(heads[heads.length - 1], 'Won', 'Won is the last column');
   assert.ok(out.includes('data-lead-filter="all"') && out.includes('data-lead-filter="mine"')
     && out.includes('data-lead-filter="stale"'), 'All / Mine / Stale');

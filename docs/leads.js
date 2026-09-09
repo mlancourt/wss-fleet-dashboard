@@ -21,7 +21,7 @@
  * runtime — prefer those (optionsFrom below) so an engine that adds a source
  * doesn't need a site deploy; these are the fallback and the Worker's copy. */
 
-export const LEAD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'INVOICED'];
+export const LEAD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'INVOICED'];
 export const LEAD_STATUSES = ['OPEN', 'WON', 'LOST', 'DEAD'];
 export const LEAD_SOURCES = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO'];
 export const LEAD_INTERESTS = ['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS'];
@@ -32,9 +32,9 @@ export const ASSIGNEES = ['Kevin', 'Matt'];
 /** What the Worker strips for a `service` token when the snapshot doesn't say. */
 export const LEAD_MONEY_FIELDS = ['value', 'potential_commission'];
 
-/** The four stages an OPEN lead lives in on the board. INVOICED is a stage a
+/** The five stages an OPEN lead lives in on the board (DEMO-DONE added D51, 2026-09-09). INVOICED is a stage a
  *  won deal passes through, not a column — a lead that reaches it is WON. */
-export const BOARD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED'];
+export const BOARD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE'];
 
 /** The phrase for a null rate/median (§2). Never a dash, never a zero: a zero
  *  would read as "we convert nobody", which is a different and untrue claim. */
@@ -42,7 +42,7 @@ export const NO_DATA = 'not enough data';
 
 export const STAGE_LABEL = {
   RECEIVED: 'Received', CONTACTED: 'Contacted', QUOTED: 'Quoted',
-  'DEMO-SCHEDULED': 'Demo booked', INVOICED: 'Invoiced',
+  'DEMO-SCHEDULED': 'Demo booked', 'DEMO-DONE': 'Demo done', INVOICED: 'Invoiced',
 };
 export const STATUS_LABEL = { OPEN: 'Open', WON: 'Won', LOST: 'Lost', DEAD: 'Dead' };
 /** Card-sized source tags — lower case on purpose, they sit under the customer. */

@@ -784,7 +784,7 @@ function build({ withServiceQueue }) {
 // Commission is engine-computed from the deal value. Reproduced here only so
 // the mock's numbers add up; the site never does this arithmetic.
 const COMMISSION_RATES = { 'SALE-NEW': 0.045, 'SALE-USED': 0.045, RENTAL: 0.07 };
-const LEAD_STAGE_LIST = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'INVOICED'];
+const LEAD_STAGE_LIST = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'INVOICED'];
 const LEAD_SOURCE_LIST = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO'];
 const LEAD_INTEREST_LIST = ['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS'];
 const LEAD_LOST_REASONS = ['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER'];
@@ -971,7 +971,7 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
   const dead = leads.filter((l) => l.status === 'DEAD');
   const stale = leads.filter((l) => l.stale === 'red' || l.stale === 'yellow');
   const sum = (list, key) => Math.round(list.reduce((n, l) => n + (l[key] || 0), 0) * 100) / 100;
-  const openByStage = Object.fromEntries(LEAD_STAGE_LIST.slice(0, 4)
+  const openByStage = Object.fromEntries(LEAD_STAGE_LIST.slice(0, 5)
     .map((s) => [s, open.filter((l) => l.stage === s).length]));
 
   const leads_summary = {
@@ -1093,7 +1093,7 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       median_value_lost: median(lost.map((l) => l.value)),
     },
     funnel: {
-      median_bdays_in_stage: Object.fromEntries(LEAD_STAGE_LIST.slice(0, 4).map((s) => {
+      median_bdays_in_stage: Object.fromEntries(LEAD_STAGE_LIST.slice(0, 5).map((s) => {
         const rows = leads.filter((l) => l.stage === s);
         return [s, rows.length ? median(rows.map((l) => l.age_in_stage_days)) : null];
       })),

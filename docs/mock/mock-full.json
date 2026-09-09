@@ -1,8 +1,8 @@
 {
   "meta": {
     "schema_version": 6,
-    "generated_at": "2026-09-08T17:33:31.425Z",
-    "run_id": "mock-full-2026-09-08",
+    "generated_at": "2026-09-09T13:26:21.733Z",
+    "run_id": "mock-full-2026-09-09",
     "fleet_totals": {
       "units": 39
     },
@@ -43,7 +43,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2710,
-      "in_service": "2024-11-09",
+      "in_service": "2024-11-10",
       "ask": 8900,
       "rate_card": {
         "full_day": 325,
@@ -62,9 +62,9 @@
           "held_by": "Kevin",
           "customer": "Lakeshore Beverage",
           "purpose": "quote hold",
-          "start": "2026-09-14",
-          "end": "2026-09-14",
-          "created": "2026-09-06",
+          "start": "2026-09-15",
+          "end": "2026-09-15",
+          "created": "2026-09-07",
           "status": "future"
         },
         {
@@ -72,9 +72,9 @@
           "held_by": "Matt",
           "customer": "Acme Foods",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-09-16",
-          "end": "2026-09-18",
-          "created": "2026-09-06",
+          "start": "2026-09-17",
+          "end": "2026-09-19",
+          "created": "2026-09-07",
           "status": "future"
         }
       ],
@@ -92,7 +92,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3096,
-      "in_service": "2024-06-28",
+      "in_service": "2024-06-29",
       "ask": 6050,
       "rate_card": {
         "full_day": 470,
@@ -111,9 +111,9 @@
           "held_by": "Kevin",
           "customer": "Cedar Ridge Foods",
           "purpose": "DEMO — customer site",
-          "start": "2026-09-11",
-          "end": "2026-09-11",
-          "created": "2026-09-06",
+          "start": "2026-09-12",
+          "end": "2026-09-12",
+          "created": "2026-09-07",
           "status": "future"
         }
       ],
@@ -131,7 +131,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 695,
-      "in_service": "2024-11-30",
+      "in_service": "2024-12-01",
       "ask": 17950,
       "rate_card": {
         "full_day": 575,
@@ -150,9 +150,9 @@
           "held_by": "Kevin",
           "customer": "Lakeshore Beverage",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-09-20",
-          "end": "2026-09-20",
-          "created": "2026-09-06",
+          "start": "2026-09-21",
+          "end": "2026-09-21",
+          "created": "2026-09-07",
           "status": "future"
         },
         {
@@ -160,9 +160,9 @@
           "held_by": "Matt",
           "customer": "Northgate Fulfillment",
           "purpose": "trade-show loaner",
-          "start": "2026-09-28",
-          "end": "2026-09-30",
-          "created": "2026-09-06",
+          "start": "2026-09-29",
+          "end": "2026-10-01",
+          "created": "2026-09-07",
           "status": "future"
         }
       ],
@@ -180,7 +180,7 @@
       "readiness": "NEEDS-PICKUP",
       "readiness_note": "Customer called — released, unit at the dock",
       "hours": 2426,
-      "in_service": "2024-05-19",
+      "in_service": "2024-05-20",
       "ask": 9200,
       "rate_card": {
         "full_day": 435,
@@ -208,7 +208,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 481,
-      "in_service": "2023-08-16",
+      "in_service": "2023-08-17",
       "ask": 19600,
       "rate_card": {
         "full_day": 305,
@@ -236,7 +236,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1856,
-      "in_service": "2024-12-18",
+      "in_service": "2024-12-19",
       "ask": 21900,
       "rate_card": {
         "full_day": 225,
@@ -264,7 +264,7 @@
       "readiness": "NEEDS-PICKUP",
       "readiness_note": "Released Friday; site closes at 3",
       "hours": 3208,
-      "in_service": "2022-12-17",
+      "in_service": "2022-12-18",
       "ask": 16250,
       "rate_card": {
         "full_day": 155,
@@ -292,7 +292,7 @@
       "readiness": "NEEDS-PICKUP",
       "readiness_note": "Job wrapped early — call the plant before you roll",
       "hours": 2671,
-      "in_service": "2023-11-20",
+      "in_service": "2023-11-21",
       "ask": 19550,
       "rate_card": {
         "full_day": 495,
@@ -320,7 +320,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2384,
-      "in_service": "2023-10-29",
+      "in_service": "2023-10-30",
       "ask": 9750,
       "rate_card": {
         "full_day": 465,
@@ -339,9 +339,9 @@
           "held_by": "Kevin",
           "customer": "Summit Fabrication",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-09-07",
-          "end": "2026-09-11",
-          "created": "2026-09-05",
+          "start": "2026-09-08",
+          "end": "2026-09-12",
+          "created": "2026-09-06",
           "status": "current"
         }
       ],
@@ -359,7 +359,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2297,
-      "in_service": "2024-11-17",
+      "in_service": "2024-11-18",
       "ask": 14200,
       "rate_card": {
         "full_day": 405,
@@ -387,7 +387,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3393,
-      "in_service": "2023-09-12",
+      "in_service": "2023-09-13",
       "ask": 12000,
       "rate_card": {
         "full_day": 200,
@@ -415,7 +415,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3245,
-      "in_service": "2023-04-21",
+      "in_service": "2023-04-22",
       "ask": 9250,
       "rate_card": {
         "full_day": 340,
@@ -443,7 +443,7 @@
       "readiness": "DOWN",
       "readiness_note": "awaiting pump assembly",
       "hours": 2173,
-      "in_service": "2025-07-01",
+      "in_service": "2025-07-02",
       "ask": 9400,
       "rate_card": {
         "full_day": 195,
@@ -462,9 +462,9 @@
           "held_by": "Matt",
           "customer": "Cedar Ridge Manufacturing",
           "purpose": "bad dates",
-          "start": "2026-09-13",
-          "end": "2026-09-11",
-          "created": "2026-09-06",
+          "start": "2026-09-14",
+          "end": "2026-09-12",
+          "created": "2026-09-07",
           "status": "malformed"
         }
       ],
@@ -482,7 +482,7 @@
       "readiness": "NEEDS-PREP",
       "readiness_note": "brush worn, swap before ship",
       "hours": 2319,
-      "in_service": "2023-10-20",
+      "in_service": "2023-10-21",
       "ask": 16800,
       "rate_card": {
         "full_day": 445,
@@ -501,9 +501,9 @@
           "held_by": "Kevin",
           "customer": "Bluebird Logistics",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-08-30",
-          "end": "2026-09-05",
-          "created": "2026-08-28",
+          "start": "2026-08-31",
+          "end": "2026-09-06",
+          "created": "2026-08-29",
           "status": "expired"
         }
       ],
@@ -521,7 +521,7 @@
       "readiness": "NEEDS-PREP",
       "readiness_note": "squeegee blades ordered",
       "hours": 3229,
-      "in_service": "2024-08-23",
+      "in_service": "2024-08-24",
       "ask": 17650,
       "rate_card": {
         "full_day": 205,
@@ -549,7 +549,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1130,
-      "in_service": "2022-01-28",
+      "in_service": "2022-01-29",
       "ask": 3700,
       "rate_card": {
         "full_day": 310,
@@ -577,7 +577,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 304,
-      "in_service": "2024-07-19",
+      "in_service": "2024-07-20",
       "ask": 15050,
       "rate_card": {
         "full_day": 460,
@@ -605,7 +605,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 241,
-      "in_service": "2024-06-22",
+      "in_service": "2024-06-23",
       "ask": 31300,
       "rate_card": {
         "full_day": 390,
@@ -633,7 +633,7 @@
       "readiness": "NEEDS-PREP",
       "readiness_note": "brush worn, swap before ship",
       "hours": 1906,
-      "in_service": "2025-08-04",
+      "in_service": "2025-08-05",
       "ask": 14050,
       "rate_card": {
         "full_day": 550,
@@ -661,7 +661,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1316,
-      "in_service": "2022-03-23",
+      "in_service": "2022-03-24",
       "ask": 11600,
       "rate_card": {
         "full_day": 590,
@@ -689,7 +689,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2308,
-      "in_service": "2022-04-27",
+      "in_service": "2022-04-28",
       "ask": 25850,
       "rate_card": {
         "full_day": 325,
@@ -717,7 +717,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2027,
-      "in_service": "2025-10-11",
+      "in_service": "2025-10-12",
       "ask": 25050,
       "rate_card": {
         "full_day": 255,
@@ -745,7 +745,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1897,
-      "in_service": "2025-01-07",
+      "in_service": "2025-01-08",
       "ask": 15950,
       "rate_card": {
         "full_day": 530,
@@ -773,7 +773,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1968,
-      "in_service": "2025-08-22",
+      "in_service": "2025-08-23",
       "ask": 14950,
       "rate_card": {
         "full_day": 370,
@@ -801,7 +801,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3212,
-      "in_service": "2022-03-13",
+      "in_service": "2022-03-14",
       "ask": 6000,
       "rate_card": {
         "full_day": 330,
@@ -829,7 +829,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1753,
-      "in_service": "2023-11-05",
+      "in_service": "2023-11-06",
       "ask": 7000,
       "rate_card": {
         "full_day": 260,
@@ -857,7 +857,7 @@
       "readiness": "DOWN",
       "readiness_note": "awaiting pump assembly",
       "hours": null,
-      "in_service": "2022-03-11",
+      "in_service": "2022-03-12",
       "ask": 8550,
       "rate_card": {
         "full_day": 470,
@@ -885,7 +885,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1706,
-      "in_service": "2025-08-03",
+      "in_service": "2025-08-04",
       "ask": 23400,
       "rate_card": {
         "full_day": 465,
@@ -913,7 +913,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1823,
-      "in_service": "2022-03-14",
+      "in_service": "2022-03-15",
       "ask": 7500,
       "rate_card": {
         "full_day": 230,
@@ -941,7 +941,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2074,
-      "in_service": "2023-05-13",
+      "in_service": "2023-05-14",
       "ask": 21850,
       "rate_card": {
         "full_day": 480,
@@ -969,7 +969,7 @@
       "readiness": "DOWN",
       "readiness_note": "controller fault F14",
       "hours": 1441,
-      "in_service": "2025-04-23",
+      "in_service": "2025-04-24",
       "ask": 18250,
       "rate_card": {
         "full_day": 310,
@@ -997,7 +997,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1420,
-      "in_service": "2022-07-05",
+      "in_service": "2022-07-06",
       "ask": 17200,
       "rate_card": {
         "full_day": 485,
@@ -1025,7 +1025,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2527,
-      "in_service": "2025-08-11",
+      "in_service": "2025-08-12",
       "ask": 21800,
       "rate_card": {
         "full_day": 535,
@@ -1053,7 +1053,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 929,
-      "in_service": "2023-10-16",
+      "in_service": "2023-10-17",
       "ask": 20450,
       "rate_card": {
         "full_day": 270,
@@ -1081,7 +1081,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2987,
-      "in_service": "2024-12-08",
+      "in_service": "2024-12-09",
       "ask": 15800,
       "rate_card": {
         "full_day": 440,
@@ -1100,9 +1100,9 @@
           "held_by": "Kevin",
           "customer": "Oakhill Casting",
           "purpose": "replacement for down unit",
-          "start": "2026-09-08",
-          "end": "2026-09-08",
-          "created": "2026-09-06",
+          "start": "2026-09-09",
+          "end": "2026-09-09",
+          "created": "2026-09-07",
           "status": "current"
         },
         {
@@ -1110,9 +1110,9 @@
           "held_by": "Kevin",
           "customer": "Juniper Metalworks",
           "purpose": "quote hold",
-          "start": "2026-09-12",
-          "end": "2026-09-12",
-          "created": "2026-09-06",
+          "start": "2026-09-13",
+          "end": "2026-09-13",
+          "created": "2026-09-07",
           "status": "future"
         },
         {
@@ -1120,9 +1120,9 @@
           "held_by": "Kevin",
           "customer": "Pinnacle Cold Storage",
           "purpose": "quote hold",
-          "start": "2026-09-15",
-          "end": "2026-09-17",
-          "created": "2026-09-06",
+          "start": "2026-09-16",
+          "end": "2026-09-18",
+          "created": "2026-09-07",
           "status": "future"
         },
         {
@@ -1130,9 +1130,9 @@
           "held_by": "Kevin",
           "customer": "Juniper Metalworks",
           "purpose": "trade-show loaner",
-          "start": "2026-09-22",
-          "end": "2026-09-22",
-          "created": "2026-09-06",
+          "start": "2026-09-23",
+          "end": "2026-09-23",
+          "created": "2026-09-07",
           "status": "future"
         }
       ],
@@ -1150,7 +1150,7 @@
       "readiness": "NEEDS-PREP",
       "readiness_note": "battery watering due",
       "hours": 1258,
-      "in_service": "2025-07-22",
+      "in_service": "2025-07-23",
       "ask": 30600,
       "rate_card": {
         "full_day": 400,
@@ -1178,7 +1178,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3167,
-      "in_service": "2024-07-09",
+      "in_service": "2024-07-10",
       "ask": 17850,
       "rate_card": {
         "full_day": 520,
@@ -1206,7 +1206,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2568,
-      "in_service": "2025-05-28",
+      "in_service": "2025-05-29",
       "ask": 10200,
       "rate_card": {
         "full_day": 265,
@@ -1234,7 +1234,7 @@
       "readiness": "NEEDS-PREP",
       "readiness_note": "squeegee blades ordered",
       "hours": null,
-      "in_service": "2025-07-08",
+      "in_service": "2025-07-09",
       "ask": 11600,
       "rate_card": {
         "full_day": 505,
@@ -1260,8 +1260,8 @@
       "cycle_rate": 1300,
       "cycles_billed": 6,
       "cycles_max": 1,
-      "last_invoiced_period_start": "2026-08-02",
-      "last_invoiced_period_end": "2026-08-29",
+      "last_invoiced_period_start": "2026-08-03",
+      "last_invoiced_period_end": "2026-08-30",
       "last_invoice": "R4103-6",
       "next_due": null,
       "job_site": "Jefferson WI",
@@ -1277,10 +1277,10 @@
       "cycle_rate": 1275,
       "cycles_billed": 13,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-07-26",
-      "last_invoiced_period_end": "2026-08-22",
+      "last_invoiced_period_start": "2026-07-27",
+      "last_invoiced_period_end": "2026-08-23",
       "last_invoice": "R4106-13",
-      "next_due": "2026-09-19",
+      "next_due": "2026-09-20",
       "job_site": "Ixonia WI",
       "customer_po": "PO-43073",
       "alerts": [],
@@ -1294,10 +1294,10 @@
       "cycle_rate": 1150,
       "cycles_billed": 1,
       "cycles_max": 3,
-      "last_invoiced_period_start": "2026-08-06",
-      "last_invoiced_period_end": "2026-09-02",
+      "last_invoiced_period_start": "2026-08-07",
+      "last_invoiced_period_end": "2026-09-03",
       "last_invoice": "R4109-1.1",
-      "next_due": "2026-09-30",
+      "next_due": "2026-10-01",
       "job_site": "Watertown WI",
       "customer_po": "PO-33553",
       "alerts": [
@@ -1313,8 +1313,8 @@
       "cycle_rate": 1625,
       "cycles_billed": 14,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-07-24",
-      "last_invoiced_period_end": "2026-08-20",
+      "last_invoiced_period_start": "2026-07-25",
+      "last_invoiced_period_end": "2026-08-21",
       "last_invoice": "R4112-14",
       "next_due": null,
       "job_site": "Sun Prairie WI",
@@ -1332,8 +1332,8 @@
       "cycle_rate": 2100,
       "cycles_billed": 1,
       "cycles_max": 1,
-      "last_invoiced_period_start": "2026-07-26",
-      "last_invoiced_period_end": "2026-08-22",
+      "last_invoiced_period_start": "2026-07-27",
+      "last_invoiced_period_end": "2026-08-23",
       "last_invoice": "R4115-1",
       "next_due": null,
       "job_site": "Jefferson WI",
@@ -1349,8 +1349,8 @@
       "cycle_rate": 2250,
       "cycles_billed": 10,
       "cycles_max": 1,
-      "last_invoiced_period_start": "2026-07-25",
-      "last_invoiced_period_end": "2026-08-21",
+      "last_invoiced_period_start": "2026-07-26",
+      "last_invoiced_period_end": "2026-08-22",
       "last_invoice": "519665",
       "next_due": null,
       "job_site": "Oconomowoc WI",
@@ -1366,10 +1366,10 @@
       "cycle_rate": 875,
       "cycles_billed": 14,
       "cycles_max": 18,
-      "last_invoiced_period_start": "2026-08-09",
-      "last_invoiced_period_end": "2026-09-05",
+      "last_invoiced_period_start": "2026-08-10",
+      "last_invoiced_period_end": "2026-09-06",
       "last_invoice": "R4121-14",
-      "next_due": "2026-10-03",
+      "next_due": "2026-10-04",
       "job_site": "Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
@@ -1383,8 +1383,8 @@
       "cycle_rate": 850,
       "cycles_billed": 4,
       "cycles_max": 3,
-      "last_invoiced_period_start": "2026-08-08",
-      "last_invoiced_period_end": "2026-09-04",
+      "last_invoiced_period_start": "2026-08-09",
+      "last_invoiced_period_end": "2026-09-05",
       "last_invoice": "R4124-4",
       "next_due": null,
       "job_site": "Ixonia WI",
@@ -1402,10 +1402,10 @@
       "cycle_rate": 2075,
       "cycles_billed": 9,
       "cycles_max": 12,
-      "last_invoiced_period_start": "2026-07-27",
-      "last_invoiced_period_end": "2026-08-23",
+      "last_invoiced_period_start": "2026-07-28",
+      "last_invoiced_period_end": "2026-08-24",
       "last_invoice": "R4127-9",
-      "next_due": "2026-09-20",
+      "next_due": "2026-09-21",
       "job_site": "Watertown WI",
       "customer_po": "PO-86127",
       "alerts": [],
@@ -1419,10 +1419,10 @@
       "cycle_rate": 1575,
       "cycles_billed": 3,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-11",
-      "last_invoiced_period_end": "2026-09-07",
+      "last_invoiced_period_start": "2026-08-12",
+      "last_invoiced_period_end": "2026-09-08",
       "last_invoice": "R4130-3",
-      "next_due": "2026-10-05",
+      "next_due": "2026-10-06",
       "job_site": "Jefferson WI",
       "customer_po": null,
       "alerts": [],
@@ -1454,10 +1454,10 @@
       "cycle_rate": 2100,
       "cycles_billed": 2,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-07-30",
-      "last_invoiced_period_end": "2026-08-26",
+      "last_invoiced_period_start": "2026-07-31",
+      "last_invoiced_period_end": "2026-08-27",
       "last_invoice": "R4139-2",
-      "next_due": "2026-09-23",
+      "next_due": "2026-09-24",
       "job_site": "Beloit WI",
       "customer_po": null,
       "alerts": [],
@@ -1471,8 +1471,8 @@
       "cycle_rate": 1925,
       "cycles_billed": 13,
       "cycles_max": 1,
-      "last_invoiced_period_start": "2026-08-05",
-      "last_invoiced_period_end": "2026-09-01",
+      "last_invoiced_period_start": "2026-08-06",
+      "last_invoiced_period_end": "2026-09-02",
       "last_invoice": "R4142-13",
       "next_due": null,
       "job_site": "Sun Prairie WI",
@@ -1488,10 +1488,10 @@
       "cycle_rate": 1025,
       "cycles_billed": 5,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-05",
-      "last_invoiced_period_end": "2026-09-01",
+      "last_invoiced_period_start": "2026-08-06",
+      "last_invoiced_period_end": "2026-09-02",
       "last_invoice": "R4145-5",
-      "next_due": "2026-09-29",
+      "next_due": "2026-09-30",
       "job_site": "Waukesha WI",
       "customer_po": null,
       "alerts": [],
@@ -1505,10 +1505,10 @@
       "cycle_rate": 1475,
       "cycles_billed": 13,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-07-29",
-      "last_invoiced_period_end": "2026-08-25",
+      "last_invoiced_period_start": "2026-07-30",
+      "last_invoiced_period_end": "2026-08-26",
       "last_invoice": "R4148-13",
-      "next_due": "2026-09-22",
+      "next_due": "2026-09-23",
       "job_site": "Milwaukee WI",
       "customer_po": "PO-14723",
       "alerts": [],
@@ -1522,10 +1522,10 @@
       "cycle_rate": 1750,
       "cycles_billed": 14,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-07-25",
-      "last_invoiced_period_end": "2026-08-21",
+      "last_invoiced_period_start": "2026-07-26",
+      "last_invoiced_period_end": "2026-08-22",
       "last_invoice": "R4151-14",
-      "next_due": "2026-09-18",
+      "next_due": "2026-09-19",
       "job_site": "Beloit WI",
       "customer_po": "PO-43404",
       "alerts": [],
@@ -1539,10 +1539,10 @@
       "cycle_rate": 1100,
       "cycles_billed": 3,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-03",
-      "last_invoiced_period_end": "2026-08-30",
+      "last_invoiced_period_start": "2026-08-04",
+      "last_invoiced_period_end": "2026-08-31",
       "last_invoice": "R4154-3",
-      "next_due": "2026-09-27",
+      "next_due": "2026-09-28",
       "job_site": "Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
@@ -1556,10 +1556,10 @@
       "cycle_rate": 1975,
       "cycles_billed": 5,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-10",
-      "last_invoiced_period_end": "2026-09-06",
+      "last_invoiced_period_start": "2026-08-11",
+      "last_invoiced_period_end": "2026-09-07",
       "last_invoice": "R4157-5",
-      "next_due": "2026-10-04",
+      "next_due": "2026-10-05",
       "job_site": "Sun Prairie WI",
       "customer_po": null,
       "alerts": [],
@@ -1573,10 +1573,10 @@
       "cycle_rate": 1525,
       "cycles_billed": 2,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-02",
-      "last_invoiced_period_end": "2026-08-29",
+      "last_invoiced_period_start": "2026-08-03",
+      "last_invoiced_period_end": "2026-08-30",
       "last_invoice": "R4160-2",
-      "next_due": "2026-09-26",
+      "next_due": "2026-09-27",
       "job_site": "Waukesha WI",
       "customer_po": null,
       "alerts": [],
@@ -1593,8 +1593,8 @@
         "held_by": "Kevin",
         "customer": "Summit Fabrication",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-09-07",
-        "end": "2026-09-11",
+        "start": "2026-09-08",
+        "end": "2026-09-12",
         "status": "current"
       },
       {
@@ -1605,8 +1605,8 @@
         "held_by": "Kevin",
         "customer": "Oakhill Casting",
         "purpose": "replacement for down unit",
-        "start": "2026-09-08",
-        "end": "2026-09-08",
+        "start": "2026-09-09",
+        "end": "2026-09-09",
         "status": "current"
       },
       {
@@ -1617,8 +1617,8 @@
         "held_by": "Kevin",
         "customer": "Cedar Ridge Foods",
         "purpose": "DEMO — customer site",
-        "start": "2026-09-11",
-        "end": "2026-09-11",
+        "start": "2026-09-12",
+        "end": "2026-09-12",
         "status": "future"
       },
       {
@@ -1629,8 +1629,8 @@
         "held_by": "Kevin",
         "customer": "Juniper Metalworks",
         "purpose": "quote hold",
-        "start": "2026-09-12",
-        "end": "2026-09-12",
+        "start": "2026-09-13",
+        "end": "2026-09-13",
         "status": "future"
       },
       {
@@ -1641,8 +1641,8 @@
         "held_by": "Matt",
         "customer": "Cedar Ridge Manufacturing",
         "purpose": "bad dates",
-        "start": "2026-09-13",
-        "end": "2026-09-11",
+        "start": "2026-09-14",
+        "end": "2026-09-12",
         "status": "malformed"
       },
       {
@@ -1653,8 +1653,8 @@
         "held_by": "Kevin",
         "customer": "Lakeshore Beverage",
         "purpose": "quote hold",
-        "start": "2026-09-14",
-        "end": "2026-09-14",
+        "start": "2026-09-15",
+        "end": "2026-09-15",
         "status": "future"
       },
       {
@@ -1665,8 +1665,8 @@
         "held_by": "Kevin",
         "customer": "Pinnacle Cold Storage",
         "purpose": "quote hold",
-        "start": "2026-09-15",
-        "end": "2026-09-17",
+        "start": "2026-09-16",
+        "end": "2026-09-18",
         "status": "future"
       },
       {
@@ -1677,8 +1677,8 @@
         "held_by": "Matt",
         "customer": "Acme Foods",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-09-16",
-        "end": "2026-09-18",
+        "start": "2026-09-17",
+        "end": "2026-09-19",
         "status": "future"
       },
       {
@@ -1689,8 +1689,8 @@
         "held_by": "Kevin",
         "customer": "Lakeshore Beverage",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-09-20",
-        "end": "2026-09-20",
+        "start": "2026-09-21",
+        "end": "2026-09-21",
         "status": "future"
       },
       {
@@ -1701,8 +1701,8 @@
         "held_by": "Kevin",
         "customer": "Juniper Metalworks",
         "purpose": "trade-show loaner",
-        "start": "2026-09-22",
-        "end": "2026-09-22",
+        "start": "2026-09-23",
+        "end": "2026-09-23",
         "status": "future"
       },
       {
@@ -1713,8 +1713,8 @@
         "held_by": "Matt",
         "customer": "Northgate Fulfillment",
         "purpose": "trade-show loaner",
-        "start": "2026-09-28",
-        "end": "2026-09-30",
+        "start": "2026-09-29",
+        "end": "2026-10-01",
         "status": "future"
       }
     ],
@@ -1727,8 +1727,8 @@
         "held_by": "Kevin",
         "customer": "Bluebird Logistics",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-08-30",
-        "end": "2026-09-05"
+        "start": "2026-08-31",
+        "end": "2026-09-06"
       }
     ]
   },
@@ -1741,7 +1741,7 @@
       "job_site": "Ixonia WI",
       "agreement": 4106,
       "customer": "Pinnacle Cold Storage",
-      "billed_through": "2026-08-22",
+      "billed_through": "2026-08-23",
       "note": "Customer called — released, unit at the dock"
     },
     {
@@ -1752,7 +1752,7 @@
       "job_site": "Watertown WI",
       "agreement": 4109,
       "customer": "Pinnacle Cold Storage",
-      "billed_through": "2026-09-02",
+      "billed_through": "2026-09-03",
       "note": "Released Friday; site closes at 3"
     },
     {
@@ -1763,7 +1763,7 @@
       "job_site": "Sun Prairie WI",
       "agreement": 4112,
       "customer": "Kestrel Print",
-      "billed_through": "2026-08-20",
+      "billed_through": "2026-08-21",
       "note": "Job wrapped early — call the plant before you roll"
     }
   ],
@@ -1784,9 +1784,9 @@
       "return_move": "DELIVER",
       "assigned": "Josh",
       "scheduled": null,
-      "opened": "2026-09-07",
+      "opened": "2026-09-08",
       "opened_by": "Zac",
-      "stage_since": "2026-09-08",
+      "stage_since": "2026-09-09",
       "age_days": 1,
       "quote": null,
       "parts": null,
@@ -1794,17 +1794,17 @@
       "closed": null,
       "log": [
         {
-          "ts": "2026-09-07 07:42 CT",
+          "ts": "2026-09-08 07:42 CT",
           "who": "Kevin",
           "text": "opened by Kevin (RECEIVED, PHONE): Scrubber dead, no power at the key switch. Whole line is mopping by hand."
         },
         {
-          "ts": "2026-09-07",
+          "ts": "2026-09-08",
           "who": null,
           "text": "import note: called the shop line at 07:38, asked for Josh by name."
         },
         {
-          "ts": "2026-09-08 08:15 CT",
+          "ts": "2026-09-09 08:15 CT",
           "who": "Josh",
           "text": "Josh: Truck is booked for this afternoon. Bringing the spare key switch and a charger just in case."
         }
@@ -1815,14 +1815,14 @@
           "name": "2026-09-07-Ironwood-Workorder.pdf",
           "kind": "WORKORDER",
           "bytes": 18442,
-          "added": "2026-09-07"
+          "added": "2026-09-08"
         },
         {
           "id": "a10c73be9d4f2205",
           "name": "key-switch-panel.jpg",
           "kind": "PHOTO",
           "bytes": 1874300,
-          "added": "2026-09-07"
+          "added": "2026-09-08"
         }
       ]
     },
@@ -1842,9 +1842,9 @@
       "return_move": "NONE",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-08-30",
+      "opened": "2026-08-31",
       "opened_by": "Zac",
-      "stage_since": "2026-09-01",
+      "stage_since": "2026-09-02",
       "age_days": 9,
       "quote": null,
       "parts": null,
@@ -1869,14 +1869,14 @@
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Josh",
       "scheduled": null,
-      "opened": "2026-08-27",
+      "opened": "2026-08-28",
       "opened_by": "Kevin",
-      "stage_since": "2026-08-28",
+      "stage_since": "2026-08-29",
       "age_days": 12,
       "quote": {
         "number": "Q-2211",
         "amount": 2480,
-        "sent": "2026-09-02",
+        "sent": "2026-09-03",
         "approved": null
       },
       "parts": null,
@@ -1889,7 +1889,7 @@
           "name": "2026-09-02-FairmontDairy-Quote.pdf",
           "kind": "QUOTE",
           "bytes": 25602,
-          "added": "2026-09-02"
+          "added": "2026-09-03"
         }
       ]
     },
@@ -1908,28 +1908,28 @@
       "intake_move": "CUSTOMER-DROP",
       "return_move": "DELIVER",
       "assigned": "Zac",
-      "scheduled": "2026-09-12",
-      "opened": "2026-08-21",
+      "scheduled": "2026-09-13",
+      "opened": "2026-08-22",
       "opened_by": "Zac",
-      "stage_since": "2026-08-24",
+      "stage_since": "2026-08-25",
       "age_days": 18,
       "quote": {
         "number": "Q-2198",
         "amount": 1140,
-        "sent": "2026-08-24",
-        "approved": "2026-08-26"
+        "sent": "2026-08-25",
+        "approved": "2026-08-27"
       },
       "parts": "Pump assy 41-2207 — ETA Thursday, backordered once already",
       "machinio_ref": null,
       "closed": null,
       "log": [
         {
-          "ts": "2026-08-26 11:02 CT",
+          "ts": "2026-08-27 11:02 CT",
           "who": "Zac",
           "text": "Zac: Quote approved over the phone. Pump ordered."
         },
         {
-          "ts": "2026-09-04 16:30 CT",
+          "ts": "2026-09-05 16:30 CT",
           "who": null,
           "text": "supplier note: backordered a second time, new ETA Thursday."
         }
@@ -1940,14 +1940,14 @@
           "name": "pump-assy-41-2207-parts.pdf",
           "kind": "PARTS-LIST",
           "bytes": 7180,
-          "added": "2026-08-24"
+          "added": "2026-08-25"
         },
         {
           "id": "0d5e1fa2c7b39940",
           "name": "2026-08-25-Lakeshore-PM.pdf",
           "kind": "PM-REPORT",
           "bytes": 44100,
-          "added": "2026-08-24"
+          "added": "2026-08-25"
         }
       ]
     },
@@ -1967,22 +1967,22 @@
       "return_move": "NONE",
       "assigned": null,
       "scheduled": null,
-      "opened": "2026-08-31",
+      "opened": "2026-09-01",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-01",
+      "stage_since": "2026-09-02",
       "age_days": 8,
       "quote": {
         "number": "Q-2230",
         "amount": 615,
-        "sent": "2026-09-02",
-        "approved": "2026-09-06"
+        "sent": "2026-09-03",
+        "approved": "2026-09-07"
       },
       "parts": "Vac motor 22-0410 — received",
       "machinio_ref": null,
       "closed": null,
       "log": [
         {
-          "ts": "2026-09-06 09:15 CT",
+          "ts": "2026-09-07 09:15 CT",
           "who": "Matt",
           "text": "Matt: approved by email. Motor came in this morning."
         }
@@ -2004,10 +2004,10 @@
       "intake_move": "NONE",
       "return_move": "NONE",
       "assigned": "Josh",
-      "scheduled": "2026-09-09",
-      "opened": "2026-09-05",
+      "scheduled": "2026-09-10",
+      "opened": "2026-09-06",
       "opened_by": "Matt",
-      "stage_since": "2026-09-08",
+      "stage_since": "2026-09-09",
       "age_days": 3,
       "quote": null,
       "parts": null,
@@ -2032,15 +2032,15 @@
       "return_move": "DELIVER",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-08-18",
+      "opened": "2026-08-19",
       "opened_by": "Zac",
-      "stage_since": "2026-08-21",
+      "stage_since": "2026-08-22",
       "age_days": 21,
       "quote": {
         "number": "Q-2185",
         "amount": 860,
-        "sent": "2026-08-20",
-        "approved": "2026-08-21"
+        "sent": "2026-08-21",
+        "approved": "2026-08-22"
       },
       "parts": null,
       "machinio_ref": null,
@@ -2064,19 +2064,19 @@
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Josh",
       "scheduled": null,
-      "opened": "2026-08-13",
+      "opened": "2026-08-14",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-06",
+      "stage_since": "2026-09-07",
       "age_days": 26,
       "quote": {
         "number": "Q-2170",
         "amount": 1320,
-        "sent": "2026-08-15",
-        "approved": "2026-08-16"
+        "sent": "2026-08-16",
+        "approved": "2026-08-17"
       },
       "parts": null,
       "machinio_ref": "MCH-73988",
-      "closed": "2026-09-06",
+      "closed": "2026-09-07",
       "log": [],
       "docs": []
     },
@@ -2096,9 +2096,9 @@
       "return_move": "CUSTOMER-PICKUP",
       "assigned": null,
       "scheduled": null,
-      "opened": "2026-09-04",
+      "opened": "2026-09-05",
       "opened_by": "Matt",
-      "stage_since": "2026-09-04",
+      "stage_since": "2026-09-05",
       "age_days": 4,
       "quote": null,
       "parts": null,
@@ -2123,9 +2123,9 @@
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-09-01",
+      "opened": "2026-09-02",
       "opened_by": "Matt",
-      "stage_since": "2026-09-04",
+      "stage_since": "2026-09-05",
       "age_days": 7,
       "quote": null,
       "parts": null,
@@ -2149,16 +2149,16 @@
       "intake_move": "CUSTOMER-DROP",
       "return_move": "DELIVER",
       "assigned": "Josh",
-      "scheduled": "2026-09-11",
-      "opened": "2026-08-29",
+      "scheduled": "2026-09-12",
+      "opened": "2026-08-30",
       "opened_by": "Matt",
-      "stage_since": "2026-09-02",
+      "stage_since": "2026-09-03",
       "age_days": 10,
       "quote": {
         "number": "Q-2205",
         "amount": 640,
-        "sent": "2026-08-31",
-        "approved": "2026-09-02"
+        "sent": "2026-09-01",
+        "approved": "2026-09-03"
       },
       "parts": null,
       "machinio_ref": null,
@@ -2182,9 +2182,9 @@
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Josh",
       "scheduled": null,
-      "opened": "2026-09-02",
+      "opened": "2026-09-03",
       "opened_by": "Zac",
-      "stage_since": "2026-09-06",
+      "stage_since": "2026-09-07",
       "age_days": 6,
       "quote": null,
       "parts": null,
@@ -2192,22 +2192,22 @@
       "closed": null,
       "log": [
         {
-          "ts": "2026-09-02 13:20 CT",
+          "ts": "2026-09-03 13:20 CT",
           "who": "Matt",
           "text": "opened by Matt (RECEIVED): Dropped off. Customer says it crawls and pulls right."
         },
         {
-          "ts": "2026-09-03 09:05 CT",
+          "ts": "2026-09-04 09:05 CT",
           "who": "Josh",
           "text": "Josh RECEIVED → CONTACTED: Called Dana, confirmed they want it looked at before any work."
         },
         {
-          "ts": "2026-09-04 15:48 CT",
+          "ts": "2026-09-05 15:48 CT",
           "who": "Josh",
           "text": "Josh: Pulled both drive motors. Left one has scored brushes and the commutator is pitted; right one is worn but serviceable for now. Recommend replacing the pair — doing one and coming back costs them a second teardown."
         },
         {
-          "ts": "2026-09-06 10:12 CT",
+          "ts": "2026-09-07 10:12 CT",
           "who": "Josh",
           "text": "Josh CONTACTED → NEEDS-QUOTE: Parts priced, labour is about six hours. Matt owes them a number."
         }
@@ -2230,9 +2230,9 @@
       "return_move": "DELIVER",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-08-26",
+      "opened": "2026-08-27",
       "opened_by": "Josh",
-      "stage_since": "2026-09-03",
+      "stage_since": "2026-09-04",
       "age_days": 13,
       "quote": null,
       "parts": null,
@@ -2269,7 +2269,7 @@
       "customer": "Pinnacle Cold Storage",
       "address": "Ixonia WI",
       "date": null,
-      "billed_through": "2026-08-22",
+      "billed_through": "2026-08-23",
       "driver": null,
       "rig": null,
       "status": "OPEN",
@@ -2285,8 +2285,8 @@
       "what": "Halstead R-660 #900149 off-rent",
       "customer": "Pinnacle Cold Storage",
       "address": "Watertown WI",
-      "date": "2026-09-09",
-      "billed_through": "2026-09-02",
+      "date": "2026-09-10",
+      "billed_through": "2026-09-03",
       "driver": "Josh",
       "rig": "JOSH-LIFTGATE",
       "status": "SCHEDULED",
@@ -2302,7 +2302,7 @@
       "what": "Nordvale SC-2400 (customer owned) in for repair",
       "customer": "Ironwood Packaging",
       "address": "Watertown WI",
-      "date": "2026-09-08",
+      "date": "2026-09-09",
       "billed_through": null,
       "driver": null,
       "rig": null,
@@ -2319,7 +2319,7 @@
       "what": "Ironline BX-40 (customer owned) back to customer",
       "customer": "Cedar Ridge Manufacturing",
       "address": "Oconomowoc WI",
-      "date": "2026-09-10",
+      "date": "2026-09-11",
       "billed_through": null,
       "driver": "Kevin",
       "rig": "TRAILER-6000",
@@ -2336,7 +2336,7 @@
       "what": "Demo unit out to the Beloit plant",
       "customer": "Quarry Road Aggregates",
       "address": "Beloit WI",
-      "date": "2026-09-10",
+      "date": "2026-09-11",
       "billed_through": null,
       "driver": "Kevin",
       "rig": "TRAILER-6000",
@@ -2353,7 +2353,7 @@
       "what": "Loaner out to the Jefferson plant",
       "customer": "Juniper Metalworks",
       "address": "Jefferson WI",
-      "date": "2026-09-12",
+      "date": "2026-09-13",
       "billed_through": null,
       "driver": null,
       "rig": null,
@@ -2370,19 +2370,19 @@
       "what": "Parts pickup — Milwaukee supplier",
       "customer": "Halstead Parts Depot",
       "address": "Milwaukee WI",
-      "date": "2026-09-06",
+      "date": "2026-09-07",
       "billed_through": null,
       "driver": "Zac",
       "rig": "JOSH-LIFTGATE",
       "status": "DONE",
       "note": "Picked up both pump assemblies",
-      "done": "2026-09-06"
+      "done": "2026-09-07"
     }
   ],
   "dispatch_warnings": [
     {
       "rig": "TRAILER-6000",
-      "date": "2026-09-10",
+      "date": "2026-09-11",
       "ids": [
         "m-so-2202",
         "m-a1b2c3"
@@ -2396,35 +2396,35 @@
         "customer": "Pinnacle Cold Storage",
         "serial": "900128",
         "amount": 1275,
-        "due": "2026-09-09"
+        "due": "2026-09-10"
       },
       {
         "agreement": 4109,
         "customer": "Pinnacle Cold Storage",
         "serial": "900149",
         "amount": 1150,
-        "due": "2026-09-10"
+        "due": "2026-09-11"
       },
       {
         "agreement": 4121,
         "customer": "Northgate Fulfillment",
         "serial": "900212",
         "amount": 875,
-        "due": "2026-09-11"
+        "due": "2026-09-12"
       },
       {
         "agreement": 4127,
         "customer": "Quarry Road Aggregates",
         "serial": "900240",
         "amount": 2075,
-        "due": "2026-09-12"
+        "due": "2026-09-13"
       },
       {
         "agreement": 4130,
         "customer": "Pinnacle Cold Storage",
         "serial": "900247",
         "amount": 1575,
-        "due": "2026-09-13"
+        "due": "2026-09-14"
       }
     ],
     "created_last_run": [
@@ -2433,24 +2433,24 @@
         "agreement": 4139,
         "customer": "Acme Foods",
         "amount": 2100,
-        "period_start": "2026-08-26",
-        "period_end": "2026-09-08"
+        "period_start": "2026-08-27",
+        "period_end": "2026-09-09"
       },
       {
         "invoice": "R4145-6",
         "agreement": 4145,
         "customer": "Evergreen Distribution",
         "amount": 1025,
-        "period_start": "2026-09-01",
-        "period_end": "2026-09-08"
+        "period_start": "2026-09-02",
+        "period_end": "2026-09-09"
       },
       {
         "invoice": "R4148-14",
         "agreement": 4148,
         "customer": "Pinnacle Cold Storage",
         "amount": 1475,
-        "period_start": "2026-08-25",
-        "period_end": "2026-09-08"
+        "period_start": "2026-08-26",
+        "period_end": "2026-09-09"
       }
     ]
   },
@@ -2475,9 +2475,9 @@
       "assigned": "Kevin",
       "priority": "HIGH",
       "next_action": "Call this morning",
-      "opened": "2026-09-07",
+      "opened": "2026-09-08",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-07T10:00:00.000Z",
+      "stage_since": "2026-09-08T10:00:00.000Z",
       "first_contact": null,
       "hours_to_contact": null,
       "age_in_stage_days": 1,
@@ -2514,9 +2514,9 @@
       "assigned": "Matt",
       "priority": "MEDIUM",
       "next_action": "Nobody has called — do it today",
-      "opened": "2026-09-04",
+      "opened": "2026-09-05",
       "opened_by": "Matt",
-      "stage_since": "2026-09-04T10:00:00.000Z",
+      "stage_since": "2026-09-05T10:00:00.000Z",
       "first_contact": null,
       "hours_to_contact": null,
       "age_in_stage_days": 4,
@@ -2553,10 +2553,10 @@
       "assigned": "Kevin",
       "priority": "MEDIUM",
       "next_action": "Send the weekly rate sheet",
-      "opened": "2026-09-05",
+      "opened": "2026-09-06",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-06T10:00:00.000Z",
-      "first_contact": "2026-09-05T10:30:00.000Z",
+      "stage_since": "2026-09-07T10:00:00.000Z",
+      "first_contact": "2026-09-06T10:30:00.000Z",
       "hours_to_contact": 1.5,
       "age_in_stage_days": 2,
       "age_total_days": 3,
@@ -2592,10 +2592,10 @@
       "assigned": "Matt",
       "priority": "MEDIUM",
       "next_action": null,
-      "opened": "2026-08-25",
+      "opened": "2026-08-26",
       "opened_by": "Matt",
-      "stage_since": "2026-08-28T10:00:00.000Z",
-      "first_contact": "2026-08-26T11:00:00.000Z",
+      "stage_since": "2026-08-29T10:00:00.000Z",
+      "first_contact": "2026-08-27T11:00:00.000Z",
       "hours_to_contact": 26,
       "age_in_stage_days": 11,
       "age_total_days": 14,
@@ -2610,17 +2610,17 @@
       "related_ticket": null,
       "log": [
         {
-          "ts": "2026-08-25",
+          "ts": "2026-08-26",
           "who": null,
           "text": "imported from Machinio MCH-88421: enquiry on a used 32\" rider."
         },
         {
-          "ts": "2026-08-26 09:10 CT",
+          "ts": "2026-08-27 09:10 CT",
           "who": "Matt",
           "text": "Matt RECEIVED → CONTACTED: Left a voicemail."
         },
         {
-          "ts": "2026-08-31 09:15 CT",
+          "ts": "2026-09-01 09:15 CT",
           "who": "Matt",
           "text": "Matt: Second voicemail. No callback."
         }
@@ -2645,16 +2645,16 @@
       "quote": {
         "number": "990142",
         "file": null,
-        "sent": "2026-09-03"
+        "sent": "2026-09-04"
       },
       "demo": null,
       "assigned": "Kevin",
       "priority": "MEDIUM",
       "next_action": "Follow up Thursday",
-      "opened": "2026-08-30",
+      "opened": "2026-08-31",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-03T10:00:00.000Z",
-      "first_contact": "2026-08-30T12:00:00.000Z",
+      "stage_since": "2026-09-04T10:00:00.000Z",
+      "first_contact": "2026-08-31T12:00:00.000Z",
       "hours_to_contact": 3,
       "age_in_stage_days": 5,
       "age_total_days": 9,
@@ -2669,22 +2669,22 @@
       "related_ticket": null,
       "log": [
         {
-          "ts": "2026-08-30 08:50 CT",
+          "ts": "2026-08-31 08:50 CT",
           "who": "Kevin",
           "text": "opened by Kevin (RECEIVED, REFERRAL): Sent over by Harbor Line’s maintenance lead."
         },
         {
-          "ts": "2026-08-30 11:55 CT",
+          "ts": "2026-08-31 11:55 CT",
           "who": "Kevin",
           "text": "Kevin RECEIVED → CONTACTED: Talked to Marcus. Two shifts, tile and sealed concrete, wants a rider."
         },
         {
-          "ts": "2026-09-03 14:03 CT",
+          "ts": "2026-09-04 14:03 CT",
           "who": "Kevin",
           "text": "Kevin value set"
         },
         {
-          "ts": "2026-09-03 14:06 CT",
+          "ts": "2026-09-04 14:06 CT",
           "who": "Kevin",
           "text": "Kevin CONTACTED → QUOTED: Quote 990142 sent. He is taking it to their CFO Thursday."
         }
@@ -2695,7 +2695,7 @@
           "name": "2026-09-03-HarborLine-Quote-990142.pdf",
           "kind": "QUOTE",
           "bytes": 132880,
-          "added": "2026-09-03"
+          "added": "2026-09-04"
         }
       ]
     },
@@ -2717,16 +2717,16 @@
       "quote": {
         "number": "990139",
         "file": null,
-        "sent": "2026-09-06"
+        "sent": "2026-09-07"
       },
       "demo": null,
       "assigned": "Kevin",
       "priority": "HIGH",
       "next_action": "They want a long-term number",
-      "opened": "2026-08-27",
+      "opened": "2026-08-28",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-06T10:00:00.000Z",
-      "first_contact": "2026-08-27T09:30:00.000Z",
+      "stage_since": "2026-09-07T10:00:00.000Z",
+      "first_contact": "2026-08-28T09:30:00.000Z",
       "hours_to_contact": 0.5,
       "age_in_stage_days": 2,
       "age_total_days": 12,
@@ -2759,17 +2759,17 @@
       "potential_commission": 1107,
       "quote": null,
       "demo": {
-        "date": "2026-09-11",
+        "date": "2026-09-12",
         "serial": "900114",
         "hold_id": "h0114l"
       },
       "assigned": "Kevin",
       "priority": "HIGH",
       "next_action": "Confirm the dock time",
-      "opened": "2026-09-02",
+      "opened": "2026-09-03",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-07T10:00:00.000Z",
-      "first_contact": "2026-09-02T11:00:00.000Z",
+      "stage_since": "2026-09-08T10:00:00.000Z",
+      "first_contact": "2026-09-03T11:00:00.000Z",
       "hours_to_contact": 2,
       "age_in_stage_days": 1,
       "age_total_days": 6,
@@ -2805,10 +2805,10 @@
       "assigned": "Matt",
       "priority": "MEDIUM",
       "next_action": "Demo Tuesday, bring the small pad driver",
-      "opened": "2026-08-28",
+      "opened": "2026-08-29",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-05T10:00:00.000Z",
-      "first_contact": "2026-08-28T13:30:00.000Z",
+      "stage_since": "2026-09-06T10:00:00.000Z",
+      "first_contact": "2026-08-29T13:30:00.000Z",
       "hours_to_contact": 4.5,
       "age_in_stage_days": 3,
       "age_total_days": 11,
@@ -2844,10 +2844,10 @@
       "assigned": "Kevin",
       "priority": "MEDIUM",
       "next_action": "Quote the annual PM",
-      "opened": "2026-09-05",
+      "opened": "2026-09-06",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-05T10:00:00.000Z",
-      "first_contact": "2026-09-05T15:00:00.000Z",
+      "stage_since": "2026-09-06T10:00:00.000Z",
+      "first_contact": "2026-09-06T15:00:00.000Z",
       "hours_to_contact": 6,
       "age_in_stage_days": 3,
       "age_total_days": 3,
@@ -2881,23 +2881,23 @@
       "quote": {
         "number": "990131",
         "file": null,
-        "sent": "2026-08-20"
+        "sent": "2026-08-21"
       },
       "demo": null,
       "assigned": "Kevin",
       "priority": "MEDIUM",
       "next_action": null,
-      "opened": "2026-08-16",
+      "opened": "2026-08-17",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-04T10:00:00.000Z",
-      "first_contact": "2026-08-16T09:45:00.000Z",
+      "stage_since": "2026-09-05T10:00:00.000Z",
+      "first_contact": "2026-08-17T09:45:00.000Z",
       "hours_to_contact": 0.75,
       "age_in_stage_days": 4,
       "age_total_days": 23,
       "stale": null,
       "stale_reason": null,
       "suggest_dead": false,
-      "closed": "2026-09-04",
+      "closed": "2026-09-05",
       "close_reason": "WON",
       "close_note": "Took the demo unit",
       "invoice": "990665",
@@ -2926,17 +2926,17 @@
       "assigned": "Kevin",
       "priority": "MEDIUM",
       "next_action": null,
-      "opened": "2026-08-22",
+      "opened": "2026-08-23",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-05T10:00:00.000Z",
-      "first_contact": "2026-08-22T14:00:00.000Z",
+      "stage_since": "2026-09-06T10:00:00.000Z",
+      "first_contact": "2026-08-23T14:00:00.000Z",
       "hours_to_contact": 5,
       "age_in_stage_days": 3,
       "age_total_days": 17,
       "stale": null,
       "stale_reason": null,
       "suggest_dead": false,
-      "closed": "2026-09-05",
+      "closed": "2026-09-06",
       "close_reason": "PRICE",
       "close_note": "Came in $2,400 under us on a private sale",
       "invoice": null,
@@ -2965,17 +2965,17 @@
       "assigned": "Matt",
       "priority": "MEDIUM",
       "next_action": null,
-      "opened": "2026-08-13",
+      "opened": "2026-08-14",
       "opened_by": "Kevin",
-      "stage_since": "2026-08-30T10:00:00.000Z",
-      "first_contact": "2026-08-14T07:00:00.000Z",
+      "stage_since": "2026-08-31T10:00:00.000Z",
+      "first_contact": "2026-08-15T07:00:00.000Z",
       "hours_to_contact": 22,
       "age_in_stage_days": 9,
       "age_total_days": 26,
       "stale": null,
       "stale_reason": null,
       "suggest_dead": false,
-      "closed": "2026-08-30",
+      "closed": "2026-08-31",
       "close_reason": "COMPETITOR",
       "close_note": "Went with the Madison dealer for the shorter drive",
       "invoice": null,
@@ -3004,17 +3004,17 @@
       "assigned": "Kevin",
       "priority": "MEDIUM",
       "next_action": null,
-      "opened": "2026-08-09",
+      "opened": "2026-08-10",
       "opened_by": "Kevin",
-      "stage_since": "2026-08-27T10:00:00.000Z",
-      "first_contact": "2026-08-09T17:00:00.000Z",
+      "stage_since": "2026-08-28T10:00:00.000Z",
+      "first_contact": "2026-08-10T17:00:00.000Z",
       "hours_to_contact": 8,
       "age_in_stage_days": 12,
       "age_total_days": 30,
       "stale": null,
       "stale_reason": null,
       "suggest_dead": false,
-      "closed": "2026-08-27",
+      "closed": "2026-08-28",
       "close_reason": "NO-BUDGET",
       "close_note": "Capital freeze until the new fiscal year",
       "invoice": null,
@@ -3043,9 +3043,9 @@
       "assigned": "Kevin",
       "priority": "MEDIUM",
       "next_action": null,
-      "opened": "2026-08-18",
+      "opened": "2026-08-19",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-02T10:00:00.000Z",
+      "stage_since": "2026-09-03T10:00:00.000Z",
       "first_contact": null,
       "hours_to_contact": null,
       "age_in_stage_days": 6,
@@ -3053,7 +3053,7 @@
       "stale": null,
       "stale_reason": null,
       "suggest_dead": false,
-      "closed": "2026-09-02",
+      "closed": "2026-09-03",
       "close_reason": "SILENT",
       "close_note": "Three calls, no answer",
       "invoice": null,
@@ -3068,7 +3068,8 @@
       "RECEIVED": 2,
       "CONTACTED": 3,
       "QUOTED": 2,
-      "DEMO-SCHEDULED": 2
+      "DEMO-SCHEDULED": 2,
+      "DEMO-DONE": 0
     },
     "received_uncontacted": 2,
     "stale_count": 2,
@@ -3086,6 +3087,7 @@
       "CONTACTED",
       "QUOTED",
       "DEMO-SCHEDULED",
+      "DEMO-DONE",
       "INVOICED"
     ],
     "sources": [
@@ -3174,7 +3176,8 @@
         "RECEIVED": 2,
         "CONTACTED": 3,
         "QUOTED": 2,
-        "DEMO-SCHEDULED": 2
+        "DEMO-SCHEDULED": 2,
+        "DEMO-DONE": 0
       }
     }
   },
@@ -3360,7 +3363,8 @@
         "RECEIVED": 4,
         "CONTACTED": 7,
         "QUOTED": 4,
-        "DEMO-SCHEDULED": 2
+        "DEMO-SCHEDULED": 2,
+        "DEMO-DONE": null
       },
       "median_quote_to_decision_bdays": 6
     },

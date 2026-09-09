@@ -148,10 +148,10 @@ check('isStale is red or yellow, and nothing else', () => {
 
 /* ----------------------------------------------------------------- board -- */
 
-check('five columns: the four open stages, then WON', () => {
+check('six columns: the five open stages, then WON', () => {
   const cols = boardColumns(FIXTURE, { me: { name: 'Kevin' } });
   const keys = cols.map((c) => c.key);
-  assert.deepEqual(keys.slice(0, 4), BOARD_STAGES);
+  assert.deepEqual(keys.slice(0, 5), BOARD_STAGES);
   assert.equal(keys[keys.length - 1], 'WON', 'WON is always the last column');
   assert.deepEqual(cols.find((c) => c.key === 'WON').leads.map((l) => l.lead), ['L5']);
 });
