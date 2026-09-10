@@ -2453,7 +2453,7 @@ function viewLead(id) {
       ${raw(kvRow('Opened', `${fmtDateFull(l.opened)}${l.opened_by ? ` by ${l.opened_by}` : ''}`))}
       ${raw(kvRow('First contact', l.first_contact
         ? `${fmtInstantCentral(l.first_contact)}${l.hours_to_contact != null ? ` · ${statOr(l.hours_to_contact, 'h')} after it landed` : ''}`
-        : raw('<span class="none">nobody has called yet</span>')))}
+        : raw('<span class="none">none yet</span>')))}
       ${raw(kvRow('In this stage since', l.stage_since ? fmtInstantCentral(l.stage_since) : ''))}
       ${raw(kvRow('Age', `${l.age_in_stage_days != null ? `${l.age_in_stage_days}d in stage` : ''}${l.age_in_stage_days != null && l.age_total_days != null ? ' · ' : ''}${l.age_total_days != null ? `${l.age_total_days}d total` : ''}`))}
       ${l.closed ? raw(kvRow('Closed', `${fmtDateFull(l.closed)}${l.close_reason ? ` · ${REASON_LABEL[l.close_reason] || l.close_reason}` : ''}`)) : ''}
