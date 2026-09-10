@@ -51,7 +51,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-10-d55';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-10-d55b';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -3660,7 +3660,7 @@ function eventBody(action, form, fd) {
   if (action === 'lead_update') {
     // Only the keys being changed travel (§5). `data-mode` says which sheet.
     const payload = { lead: form.dataset.id };
-    for (const k of ['stage', 'note', 'next_action', 'assigned', 'priority', 'demo_date', 'demo_serial', 'invoice']) {
+    for (const k of ['stage', 'note', 'next_action', 'assigned', 'priority', 'demo_date', 'demo_serial', 'invoice', 'po']) {
       const v = s(k);
       if (v) payload[k] = v;
     }
