@@ -85,7 +85,7 @@ expect "tokens: 3-person map -> 200 (names only echoed)" 200 \
   -d "{\"$T_SALES\":{\"name\":\"Test Kevin\",\"role\":\"sales\"},
        \"$T_SERVICE\":{\"name\":\"Test Josh\",\"role\":\"service\"},
        \"$T_OWNER\":{\"name\":\"Test Matt\",\"role\":\"owner\"}}"
-expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===6" \
+expect "publish mock snapshot -> 200"     200 "b.ok===true && b.units===39 && b.schema_version===7" \
   -X POST "$WORKER/api/admin/publish" "${H_ADMIN[@]}" --data-binary "@$SNAPSHOT"
 
 echo "-- crew: read"
@@ -337,6 +337,26 @@ expect "service adds a NOTE to a lead -> 201 (the one key they get)" 201 \
   -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
   -d '{"action":"lead_update","payload":{"lead":"L1003","note":"They called the shop line"}}'
 L5F=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+# D55 — PO-RECEIVED. The Worker takes the stage and the `po` string; whether the
+# lead may legally enter it WITHOUT one is the vault's call, not this file's.
+expect "sales moves a lead to PO-RECEIVED with a po -> 201" 201 \
+  "b.payload.lead==='L1015' && b.payload.stage==='PO-RECEIVED' && b.payload.po==='PO-48812'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1015","stage":"PO-RECEIVED","po":"  PO-48812 ","note":"Order in with the factory"}}'
+L5I=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+# Shape only: a bare PO-RECEIVED passes the Worker and the ENGINE refuses it.
+expect "a bare PO-RECEIVED still passes the Worker (state is the vault's)" 201 \
+  "b.payload.stage==='PO-RECEIVED' && b.payload.po===undefined" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1015","stage":"PO-RECEIVED"}}'
+L5J=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "a 65-char po -> 400"               400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1015","stage":"PO-RECEIVED","po":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}'
+expect "an unknown lead stage is still refused -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"lead_update","payload":{"lead":"L1015","stage":"PO-PENDING","po":"PO-1"}}'
+expect "the two PO events drained -> deleted 2" 200 "b.deleted===2" \
+  -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"$L5I\",\"$L5J\"]}"
+
 expect "sales closes a lead as LOST -> 201" 201 \
   "b.action==='lead_close' && b.payload.outcome==='LOST' && b.payload.reason==='PRICE'" \
   -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
@@ -401,8 +421,17 @@ expect "service: insights survive untouched (deal size is not commission)" 200 \
   "b.snapshot.insights && typeof b.snapshot.insights.window_days==='number' && b.snapshot.insights.by_source && typeof b.snapshot.insights.by_interest==='object'" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
 expect "service: the rest of the snapshot is intact" 200 \
-  "b.snapshot.units.length===39 && b.snapshot.leads.length===14 && b.snapshot.leads_summary.received_uncontacted===2" \
+  "b.snapshot.units.length===39 && b.snapshot.leads.length===15 && b.snapshot.leads_summary.received_uncontacted===2" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+# D55 — the committed_* trio lives INSIDE scoreboard.money, which the Worker
+# deletes as a whole object. So there is no key list to keep in sync; this is the
+# assertion that proves it, in both directions.
+expect "service: no committed_* anywhere (scoreboard.money is deleted whole)" 200 \
+  "!('money' in b.snapshot.scoreboard) && JSON.stringify(b.snapshot).indexOf('committed_')===-1" \
+  "$WORKER/api/data" -H "$(auth $T_SERVICE)"
+expect "sales: the committed_* trio survives" 200 \
+  "typeof b.snapshot.scoreboard.money.committed_value==='number' && typeof b.snapshot.scoreboard.money.committed_commission==='number' && typeof b.snapshot.scoreboard.money.committed_count==='number'" \
+  "$WORKER/api/data" -H "$(auth $T_SALES)"
 expect "sales KEEPS the money, and the lead log with it" 200 \
   "b.snapshot.leads.some(l=>typeof l.value==='number') && b.snapshot.leads.some(l=>typeof l.potential_commission==='number') && b.snapshot.scoreboard.money && b.snapshot.leads_summary.commission_rates && b.snapshot.leads.some(l=>Array.isArray(l.log) && l.log.length>0)" \
   "$WORKER/api/data" -H "$(auth $T_SALES)"

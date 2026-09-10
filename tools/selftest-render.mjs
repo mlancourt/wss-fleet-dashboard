@@ -711,11 +711,14 @@ async function leadsAsStrippedService(hash = '#/leads', openScore = false) {
   return renderRoute(hash);
 }
 
-await check('the Leads board draws six columns, RECEIVED first and Won last', async () => {
+await check('the Leads board draws seven columns, New Lead first and Won last', async () => {
   const out = await leadsAs('sales');
   const heads = [...out.matchAll(/<div class="kan-head"><span>([^<]+)</g)].map((m) => m[1]);
-  assert.deepEqual(heads.slice(0, 5), BOARD_STAGES.map((s) => STAGE_LABEL[s] || s).map((x, i) =>
-    ['Received', 'Contacted', 'Quoted', 'Demo booked', 'Demo done'][i]), 'the five open stages, in pipeline order');
+  // D55: RECEIVED reads "New Lead" and PO-RECEIVED closes the open stages.
+  assert.deepEqual(heads.slice(0, 6),
+    ['New Lead', 'Contacted', 'Quoted', 'Demo booked', 'Demo done', 'PO received'],
+    'the six open stages, in pipeline order');
+  assert.ok(!heads.includes('Received'), 'the first column must not still read "Received"');
   assert.equal(heads[heads.length - 1], 'Won', 'Won is the last column');
   assert.ok(out.includes('data-lead-filter="all"') && out.includes('data-lead-filter="mine"')
     && out.includes('data-lead-filter="stale"'), 'All / Mine / Stale');
@@ -757,6 +760,86 @@ await check('sales sees both money rows and the money line on cards', async () =
   assert.ok(out.includes('potential commission'), 'never "commission" alone');
   assert.ok(/class="lead-money"/.test(out), 'cards carry value + potential commission');
   assert.ok(out.includes('vs. your last 3 mo avg'), 'row 2 names its baseline');
+});
+
+await check('the Committed row shows for owner and sales, and never for a tech (D55)', async () => {
+  const snap = app.__state().snapshot;
+  for (const who of ['sales', 'owner']) {
+    const out = await leadsAs(who);
+    const money = JSON.parse(JSON.stringify(snap.scoreboard.money));
+    assert.ok(money.committed_count > 0, 'the fixture needs a committed deal');
+    assert.ok(out.includes('Committed'), `${who} should see the row`);
+    assert.ok(out.includes(`${money.committed_count} PO in hand`), 'the sub-line counts the POs');
+    // It sits under "On the table", because it is part of that number, not a rival to it.
+    assert.ok(out.indexOf('On the table') < out.indexOf('Committed'), 'Committed goes below On the table');
+    assert.ok(out.includes('potential commission'), 'never "commission" alone');
+  }
+
+  // A service token has no scoreboard.money at all (the Worker deletes the whole
+  // object), so the row cannot render — asserted rather than assumed.
+  const josh = await leadsAsStrippedService('#/leads', true);
+  assert.ok(!josh.includes('Committed'), 'a tech must not see committed dollars');
+  assert.ok(!josh.includes('PO in hand'));
+});
+
+await check('the Committed row hides itself when nothing is committed', async () => {
+  // "Committed $0" is a row that says nothing on most days.
+  await leadsAs('sales');            // the check above left us on the stripped-service copy
+  const snap = app.__state().snapshot;
+  const keep = snap.scoreboard.money.committed_count;
+  const keepLeads = snap.leads.map((l) => l.stage);
+  snap.scoreboard.money.committed_count = 0;
+  snap.scoreboard.money.committed_value = 0;
+  snap.scoreboard.money.committed_commission = 0;
+  for (const l of snap.leads) if (l.stage === 'PO-RECEIVED') l.stage = 'QUOTED';
+  // The column count comes from the engine's own census when the filter is All,
+  // so an honest "nothing committed" has to move that too.
+  snap.leads_summary.open_by_stage['PO-RECEIVED'] = 0;
+
+  const out = await renderRoute('#/leads');
+  assert.ok(!out.includes('Committed'), 'no row at zero');
+  assert.ok(out.includes('On the table'), 'but the rest of the scoreboard still draws');
+  // The COLUMN still draws, and should: board columns are a fixed set so the
+  // layout does not reshuffle as leads move. Only the money ROW is conditional.
+  assert.ok(out.includes('PO received'), 'the empty column stays — stable layout');
+  assert.ok(/PO received<\/span><span class="c">0</.test(out), 'and reads 0');
+
+  snap.scoreboard.money.committed_count = keep;
+  snap.leads_summary.open_by_stage['PO-RECEIVED'] = keep;
+  snap.leads.forEach((l, i) => { l.stage = keepLeads[i]; });
+  await app.__refresh();
+});
+
+await check('a PO-RECEIVED lead carries its PO on the card and needs no PO to re-enter', async () => {
+  await leadsAs('sales');
+  const snap = app.__state().snapshot;
+  const l = snap.leads.find((x) => x.stage === 'PO-RECEIVED');
+  assert.ok(l && l.po, 'the fixture needs a lead with a PO');
+  const out = await renderRoute(`#/lead/${encodeURIComponent(l.lead)}`);
+  assert.ok(out.includes('>PO<') || /<dt[^>]*>PO</.test(out), 'the card needs a PO row');
+  assert.ok(out.includes(l.po), `the PO number ${l.po} is missing`);
+  assert.ok(out.includes('PO received'), 'the stage chip reads the label');
+  assert.ok(!out.includes('undefined'));
+});
+
+await check('the stage sheet asks for the PO before it will propose the move', async () => {
+  await leadsAs('sales');
+  const snap = app.__state().snapshot;
+  // A QUOTED lead has no PO, so moving it must ask.
+  const l = snap.leads.find((x) => x.status === 'OPEN' && x.stage === 'QUOTED');
+  assert.ok(l, 'the fixture needs an open QUOTED lead');
+  await renderRoute(`#/lead/${encodeURIComponent(l.lead)}`);
+  for (const fn of listeners.get('click') || []) {
+    const btn = { dataset: { leadStage: 'PO-RECEIVED' }, disabled: false };
+    btn.closest = (q) => (q === '[data-lead-stage]' ? btn : null);
+    await fn({ target: btn });
+  }
+  await settle();
+  const out = view._html;
+  assert.ok(out.includes('Customer PO #'), 'the form must ask for the PO by name');
+  assert.ok(/<input id="ls-po" name="po" required/.test(out), 'and require it, and send it as `po`');
+  assert.ok(out.includes('the PO is the commitment'), 'say why it is required');
+  assert.ok(out.includes('Move to PO received'), 'the button names the stage in words');
 });
 
 await check('the scoreboard is open for Kevin and folded away for Josh', async () => {

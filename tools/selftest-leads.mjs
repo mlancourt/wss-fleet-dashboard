@@ -12,7 +12,7 @@
  */
 import assert from 'node:assert/strict';
 import {
-  BOARD_STAGES, LEAD_STAGES, NO_DATA,
+  BOARD_STAGES, LEAD_STAGES, NO_DATA, STAGE_LABEL,
   optionsFrom, moneyFields, hasMoney, amount, isStale,
   sortLeads, filterLeads, chipCounts, boardColumns, closedLeads, leadById,
   canEditLead, canCloseLead, stageOptions, stageNeeds,
@@ -148,10 +148,18 @@ check('isStale is red or yellow, and nothing else', () => {
 
 /* ----------------------------------------------------------------- board -- */
 
-check('six columns: the five open stages, then WON', () => {
+check('seven columns: the six open stages, then WON', () => {
   const cols = boardColumns(FIXTURE, { me: { name: 'Kevin' } });
   const keys = cols.map((c) => c.key);
-  assert.deepEqual(keys.slice(0, 5), BOARD_STAGES);
+  // Six open stages since D55 added PO-RECEIVED as the last of them, then WON.
+  assert.equal(BOARD_STAGES.length, 6);
+  assert.deepEqual(keys.slice(0, BOARD_STAGES.length), BOARD_STAGES);
+  assert.equal(BOARD_STAGES[BOARD_STAGES.length - 1], 'PO-RECEIVED', 'PO received is the last open column');
+  // The fixture also holds an OPEN lead in INVOICED, which boardColumns puts in
+  // a trailing "extra" column on purpose — that is the forward-compat path for a
+  // stage the site has not been taught yet, and it must keep working.
+  assert.equal(keys[keys.length - 1], 'WON');
+  assert.deepEqual(keys.slice(BOARD_STAGES.length, -1), ['INVOICED'], 'the unknown-stage column');
   assert.equal(keys[keys.length - 1], 'WON', 'WON is always the last column');
   assert.deepEqual(cols.find((c) => c.key === 'WON').leads.map((l) => l.lead), ['L5']);
 });
@@ -231,6 +239,8 @@ check('three stages ask for something before they can be proposed', () => {
   assert.equal(stageNeeds(l, 'INVOICED'), 'invoice');
   assert.equal(stageNeeds(l, 'QUOTED'), 'value', 'a quote with no number is not a quote');
   assert.equal(stageNeeds(l, 'CONTACTED'), null);
+  // D55: the PO is the commitment, so the stage cannot be proposed without one.
+  assert.equal(stageNeeds(l, 'PO-RECEIVED'), 'po');
 
   // A value we already have is not asked for twice.
   assert.equal(stageNeeds(lead({ lead: 'y', value: 5000 }), 'QUOTED'), null);
@@ -239,6 +249,30 @@ check('three stages ask for something before they can be proposed', () => {
   // A service token's stripped lead: the picker is disabled for them anyway,
   // but the guard must not read "absent" as "we have one".
   assert.equal(stageNeeds({ lead: 'q' }, 'QUOTED'), 'value');
+});
+
+check('a lead that already has a PO is not asked for it again (D55)', () => {
+  // The engine accepts a stored `po` on a re-move, so asking again is theatre.
+  assert.equal(stageNeeds({ lead: 'p', po: 'PO-48812' }, 'PO-RECEIVED'), null);
+  assert.equal(stageNeeds({ lead: 'p', po: '' }, 'PO-RECEIVED'), 'po', 'an empty string is not a PO');
+  assert.equal(stageNeeds({ lead: 'p', po: null }, 'PO-RECEIVED'), 'po');
+  assert.equal(stageNeeds(null, 'PO-RECEIVED'), 'po', 'no lead at all still needs one');
+});
+
+check('the stage labels read the way the shop says them (D55)', () => {
+  // RECEIVED is relabelled, NOT renamed: the key is shared with stage_history,
+  // the sweep, the Worker enum and the service ticket stage.
+  assert.equal(STAGE_LABEL.RECEIVED, 'New Lead');
+  assert.equal(STAGE_LABEL['PO-RECEIVED'], 'PO received');
+  assert.equal(LEAD_STAGES[0], 'RECEIVED', 'the KEY must not change');
+  assert.ok(LEAD_STAGES.includes('PO-RECEIVED'));
+  assert.equal(LEAD_STAGES.indexOf('PO-RECEIVED'), LEAD_STAGES.indexOf('INVOICED') - 1,
+    'PO received sits between Demo done and Invoiced');
+  // Every board column has a label, and none of them is a raw enum value.
+  for (const st of BOARD_STAGES) {
+    assert.ok(STAGE_LABEL[st], `${st} has no label`);
+    assert.notEqual(STAGE_LABEL[st], st, `${st} is rendering its raw key`);
+  }
 });
 
 /* ------------------------------------------------------------ scoreboard -- */

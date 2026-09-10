@@ -903,7 +903,7 @@ function build({ withServiceQueue }) {
 // Commission is engine-computed from the deal value. Reproduced here only so
 // the mock's numbers add up; the site never does this arithmetic.
 const COMMISSION_RATES = { 'SALE-NEW': 0.045, 'SALE-USED': 0.045, RENTAL: 0.07 };
-const LEAD_STAGE_LIST = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'INVOICED'];
+const LEAD_STAGE_LIST = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED'];   // +PO-RECEIVED, D55
 const LEAD_SOURCE_LIST = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO'];
 const LEAD_INTEREST_LIST = ['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS'];
 const LEAD_LOST_REASONS = ['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER'];
@@ -968,6 +968,7 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       close_reason: o.close_reason || null,
       close_note: o.close_note || null,
       invoice: o.invoice || null,
+      po: o.po || null,                  // D55 — customer PO #, set on PO-RECEIVED
       machinio_ref: o.machinio_ref || null,
       related_ticket: o.related_ticket || null,
       // v2.4: the lead body, same {ts, who, text} shape as a ticket's.
@@ -1049,6 +1050,20 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       assigned: 'Matt', contactHours: 4.5, related_ticket: ticket ? ticket.ticket : null,
       next_action: 'Demo Tuesday, bring the small pad driver', stageDays: 3, totalDays: 11 }),
 
+    // -- PO-RECEIVED (D55): the PO is in hand, the new build is with the factory,
+    // and WSS is waiting on a serial before it can invoice. Nobody's fault, so
+    // the sweep leaves it alone until stale_po_bdays (20) — three days in, it is
+    // quiet. Its dollars show under Committed AND inside On the table.
+    mk({ lead: 'L1015', stage: 'PO-RECEIVED', customer: 'Northgate Fulfillment', contact: 'Priya Raman',
+      phone: '608-555-0117', email: 'praman@northgate.example', site: 'Sun Prairie WI 53590',
+      source: 'REFERRAL', interest: 'SALE-NEW', machine: 'Nordvale SC-2400 (new build)',
+      value: 31750, priority: 'HIGH', po: 'PO-48812', contactHours: 1.5,
+      next_action: 'Chase the factory for a serial', stageDays: 3, totalDays: 34,
+      log: logOf([
+        [ts(-34, '08:12'), 'Kevin', 'opened by Kevin (RECEIVED, REFERRAL): Wants a new rider for the second shift.'],
+        [ts(-20, '10:40'), 'Kevin', 'Kevin QUOTED \u2192 PO-RECEIVED: PO 48812; order submitted to the factory.'],
+      ]) }),
+
     // -- a SERVICE lead: no value, and therefore no commission, by contract.
     // D52 §4: city precision only — the geocoder found the town and no street.
     // Draws as a HOLLOW pin and says so in the sheet. Must stay on an OPEN lead:
@@ -1097,8 +1112,11 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
   const dead = leads.filter((l) => l.status === 'DEAD');
   const stale = leads.filter((l) => l.stale === 'red' || l.stale === 'yellow');
   const sum = (list, key) => Math.round(list.reduce((n, l) => n + (l[key] || 0), 0) * 100) / 100;
-  const openByStage = Object.fromEntries(LEAD_STAGE_LIST.slice(0, 5)
-    .map((s) => [s, open.filter((l) => l.stage === s).length]));
+  // Every stage an OPEN lead can sit in — i.e. all but INVOICED, which is a
+  // stage a won deal passes through rather than a column. Derived, not sliced:
+  // the old `.slice(0, 5)` silently dropped PO-RECEIVED when D55 added it.
+  const OPEN_STAGES = LEAD_STAGE_LIST.filter((s) => s !== 'INVOICED');
+  const openByStage = Object.fromEntries(OPEN_STAGES.map((s) => [s, open.filter((l) => l.stage === s).length]));
 
   const leads_summary = {
     open_by_stage: openByStage,
@@ -1118,10 +1136,17 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
   const closedForRates = won.length + lost.length + dead.length;
   const enoughToRate = closedForRates >= 5;
 
+  // D55: PO in hand, order with the factory. A subset of "on the table", not a
+  // sibling — the engine sums it the same way (wss_leads.scoreboard).
+  const committed = open.filter((l) => l.stage === 'PO-RECEIVED');
+
   const scoreboard = {
     money: {
       on_table_value: sum(open, 'value'),
       on_table_commission: sum(open, 'potential_commission'),
+      committed_value: sum(committed, 'value'),
+      committed_commission: sum(committed, 'potential_commission'),
+      committed_count: committed.length,
       this_month_won_value: sum(won, 'value'),
       this_month_commission: sum(won, 'potential_commission'),
       baseline: {
@@ -1219,7 +1244,7 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       median_value_lost: median(lost.map((l) => l.value)),
     },
     funnel: {
-      median_bdays_in_stage: Object.fromEntries(LEAD_STAGE_LIST.slice(0, 5).map((s) => {
+      median_bdays_in_stage: Object.fromEntries(LEAD_STAGE_LIST.filter((s) => s !== 'INVOICED').map((s) => {
         const rows = leads.filter((l) => l.stage === s);
         return [s, rows.length ? median(rows.map((l) => l.age_in_stage_days)) : null];
       })),

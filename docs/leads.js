@@ -21,7 +21,7 @@
  * runtime — prefer those (optionsFrom below) so an engine that adds a source
  * doesn't need a site deploy; these are the fallback and the Worker's copy. */
 
-export const LEAD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'INVOICED'];
+export const LEAD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED'];
 export const LEAD_STATUSES = ['OPEN', 'WON', 'LOST', 'DEAD'];
 export const LEAD_SOURCES = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO'];
 export const LEAD_INTERESTS = ['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS'];
@@ -32,17 +32,27 @@ export const ASSIGNEES = ['Kevin', 'Matt'];
 /** What the Worker strips for a `service` token when the snapshot doesn't say. */
 export const LEAD_MONEY_FIELDS = ['value', 'potential_commission'];
 
-/** The five stages an OPEN lead lives in on the board (DEMO-DONE added D51, 2026-09-09). INVOICED is a stage a
- *  won deal passes through, not a column — a lead that reaches it is WON. */
-export const BOARD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE'];
+/** The six stages an OPEN lead lives in on the board (DEMO-DONE added D51, 2026-09-09;
+ *  PO-RECEIVED added D55, 2026-09-10). INVOICED is a stage a won deal passes through, not
+ *  a column — a lead that reaches it is WON.
+ *
+ *  PO-RECEIVED means the PO is in hand and the order is with the factory: won, but not
+ *  invoiceable until a serial lands. It is the last open column for that reason. */
+export const BOARD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED'];
 
 /** The phrase for a null rate/median (§2). Never a dash, never a zero: a zero
  *  would read as "we convert nobody", which is a different and untrue claim. */
 export const NO_DATA = 'not enough data';
 
+/* D55: RECEIVED reads as "New Lead" on screen. The KEY stays RECEIVED — every
+ * lead file's stage_history, the sweep copy, the streak and stale logic, the
+ * Worker enum and the service ticket stage all share that word, so renaming it
+ * would be a data migration to fix a caption. This map is the only place the
+ * two diverge, which is exactly what it is for. */
 export const STAGE_LABEL = {
-  RECEIVED: 'Received', CONTACTED: 'Contacted', QUOTED: 'Quoted',
-  'DEMO-SCHEDULED': 'Demo booked', 'DEMO-DONE': 'Demo done', INVOICED: 'Invoiced',
+  RECEIVED: 'New Lead', CONTACTED: 'Contacted', QUOTED: 'Quoted',
+  'DEMO-SCHEDULED': 'Demo booked', 'DEMO-DONE': 'Demo done',
+  'PO-RECEIVED': 'PO received', INVOICED: 'Invoiced',
 };
 export const STATUS_LABEL = { OPEN: 'Open', WON: 'Won', LOST: 'Lost', DEAD: 'Dead' };
 /** Card-sized source tags — lower case on purpose, they sit under the customer. */
@@ -214,12 +224,17 @@ export function stageOptions(lead, role, summary = null) {
  *   DEMO-SCHEDULED  a date, and which unit is going
  *   INVOICED        the invoice number
  *   QUOTED          the deal value, but only if we don't have one yet
+ *   PO-RECEIVED     the customer's PO number, unless the lead already has one
  * Anything else takes an optional note and nothing more.
  */
 export function stageNeeds(lead, stage) {
   if (stage === 'DEMO-SCHEDULED') return 'demo';
   if (stage === 'INVOICED') return 'invoice';
   if (stage === 'QUOTED' && amount(lead && lead.value) == null) return 'value';
+  // D55: the PO *is* the commitment, so the stage cannot exist without it. A lead
+  // that already carries one needs nothing (a re-move, or Matt typed it in first)
+  // — the engine accepts the stored value, so asking again would be theatre.
+  if (stage === 'PO-RECEIVED' && !(lead && lead.po)) return 'po';
   return null;
 }
 

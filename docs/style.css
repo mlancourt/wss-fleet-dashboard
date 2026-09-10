@@ -466,6 +466,14 @@ form.write textarea { min-height: 80px; resize: vertical; }
   padding: 12px 0 8px; border-bottom: 2px solid var(--slate-100);
   border-radius: var(--radius) var(--radius) 0 0;
 }
+/* D55 — PO received is the one open column that is already WON: the PO is in
+   hand and only the factory's serial is outstanding. Every other lead column
+   heads maroon ("still ours to do"), so this one reads in the site's existing
+   committed green (--ok) to say the work of selling is finished. Reusing the
+   token rather than inventing a palette entry, per the spec; the WON column
+   keeps its own treatment. */
+.kan-col.col-PO-RECEIVED .kan-head { color: var(--ok); }
+
 .kan-head .c {
   background: var(--slate-100); color: var(--slate-700); font-size: 12px;
   border-radius: 999px; padding: 1px 9px; letter-spacing: 0; flex: 0 0 auto;

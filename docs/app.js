@@ -51,7 +51,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-09-d52-map';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-10-d55';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -2057,7 +2057,7 @@ function viewLeads() {
   }
 
   const cols = boardColumns(all, { filter, me: state.me, summary: leadsSummary() }).map((c) => html`
-    <section class="kan-col" id="lead-col-${raw(enc(c.key))}">
+    <section class="kan-col col-${raw(enc(c.key))}" id="lead-col-${raw(enc(c.key))}">
       <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
       <div class="kan-body">${c.leads.length ? raw(c.leads.map(leadCard).join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
     </section>`);
@@ -2132,6 +2132,7 @@ function scoreCard() {
 
   const body = open ? html`
     ${money ? raw(sbOnTable(money)) : ''}
+    ${money ? raw(sbCommitted(money)) : ''}
     ${money ? raw(sbThisMonth(sb, money, base)) : ''}
     ${raw(sbSpeed(sb.speed || {}))}
     ${raw(sbConversion(sb.conversion || {}))}
@@ -2157,6 +2158,39 @@ function sbOnTable(money) {
       <div class="sb-v">
         <strong>${v == null ? NO_DATA : fmtMoney(v)}</strong>
         ${c != null ? raw(html`<span class="sb-sub">${fmtMoney(c)} potential commission</span>`) : ''}
+      </div>
+    </div>`;
+}
+
+/**
+ * "Committed" (D55) — PO in hand, order with the factory, waiting on a serial.
+ *
+ * It sits directly under "On the table" and is a SUBSET of it, not a sibling:
+ * a dollar on an open card is on the table (Matt, 9/4), and a PO does not stop
+ * that being true. What it adds is which part of that number is already won
+ * and only waiting on the factory — the thing the board could not say before,
+ * when a decided deal sat in QUOTED looking undecided.
+ *
+ * Hidden at zero. "Committed $0" is a row that says nothing on most days, and a
+ * scoreboard people scroll past is a scoreboard nobody reads.
+ *
+ * Money-gated by construction: the whole block only renders when `money` is
+ * present, and the Worker deletes `scoreboard.money` outright for a `service`
+ * token — so a tech gets no row rather than a row of blanks.
+ */
+function sbCommitted(money) {
+  const n = amount(money.committed_count);
+  if (!n) return '';
+  const v = amount(money.committed_value);
+  const c = amount(money.committed_commission);
+  const sub = [`${n} PO${n === 1 ? '' : 's'} in hand`, c != null ? `${fmtMoney(c)} potential commission` : null]
+    .filter(Boolean).join(' · ');
+  return html`
+    <div class="sb-row sb-committed">
+      <div class="sb-l">Committed</div>
+      <div class="sb-v">
+        <strong>${v == null ? NO_DATA : fmtMoney(v)}</strong>
+        <span class="sb-sub">${sub}</span>
       </div>
     </div>`;
 }
@@ -2442,6 +2476,7 @@ function viewLead(id) {
       ${raw(kvRow('Demo', dm
         ? raw(html`${fmtDateFull(dm.date)}${demoUnit ? raw(html` · <a href="#/unit/${raw(enc(demoUnit.serial))}">#${demoUnit.serial} ${unitName(demoUnit)}</a>`) : (dm.serial ? raw(html` · #${dm.serial}`) : '')}`)
         : ''))}
+      ${raw(kvRow('PO', l.po))}
       ${raw(kvRow('Invoice', l.invoice))}
       ${raw(kvRow('Machinio', l.machinio_ref))}
       ${raw(kvRow('Service ticket', l.related_ticket
@@ -2506,9 +2541,10 @@ function leadStagePicker(l) {
 }
 
 /**
- * The stage sheet. Three stages ask for something before they can be proposed
+ * The stage sheet. Four stages ask for something before they can be proposed
  * (stageNeeds): a demo needs a day and a machine, an invoice needs its number,
- * and a quote needs a value if we never wrote one down.
+ * a quote needs a value if we never wrote one down, and PO received needs the
+ * customer's PO number unless the lead already carries one (D55).
  */
 function leadStageForm(l, stage) {
   const need = stageNeeds(l, stage);
@@ -2526,6 +2562,10 @@ function leadStageForm(l, stage) {
       <label for="ls-val">Deal value</label>
       <input id="ls-val" name="value" type="number" min="0" step="1" required inputmode="decimal" placeholder="what you quoted">
       <div class="form-note">The engine works the commission out from this — don't put one in yourself.</div>`
+    : need === 'po' ? html`
+      <label for="ls-po">Customer PO #</label>
+      <input id="ls-po" name="po" required autocomplete="off" maxlength="64" placeholder="as it reads on their PO">
+      <div class="form-note">The engine refuses the move without it — the PO is the commitment.</div>`
     : '';
   return html`
     <form class="write sheet" data-action="lead_update" data-id="${l.lead}" data-mode="stage">

@@ -80,7 +80,7 @@ const DRIVERS = new Set(['Matt', 'Kevin', 'Josh', 'Zac']);
 
 // schema 5 — leads. Same rule as every list above: membership only. Whether a
 // lead may legally move to this stage today is the vault's call, never ours.
-const LEAD_STAGES = new Set(['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'INVOICED']);
+const LEAD_STAGES = new Set(['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED']);   // +PO-RECEIVED, D55
 const LEAD_SOURCES = new Set(['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO']);
 const LEAD_INTERESTS = new Set(['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS']);
 const LOST_REASONS = new Set(['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER']);
@@ -597,6 +597,11 @@ function cleanPayload(action, p, role) {
     if (demoSerial) out.demo_serial = demoSerial;
     const invoice = optStr(obj.invoice, 64, 'invoice');
     if (invoice) out.invoice = invoice;
+    // D55: the customer's PO number. Shape only, like `invoice` — the engine is
+    // what refuses a PO-RECEIVED that has no PO behind it, because that is a
+    // rule about the lead's state and the vault owns state.
+    const po = optStr(obj.po, 64, 'po');
+    if (po) out.po = po;
     const quote = optStr(obj.quote, 64, 'quote');
     if (quote) out.quote = quote;
     const machine = optStr(obj.machine, 200, 'machine');
