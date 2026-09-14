@@ -228,6 +228,12 @@ h1 .dot { display: inline-block; width: 12px; height: 12px; margin: 0 12px 2px 4
 .chip.pending { background: var(--red-soft); color: var(--red-deep); }
 .chip.cal     { background: var(--slate-100); color: var(--slate-700); text-transform: none; letter-spacing: 0; }
 .chip.pickup  { background: #FFEDD5; color: #C2410C; }   /* D32 orange: someone has to drive; nothing is broken */
+/* D56 readiness age. Neutral until it isn't; the two tones REUSE the readiness
+   palette (warn = NEEDS-PREP yellow, bad = DOWN red) rather than inventing a
+   third scale for the same idea. Lowercase: "today" is a word, not a label. */
+.chip.age       { background: var(--slate-100); color: var(--slate-700); text-transform: none; letter-spacing: 0; }
+.chip.age.amber { background: var(--warn-bg); color: var(--warn); }
+.chip.age.red   { background: var(--bad-bg);  color: var(--bad); }
 .cat-sub .pickup, .sub .pickup { color: #C2410C; }
 .cat-sub .pickup .n { color: #C2410C; }
 
@@ -290,6 +296,21 @@ h2.danger { color: var(--bad); }
 .unit-loc { display: block; font-size: 13px; color: var(--ink-3); margin-top: 2px; }
 .unit-serial { font-family: var(--mono); font-size: 12.5px; color: var(--slate-700); letter-spacing: .2px; }
 .unit-loc .cust { color: var(--slate-800); font-weight: 600; }   /* D33: customer in normal text, address stays grey */
+/* D56: the readiness note on a Shop List row. ONE line, always — the list is a
+   scan, and a three-line note would bury the machine under it. */
+.unit-note {
+  display: block; margin-top: 6px; font-size: 12.5px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------- Shop List (D56, landing) */
+
+/* Sits under the category cards; the h2 takes the same top margin every landing
+   block gets, so it reads as a section break and not as a card that lost its box. */
+.shop-list { margin-top: 4px; }
+.shop-list .quiet {
+  padding: 2px 2px 6px; font-size: 13.5px; color: var(--ink-3);
+}
 
 /* ------------------------------------------------------------ detail sheet */
 

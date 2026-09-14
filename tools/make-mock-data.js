@@ -16,6 +16,10 @@
  *   - all 9 categories, in display order
  *   - every unit_state: AVAILABLE RESERVED ON-RENT ON-DEMO LOANER-OUT IN-SHOP RETIRED
  *   - every readiness: READY NEEDS-PREP DOWN NEEDS-PICKUP
+ *   - D56: readiness_since + readiness_age_days on every unit — a NEEDS-PREP at 2d
+ *     and at 9d, a never-stamped on-hand unit (both null), a DOWN at 16d that
+ *     carries a service_ticket, and an ON-RENT unit holding a DOWN readiness with
+ *     an age, which the Shop List must NOT draw
  *   - an agreements row with "agreement": null  (unbilled-rental alert)
  *   - D45: NO acquisition_cost and NO book on any unit, fleet_totals is a count
  *     only, and meta.utilization carries percentages with no amounts. One
@@ -809,6 +813,63 @@ function build({ withServiceQueue }) {
     period_end: d(0),
   }));
 
+  // ------------------------------------------- readiness aging (D56, schema 7)
+  // Runs LAST, on purpose: everything above (holds, pick-ups, tickets) picks its
+  // units by unit_state and readiness, so a readiness edit up there would quietly
+  // re-cast the whole fixture. Here it can only add the two fields and the one
+  // ON-RENT trap the Shop List has to ignore.
+  //
+  // The ages are hand-assigned, not random: the Shop List's three tone bands, its
+  // null case and its exclusions each need a unit, and a random walk can't promise
+  // that. `readiness_age_days` is the ENGINE's number in real life — the page never
+  // computes it — so the generator writes it out rather than deriving it on read.
+  const stamp = (u, age) => {
+    u.readiness_since = age == null ? null : d(-age);
+    u.readiness_age_days = age == null ? null : age;
+  };
+  const ON_HAND_MOCK = new Set(['AVAILABLE', 'RESERVED', 'IN-SHOP']);
+  if (!withServiceQueue) {
+    // The empty variant is where every empty state lives, and a green day is one
+    // of them: nothing in prep, nothing down. The flip happens here, after the
+    // holds and the board have already chosen their units off the original plan,
+    // so it changes the Shop List and the D20 zero rows and nothing else.
+    for (const u of units) {
+      if (ON_HAND_MOCK.has(u.unit_state) && (u.readiness === 'NEEDS-PREP' || u.readiness === 'DOWN')) {
+        u.readiness = 'READY';
+        u.readiness_note = null;
+      }
+    }
+  }
+  if (withServiceQueue) {
+    // One ON-RENT machine that broke in the field and carries a DOWN readiness
+    // with a real age. It must NOT appear in the Shop List (D18: readiness is not
+    // a concept for an out unit) and must draw no age chip. The trap is the test.
+    const outDown = units.find((u) => u.unit_state === 'ON-RENT' && u.readiness === 'READY'
+      && u.service_ticket == null && u.agreement != null);
+    if (outDown) {
+      outDown.readiness = 'DOWN';
+      outDown.readiness_note = 'Pump failed on site — customer called it in';
+    }
+  }
+  const shopUnits = units.filter((u) => ON_HAND_MOCK.has(u.unit_state)
+    && (u.readiness === 'NEEDS-PREP' || u.readiness === 'DOWN'));
+  //          neutral  amber   null (never stamped)  red
+  const PREP_AGES = [2, 9, null, 21, 6, 13];
+  //          red (the ticketed one)  neutral  amber
+  const DOWN_AGES = [16, 5, 7];
+  let ip = 0;
+  let id = 0;
+  for (const u of shopUnits) {
+    const plan = u.readiness === 'DOWN' ? DOWN_AGES : PREP_AGES;
+    const i = u.readiness === 'DOWN' ? id++ : ip++;
+    stamp(u, i < plan.length ? plan[i] : 4);
+  }
+  // Every other unit gets a stamp too — the engine emits these keys for ALL units,
+  // out states included, and the page is what decides nothing shows (D18).
+  for (const u of units) {
+    if (u.readiness_since === undefined) stamp(u, Math.round(3 + rand() * 90));
+  }
+
   // ------------------------------------------------------- leads (schema 5)
   const { leads, leads_summary, scoreboard, insights } =
     buildLeads({ withLeads: withServiceQueue, demoHold, demoUnit: availReady[1], service_queue });
@@ -1311,6 +1372,11 @@ function downgradeToSchema2(s3, ledger) {
   // The old snapshot pointed units at the old ticket ids.
   const bySerial = new Map(snap.service_queue.filter((t) => t.serial).map((t) => [String(t.serial), t.ticket_id]));
   for (const u of snap.units) u.service_ticket = bySerial.get(String(u.serial)) || null;
+
+  // D56 postdates schema 2 by five versions. Their ABSENCE is what an old
+  // snapshot looks like, and the Shop List has to draw its rows with no age
+  // rather than an "undefinedd" chip.
+  for (const u of snap.units) { delete u.readiness_since; delete u.readiness_age_days; }
 
   delete snap.service_summary;
   delete snap.dispatch;

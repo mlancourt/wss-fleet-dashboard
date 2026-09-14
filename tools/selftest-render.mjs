@@ -1812,4 +1812,195 @@ await check('the map renders for every role — geo is not money and is not gate
   }
 });
 
+/* ===================================== the Shop List + readiness aging (D56) */
+
+const ON_HAND_STATES = new Set(['AVAILABLE', 'RESERVED', 'IN-SHOP']);
+const shopUnitsOf = (snap) => snap.units.filter((u) => ON_HAND_STATES.has(u.unit_state)
+  && (u.readiness === 'NEEDS-PREP' || u.readiness === 'DOWN'));
+
+/** The markup of the Shop List section only — everything after its heading. */
+const shopSection = (out) => out.slice(out.indexOf('<section class="shop-list">'));
+/** The serials the Shop List actually drew, in the order it drew them. */
+const shopSerials = (out) => [...shopSection(out).matchAll(/#\/unit\/([^"]+)"/g)].map((m) => decodeURIComponent(m[1]));
+
+async function landingAs(variant = 'full', who = 'owner') {
+  window.location.href = `http://localhost:8787/?mock=${variant}&role=${who}`;
+  window.location.search = `?mock=${variant}&role=${who}`;
+  await app.__refresh();
+  return renderRoute('#/');
+}
+
+await check('the Shop List sits UNDER the category cards, never above them (D15 amended)', async () => {
+  const out = await landingAs();
+  assert.ok(out.includes('In the shop'), 'the section is missing from the landing page');
+  const lastCat = out.lastIndexOf('class="card cat-card"');
+  assert.ok(lastCat > -1, 'the category cards went missing');
+  assert.ok(lastCat < out.indexOf('In the shop'), 'the cards own the top of the page — Kevin reads the lights first');
+  // and it is still below the utilization card, which leads the page (D19/D44)
+  assert.ok(out.indexOf('Fleet utilization') < out.indexOf('In the shop'));
+  // D54: machines, never people. No actor may appear in this section.
+  const sec = shopSection(out);
+  for (const who of ['Matt', 'Kevin', 'Josh', 'Zac']) {
+    assert.ok(!sec.includes(who), `the Shop List named ${who} — it lists machines, not people`);
+  }
+});
+
+await check('prep before down, oldest first inside each group, nulls last (D56)', async () => {
+  const out = await landingAs();
+  const snap = app.__state().snapshot;
+  const bySerial = Object.fromEntries(snap.units.map((u) => [String(u.serial), u]));
+  const drawn = shopSerials(out).map((s) => bySerial[s]);
+
+  // the fixture has to hold both groups, or this proves nothing
+  assert.ok(drawn.some((u) => u.readiness === 'NEEDS-PREP') && drawn.some((u) => u.readiness === 'DOWN'),
+    'mock-full needs units in both groups — extend make-mock-data.js');
+
+  const firstDown = drawn.findIndex((u) => u.readiness === 'DOWN');
+  assert.ok(!drawn.slice(firstDown).some((u) => u.readiness === 'NEEDS-PREP'),
+    `every NEEDS-PREP must precede every DOWN, got ${drawn.map((u) => u.readiness)}`);
+
+  for (const group of ['NEEDS-PREP', 'DOWN']) {
+    const ages = drawn.filter((u) => u.readiness === group)
+      .map((u) => (typeof u.readiness_age_days === 'number' ? u.readiness_age_days : -1));
+    const sorted = [...ages].sort((a, b) => b - a);
+    assert.deepEqual(ages, sorted, `${group} must run oldest first, nulls last — got ${ages}`);
+  }
+  // nothing was dropped and nothing drawn twice
+  assert.equal(drawn.length, shopUnitsOf(snap).length);
+  assert.equal(new Set(shopSerials(out)).size, drawn.length);
+});
+
+await check('an out unit carrying a stale DOWN never reaches the Shop List (D18)', async () => {
+  const out = await landingAs();
+  const snap = app.__state().snapshot;
+  const trap = snap.units.find((u) => !ON_HAND_STATES.has(u.unit_state) && u.readiness === 'DOWN');
+  assert.ok(trap, 'mock-full needs an out unit holding a DOWN readiness — that is the trap');
+  assert.ok(typeof trap.readiness_age_days === 'number', 'and it has to carry an age, or it proves nothing');
+  assert.ok(!shopSerials(out).includes(String(trap.serial)),
+    `${trap.serial} is ${trap.unit_state} — readiness is not a concept for it`);
+
+  // and its unit row draws no readiness chip and no age chip either
+  const row = await renderRoute(`#/unit/${encodeURIComponent(trap.serial)}`);
+  assert.ok(!/class="chip age/.test(row), 'an out unit must show no age chip');
+  assert.ok(!row.includes('Readiness since'), 'and no Readiness since row');
+});
+
+await check('the age chip reads "today" at 0 and a bare day count above it', async () => {
+  const snap = app.__state().snapshot;
+  const u = shopUnitsOf(snap).find((x) => typeof x.readiness_age_days === 'number');
+  const keep = u.readiness_age_days;
+
+  u.readiness_age_days = 0;
+  let out = await renderRoute('#/');
+  assert.ok(shopSection(out).includes('>today<'), '0 days reads "today", not "0d"');
+  assert.ok(!shopSection(out).includes('>0d<'));
+
+  u.readiness_age_days = 3;
+  out = await renderRoute('#/');
+  assert.ok(shopSection(out).includes('>3d<'), 'a bare day count — the readiness chip says what for');
+  assert.ok(!/in prep for/i.test(shopSection(out)), 'no prose on the chip');
+  u.readiness_age_days = keep;
+});
+
+await check('the tone bands turn at 7 and 14, and nowhere else', async () => {
+  const snap = app.__state().snapshot;
+  const u = shopUnitsOf(snap).find((x) => typeof x.readiness_age_days === 'number');
+  const keep = u.readiness_age_days;
+  const chipFor = async (n) => {
+    u.readiness_age_days = n;
+    const sec = shopSection(await renderRoute('#/'));
+    const m = new RegExp(`<span class="chip (age[^"]*)">${n === 0 ? 'today' : n + 'd'}<`).exec(sec);
+    assert.ok(m, `no age chip drawn at ${n}`);
+    return m[1];
+  };
+  assert.equal(await chipFor(0), 'age', 'a fresh one is neutral');
+  assert.equal(await chipFor(6), 'age', 'the day before amber is still neutral');
+  assert.equal(await chipFor(7), 'age amber', 'AGE_AMBER = 7');
+  assert.equal(await chipFor(13), 'age amber', 'the day before red is still amber');
+  assert.equal(await chipFor(14), 'age red', 'AGE_RED = 14');
+  assert.equal(await chipFor(40), 'age red');
+  u.readiness_age_days = keep;
+});
+
+await check('a never-stamped unit draws its row with no age chip at all', async () => {
+  const out = await landingAs();
+  const snap = app.__state().snapshot;
+  const blank = shopUnitsOf(snap).find((u) => u.readiness_age_days == null);
+  assert.ok(blank, 'mock-full needs an on-hand unit with both fields null');
+  assert.ok(shopSerials(out).includes(String(blank.serial)), 'no age is not a reason to hide the machine');
+
+  const row = await renderRoute(`#/unit/${encodeURIComponent(blank.serial)}`);
+  assert.ok(!/class="chip age/.test(row), 'no number beats a made-up one');
+  // the row still renders — as a dash. A missing row would read as "not applicable";
+  // a dash reads as "nobody knows", which is the truth.
+  const dd = /<dt>Readiness since<\/dt>\s*<dd class="([^"]*)">([^<]*)</.exec(row);
+  assert.ok(dd, 'the Readiness since row must still render for an unstamped unit');
+  assert.equal(dd[2], '—', `expected a dash, got ${dd[2]}`);
+  assert.ok(dd[1].includes('muted'), 'and it is muted, like every other empty value');
+  assert.ok(!/undefinedd|nulld|NaN/.test(row));
+});
+
+await check('the empty variant says so in one quiet line, and draws no cards', async () => {
+  const out = await landingAs('empty');
+  const snap = app.__state().snapshot;
+  assert.equal(shopUnitsOf(snap).length, 0, 'mock-empty must have a clean yard');
+  assert.ok(out.includes('Nothing in prep, nothing down.'), 'a green day should read as a green day');
+  const sec = shopSection(out);
+  assert.ok(!sec.includes('class="card unit-row"'), 'no cards, just the line');
+  // the cards above it are untouched
+  assert.ok(out.includes('class="card cat-card"'));
+});
+
+await check('Readiness since shows for NEEDS-PREP and DOWN on-hand, and for nothing else', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  const snap = app.__state().snapshot;
+  let shown = 0;
+  for (const u of snap.units) {
+    const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+    const has = out.includes('Readiness since');
+    const should = ON_HAND_STATES.has(u.unit_state) && (u.readiness === 'NEEDS-PREP' || u.readiness === 'DOWN');
+    assert.equal(has, should, `#${u.serial} (${u.unit_state}/${u.readiness}) Readiness since: ${has}, expected ${should}`);
+    if (!has) continue;
+    shown++;
+    if (u.readiness_since) {
+      // rendered verbatim as text, never Date-parsed (CLAUDE.md rule 7)
+      assert.ok(!/Invalid Date|GMT|T00:00:00/.test(out), `#${u.serial} Date-parsed a date-only string`);
+      const age = u.readiness_age_days;
+      assert.ok(out.includes(age === 0 ? 'today' : `${age}d`), `#${u.serial} lost its age`);
+    }
+  }
+  assert.ok(shown >= 4, `only ${shown} units showed the row — the fixture got thin`);
+});
+
+await check('the age chip travels with unitChips — category rows carry it too', async () => {
+  const snap = app.__state().snapshot;
+  const u = shopUnitsOf(snap).find((x) => typeof x.readiness_age_days === 'number');
+  const out = await renderRoute(`#/cat/${encodeURIComponent(u.category)}`);
+  assert.ok(new RegExp(`class="chip age[^"]*">${u.readiness_age_days === 0 ? 'today' : u.readiness_age_days + 'd'}<`).test(out),
+    'the category list must show the same age — one function, three places');
+  // and READY units in the same list still show none
+  const ready = snap.units.filter((x) => x.category === u.category && x.readiness === 'READY');
+  if (ready.length) {
+    const row = await renderRoute(`#/unit/${encodeURIComponent(ready[0].serial)}`);
+    assert.ok(!/class="chip age/.test(row), 'a READY age is a brag, not a task');
+  }
+});
+
+await check('a schema-2 snapshot with no readiness clock renders the list without ages', async () => {
+  const out = await landingAs('legacy');
+  const snap = app.__state().snapshot;
+  assert.equal(snap.meta.schema_version, 2);
+  assert.ok(snap.units.every((u) => !('readiness_age_days' in u)), 'legacy must not carry the key');
+  assert.ok(out.includes('In the shop'), 'the section still draws');
+  assert.ok(shopSerials(out).length > 0, 'and still lists the machines');
+  assert.ok(!/class="chip age/.test(shopSection(out)), 'with no age chip anywhere');
+  assert.ok(!/undefined|nulld|NaN/.test(shopSection(out)));
+
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+});
+
 console.log(`\n${passed} checks passed.`);

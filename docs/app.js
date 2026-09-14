@@ -51,7 +51,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-10-d55b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-14-d56';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -341,6 +341,27 @@ const ON_HAND = new Set(['AVAILABLE', 'RESERVED', 'IN-SHOP']);
 const showsReadiness = (u) => ON_HAND.has(u.unit_state);
 
 /**
+ * D56 — the readiness clock's tone bands, in CALENDAR days.
+ *
+ * Same two numbers for NEEDS-PREP and DOWN on purpose: a machine in prep for a
+ * fortnight and a machine down for a fortnight are the same size problem, which
+ * is an unrentable asset. Matt retunes these two and nothing else.
+ *
+ * The AGE ITSELF is never computed here — `readiness_age_days` arrives from the
+ * engine, on the engine's Central clock, like every other age in the snapshot.
+ */
+const AGE_AMBER = 7;
+const AGE_RED = 14;
+// The readiness values the Shop List is about. NEEDS-PICKUP is deliberately not
+// one: it's an out-unit state and Dispatch owns its clock (D32/D38).
+const SHOP_READINESS = ['NEEDS-PREP', 'DOWN'];
+const showsAge = (u) => showsReadiness(u) && SHOP_READINESS.includes(u.readiness)
+  && typeof u.readiness_age_days === 'number';
+// "3d" · "today". Bare days — the readiness chip beside it already says what for.
+const ageText = (n) => (n === 0 ? 'today' : `${n}d`);
+const ageTone = (n) => (n >= AGE_RED ? ' red' : n >= AGE_AMBER ? ' amber' : '');
+
+/**
  * Category counts — on-hand math only (D18).
  *   ready    AVAILABLE and READY   — the only thing that can go out today
  *   in prep  NEEDS-PREP, on-hand states
@@ -389,6 +410,7 @@ function unitChips(u) {
   return html`<div class="chips">
     ${raw(chip(u.unit_state, STATE_CLASS[u.unit_state]))}
     ${showsReadiness(u) || u.readiness === 'NEEDS-PICKUP' ? raw(chip(readyLabel(u.readiness), READY_CLASS[u.readiness])) : ''}
+    ${showsAge(u) ? raw(chip(ageText(u.readiness_age_days), `age${ageTone(u.readiness_age_days)}`)) : ''}
     ${u.service_ticket ? raw(chip(`🔧 ${u.service_ticket}`, 'wrench')) : ''}
     ${p.length ? raw(chip(`⏳ ${p.length} pending`, 'pending')) : ''}
   </div>`;
@@ -440,8 +462,54 @@ function viewCategories() {
       </a>`;
   });
 
-  // Landing = utilization bar (D19) + category cards (D15). Nothing else.
-  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(cards.join(''))}`;
+  // Landing = utilization bar (D19) + category cards (D15) + the Shop List (D56).
+  // D15 is amended, not repealed: the cards still own the top of the page, and
+  // the work list sits UNDER them so Kevin's read (the lights) is unchanged.
+  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(cards.join(''))}${raw(shopList())}`;
+}
+
+/**
+ * "In the shop" (D56) — every on-hand machine that isn't rentable, and how long
+ * it hasn't been.
+ *
+ * The mechanism: readiness was a flag with no clock. A unit flipped to
+ * NEEDS-PREP the day it came home and the board looked identical on day 1 and
+ * day 19 — the only way to notice a stalled prep was to open nine categories
+ * and remember last week. The category sub-line says "3 in prep"; it never says
+ * which three or since when, and D20's percentage is not something anyone can
+ * act on. This is the list.
+ *
+ * Scope is on-hand only (D18): an out unit's readiness isn't a concept, and
+ * NEEDS-PICKUP belongs to Dispatch. Prep before down — Matt's ruling, and the
+ * shorter path back to a rentable machine. Oldest first inside each group (D50).
+ * No group headers: the readiness chip on the row is the group marker, and a
+ * group with nothing in it is simply absent.
+ *
+ * D54 holds: this surfaces machines, never people. There is no "who let it sit".
+ */
+function shopList() {
+  const rank = { 'NEEDS-PREP': 0, DOWN: 1 };
+  const rows = units()
+    .filter((u) => showsReadiness(u) && SHOP_READINESS.includes(u.readiness))
+    // Oldest first, nulls last (an unstamped unit has no claim on the top of the
+    // list), serial as the tiebreak so the order never shuffles between runs.
+    .sort((a, b) => rank[a.readiness] - rank[b.readiness]
+      || (b.readiness_age_days ?? -1) - (a.readiness_age_days ?? -1)
+      || String(a.serial).localeCompare(String(b.serial)))
+    .map((u) => html`
+      <a class="card unit-row" href="#/unit/${raw(encodeURIComponent(u.serial))}">
+        <span class="unit-main">
+          <span class="unit-title">${unitName(u)}</span>
+          <span class="unit-loc"><span class="unit-serial">${unitIds(u)}</span> · ${u.category || '—'}</span>
+          ${raw(unitChips(u))}
+          ${u.readiness_note ? raw(html`<span class="unit-note">${u.readiness_note}</span>`) : ''}
+        </span>
+        ${CHEV}
+      </a>`);
+
+  return html`<section class="shop-list"><h2>In the shop</h2>
+    ${rows.length ? raw(rows.join('')) : raw(html`<div class="quiet">Nothing in prep, nothing down.</div>`)}
+  </section>`;
 }
 
 /** Fleet-utilization bar (D19). The word label is mandatory: two bands are red. */
@@ -574,6 +642,15 @@ function viewUnit(serial) {
       ${raw(kvRow('Serial', u.serial))}
       ${raw(kvRow('Description', u.description))}
       ${raw(kvRow('Status', u.status))}
+      ${/* D56: the clock, for the two readiness values it means something for.
+            A READY age is a brag, not a task, and an out unit has no readiness
+            to age — both omit the row entirely rather than print a dash. */
+        showsReadiness(u) && SHOP_READINESS.includes(u.readiness)
+        ? raw(kvRow('Readiness since', u.readiness_since
+          ? fmtDateFull(u.readiness_since)
+            + (typeof u.readiness_age_days === 'number' ? ` · ${ageText(u.readiness_age_days)}` : '')
+          : ''))
+        : ''}
       ${raw(kvRow('Hours', u.hours != null ? u.hours.toLocaleString('en-US') : '', 'num'))}
       ${raw(kvRow('In service', fmtDateFull(u.in_service)))}
       ${u.customer ? raw(kvRow('Customer', u.customer)) : ''}
