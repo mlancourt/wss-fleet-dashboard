@@ -284,7 +284,9 @@ curl -s "$W/api/doc/$ID?t=<crew token>" -o /tmp/back.pdf
 Then put `{"id":"<ID>","name":"…","kind":"QUOTE","bytes":24557,"added":"2026-09-07"}`
 into that ticket's / lead's / agreement's `docs[]` in the next snapshot.
 `kind` ∈ `QUOTE · WORKORDER · PARTS-LIST · PM-REPORT · SERVICE-TICKET · PO ·
-PHOTO · OTHER`; MIME ∈ `application/pdf · image/jpeg · image/png`; cap 10 MB.
+PHOTO · WRITEUP · CONTRACT · OTHER` (WRITEUP = D58's post-invoice write-up,
+CONTRACT = D59's rental agreement PDF — both vault-minted, both draw on the 📄
+fallback, neither needs a site change); MIME ∈ `application/pdf · image/jpeg · image/png`; cap 10 MB.
 
 Three rules that are easy to break later:
 
@@ -317,7 +319,8 @@ curl -s -X POST "$W/api/event" -H "Authorization: Bearer <crew token>" \
 ```
 
 `X-Doc-Kind` from a phone is `WORKORDER · PARTS-LIST · PHOTO · OTHER` only —
-QUOTE, PO, PM-REPORT and SERVICE-TICKET are the vault's to issue. `X-Doc-Record`
+QUOTE, PO, PM-REPORT, SERVICE-TICKET, WRITEUP and CONTRACT are the vault's to
+issue. `X-Doc-Record`
 is a ticket or lead id (`^[SL]\d{4}$`) and is **not** checked for existence: the
 vault owns state, same as every other write.
 
@@ -548,8 +551,14 @@ plain CNAME from any host. Do not "simplify" this.
   sends `no-store` for the same reason.
 - **Loaners have no billing row.** A unit with `unit_state: LOANER-OUT` and an
   `agreement` number but no matching `agreements` entry is correct, not missing.
-- **Invoice numbers are opaque strings.** `R4130-10`, `R4204-1.1`, bare `519665`.
-  Never parse them.
+- **Agreement ids are opaque too, and are NOT always numbers (D59).** Legacy
+  Integra rentals are ints (`4130`); rentals on WSS's own paper are strings
+  (`"R092526A"`). Render verbatim, never `Number()`/`parseInt` one, never bolt an
+  `R` onto the front (the WSS-paper form already has one), and never let a sort
+  compare an int against a string. Same for `units[].agreement`, `pickups[]` and
+  the `billing` block.
+- **Invoice numbers are opaque strings.** `R4130-10`, `R4204-1.1`, `R092526A-1`,
+  bare `519665`. Never parse them.
 
 ---
 

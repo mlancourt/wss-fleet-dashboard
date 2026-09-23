@@ -2003,4 +2003,98 @@ await check('a schema-2 snapshot with no readiness clock renders the list withou
   await app.__refresh();
 });
 
+/* ============================================ D59 — the opaque agreement id */
+/* An agreement is an int on legacy Integra paper (4130) and a STRING on WSS's
+ * own ("R092526A"). Everything downstream treats it as an opaque id: it is
+ * rendered verbatim, never parsed, never coerced, never given an "R" it already
+ * has, and never sorted int-against-string. These checks read the id out of the
+ * snapshot rather than typing it, so they keep meaning something if the fixture
+ * is renumbered. */
+
+const WSS_PAPER = 'R092526A';
+
+async function ownerFull() {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  return app.__state().snapshot;
+}
+
+await check('the fixture really carries both agreement shapes (D59)', async () => {
+  const snap = await ownerFull();
+  const kinds = new Set(snap.agreements.map((a) => (a.agreement == null ? 'null' : typeof a.agreement)));
+  assert.ok(kinds.has('number'), 'legacy Integra ints must survive in the fixture');
+  assert.ok(kinds.has('string'), 'a WSS-paper agreement id must be in the fixture');
+  assert.ok(kinds.has('null'), 'and the unbilled-rental orphan');
+  const paper = snap.agreements.find((a) => a.agreement === WSS_PAPER);
+  assert.ok(paper, 'the WSS-paper row is the whole point of this block');
+  assert.equal(paper.last_invoice, `${WSS_PAPER}-1`, 'the id already carries its own R — never prefix a second one');
+  assert.ok(snap.units.some((u) => u.agreement === WSS_PAPER), 'a unit must point at it');
+  assert.ok((snap.pickups || []).some((p) => p.agreement === WSS_PAPER), 'and a pick-up row must carry one too');
+});
+
+await check('Rentals renders every agreement id verbatim, int or string (D59)', async () => {
+  const snap = await ownerFull();
+  const out = await renderRoute('#/rentals');
+  for (const a of snap.agreements) {
+    if (a.agreement == null) continue;
+    assert.ok(out.includes(String(a.agreement)), `agreement ${a.agreement} is missing from the card`);
+    if (a.last_invoice) assert.ok(out.includes(String(a.last_invoice)), `invoice ${a.last_invoice} is missing`);
+  }
+  // The two ways a digits-only assumption shows up: an "R" bolted onto an id
+  // that had one, and an id run through Number().
+  assert.ok(!out.includes(`R${WSS_PAPER}`), 'something prefixed an "R" onto a WSS-paper id');
+  assert.ok(!/NaN|Infinity/.test(out), 'something did arithmetic on an agreement id');
+  // The sort must not mix-compare an int against a string — it sorts on
+  // severity then customer, and every row has to survive it.
+  assert.equal((out.match(/Agreement<\/dt>/g) || []).length, snap.agreements.length,
+    'every agreement row must draw — a throwing comparator loses rows');
+});
+
+await check('unit detail and Dispatch carry a string agreement without coercing it (D59)', async () => {
+  const snap = await ownerFull();
+  const unit = snap.units.find((u) => u.agreement === WSS_PAPER);
+  const out = await renderRoute(`#/unit/${encodeURIComponent(unit.serial)}`);
+  assert.ok(out.includes(WSS_PAPER), 'the unit page must show the id it is out on');
+  assert.ok(!out.includes(`R${WSS_PAPER}`) && !/NaN/.test(out));
+
+  // The pick-up came off that same agreement; its row and its detail sheet both
+  // draw, and neither leaks a parse. The board is the LIST — an earlier check
+  // may have left this session on the map, which draws pins and no rows.
+  app.__ui().dispatchView = 'list';
+  const disp = await renderRoute('#/dispatch');
+  assert.ok(disp.includes(`#${unit.serial}`), 'the released unit must be on the Dispatch board');
+  assert.ok(!/NaN|\[object Object\]|undefined/.test(disp));
+  const row = (snap.dispatch || []).find((r) => r.serial === unit.serial);
+  if (row) {
+    const sheet = await renderRoute(`#/dispatch/${encodeURIComponent(row.id)}`);
+    assert.ok(!/NaN|undefined/.test(sheet));
+  }
+});
+
+await check('the billing block still hangs invoices off an opaque id (D59)', async () => {
+  // The site does not render `billing` (D39) — but the mock is the contract's
+  // shape, and an invoice built by prefixing "R" would be wrong there too.
+  const snap = await ownerFull();
+  const rows = (snap.billing && snap.billing.created_last_run) || [];
+  assert.ok(rows.length, 'the fixture must carry created_last_run rows');
+  for (const r of rows) {
+    assert.ok(String(r.invoice).startsWith(typeof r.agreement === 'number' ? `R${r.agreement}-` : `${r.agreement}-`),
+      `invoice ${r.invoice} does not hang off agreement ${r.agreement}`);
+    assert.ok(!String(r.invoice).startsWith('RR'), 'a second "R" got bolted on');
+  }
+});
+
+await check('a CONTRACT doc renders through the 📄 fallback, and no phone can mint one (D59)', async () => {
+  const snap = await ownerFull();
+  const lead = (snap.leads || []).find((l) => (l.docs || []).some((d) => d.kind === 'CONTRACT'));
+  assert.ok(lead, 'the fixture must carry a CONTRACT doc somewhere a detail sheet draws it');
+  const out = await renderRoute(`#/lead/${encodeURIComponent(lead.lead)}`);
+  assert.ok(out.includes('Contract'), 'the unknown kind must still get a readable label');
+  assert.ok(out.includes('📄'), 'and the fallback icon, not a blank');
+  assert.ok(!/undefined|\[object Object\]/.test(out));
+  // The upload sheet never offers it — that is the vault's to mint.
+  assert.ok(!/value="CONTRACT"/.test(out), 'CONTRACT must not be offerable from a phone');
+});
+
 console.log(`\n${passed} checks passed.`);

@@ -1,8 +1,8 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-09-14T17:21:24.645Z",
-    "run_id": "mock-empty-2026-09-14",
+    "generated_at": "2026-09-23T15:46:11.395Z",
+    "run_id": "mock-empty-2026-09-23",
     "fleet_totals": {
       "units": 39
     },
@@ -69,7 +69,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2489,
-      "in_service": "2022-08-09",
+      "in_service": "2022-08-18",
       "ask": 12250,
       "rate_card": {
         "full_day": 340,
@@ -89,9 +89,9 @@
           "held_by": "Kevin",
           "customer": "Juniper Metalworks",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-09-20",
-          "end": "2026-09-20",
-          "created": "2026-09-12",
+          "start": "2026-09-29",
+          "end": "2026-09-29",
+          "created": "2026-09-21",
           "status": "future"
         },
         {
@@ -99,14 +99,14 @@
           "held_by": "Matt",
           "customer": "Maplewood Schools",
           "purpose": "quote hold",
-          "start": "2026-09-22",
-          "end": "2026-09-24",
-          "created": "2026-09-12",
+          "start": "2026-10-01",
+          "end": "2026-10-03",
+          "created": "2026-09-21",
           "status": "future"
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-08-26",
+      "readiness_since": "2026-09-04",
       "readiness_age_days": 19
     },
     {
@@ -121,7 +121,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3204,
-      "in_service": "2025-10-19",
+      "in_service": "2025-10-28",
       "ask": 14550,
       "rate_card": {
         "full_day": 500,
@@ -141,14 +141,14 @@
           "held_by": "Kevin",
           "customer": "Cedar Ridge Foods",
           "purpose": "DEMO — customer site",
-          "start": "2026-09-17",
-          "end": "2026-09-17",
-          "created": "2026-09-12",
+          "start": "2026-09-26",
+          "end": "2026-09-26",
+          "created": "2026-09-21",
           "status": "future"
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-08-30",
+      "readiness_since": "2026-09-08",
       "readiness_age_days": 15
     },
     {
@@ -163,7 +163,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1262,
-      "in_service": "2022-07-16",
+      "in_service": "2022-07-25",
       "ask": 8900,
       "rate_card": {
         "full_day": 310,
@@ -188,9 +188,9 @@
           "held_by": "Matt",
           "customer": "Harborview Foods",
           "purpose": "replacement for down unit",
-          "start": "2026-09-26",
-          "end": "2026-09-26",
-          "created": "2026-09-12",
+          "start": "2026-10-05",
+          "end": "2026-10-05",
+          "created": "2026-09-21",
           "status": "future"
         },
         {
@@ -198,14 +198,14 @@
           "held_by": "Kevin",
           "customer": "Cedar Ridge Manufacturing",
           "purpose": "quote hold",
-          "start": "2026-10-04",
-          "end": "2026-10-06",
-          "created": "2026-09-12",
+          "start": "2026-10-13",
+          "end": "2026-10-15",
+          "created": "2026-09-21",
           "status": "future"
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-07-16",
+      "readiness_since": "2026-07-25",
       "readiness_age_days": 60
     },
     {
@@ -220,7 +220,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 882,
-      "in_service": "2023-02-26",
+      "in_service": "2023-03-07",
       "ask": 15500,
       "rate_card": {
         "full_day": 470,
@@ -241,7 +241,7 @@
       "customer": "Harborview Foods",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-06-22",
+      "readiness_since": "2026-07-01",
       "readiness_age_days": 84
     },
     {
@@ -256,7 +256,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3133,
-      "in_service": "2024-02-15",
+      "in_service": "2024-02-24",
       "ask": 27500,
       "rate_card": {
         "full_day": 375,
@@ -272,7 +272,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-26",
+      "readiness_since": "2026-09-04",
       "readiness_age_days": 19
     },
     {
@@ -287,7 +287,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3511,
-      "in_service": "2023-10-29",
+      "in_service": "2023-11-07",
       "ask": 21200,
       "rate_card": {
         "full_day": 160,
@@ -303,7 +303,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-04",
+      "readiness_since": "2026-07-13",
       "readiness_age_days": 72
     },
     {
@@ -318,7 +318,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 768,
-      "in_service": "2025-03-10",
+      "in_service": "2025-03-19",
       "ask": 8050,
       "rate_card": {
         "full_day": 280,
@@ -339,7 +339,7 @@
       "customer": "Granite Peak Warehouse",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-10",
+      "readiness_since": "2026-09-19",
       "readiness_age_days": 4
     },
     {
@@ -354,7 +354,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 609,
-      "in_service": "2025-08-18",
+      "in_service": "2025-08-27",
       "ask": 8600,
       "rate_card": {
         "full_day": 205,
@@ -375,7 +375,7 @@
       "customer": "Harborview Foods",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-02",
+      "readiness_since": "2026-07-11",
       "readiness_age_days": 74
     },
     {
@@ -390,7 +390,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 959,
-      "in_service": "2023-04-28",
+      "in_service": "2023-05-07",
       "ask": 5650,
       "rate_card": {
         "full_day": 460,
@@ -410,14 +410,14 @@
           "held_by": "Kevin",
           "customer": "Pinnacle Cold Storage",
           "purpose": "trade-show loaner",
-          "start": "2026-09-13",
-          "end": "2026-09-17",
-          "created": "2026-09-11",
+          "start": "2026-09-22",
+          "end": "2026-09-26",
+          "created": "2026-09-20",
           "status": "current"
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-06-28",
+      "readiness_since": "2026-07-07",
       "readiness_age_days": 78
     },
     {
@@ -432,7 +432,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 484,
-      "in_service": "2022-02-19",
+      "in_service": "2022-02-28",
       "ask": 10150,
       "rate_card": {
         "full_day": 475,
@@ -448,7 +448,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-30",
+      "readiness_since": "2026-08-08",
       "readiness_age_days": 46
     },
     {
@@ -463,7 +463,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1134,
-      "in_service": "2023-08-11",
+      "in_service": "2023-08-20",
       "ask": 22550,
       "rate_card": {
         "full_day": 370,
@@ -484,7 +484,7 @@
       "customer": "Harborview Foods",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-28",
+      "readiness_since": "2026-09-06",
       "readiness_age_days": 17
     },
     {
@@ -499,7 +499,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 609,
-      "in_service": "2023-06-20",
+      "in_service": "2023-06-29",
       "ask": 11000,
       "rate_card": {
         "full_day": 235,
@@ -520,7 +520,7 @@
       "customer": "Summit Fabrication",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-10",
+      "readiness_since": "2026-07-19",
       "readiness_age_days": 66
     },
     {
@@ -535,7 +535,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1465,
-      "in_service": "2021-10-16",
+      "in_service": "2021-10-25",
       "ask": 16950,
       "rate_card": {
         "full_day": 215,
@@ -555,14 +555,14 @@
           "held_by": "Matt",
           "customer": "Bluebird Logistics",
           "purpose": "bad dates",
-          "start": "2026-09-19",
-          "end": "2026-09-17",
-          "created": "2026-09-12",
+          "start": "2026-09-28",
+          "end": "2026-09-26",
+          "created": "2026-09-21",
           "status": "malformed"
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-06-25",
+      "readiness_since": "2026-07-04",
       "readiness_age_days": 81
     },
     {
@@ -577,7 +577,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 360,
-      "in_service": "2024-07-23",
+      "in_service": "2024-08-01",
       "ask": 17400,
       "rate_card": {
         "full_day": 410,
@@ -597,14 +597,14 @@
           "held_by": "Matt",
           "customer": "Acme Foods",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-09-05",
-          "end": "2026-09-11",
-          "created": "2026-09-03",
+          "start": "2026-09-14",
+          "end": "2026-09-20",
+          "created": "2026-09-12",
           "status": "expired"
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-06-15",
+      "readiness_since": "2026-06-24",
       "readiness_age_days": 91
     },
     {
@@ -619,7 +619,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 350,
-      "in_service": "2023-01-19",
+      "in_service": "2023-01-28",
       "ask": 6800,
       "rate_card": {
         "full_day": 595,
@@ -635,7 +635,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-03",
+      "readiness_since": "2026-09-12",
       "readiness_age_days": 11
     },
     {
@@ -650,7 +650,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 316,
-      "in_service": "2023-12-09",
+      "in_service": "2023-12-18",
       "ask": 12850,
       "rate_card": {
         "full_day": 295,
@@ -671,7 +671,7 @@
       "customer": "Maplewood Schools",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-08",
+      "readiness_since": "2026-07-17",
       "readiness_age_days": 68
     },
     {
@@ -686,7 +686,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2038,
-      "in_service": "2025-08-24",
+      "in_service": "2025-09-02",
       "ask": 6600,
       "rate_card": {
         "full_day": 305,
@@ -707,7 +707,7 @@
       "customer": "Granite Peak Warehouse",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-08",
+      "readiness_since": "2026-08-17",
       "readiness_age_days": 37
     },
     {
@@ -722,7 +722,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1774,
-      "in_service": "2021-11-08",
+      "in_service": "2021-11-17",
       "ask": 14750,
       "rate_card": {
         "full_day": 540,
@@ -738,7 +738,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-02",
+      "readiness_since": "2026-07-11",
       "readiness_age_days": 74
     },
     {
@@ -753,7 +753,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1934,
-      "in_service": "2023-10-06",
+      "in_service": "2023-10-15",
       "ask": 9800,
       "rate_card": {
         "full_day": 165,
@@ -769,7 +769,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-21",
+      "readiness_since": "2026-08-30",
       "readiness_age_days": 24
     },
     {
@@ -784,7 +784,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1310,
-      "in_service": "2025-07-23",
+      "in_service": "2025-08-01",
       "ask": 11250,
       "rate_card": {
         "full_day": 360,
@@ -801,11 +801,11 @@
         "precision": "street",
         "in_wi": true
       },
-      "agreement": 4127,
+      "agreement": "R092526A",
       "customer": "Fairmont Dairy",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-01",
+      "readiness_since": "2026-07-10",
       "readiness_age_days": 75
     },
     {
@@ -820,7 +820,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 883,
-      "in_service": "2025-11-03",
+      "in_service": "2025-11-12",
       "ask": 6250,
       "rate_card": {
         "full_day": 150,
@@ -841,7 +841,7 @@
       "customer": "Redtail Automotive",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-06-28",
+      "readiness_since": "2026-07-07",
       "readiness_age_days": 78
     },
     {
@@ -856,7 +856,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2654,
-      "in_service": "2022-07-17",
+      "in_service": "2022-07-26",
       "ask": 10150,
       "rate_card": {
         "full_day": 265,
@@ -877,7 +877,7 @@
       "customer": "Summit Fabrication",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-06",
+      "readiness_since": "2026-09-15",
       "readiness_age_days": 8
     },
     {
@@ -892,7 +892,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3098,
-      "in_service": "2024-05-04",
+      "in_service": "2024-05-13",
       "ask": 19150,
       "rate_card": {
         "full_day": 255,
@@ -913,7 +913,7 @@
       "customer": "Bluebird Logistics",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-27",
+      "readiness_since": "2026-09-05",
       "readiness_age_days": 18
     },
     {
@@ -928,7 +928,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3400,
-      "in_service": "2023-10-30",
+      "in_service": "2023-11-08",
       "ask": 26950,
       "rate_card": {
         "full_day": 485,
@@ -944,7 +944,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-01",
+      "readiness_since": "2026-08-10",
       "readiness_age_days": 44
     },
     {
@@ -959,7 +959,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 264,
-      "in_service": "2023-02-21",
+      "in_service": "2023-03-02",
       "ask": 15300,
       "rate_card": {
         "full_day": 350,
@@ -980,7 +980,7 @@
       "customer": "Lakeshore Beverage",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-06-23",
+      "readiness_since": "2026-07-02",
       "readiness_age_days": 83
     },
     {
@@ -995,7 +995,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1178,
-      "in_service": "2022-07-08",
+      "in_service": "2022-07-17",
       "ask": 4500,
       "rate_card": {
         "full_day": 195,
@@ -1011,7 +1011,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-06",
+      "readiness_since": "2026-09-15",
       "readiness_age_days": 8
     },
     {
@@ -1026,7 +1026,7 @@
       "readiness": "DOWN",
       "readiness_note": "awaiting pump assembly",
       "hours": null,
-      "in_service": "2024-06-24",
+      "in_service": "2024-07-03",
       "ask": 15600,
       "rate_card": {
         "full_day": 420,
@@ -1042,7 +1042,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-29",
+      "readiness_since": "2026-09-07",
       "readiness_age_days": 16
     },
     {
@@ -1057,7 +1057,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3072,
-      "in_service": "2025-03-27",
+      "in_service": "2025-04-05",
       "ask": 14550,
       "rate_card": {
         "full_day": 235,
@@ -1078,7 +1078,7 @@
       "customer": "Fairmont Dairy",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-31",
+      "readiness_since": "2026-09-09",
       "readiness_age_days": 14
     },
     {
@@ -1093,7 +1093,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 893,
-      "in_service": "2022-12-23",
+      "in_service": "2023-01-01",
       "ask": 5750,
       "rate_card": {
         "full_day": 330,
@@ -1114,7 +1114,7 @@
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-30",
+      "readiness_since": "2026-08-08",
       "readiness_age_days": 46
     },
     {
@@ -1129,7 +1129,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3147,
-      "in_service": "2024-10-23",
+      "in_service": "2024-11-01",
       "ask": 11900,
       "rate_card": {
         "full_day": 425,
@@ -1150,7 +1150,7 @@
       "customer": "Northgate Fulfillment",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-31",
+      "readiness_since": "2026-09-09",
       "readiness_age_days": 14
     },
     {
@@ -1165,7 +1165,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1278,
-      "in_service": "2023-09-04",
+      "in_service": "2023-09-13",
       "ask": 14200,
       "rate_card": {
         "full_day": 310,
@@ -1181,7 +1181,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-06-17",
+      "readiness_since": "2026-06-26",
       "readiness_age_days": 89
     },
     {
@@ -1196,7 +1196,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 454,
-      "in_service": "2025-07-16",
+      "in_service": "2025-07-25",
       "ask": 19100,
       "rate_card": {
         "full_day": 440,
@@ -1217,7 +1217,7 @@
       "customer": "Granite Peak Warehouse",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-05",
+      "readiness_since": "2026-08-14",
       "readiness_age_days": 40
     },
     {
@@ -1232,7 +1232,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1170,
-      "in_service": "2024-04-15",
+      "in_service": "2024-04-24",
       "ask": 7400,
       "rate_card": {
         "full_day": 195,
@@ -1253,7 +1253,7 @@
       "customer": "Ironwood Packaging",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-04",
+      "readiness_since": "2026-09-13",
       "readiness_age_days": 10
     },
     {
@@ -1268,7 +1268,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2470,
-      "in_service": "2025-06-08",
+      "in_service": "2025-06-17",
       "ask": 10950,
       "rate_card": {
         "full_day": 155,
@@ -1289,7 +1289,7 @@
       "customer": "Acme Foods",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-11",
+      "readiness_since": "2026-07-20",
       "readiness_age_days": 65
     },
     {
@@ -1304,7 +1304,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1833,
-      "in_service": "2022-07-09",
+      "in_service": "2022-07-18",
       "ask": 7300,
       "rate_card": {
         "full_day": 245,
@@ -1324,9 +1324,9 @@
           "held_by": "Kevin",
           "customer": "Summit Fabrication",
           "purpose": "replacement for down unit",
-          "start": "2026-09-14",
-          "end": "2026-09-14",
-          "created": "2026-09-12",
+          "start": "2026-09-23",
+          "end": "2026-09-23",
+          "created": "2026-09-21",
           "status": "current"
         },
         {
@@ -1334,9 +1334,9 @@
           "held_by": "Matt",
           "customer": "Northgate Fulfillment",
           "purpose": "replacement for down unit",
-          "start": "2026-09-18",
-          "end": "2026-09-18",
-          "created": "2026-09-12",
+          "start": "2026-09-27",
+          "end": "2026-09-27",
+          "created": "2026-09-21",
           "status": "future"
         },
         {
@@ -1344,9 +1344,9 @@
           "held_by": "Matt",
           "customer": "Kestrel Print",
           "purpose": "replacement for down unit",
-          "start": "2026-09-21",
-          "end": "2026-09-23",
-          "created": "2026-09-12",
+          "start": "2026-09-30",
+          "end": "2026-10-02",
+          "created": "2026-09-21",
           "status": "future"
         },
         {
@@ -1354,14 +1354,14 @@
           "held_by": "Matt",
           "customer": "Maplewood Schools",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-09-28",
-          "end": "2026-09-28",
-          "created": "2026-09-12",
+          "start": "2026-10-07",
+          "end": "2026-10-07",
+          "created": "2026-09-21",
           "status": "future"
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-07-27",
+      "readiness_since": "2026-08-05",
       "readiness_age_days": 49
     },
     {
@@ -1376,7 +1376,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1077,
-      "in_service": "2025-11-06",
+      "in_service": "2025-11-15",
       "ask": 22500,
       "rate_card": {
         "full_day": 190,
@@ -1392,7 +1392,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-18",
+      "readiness_since": "2026-07-27",
       "readiness_age_days": 58
     },
     {
@@ -1407,7 +1407,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 1420,
-      "in_service": "2022-04-19",
+      "in_service": "2022-04-28",
       "ask": 20600,
       "rate_card": {
         "full_day": 390,
@@ -1428,7 +1428,7 @@
       "customer": "Redtail Automotive",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-01",
+      "readiness_since": "2026-09-10",
       "readiness_age_days": 13
     },
     {
@@ -1443,7 +1443,7 @@
       "readiness": "READY",
       "readiness_note": null,
       "hours": 2868,
-      "in_service": "2025-08-11",
+      "in_service": "2025-08-20",
       "ask": 12700,
       "rate_card": {
         "full_day": 505,
@@ -1464,7 +1464,7 @@
       "customer": "Maplewood Schools",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-14",
+      "readiness_since": "2026-08-23",
       "readiness_age_days": 31
     },
     {
@@ -1479,7 +1479,7 @@
       "readiness": "NEEDS-PREP",
       "readiness_note": "battery watering due",
       "hours": null,
-      "in_service": "2025-06-14",
+      "in_service": "2025-06-23",
       "ask": 10200,
       "rate_card": {
         "full_day": 270,
@@ -1495,7 +1495,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-31",
+      "readiness_since": "2026-09-09",
       "readiness_age_days": 14
     }
   ],
@@ -1508,10 +1508,10 @@
       "cycle_rate": 2050,
       "cycles_billed": 3,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-18",
-      "last_invoiced_period_end": "2026-09-14",
+      "last_invoiced_period_start": "2026-08-27",
+      "last_invoiced_period_end": "2026-09-23",
       "last_invoice": "R4103-3",
-      "next_due": "2026-10-12",
+      "next_due": "2026-10-21",
       "job_site": "2280 Corporate Cir, Waukesha WI",
       "customer_po": "PO-31784",
       "alerts": [],
@@ -1525,10 +1525,10 @@
       "cycle_rate": 1500,
       "cycles_billed": 9,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-09",
-      "last_invoiced_period_end": "2026-09-05",
+      "last_invoiced_period_start": "2026-08-18",
+      "last_invoiced_period_end": "2026-09-14",
       "last_invoice": "R4106-9",
-      "next_due": "2026-10-03",
+      "next_due": "2026-10-12",
       "job_site": "77 Logistics Ln, Waukesha WI",
       "customer_po": null,
       "alerts": [],
@@ -1542,10 +1542,10 @@
       "cycle_rate": 1700,
       "cycles_billed": 6,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-08",
-      "last_invoiced_period_end": "2026-09-04",
+      "last_invoiced_period_start": "2026-08-17",
+      "last_invoiced_period_end": "2026-09-13",
       "last_invoice": "R4109-6.1",
-      "next_due": "2026-10-02",
+      "next_due": "2026-10-11",
       "job_site": "4400 Innovation Dr, Milwaukee WI",
       "customer_po": "PO-28462",
       "alerts": [
@@ -1561,8 +1561,8 @@
       "cycle_rate": 700,
       "cycles_billed": 4,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-17",
-      "last_invoiced_period_end": "2026-09-13",
+      "last_invoiced_period_start": "2026-08-26",
+      "last_invoiced_period_end": "2026-09-22",
       "last_invoice": "R4112-4",
       "next_due": null,
       "job_site": "3050 Enterprise Ct, Jefferson WI",
@@ -1580,10 +1580,10 @@
       "cycle_rate": 600,
       "cycles_billed": 1,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-18",
-      "last_invoiced_period_end": "2026-09-14",
+      "last_invoiced_period_start": "2026-08-27",
+      "last_invoiced_period_end": "2026-09-23",
       "last_invoice": "R4115-1",
-      "next_due": "2026-10-12",
+      "next_due": "2026-10-21",
       "job_site": "820 Commerce Pkwy, Watertown WI",
       "customer_po": null,
       "alerts": [],
@@ -1597,10 +1597,10 @@
       "cycle_rate": 1825,
       "cycles_billed": 10,
       "cycles_max": 13,
-      "last_invoiced_period_start": "2026-07-30",
-      "last_invoiced_period_end": "2026-08-26",
+      "last_invoiced_period_start": "2026-08-08",
+      "last_invoiced_period_end": "2026-09-04",
       "last_invoice": "519665",
-      "next_due": "2026-09-23",
+      "next_due": "2026-10-02",
       "job_site": "1400 Industrial Dr, Waukesha WI",
       "customer_po": null,
       "alerts": [],
@@ -1614,10 +1614,10 @@
       "cycle_rate": 775,
       "cycles_billed": 3,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-06",
-      "last_invoiced_period_end": "2026-09-02",
+      "last_invoiced_period_start": "2026-08-15",
+      "last_invoiced_period_end": "2026-09-11",
       "last_invoice": "R4121-3",
-      "next_due": "2026-09-30",
+      "next_due": "2026-10-09",
       "job_site": "1201 Riverside Blvd, Milwaukee WI",
       "customer_po": null,
       "alerts": [],
@@ -1631,10 +1631,10 @@
       "cycle_rate": 850,
       "cycles_billed": 12,
       "cycles_max": 11,
-      "last_invoiced_period_start": "2026-07-31",
-      "last_invoiced_period_end": "2026-08-27",
+      "last_invoiced_period_start": "2026-08-09",
+      "last_invoiced_period_end": "2026-09-05",
       "last_invoice": "R4124-12",
-      "next_due": "2026-09-24",
+      "next_due": "2026-10-03",
       "job_site": "W229 N1433 Westwood Dr, Beloit WI",
       "customer_po": "PO-99144",
       "alerts": [
@@ -1643,21 +1643,29 @@
       "docs": []
     },
     {
-      "agreement": 4127,
+      "agreement": "R092526A",
       "customer": "Fairmont Dairy",
       "serial": "900240",
       "cycle": "28D",
       "cycle_rate": 1475,
-      "cycles_billed": 11,
-      "cycles_max": 13,
-      "last_invoiced_period_start": "2026-08-13",
-      "last_invoiced_period_end": "2026-09-09",
-      "last_invoice": "R4127-11",
-      "next_due": "2026-10-07",
+      "cycles_billed": 1,
+      "cycles_max": null,
+      "last_invoiced_period_start": "2026-08-22",
+      "last_invoiced_period_end": "2026-09-18",
+      "last_invoice": "R092526A-1",
+      "next_due": "2026-10-16",
       "job_site": "77 Logistics Ln, Madison WI",
       "customer_po": "PO-91223",
       "alerts": [],
-      "docs": []
+      "docs": [
+        {
+          "id": "5c1f7a2e08b4d963",
+          "name": "2026-09-25-RentalAgreement-R092526A.pdf",
+          "kind": "CONTRACT",
+          "bytes": 96410,
+          "added": "2026-09-20"
+        }
+      ]
     },
     {
       "agreement": 4130,
@@ -1667,10 +1675,10 @@
       "cycle_rate": 1525,
       "cycles_billed": 8,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-01",
-      "last_invoiced_period_end": "2026-08-28",
+      "last_invoiced_period_start": "2026-08-10",
+      "last_invoiced_period_end": "2026-09-06",
       "last_invoice": "R4130-8",
-      "next_due": "2026-09-25",
+      "next_due": "2026-10-04",
       "job_site": "820 Commerce Pkwy, Beloit WI",
       "customer_po": null,
       "alerts": [],
@@ -1692,7 +1700,8 @@
       "customer_po": null,
       "alerts": [
         "UNBILLED RENTAL — unit is out with no agreement"
-      ]
+      ],
+      "docs": []
     },
     {
       "agreement": 4139,
@@ -1702,10 +1711,10 @@
       "cycle_rate": 2175,
       "cycles_billed": 2,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-14",
-      "last_invoiced_period_end": "2026-09-10",
+      "last_invoiced_period_start": "2026-08-23",
+      "last_invoiced_period_end": "2026-09-19",
       "last_invoice": "R4139-2",
-      "next_due": "2026-10-08",
+      "next_due": "2026-10-17",
       "job_site": "615 Distribution Way, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
@@ -1719,10 +1728,10 @@
       "cycle_rate": 600,
       "cycles_billed": 14,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-07-31",
-      "last_invoiced_period_end": "2026-08-27",
+      "last_invoiced_period_start": "2026-08-09",
+      "last_invoiced_period_end": "2026-09-05",
       "last_invoice": "R4142-14",
-      "next_due": "2026-09-24",
+      "next_due": "2026-10-03",
       "job_site": "910 Foundry Rd, Milwaukee WI",
       "customer_po": "PO-38836",
       "alerts": [],
@@ -1736,10 +1745,10 @@
       "cycle_rate": 1800,
       "cycles_billed": 11,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-07-30",
-      "last_invoiced_period_end": "2026-08-26",
+      "last_invoiced_period_start": "2026-08-08",
+      "last_invoiced_period_end": "2026-09-04",
       "last_invoice": "R4145-11",
-      "next_due": "2026-09-23",
+      "next_due": "2026-10-02",
       "job_site": "1400 Industrial Dr, Beloit WI",
       "customer_po": "PO-64547",
       "alerts": [],
@@ -1753,10 +1762,10 @@
       "cycle_rate": 950,
       "cycles_billed": 7,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-06",
-      "last_invoiced_period_end": "2026-09-02",
+      "last_invoiced_period_start": "2026-08-15",
+      "last_invoiced_period_end": "2026-09-11",
       "last_invoice": "R4148-7",
-      "next_due": "2026-09-30",
+      "next_due": "2026-10-09",
       "job_site": "2280 Corporate Cir, Jefferson WI",
       "customer_po": "PO-23241",
       "alerts": [],
@@ -1770,10 +1779,10 @@
       "cycle_rate": 1900,
       "cycles_billed": 3,
       "cycles_max": 8,
-      "last_invoiced_period_start": "2026-08-02",
-      "last_invoiced_period_end": "2026-08-29",
+      "last_invoiced_period_start": "2026-08-11",
+      "last_invoiced_period_end": "2026-09-07",
       "last_invoice": "R4151-3",
-      "next_due": "2026-09-26",
+      "next_due": "2026-10-05",
       "job_site": "77 Logistics Ln, Waukesha WI",
       "customer_po": "PO-68075",
       "alerts": [],
@@ -1787,10 +1796,10 @@
       "cycle_rate": 800,
       "cycles_billed": 6,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-07",
-      "last_invoiced_period_end": "2026-09-03",
+      "last_invoiced_period_start": "2026-08-16",
+      "last_invoiced_period_end": "2026-09-12",
       "last_invoice": "R4154-6",
-      "next_due": "2026-10-01",
+      "next_due": "2026-10-10",
       "job_site": "3050 Enterprise Ct, Watertown WI",
       "customer_po": "PO-33079",
       "alerts": [],
@@ -1804,10 +1813,10 @@
       "cycle_rate": 550,
       "cycles_billed": 7,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-13",
-      "last_invoiced_period_end": "2026-09-09",
+      "last_invoiced_period_start": "2026-08-22",
+      "last_invoiced_period_end": "2026-09-18",
       "last_invoice": "R4157-7",
-      "next_due": "2026-10-07",
+      "next_due": "2026-10-16",
       "job_site": "3050 Enterprise Ct, Madison WI",
       "customer_po": "PO-29937",
       "alerts": [],
@@ -1821,10 +1830,10 @@
       "cycle_rate": 1325,
       "cycles_billed": 12,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-04",
-      "last_invoiced_period_end": "2026-08-31",
+      "last_invoiced_period_start": "2026-08-13",
+      "last_invoiced_period_end": "2026-09-09",
       "last_invoice": "R4160-12",
-      "next_due": "2026-09-28",
+      "next_due": "2026-10-07",
       "job_site": "1201 Riverside Blvd, Ixonia WI",
       "customer_po": "PO-74126",
       "alerts": [],
@@ -1841,8 +1850,8 @@
         "held_by": "Kevin",
         "customer": "Pinnacle Cold Storage",
         "purpose": "trade-show loaner",
-        "start": "2026-09-13",
-        "end": "2026-09-17",
+        "start": "2026-09-22",
+        "end": "2026-09-26",
         "status": "current"
       },
       {
@@ -1853,8 +1862,8 @@
         "held_by": "Kevin",
         "customer": "Summit Fabrication",
         "purpose": "replacement for down unit",
-        "start": "2026-09-14",
-        "end": "2026-09-14",
+        "start": "2026-09-23",
+        "end": "2026-09-23",
         "status": "current"
       },
       {
@@ -1865,8 +1874,8 @@
         "held_by": "Kevin",
         "customer": "Cedar Ridge Foods",
         "purpose": "DEMO — customer site",
-        "start": "2026-09-17",
-        "end": "2026-09-17",
+        "start": "2026-09-26",
+        "end": "2026-09-26",
         "status": "future"
       },
       {
@@ -1877,8 +1886,8 @@
         "held_by": "Matt",
         "customer": "Northgate Fulfillment",
         "purpose": "replacement for down unit",
-        "start": "2026-09-18",
-        "end": "2026-09-18",
+        "start": "2026-09-27",
+        "end": "2026-09-27",
         "status": "future"
       },
       {
@@ -1889,8 +1898,8 @@
         "held_by": "Matt",
         "customer": "Bluebird Logistics",
         "purpose": "bad dates",
-        "start": "2026-09-19",
-        "end": "2026-09-17",
+        "start": "2026-09-28",
+        "end": "2026-09-26",
         "status": "malformed"
       },
       {
@@ -1901,8 +1910,8 @@
         "held_by": "Kevin",
         "customer": "Juniper Metalworks",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-09-20",
-        "end": "2026-09-20",
+        "start": "2026-09-29",
+        "end": "2026-09-29",
         "status": "future"
       },
       {
@@ -1913,8 +1922,8 @@
         "held_by": "Matt",
         "customer": "Kestrel Print",
         "purpose": "replacement for down unit",
-        "start": "2026-09-21",
-        "end": "2026-09-23",
+        "start": "2026-09-30",
+        "end": "2026-10-02",
         "status": "future"
       },
       {
@@ -1925,8 +1934,8 @@
         "held_by": "Matt",
         "customer": "Maplewood Schools",
         "purpose": "quote hold",
-        "start": "2026-09-22",
-        "end": "2026-09-24",
+        "start": "2026-10-01",
+        "end": "2026-10-03",
         "status": "future"
       },
       {
@@ -1937,8 +1946,8 @@
         "held_by": "Matt",
         "customer": "Harborview Foods",
         "purpose": "replacement for down unit",
-        "start": "2026-09-26",
-        "end": "2026-09-26",
+        "start": "2026-10-05",
+        "end": "2026-10-05",
         "status": "future"
       },
       {
@@ -1949,8 +1958,8 @@
         "held_by": "Matt",
         "customer": "Maplewood Schools",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-09-28",
-        "end": "2026-09-28",
+        "start": "2026-10-07",
+        "end": "2026-10-07",
         "status": "future"
       },
       {
@@ -1961,8 +1970,8 @@
         "held_by": "Kevin",
         "customer": "Cedar Ridge Manufacturing",
         "purpose": "quote hold",
-        "start": "2026-10-04",
-        "end": "2026-10-06",
+        "start": "2026-10-13",
+        "end": "2026-10-15",
         "status": "future"
       }
     ],
@@ -1975,8 +1984,8 @@
         "held_by": "Matt",
         "customer": "Acme Foods",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-09-05",
-        "end": "2026-09-11"
+        "start": "2026-09-14",
+        "end": "2026-09-20"
       }
     ]
   },
@@ -2007,35 +2016,35 @@
         "customer": "Evergreen Distribution",
         "serial": "900121",
         "amount": 2050,
-        "due": "2026-09-15"
+        "due": "2026-09-24"
       },
       {
         "agreement": 4106,
         "customer": "Harborview Foods",
         "serial": "900128",
         "amount": 1500,
-        "due": "2026-09-16"
+        "due": "2026-09-25"
       },
       {
         "agreement": 4109,
         "customer": "Granite Peak Warehouse",
         "serial": "900149",
         "amount": 1700,
-        "due": "2026-09-17"
+        "due": "2026-09-26"
       },
       {
         "agreement": 4115,
         "customer": "Harborview Foods",
         "serial": "900177",
         "amount": 600,
-        "due": "2026-09-18"
+        "due": "2026-09-27"
       },
       {
         "agreement": 4118,
         "customer": "Summit Fabrication",
         "serial": "900184",
         "amount": 1825,
-        "due": "2026-09-19"
+        "due": "2026-09-28"
       }
     ],
     "created_last_run": [
@@ -2044,24 +2053,24 @@
         "agreement": 4121,
         "customer": "Maplewood Schools",
         "amount": 775,
-        "period_start": "2026-09-02",
-        "period_end": "2026-09-14"
+        "period_start": "2026-09-11",
+        "period_end": "2026-09-23"
       },
       {
         "invoice": "R4124-13",
         "agreement": 4124,
         "customer": "Granite Peak Warehouse",
         "amount": 850,
-        "period_start": "2026-08-27",
-        "period_end": "2026-09-14"
+        "period_start": "2026-09-05",
+        "period_end": "2026-09-23"
       },
       {
-        "invoice": "R4127-12",
-        "agreement": 4127,
+        "invoice": "R092526A-2",
+        "agreement": "R092526A",
         "customer": "Fairmont Dairy",
         "amount": 1475,
-        "period_start": "2026-09-09",
-        "period_end": "2026-09-14"
+        "period_start": "2026-09-18",
+        "period_end": "2026-09-23"
       }
     ]
   },

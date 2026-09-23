@@ -78,6 +78,9 @@ check('icons: 📝 for the things you work from, 🖼 for a photo, 📄 for the 
   assert.equal(docIcon('PARTS-LIST'), '📝');
   assert.equal(docIcon('PHOTO'), '🖼');
   for (const k of ['QUOTE', 'PO', 'PM-REPORT', 'SERVICE-TICKET', 'OTHER']) assert.equal(docIcon(k), '📄');
+  // D58 + D59: two vault-minted kinds the site has never been taught. They ride
+  // the fallback on purpose — adding them to KIND_ICON would be work for nothing.
+  for (const k of ['WRITEUP', 'CONTRACT']) assert.equal(docIcon(k), '📄');
   assert.equal(docIcon('SOMETHING-NEW'), '📄', 'an enum value we have not met falls back, never blank');
 });
 
@@ -90,6 +93,8 @@ check('labels are title-cased with the hyphen kept, initialisms left alone', () 
   // "Po" read as typos on a shop floor, so the two initialisms stay upper.
   assert.equal(kindLabel('PM-REPORT'), 'PM-Report');
   assert.equal(kindLabel('PO'), 'PO');
+  assert.equal(kindLabel('WRITEUP'), 'Writeup');
+  assert.equal(kindLabel('CONTRACT'), 'Contract');   // D59
   assert.equal(kindLabel(''), 'Other');
   assert.equal(kindLabel(undefined), 'Other');
 });
@@ -135,6 +140,12 @@ check('DOC_ID_RE is the shape the Worker enforces, character for character', () 
 
 check('a phone may only mint the four crew kinds', () => {
   assert.deepEqual([...CREW_KINDS].sort(), ['OTHER', 'PARTS-LIST', 'PHOTO', 'WORKORDER']);
+  // D58/D59: WRITEUP and CONTRACT are the vault's to mint, never a phone's.
+  for (const k of ['WRITEUP', 'CONTRACT']) {
+    assert.ok(!CREW_KINDS.has(k), `${k} must not be mintable from a phone`);
+    assert.ok(!KIND_CHOICES.some((x) => x.kind === k), `${k} must not be offered in the sheet`);
+    assert.equal(resolveKind(k, 'application/pdf'), 'OTHER', `${k} asked for from a phone falls back to OTHER`);
+  }
   // The sheet offers three; PHOTO is worked out, never tapped.
   assert.deepEqual(KIND_CHOICES.map((c) => c.kind), ['WORKORDER', 'PARTS-LIST', 'OTHER']);
   assert.equal(KIND_CHOICES[0].kind, 'WORKORDER', 'the default is what a tech is holding');

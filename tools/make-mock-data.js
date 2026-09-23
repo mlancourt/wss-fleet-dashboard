@@ -107,6 +107,15 @@ const logOf = (rows) => rows.map(([t, who, text]) => ({ ts: t, who: who || null,
  */
 const doc = (id, name, kind, bytes, addedDaysAgo) => ({ id, name, kind, bytes, added: d(addedDaysAgo) });
 
+// D59: an agreement id is OPAQUE and either an int (legacy Integra, 4130) or a
+// string on WSS's own paper ("R092526A"). An invoice hangs off it as
+// "<agmt>-<cycle>" — and only the int form needs the leading "R" bolted on,
+// because the WSS-paper id already carries one. Never string-prefix an
+// agreement id without checking which of the two you are holding.
+const WSS_PAPER_AGREEMENT = 'R092526A';
+const invoiceNo = (agreement, cycle) =>
+  `${typeof agreement === 'number' ? `R${agreement}` : String(agreement)}-${cycle}`;
+
 // ---------------------------------------------------------------- fake corpus
 
 // The real 9 rental-rate-matrix bands, in canonical display order (confirmed by
@@ -363,7 +372,7 @@ function build({ withServiceQueue }) {
           cycles_max: oneShot ? 1 : (rand() < 0.3 ? cycles_billed + Math.round(1 + rand() * 5) : null),
           last_invoiced_period_start: d(periodEndOffset - 27),
           last_invoiced_period_end: d(periodEndOffset),
-          last_invoice: `R${unit.agreement}-${cycles_billed}`,
+          last_invoice: invoiceNo(unit.agreement, cycles_billed),
           next_due: oneShot ? null : d(periodEndOffset + 28),
           job_site,
           customer_po: rand() < 0.4 ? `PO-${Math.round(10000 + rand() * 89999)}` : null,
@@ -380,7 +389,7 @@ function build({ withServiceQueue }) {
   // --- shape the agreements array into the edge cases the UI must survive ----
 
   // A split cycle: invoice number with a ".1" suffix. Opaque string, never parsed.
-  agreements[2].last_invoice = `R${agreements[2].agreement}-${agreements[2].cycles_billed}.1`;
+  agreements[2].last_invoice = `${invoiceNo(agreements[2].agreement, agreements[2].cycles_billed)}.1`;
   agreements[2].alerts = ['split cycle — partial period billed'];
 
   // A bare QuickBooks invoice number instead of the R<agmt>-<cycle> form.
@@ -414,7 +423,28 @@ function build({ withServiceQueue }) {
     job_site: orphanUnit.job_site,
     customer_po: null,
     alerts: ['UNBILLED RENTAL — unit is out with no agreement'],
+    docs: [],
   };
+
+  // D59: a rental written on WSS's own paper. Its `agreement` is a STRING —
+  // "R092526A" — not an int, and the invoice off it is "R092526A-1" with no
+  // second "R" bolted on the front. This row exists so every view that touches
+  // an agreement id (the Rentals card, unit detail, the pick-up rows, the
+  // billing block) is proven to render the id verbatim rather than parse it,
+  // coerce it, or sort it against the legacy ints around it. Cycle 1 of an
+  // open-ended 28D rental, so cycles_max stays null and the numbers stay honest.
+  // It also carries the D59 CONTRACT doc — the signed rental agreement PDF,
+  // vault-minted, which renders through the 📄 fallback like any unknown kind.
+  const wssPaper = agreements[8];
+  const wssPaperUnit = units.find((u) => u.agreement === wssPaper.agreement);
+  wssPaper.agreement = WSS_PAPER_AGREEMENT;
+  if (wssPaperUnit) wssPaperUnit.agreement = WSS_PAPER_AGREEMENT;
+  wssPaper.cycle = '28D';
+  wssPaper.cycles_billed = 1;
+  wssPaper.cycles_max = null;
+  wssPaper.last_invoice = invoiceNo(WSS_PAPER_AGREEMENT, 1);
+  wssPaper.next_due = wssPaper.next_due || d(9);
+  wssPaper.docs = [doc('5c1f7a2e08b4d963', '2026-09-25-RentalAgreement-R092526A.pdf', 'CONTRACT', 96410, -3)];
 
   // D44: one rentable unit with NO acquisition cost, in the full variant only.
   // The dollar-utilization bar must skip it on both sides and footnote it — the
@@ -434,7 +464,14 @@ function build({ withServiceQueue }) {
       'Released Friday; site closes at 3',
       'Job wrapped early — call the plant before you roll',
     ];
-    const pu = units.filter((u) => u.unit_state === 'ON-RENT' && u.agreement != null).slice(1, 4);
+    // D59: the WSS-paper unit leads this list on purpose. A pick-up row carries
+    // an `agreement` of its own, so one of them has to be the string form or the
+    // Dispatch path never proves it survives.
+    const onRent = units.filter((u) => u.unit_state === 'ON-RENT' && u.agreement != null);
+    const pu = [
+      ...onRent.filter((u) => u.agreement === WSS_PAPER_AGREEMENT),
+      ...onRent.filter((u) => u.agreement !== WSS_PAPER_AGREEMENT).slice(1, 3),
+    ];
     pu.forEach((u, i) => {
       u.readiness = 'NEEDS-PICKUP';
       u.readiness_note = PU_NOTES[i];
@@ -805,7 +842,7 @@ function build({ withServiceQueue }) {
     due: d(i + 1),
   }));
   const created_last_run = billable.slice(5, 8).map((a) => ({
-    invoice: `R${a.agreement}-${a.cycles_billed + 1}`,
+    invoice: invoiceNo(a.agreement, a.cycles_billed + 1),
     agreement: a.agreement,
     customer: a.customer,
     amount: a.cycle_rate,
@@ -1109,7 +1146,12 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       phone: '414-555-0128', email: 'sal@ironwoodpack.example', site: 'Milwaukee WI 53207',
       source: 'SERVICE-UPSELL', interest: 'RENTAL', machine: 'Compact walk-behind', value: 5400,
       assigned: 'Matt', contactHours: 4.5, related_ticket: ticket ? ticket.ticket : null,
-      next_action: 'Demo Tuesday, bring the small pad driver', stageDays: 3, totalDays: 11 }),
+      next_action: 'Demo Tuesday, bring the small pad driver', stageDays: 3, totalDays: 11,
+      // D59: CONTRACT — the signed rental agreement PDF, vault-minted. Nothing
+      // in the site knows the word; it falls back to 📄 and a "Contract" label,
+      // which is the whole point of the fallback. Lives here and not only on the
+      // agreements row because agreements still have no detail sheet to draw it on.
+      docs: [doc('5c1f7a2e08b4d963', '2026-09-25-RentalAgreement-R092526A.pdf', 'CONTRACT', 96410, -3)] }),
 
     // -- PO-RECEIVED (D55): the PO is in hand, the new build is with the factory,
     // and WSS is waiting on a serial before it can invoice. Nobody's fault, so
@@ -1416,6 +1458,10 @@ for (const [name, snapshot] of [
 // part of the snapshot contract — the Worker returns pending separately — so it
 // gets its own file, loaded only by ?mock=full&pending=1.
 const avail = full.snapshot.units.filter((u) => u.unit_state === 'AVAILABLE');
+// Derived, never pinned: the pick-up rows are numbered off whichever units the
+// generator releases, so a hard-coded `m-pu-<serial>` here rots the day that set
+// changes (it did, at D59).
+const claimedPickup = full.snapshot.dispatch.find((r) => r.source === 'RENTAL-RETURN' && r.status === 'SCHEDULED');
 const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 const pending = [
   {
@@ -1473,7 +1519,7 @@ const pending = [
     ts: ago(2),
     actor: 'Matt', role: 'owner',
     action: 'dispatch_done', serial: null,
-    payload: { dispatch_id: 'm-pu-900149', note: 'Back in the yard' },
+    payload: { dispatch_id: claimedPickup.id, note: 'Back in the yard' },
   },
   // schema 5. Like ticket_open, a pending lead_open has no number of its own —
   // the Leads tab has to badge it without inventing "L????".
