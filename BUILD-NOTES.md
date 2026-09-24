@@ -1675,3 +1675,39 @@ pipeline-pill render check now asserts the week count, not the 90-day total.
   The SW bump to v32 is what moves installed phones onto the new shell.
 - A CLOSED ticket whose `stage` is not COMPLETE (shouldn't happen) now also
   leaves the board after 7 days — it still appears in the strip.
+
+---
+
+# D62b — Completed search moves into the Service Pipeline widget (2026-09-24)
+
+Spec: `Completed-History-Site-Spec.md` §"v1.1 — Placement" (Matt, after seeing
+v1.0 live: the strip below everything was in a weird place). BUILD
+`2026-09-24-d62b`, SW `wss-fleet-shell-v33`. Pages only; no engine, no Worker.
+
+## What changed
+
+- **The strip under the kanban is gone.** The swipe note stays where it was.
+- **The pipeline widget has a tenth row**, directly under *Ready to invoice*:
+  a filled maroon pill **button** `Completed ▸` (soft maroon with border once
+  open, `▾`) and a count pill. No bar, no percent, no `data-pipe` — it never
+  scrolls the kanban. The row is a `<div>`, not a `<button>` like the nine
+  stage rows, because the label itself is the button (no nested buttons).
+- **The panel opens inside the widget card** under that row: the same search
+  box, same fields, same list-only redraw (`#completed-list`), same rows, same
+  empty/miss copy. Open state + query still live in `ui`, per session.
+- **Chips:** the widget renders under All and Customer only, so under **Fleet**
+  there is no Completed row — accepted by the spec; All lists our own closed
+  tickets too. The pill rule from v1.0 stands: `closed_in_window` under All,
+  the drawn count under a chip.
+- Unchanged from v1.0: COMPLETE column = this week, `closedThisWeek` ≤ 7,
+  the pre-D62 fallback, `service.js` helpers untouched.
+
+## Tests
+
+`npm test` green — render 114: the D62 render checks now target the widget
+(row inside the pipeline card, last, after READY-TO-INVOICE; button not a
+plain label; no bar/percent/`data-pipe`; no strip left under the kanban; panel
+opens inside the card; search redraws only the list; Customer chip filters and
+the pill is the drawn count; no row under Fleet; All lists WSS tickets). The
+legacy-snapshot check reads the new pill. Service 37 unchanged.
+`npm run money-gate -- ~/.wss-runs/real-snapshot-schema5.json` — 16 passed, 0 failed.

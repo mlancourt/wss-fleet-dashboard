@@ -754,7 +754,19 @@ table.ins td.n { color: var(--slate-700); }
 .lead-card.pri-HIGH { border-left-color: var(--red); }
 .drow.lead-closed { display: block; }
 
-/* D62 — the Service tab's Completed strip (same anatomy as the Leads Closed strip) */
+/* D62b — the pipeline widget's Completed row + its search panel */
+.pipe .brow.pipe-done { display: flex; align-items: center; gap: 10px; cursor: default; }
+.pipe .brow.pipe-done:active { background: none; }
+.done-btn {
+  min-height: 36px; padding: 6px 14px; border: 1.5px solid var(--red); border-radius: 999px;
+  background: var(--red); color: var(--white); font: inherit; font-size: 13.5px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+}
+.done-btn:active { background: var(--red-deep); border-color: var(--red-deep); }
+.done-btn:focus-visible { outline: 2px solid var(--red-deep); outline-offset: 2px; }
+.done-btn[aria-expanded="true"] { background: var(--red-soft); color: var(--red-deep); }
+.done-n { background: var(--slate-100); color: var(--slate-700); font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 9px; font-variant-numeric: tabular-nums; }
+.done-panel { border-top: 1px solid var(--slate-100); padding: 2px 0 6px; }
 .completed-q {
   width: 100%; min-height: var(--tap); margin: 8px 0 4px; padding: 10px 12px; font: inherit;
   border: 1px solid var(--slate-300); border-radius: var(--radius-sm);

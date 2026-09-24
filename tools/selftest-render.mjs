@@ -443,7 +443,7 @@ await check('the pipeline draws nine tappable rows and a live open pill', async 
   if (closed) assert.ok(out.includes(`${closed} closed this week`), `closed pill should read ${closed}, not the 90-day total`);
 });
 
-await check('D62: COMPLETE is this week only; the Completed strip is collapsed, counts the window, opens, and searches', async () => {
+await check('D62b: COMPLETE is this week only; the pipeline\'s Completed row is collapsed, counts the window, opens, and searches', async () => {
   const snap = app.__state().snapshot;
   const q = snap.service_queue;
   const out = await serviceUnder('all');
@@ -452,9 +452,20 @@ await check('D62: COMPLETE is this week only; the Completed strip is collapsed, 
     assert.equal(col.includes(`>${t.ticket}<`), t.closed_age_days <= 7, `${t.ticket} (${t.closed_age_days}d) in COMPLETE?`);
   }
   assert.ok(out.includes('data-completed-toggle="1" aria-expanded="false"'), 'collapsed by default');
-  assert.ok(out.includes(`Completed <span class="count">${snap.service_summary.closed_in_window}</span>`), 'pill = closed_in_window');
+  assert.ok(out.includes(`<span class="done-n">${snap.service_summary.closed_in_window}</span>`), 'pill = closed_in_window');
   assert.ok(!out.includes('id="completed-q"'), 'no search box while collapsed');
-  assert.ok(out.indexOf('data-completed-toggle') < out.indexOf('Swipe the columns sideways'), 'above the swipe note');
+  // The tenth row of the widget, directly under Ready to invoice, inside the card.
+  const pipe = out.split('aria-label="Service pipeline')[1].split('</section>')[0];
+  assert.ok(pipe.includes('data-completed-toggle'), 'the Completed row lives inside the pipeline card');
+  const after = pipe.split('data-pipe="READY-TO-INVOICE"')[1];
+  assert.ok(after && after.includes('data-completed-toggle') && !after.includes('data-pipe='), 'directly under Ready to invoice, last row');
+  const doneRow = pipe.split('class="brow pipe-done"')[1].split('</div>')[0];
+  assert.ok(doneRow.includes('class="done-btn"'), 'the label is a maroon button, not a plain stage label');
+  assert.ok(!doneRow.includes('brow-track') && !doneRow.includes('brow-p') && !doneRow.includes('%'), 'no bar, no percent');
+  assert.ok(!doneRow.includes('data-pipe'), 'it never scrolls the kanban');
+  // No strip under the kanban any more.
+  const kan = out.split('class="kan-wrap"')[1];
+  assert.ok(!kan.includes('data-completed-toggle') && !kan.includes('Completed'), 'the v1.0 strip is gone');
 
   const toggle = async () => {
     for (const fn of listeners.get('click') || []) {
@@ -463,7 +474,10 @@ await check('D62: COMPLETE is this week only; the Completed strip is collapsed, 
     return view._html;
   };
   const open = await toggle();
-  const strip = open.split('id="completed-list">')[1];
+  assert.ok(open.includes('aria-expanded="true"'), 'the button opens the panel');
+  const panel = open.split('aria-label="Service pipeline')[1].split('</section>')[0];
+  assert.ok(panel.includes('id="completed-q"'), 'the search box is inside the widget card');
+  const strip = open.split('id="completed-list">')[1].split('</section>')[0];
   const ids = [...strip.matchAll(/href="#\/ticket\/(S\d+)"/g)].map((m) => m[1]);
   const want = q.filter((t) => t.status === 'CLOSED')
     .sort((a, b) => a.closed_age_days - b.closed_age_days || b.ticket.localeCompare(a.ticket)).map((t) => t.ticket);
@@ -484,11 +498,19 @@ await check('D62: COMPLETE is this week only; the Completed strip is collapsed, 
   for (const fn of listeners.get('input') || []) await fn({ target: { id: 'completed-q', value: '', closest: () => null } });
   delete nodes['#completed-list'];
 
-  // The Fleet chip applies to the strip too.
+  // Customer: the widget draws, and the list honours the chip.
+  const cust = await serviceUnder('CUSTOMER');
+  const cids = [...cust.split('id="completed-list">')[1].split('</section>')[0].matchAll(/href="#\/ticket\/(S\d+)"/g)].map((m) => m[1]);
+  assert.ok(cids.length >= 1);
+  for (const id of cids) assert.equal(q.find((t) => t.ticket === id).machine_owner, 'CUSTOMER');
+  assert.ok(cust.includes(`<span class="done-n">${cids.length}</span>`), 'under a chip the pill is the drawn count');
+  // Fleet: no pipeline widget, so no Completed row — accepted by the spec (All covers ours).
   const fleet = await serviceUnder('WSS');
-  const fids = [...fleet.split('id="completed-list">')[1].matchAll(/href="#\/ticket\/(S\d+)"/g)].map((m) => m[1]);
-  assert.ok(fids.length >= 1, 'the mock has a closed fleet ticket');
-  for (const id of fids) assert.equal(q.find((t) => t.ticket === id).machine_owner, 'WSS');
+  assert.ok(!fleet.includes('data-completed-toggle') && !fleet.includes('id="completed-list"'), 'no Completed row under Fleet');
+  assert.ok(q.some((t) => t.status === 'CLOSED' && t.machine_owner === 'WSS'), 'the mock has a closed fleet ticket');
+  const allOpen = await serviceUnder('all');
+  const aids = [...allOpen.split('id="completed-list">')[1].split('</section>')[0].matchAll(/href="#\/ticket\/(S\d+)"/g)].map((m) => m[1]);
+  assert.ok(aids.some((id) => q.find((t) => t.ticket === id).machine_owner === 'WSS'), 'All lists our closed tickets too');
 
   await toggle();                 // fold it back up
   await serviceUnder('all');
@@ -505,7 +527,7 @@ await check('D62: a pre-D62 snapshot — no closed_age_days / closed_window_days
   const out = await serviceUnder('all');
   const col = out.split('id="kan-COMPLETE"')[1].split('</section>')[0];
   for (const t of closed) assert.ok(col.includes(`>${t.ticket}<`), `${t.ticket} stays in COMPLETE`);
-  assert.ok(out.includes(`Completed <span class="count">${closed.length}</span>`), 'strip count = drawn count');
+  assert.ok(out.includes(`<span class="done-n">${closed.length}</span>`), 'row count = drawn count');
   // And the empty copy falls back to 7 days.
   snap.service_queue = snap.service_queue.filter((t) => t.status !== 'CLOSED');
   for (const fn of listeners.get('click') || []) await fn({ target: { closest: (sel) => (sel === '[data-completed-toggle]' ? {} : null) } });

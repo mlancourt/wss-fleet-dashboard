@@ -51,7 +51,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-24-d62';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-24-d62b';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -1195,24 +1195,28 @@ function viewService() {
 
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
-    ${raw(completedStrip(q, filter, s))}
     <div class="form-note">Swipe the columns sideways. Tap a card for the whole ticket.</div>`;
 }
 
 /**
- * D62 — the archive under the kanban: every CLOSED ticket the snapshot carries
- * (90 days from the engine; 7 on a pre-D62 publish), newest first, searchable.
- * Same anatomy as the Leads tab's closedStrip. The pill is the engine's
- * closed_in_window under All (like the column counts); otherwise what's drawn.
+ * D62b — the pipeline widget's tenth row: the door to every CLOSED ticket the
+ * snapshot carries (90 days from the engine; 7 on a pre-D62 publish), newest
+ * first, searchable. Not a stage: no bar, no percent, and it never scrolls the
+ * kanban. The label is a maroon button so it reads as tappable next to the nine
+ * plain stage labels. The pill is the engine's closed_in_window under All (like
+ * the column counts); otherwise what's drawn, so it always matches the list.
  */
-function completedStrip(q, filter, summary) {
+function completedRow(q, filter, summary) {
   const all = completedTickets(q, { filter });
   const n = filter === 'all' && summary && typeof summary.closed_in_window === 'number'
     ? summary.closed_in_window : all.length;
   return html`
-    <h2><button type="button" class="disclose" data-completed-toggle="1" aria-expanded="${ui.showCompleted ? 'true' : 'false'}">
-      ${ui.showCompleted ? '▾' : '▸'} Completed${n ? raw(html` <span class="count">${n}</span>`) : ''}</button></h2>
-    ${ui.showCompleted ? raw(html`<div class="card dlist">
+    <div class="brow pipe-done">
+      <button type="button" class="done-btn" data-completed-toggle="1" aria-expanded="${ui.showCompleted ? 'true' : 'false'}"
+        aria-controls="completed-panel">Completed ${ui.showCompleted ? '▾' : '▸'}</button>
+      <span class="done-n">${n}</span>
+    </div>
+    ${ui.showCompleted ? raw(html`<div class="done-panel" id="completed-panel">
       ${all.length ? raw(html`<input type="search" class="completed-q" id="completed-q" value="${ui.completedQuery}"
         placeholder="customer, machine, or S-number" autocomplete="off" aria-label="Search completed tickets">`) : ''}
       <div id="completed-list">${raw(completedRows(q, filter, summary))}</div>
@@ -1269,6 +1273,7 @@ function pipelineView(withCaption) {
       </div>
       ${withCaption ? raw('<div class="board-cap">Customer machines · fleet repairs are on the board above</div>') : ''}
       ${raw(rows.join(''))}
+      ${raw(completedRow(serviceQueue(), ui.ticketFilter, serviceSummary()))}
     </section>`;
 }
 
