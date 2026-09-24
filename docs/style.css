@@ -754,6 +754,20 @@ table.ins td.n { color: var(--slate-700); }
 .lead-card.pri-HIGH { border-left-color: var(--red); }
 .drow.lead-closed { display: block; }
 
+/* D62 — the Service tab's Completed strip (same anatomy as the Leads Closed strip) */
+.completed-q {
+  width: 100%; min-height: var(--tap); margin: 8px 0 4px; padding: 10px 12px; font: inherit;
+  border: 1px solid var(--slate-300); border-radius: var(--radius-sm);
+  background: var(--white); color: var(--ink);
+}
+.completed-q:focus { outline: 2px solid var(--red); outline-offset: -1px; border-color: var(--red); }
+.drow.done-ticket .drow-what { flex: 1 1 auto; }
+.drow-meta .who {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--slate-700); color: var(--white); font-size: 10.5px; font-weight: 700; vertical-align: 1px;
+}
+.drow-meta .doc-n { white-space: nowrap; }
+
 /* ------------------------------------------------- six tabs on a phone --
    Fleet · Rentals · Holds · Dispatch · Service · Leads at 390px is ~65px a
    tab. The icons stay 22px (they are the tap target); the labels tighten. */

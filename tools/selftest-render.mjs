@@ -435,9 +435,84 @@ await check('the pipeline draws nine tappable rows and a live open pill', async 
   assert.ok(!rows.includes('COMPLETE'), 'COMPLETE is the header pill, not a row');
   const q = app.__state().snapshot.service_queue;
   const open = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN').length;
-  const closed = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'CLOSED').length;
+  // D62: the snapshot carries 90 days of closed tickets; the pill is this week's only.
+  const closed = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'CLOSED' && t.closed_age_days <= 7).length;
+  assert.ok(q.some((t) => t.machine_owner === 'CUSTOMER' && t.status === 'CLOSED' && t.closed_age_days > 7), 'the mock carries older closes');
   assert.ok(out.includes(`${open} open`), `header pill should read "${open} open"`);
   assert.equal(out.includes('closed this week'), closed > 0, 'the closed pill hides at zero');
+  if (closed) assert.ok(out.includes(`${closed} closed this week`), `closed pill should read ${closed}, not the 90-day total`);
+});
+
+await check('D62: COMPLETE is this week only; the Completed strip is collapsed, counts the window, opens, and searches', async () => {
+  const snap = app.__state().snapshot;
+  const q = snap.service_queue;
+  const out = await serviceUnder('all');
+  const col = out.split('id="kan-COMPLETE"')[1].split('</section>')[0];
+  for (const t of q.filter((x) => x.status === 'CLOSED')) {
+    assert.equal(col.includes(`>${t.ticket}<`), t.closed_age_days <= 7, `${t.ticket} (${t.closed_age_days}d) in COMPLETE?`);
+  }
+  assert.ok(out.includes('data-completed-toggle="1" aria-expanded="false"'), 'collapsed by default');
+  assert.ok(out.includes(`Completed <span class="count">${snap.service_summary.closed_in_window}</span>`), 'pill = closed_in_window');
+  assert.ok(!out.includes('id="completed-q"'), 'no search box while collapsed');
+  assert.ok(out.indexOf('data-completed-toggle') < out.indexOf('Swipe the columns sideways'), 'above the swipe note');
+
+  const toggle = async () => {
+    for (const fn of listeners.get('click') || []) {
+      await fn({ target: { closest: (sel) => (sel === '[data-completed-toggle]' ? {} : null) } });
+    }
+    return view._html;
+  };
+  const open = await toggle();
+  const strip = open.split('id="completed-list">')[1];
+  const ids = [...strip.matchAll(/href="#\/ticket\/(S\d+)"/g)].map((m) => m[1]);
+  const want = q.filter((t) => t.status === 'CLOSED')
+    .sort((a, b) => a.closed_age_days - b.closed_age_days || b.ticket.localeCompare(a.ticket)).map((t) => t.ticket);
+  assert.deepEqual(ids, want, 'every CLOSED ticket, newest first');
+  assert.ok(open.includes('placeholder="customer, machine, or S-number"'));
+  assert.ok(strip.includes('📎'), 'a row with paperwork says so');
+
+  // Typing redraws the list only, not the view.
+  const list = el('div');
+  nodes['#completed-list'] = list;
+  const before = view._html;
+  for (const fn of listeners.get('input') || []) await fn({ target: { id: 'completed-q', value: 'SILVERLINE', closest: () => null } });
+  assert.equal(view._html, before, 'the view is not re-rendered on a keystroke');
+  assert.equal([...list._html.matchAll(/href="#\/ticket\//g)].length, 1, 'one match');
+  assert.ok(list._html.includes('Silverline'));
+  for (const fn of listeners.get('input') || []) await fn({ target: { id: 'completed-q', value: 'zzz no match', closest: () => null } });
+  assert.ok(list._html.includes('No completed tickets match.'));
+  for (const fn of listeners.get('input') || []) await fn({ target: { id: 'completed-q', value: '', closest: () => null } });
+  delete nodes['#completed-list'];
+
+  // The Fleet chip applies to the strip too.
+  const fleet = await serviceUnder('WSS');
+  const fids = [...fleet.split('id="completed-list">')[1].matchAll(/href="#\/ticket\/(S\d+)"/g)].map((m) => m[1]);
+  assert.ok(fids.length >= 1, 'the mock has a closed fleet ticket');
+  for (const id of fids) assert.equal(q.find((t) => t.ticket === id).machine_owner, 'WSS');
+
+  await toggle();                 // fold it back up
+  await serviceUnder('all');
+});
+
+await check('D62: a pre-D62 snapshot — no closed_age_days / closed_window_days — renders as before', async () => {
+  const snap = app.__state().snapshot;
+  const saved = JSON.stringify(snap);
+  snap.service_queue = snap.service_queue.filter((t) => t.status !== 'CLOSED' || t.closed_age_days <= 7)
+    .map(({ closed_age_days, ...t }) => t);
+  delete snap.service_summary.closed_window_days;
+  delete snap.service_summary.closed_in_window;
+  const closed = snap.service_queue.filter((t) => t.status === 'CLOSED');
+  const out = await serviceUnder('all');
+  const col = out.split('id="kan-COMPLETE"')[1].split('</section>')[0];
+  for (const t of closed) assert.ok(col.includes(`>${t.ticket}<`), `${t.ticket} stays in COMPLETE`);
+  assert.ok(out.includes(`Completed <span class="count">${closed.length}</span>`), 'strip count = drawn count');
+  // And the empty copy falls back to 7 days.
+  snap.service_queue = snap.service_queue.filter((t) => t.status !== 'CLOSED');
+  for (const fn of listeners.get('click') || []) await fn({ target: { closest: (sel) => (sel === '[data-completed-toggle]' ? {} : null) } });
+  assert.ok(view._html.includes('Nothing completed in the last 7 days.'));
+  for (const fn of listeners.get('click') || []) await fn({ target: { closest: (sel) => (sel === '[data-completed-toggle]' ? {} : null) } });
+  Object.assign(snap, JSON.parse(saved));
+  await serviceUnder('all');
 });
 
 await check('the chip is remembered per device and survives a reload', async () => {

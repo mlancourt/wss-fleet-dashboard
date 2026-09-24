@@ -100,6 +100,7 @@ the hard rules — read it before changing anything here.
 | **v2.8 — documents S2 (upload)** | ✅ built (Sep 8, 2026) | a phone-shaped upload + `doc_attach` round-trips through `npm run m1`; the resize is asserted in `npm test` |
 | **v2.9 — Map view (D52)** | ✅ built (Sep 9, 2026) | `#/dispatch/map` draws the state with pins; route builder opens a multi-stop Google Maps link; projection asserted against the real county polygons |
 | **v3.0 — Map facelift (D53)** | ✅ built (Sep 9, 2026) | modern palette from the asset, no red pins, ID chips readable at the default zoom, no hollow markers |
+| **v3.4 — Completed history (D62)** | ✅ built (Sep 24, 2026) | COMPLETE column is this week only; a collapsed, searchable **Completed** strip lists the 90-day window |
 | M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
 
 Do them in order. **Do not start M2 before M1's curl loop is in this README.**

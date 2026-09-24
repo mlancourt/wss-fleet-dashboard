@@ -25,7 +25,7 @@ import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBas
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
-  stageOptions, columnize, pipeline, sortTickets, missingMoves, openCount, dispatchFor, dispatchById,
+  stageOptions, columnize, pipeline, sortTickets, completedTickets, closedWindowDays, missingMoves, openCount, dispatchFor, dispatchById,
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
@@ -51,7 +51,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-14-d56';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-24-d62';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -165,6 +165,8 @@ const ui = {
   showScore: null,
   showInsights: false,   // §3.2 — collapsed by default
   showClosedLeads: false,
+  showCompleted: false,  // D62: the Service tab's Completed strip — collapsed by default, per session
+  completedQuery: '',    // D62: its search box
 };
 
 /* ---- uploads in flight (S2) --------------------------------------------
@@ -1193,7 +1195,52 @@ function viewService() {
 
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
+    ${raw(completedStrip(q, filter, s))}
     <div class="form-note">Swipe the columns sideways. Tap a card for the whole ticket.</div>`;
+}
+
+/**
+ * D62 — the archive under the kanban: every CLOSED ticket the snapshot carries
+ * (90 days from the engine; 7 on a pre-D62 publish), newest first, searchable.
+ * Same anatomy as the Leads tab's closedStrip. The pill is the engine's
+ * closed_in_window under All (like the column counts); otherwise what's drawn.
+ */
+function completedStrip(q, filter, summary) {
+  const all = completedTickets(q, { filter });
+  const n = filter === 'all' && summary && typeof summary.closed_in_window === 'number'
+    ? summary.closed_in_window : all.length;
+  return html`
+    <h2><button type="button" class="disclose" data-completed-toggle="1" aria-expanded="${ui.showCompleted ? 'true' : 'false'}">
+      ${ui.showCompleted ? '▾' : '▸'} Completed${n ? raw(html` <span class="count">${n}</span>`) : ''}</button></h2>
+    ${ui.showCompleted ? raw(html`<div class="card dlist">
+      ${all.length ? raw(html`<input type="search" class="completed-q" id="completed-q" value="${ui.completedQuery}"
+        placeholder="customer, machine, or S-number" autocomplete="off" aria-label="Search completed tickets">`) : ''}
+      <div id="completed-list">${raw(completedRows(q, filter, summary))}</div>
+    </div>`) : ''}`;
+}
+
+/** Just the rows — the search box re-renders this and nothing else, so it keeps focus. */
+function completedRows(q, filter, summary) {
+  const rows = completedTickets(q, { filter, query: ui.completedQuery });
+  if (!rows.length) {
+    return completedTickets(q, { filter }).length
+      ? '<div class="hold-empty">No completed tickets match.</div>'
+      : html`<div class="hold-empty">Nothing completed in the last ${closedWindowDays(summary)} days.</div>`;
+  }
+  return rows.map((t) => {
+    const what = t.machine_owner === 'WSS'
+      ? html`<span class="unit-serial">#${t.serial}</span> ${t.equipment || ''}`
+      : html`${t.equipment || '—'}`;
+    const docs = Array.isArray(t.docs) ? t.docs.length : 0;
+    return html`
+      <a class="drow lead-closed done-ticket" href="#/ticket/${raw(enc(t.ticket))}">
+        <div class="drow-top">
+          <span class="drow-what">${t.customer || '—'}</span>
+          ${raw(chip(t.ticket, 'out'))}
+        </div>
+        <div class="drow-meta">${raw(what)}${t.closed ? raw(html` · Closed ${fmtDateFull(t.closed)}`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
+      </a>`;
+  }).join('');
 }
 
 /**
@@ -3296,6 +3343,7 @@ document.addEventListener('click', async (ev) => {
   }
 
   if (ev.target.closest('[data-done-toggle]')) { ui.showDone = !ui.showDone; render(); return; }
+  if (ev.target.closest('[data-completed-toggle]')) { ui.showCompleted = !ui.showCompleted; render(); return; }
   if (ev.target.closest('[data-closed-toggle]')) { ui.showClosedLeads = !ui.showClosedLeads; render(); return; }
   if (ev.target.closest('[data-score-toggle]')) { ui.showScore = !scoreOpen(); render(); return; }
   if (ev.target.closest('[data-insights-toggle]')) { ui.showInsights = !ui.showInsights; render(); return; }
@@ -3565,6 +3613,14 @@ document.addEventListener('click', async (ev) => {
 });
 
 document.addEventListener('input', (ev) => {
+  // D62: typing in the Completed search redraws the list only — a full render()
+  // would rebuild the input under the thumb and drop the keyboard.
+  if (ev.target.id === 'completed-q') {
+    ui.completedQuery = ev.target.value;
+    const list = $('#completed-list');
+    if (list) list.innerHTML = completedRows(serviceQueue(), ui.ticketFilter, serviceSummary());
+    return;
+  }
   const form = ev.target.closest('form.write');
   if (!form) return;
   if (form.dataset.action === 'reserve' && ['start', 'end'].includes(ev.target.name)) updateWindowHint(form);

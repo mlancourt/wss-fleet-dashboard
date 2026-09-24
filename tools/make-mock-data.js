@@ -593,6 +593,15 @@ function build({ withServiceQueue }) {
       row.opened = d(opened);
       row.stage_since = d(stage_since);
       row.age_days = -opened;
+      // D62: CLOSED rows carry closed_age_days (engine-computed calendar days);
+      // OPEN rows carry null. Pass `closedDays` and both fields follow from it.
+      if (t.closedDays != null) {
+        row.status = 'CLOSED';
+        row.stage = 'COMPLETE';
+        row.closed = d(-t.closedDays);
+      }
+      delete row.closedDays;
+      row.closed_age_days = row.status === 'CLOSED' ? (t.closedDays != null ? t.closedDays : 0) : null;
       // schema 7 (D52): geocoded from `site`. A machine already on our bench
       // has nowhere to send a truck, so an IN-SHOP ticket carries geo: null
       // however good its address is — the engine ships it that way too.
@@ -694,12 +703,13 @@ function build({ withServiceQueue }) {
       quote: { number: 'Q-2185', amount: 860, sent: d(-19), approved: d(-18) },
     });
 
-    // 7 — COMPLETE + CLOSED. Lingers 7 days so "done this week" is visible.
+    // 7 — COMPLETE + CLOSED this week: draws in the COMPLETE column AND the
+    // Completed strip (D62 — the column is the week, the strip is the archive).
     ticket({
-      stage: 'COMPLETE', status: 'CLOSED', customer: 'Dorsey Plastics',
+      customer: 'Dorsey Plastics',
       equipment: 'Cascade Clean SW-900 (customer owned)', issue: 'Charger fault, replaced onboard charger',
       location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP',
-      assigned: 'Josh', opened: -26, closed: d(-2), stage_since: -2,
+      assigned: 'Josh', opened: -26, closedDays: 2, stage_since: -2,
       quote: { number: 'Q-2170', amount: 1320, sent: d(-24), approved: d(-23) },
       machinio_ref: 'MCH-73988',
     });
@@ -756,6 +766,40 @@ function build({ withServiceQueue }) {
       location: 'AT-CUSTOMER', site: 'Portage WI', intake_move: 'PICKUP', return_move: 'DELIVER',
       assigned: 'Zac', opened: -13, stage_since: -5, priority: 'LOW',
     });
+
+    // D62 — the 90-day archive. Closed ages spread 5…80 days: one more inside
+    // the week (so the column is two deep), the rest only in the Completed
+    // strip. One is ours, so the Fleet chip has a row there too; a couple carry
+    // paperwork, because the strip's whole point is getting the work order back.
+    const closedOld = (closedDays, o) => ticket({
+      location: 'IN-SHOP', intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP',
+      opened: -(closedDays + 6 + Math.round(rand() * 10)), stage_since: -closedDays, closedDays, ...o,
+    });
+    closedOld(5, { customer: 'Harbor Point Logistics', equipment: 'Meridian R-440 (customer owned)',
+      issue: 'Brush deck lift actuator replaced', assigned: 'Zac' });
+    closedOld(12, { customer: 'Silverline Cold Storage', equipment: 'Halstead T-500 (customer owned)',
+      issue: 'Solution pump + filter screen', assigned: 'Zac',
+      parts: 'Solution pump 18-3302 — installed',
+      log: logOf([
+        [ts(-15, '10:40'), 'Zac', 'Zac: Pump seized, filter screen packed solid. Swapped both, ran it 20 min, no leaks.'],
+      ]),
+      docs: [
+        doc('5be17c02d94a3f60', 'solution-pump-18-3302-parts.pdf', 'PARTS-LIST', 6120, -16),
+        doc('e8a4410c7f2b9d13', '2026-08-29-Silverline-Workorder.pdf', 'WORKORDER', 20988, -12),
+      ] });
+    closedOld(19, { unit: units.find((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY' && !u.service_ticket),
+      customer: 'WSS', issue: 'Pre-rental PM — squeegee blades, vac hose', assigned: 'Josh', return_move: 'NONE', intake_move: 'NONE' });
+    closedOld(23, { customer: 'Maplewood Schools', equipment: 'Nordvale SC-1800 (customer owned)',
+      issue: 'Won\'t hold charge — batteries load-tested, two cells replaced', assigned: 'Josh',
+      docs: [doc('7c3f9a18e20d4b55', '2026-08-18-Maplewood-Quote.pdf', 'QUOTE', 24110, -30)] });
+    closedOld(34, { customer: 'Juniper Metalworks', equipment: 'Ironline BX-27 (customer owned)',
+      issue: 'Annual PM', assigned: null });
+    closedOld(47, { customer: 'Quarry Road Aggregates', equipment: 'Cascade Clean R-880 (customer owned)',
+      issue: 'Drive tire + hub bearing', assigned: 'Zac' });
+    closedOld(61, { customer: 'Fairmont Dairy', equipment: 'Halstead SW-900 (customer owned)',
+      issue: 'Recovery tank float switch', assigned: 'Josh' });
+    closedOld(80, { customer: 'Lakeshore Beverage', equipment: 'Meridian T-500 (customer owned)',
+      issue: 'Squeegee assembly rebuild', assigned: 'Zac' });
 
     // ------------------------------------------------------------- dispatch board
     const move = (m) => {
@@ -826,10 +870,13 @@ function build({ withServiceQueue }) {
   // COMPLETE is "closed in the last 7 days", not an open-work count (CLAUDE.md).
   const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'READY-TO-SCHEDULE', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
   const service_summary = {
+    // COMPLETE still means closed <= 7 days (D62), whatever the window carries.
     open_by_stage: Object.fromEntries(SERVICE_STAGES.map((s) => [s, service_queue.filter(
-      (t) => t.stage === s && (s === 'COMPLETE' ? true : t.status === 'OPEN')).length])),
+      (t) => t.stage === s && (s === 'COMPLETE' ? t.status === 'CLOSED' && t.closed_age_days <= 7 : t.status === 'OPEN')).length])),
     open_customer: service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER').length,
     open_wss: service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'WSS').length,
+    closed_window_days: 90,                                                       // D62
+    closed_in_window: service_queue.filter((t) => t.status === 'CLOSED').length,  // D62
   };
 
   // -------------------------------------------------------------------- billing

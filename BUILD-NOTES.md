@@ -1619,3 +1619,59 @@ I also re-parsed the rendered map as XML out-of-band: well-formed, 72 counties,
 
 - **Pinch/drag remains unverified on hardware.** Unchanged by D53; the clamp and
   zoom arithmetic are unit-tested, the gesture feel still needs a phone.
+
+---
+
+# D62 — Completed-ticket history (2026-09-24, schema 7, additive)
+
+Built from `Completed-History-Site-Spec.md` against `CLAUDE.md` v3.4. BUILD
+`2026-09-24-d62`, SW `wss-fleet-shell-v32`. **Pages only — no Worker change,
+no Worker deploy, no role gate** (tickets were never gated; D12).
+
+## What shipped
+
+- **`docs/service.js`** — `closedAge(t)` (the engine's `closed_age_days`; a
+  missing key reads as 0 = this week), `closedThisWeek(t)`, `onBoard(t)`,
+  `closedWindowDays(summary)` (missing → 7) and `completedTickets(queue,
+  {filter, query})`. `columnize()` drops CLOSED tickets older than 7 days from
+  **every** column, not just COMPLETE. `pipeline().closedThisWeek` counts ≤ 7
+  only. No date arithmetic anywhere — the age is the engine's.
+- **Service tab** — `▸ Completed` strip between the kanban and the swipe note,
+  same anatomy as the Leads Closed strip. Collapsed by default; open state and
+  query live in `ui` (per session, not persisted). Pill = `closed_in_window`
+  under **All** (like the column counts use the summary), else the drawn
+  count — so under Fleet/Customer the pill matches the filtered list. Rows:
+  customer · S-number chip / equipment (or `#serial model` for ours) · Closed
+  date · assignee initial · 📎N. Newest closed first, ticket id descending on a
+  tie. Chip filter applies.
+- **Search** — the `input` handler redraws `#completed-list` only; the box is
+  never rebuilt, so the phone keyboard stays up (verified in the browser pane:
+  focus held through typing). Case-insensitive substring over customer /
+  equipment / serial / ticket / issue. The box is omitted when there is nothing
+  to search.
+- **Mock** — nine CLOSED tickets (ages 2, 5, 12, 19, 23, 34, 47, 61, 80): two
+  inside the week, one WSS-owned (19d), two with docs. `service_summary` gains
+  `closed_window_days: 90` + `closed_in_window`; `open_by_stage.COMPLETE` is
+  now computed as CLOSED ∧ age ≤ 7. The ticket helper takes `closedDays` and
+  derives `status` / `stage` / `closed` / `closed_age_days` from it.
+
+## Tests
+
+`npm test` — **service 37** (+5: COMPLETE ≤ 7 and the 8-day ticket in no
+column; strip order; search on every field + chip filter; `closedThisWeek`;
+the pre-D62 legacy path), **render 114** (+2: the strip against the real
+`app.js` — collapsed, pill, order, search redraws the list only and not the
+view, Fleet chip; and a legacy snapshot with the keys stripped: every CLOSED row
+in COMPLETE, pill = drawn count, empty copy says 7 days). The existing
+pipeline-pill render check now asserts the week count, not the 90-day total.
+
+`npm run money-gate -- ~/.wss-runs/real-snapshot-schema5.json` — **16 passed,
+0 failed** (nothing here touches leads; run for the record).
+
+## Things worth flagging
+
+- **The engine publish must wait for Pages.** A phone still on v31 would stack
+  all ~18 closed rows in the COMPLETE column and read "18 closed this week".
+  The SW bump to v32 is what moves installed phones onto the new shell.
+- A CLOSED ticket whose `stage` is not COMPLETE (shouldn't happen) now also
+  leaves the board after 7 days — it still appears in the strip.

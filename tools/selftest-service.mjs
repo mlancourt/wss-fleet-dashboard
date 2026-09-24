@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {
   STAGES, PIPELINE_STAGES, stagesFor, canStage, stageOptions, filterTickets, columnize, columnsFor, pipeline, sortTickets,
+  completedTickets, closedWindowDays, closedAge, WEEK_DAYS,
   missingMoves, openCount, dispatchFor, sortOpen, sortByKind, groupByDate, sections, rigClash,
   driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from '../docs/service.js';
@@ -348,6 +349,80 @@ check('unbookedPickups: a released unit with no live RENTAL-RETURN row is never 
   // in pickups[] the engine will say so next run).
   assert.equal(unbookedPickups(pickups, [D('m1', 'DONE', { source: 'RENTAL-RETURN', serial: '900107' })]).length, 2);
   assert.deepEqual(unbookedPickups([], dispatch), []);
+});
+
+/* ------------------------------------------------- D62: closed history -- */
+
+const C = (ticket, age, machine_owner = 'CUSTOMER', extra = {}) =>
+  T(ticket, 'COMPLETE', machine_owner, { status: 'CLOSED', closed_age_days: age, closed: `2026-09-${String(24 - Math.min(age, 23)).padStart(2, '0')}`, ...extra });
+const HIST = [
+  T('S2001', 'IN-PROGRESS'),
+  C('S2002', 2, 'CUSTOMER', { customer: 'Acme Foods', equipment: 'Nordvale SC-2400', issue: 'charger fault' }),
+  C('S2003', 8, 'CUSTOMER', { customer: 'Silverline Cold Storage', equipment: 'Halstead T-500', issue: 'solution pump' }),
+  C('S2004', 7, 'WSS', { customer: 'WSS', serial: '150074', equipment: 'Meridian R-440', issue: 'pre-rental PM' }),
+  C('S2005', 45, 'CUSTOMER', { customer: 'Birchwood Cold Storage', equipment: 'Ironline R-660', issue: 'deck rebuild' }),
+  C('S2006', 2, 'CUSTOMER', { customer: 'Dorsey Plastics', equipment: 'Cascade SW-900', issue: 'brush motor' }),
+];
+
+check('D62: COMPLETE draws only closed_age_days <= 7; an 8-day-old CLOSED ticket draws in no column', () => {
+  const cols = columnize(HIST);
+  const complete = cols.find((c) => c.stage === 'COMPLETE').tickets.map((t) => t.ticket).sort();
+  assert.deepEqual(complete, ['S2002', 'S2004', 'S2006'], 'day 7 is still this week; day 8 is not');
+  const drawn = cols.flatMap((c) => c.tickets.map((t) => t.ticket));
+  assert.equal(drawn.includes('S2003'), false, 'the 8-day-old ticket is in no column');
+  assert.equal(drawn.includes('S2005'), false, 'nor the 45-day-old one');
+  assert.equal(drawn.includes('S2001'), true, 'open tickets are untouched');
+  // A CLOSED ticket parked in some other stage obeys the same rule.
+  const odd = columnize([T('S9', 'IN-PROGRESS', 'CUSTOMER', { status: 'CLOSED', closed_age_days: 30 })]);
+  assert.equal(odd.flatMap((c) => c.tickets).length, 0);
+  // The count still comes from the summary under All, which the engine keeps at ≤ 7.
+  const summary = { open_by_stage: { COMPLETE: 3 } };
+  assert.equal(columnize(HIST, { summary }).find((c) => c.stage === 'COMPLETE').count, 3);
+});
+
+check('D62: the Completed strip lists every CLOSED row, newest first (ticket id desc on a tie)', () => {
+  assert.deepEqual(completedTickets(HIST).map((t) => t.ticket), ['S2006', 'S2002', 'S2004', 'S2003', 'S2005'],
+    "this week's closes are in the strip too — the column is the week, the strip is the archive");
+  assert.equal(completedTickets(HIST).some((t) => t.status !== 'CLOSED'), false);
+  assert.deepEqual(completedTickets([]), []);
+  assert.deepEqual(completedTickets(null), []);
+});
+
+check('D62: strip search narrows on customer / equipment / serial / ticket / issue, case-insensitive', () => {
+  const ids = (query, filter) => completedTickets(HIST, { query, filter }).map((t) => t.ticket);
+  assert.deepEqual(ids('silver'), ['S2003'], 'customer');
+  assert.deepEqual(ids('SW-900'), ['S2006'], 'equipment');
+  assert.deepEqual(ids('150074'), ['S2004'], 'serial');
+  assert.deepEqual(ids('s2005'), ['S2005'], 'ticket id');
+  assert.deepEqual(ids('Charger'), ['S2002'], 'issue');
+  assert.deepEqual(ids('   '), ids(''), 'a blank box is every row');
+  assert.deepEqual(ids('no such thing'), []);
+  // The chip filter applies to the strip as it does to the kanban.
+  assert.deepEqual(ids('', 'WSS'), ['S2004']);
+  assert.deepEqual(ids('', 'CUSTOMER'), ['S2006', 'S2002', 'S2003', 'S2005']);
+  assert.deepEqual(ids('cold storage', 'CUSTOMER'), ['S2003', 'S2005']);
+  assert.deepEqual(ids('cold storage', 'WSS'), []);
+});
+
+check('D62: closedThisWeek ignores CLOSED rows older than 7 days', () => {
+  // Customer only: S2002 (2d), S2006 (2d) count; S2003 (8d) and S2005 (45d) don't; S2004 is ours.
+  assert.equal(pipeline(HIST).closedThisWeek, 2);
+  assert.equal(pipeline(HIST).open, 1);
+});
+
+check('D62: a pre-D62 snapshot (no closed_age_days, no closed_window_days) renders as before', () => {
+  const legacy = HIST.map(({ closed_age_days, ...t }) => t);
+  assert.equal(closedAge(legacy[1]), 0, 'a missing age reads as this week');
+  assert.equal(closedAge({ status: 'OPEN', closed_age_days: null }), 0);
+  const complete = columnize(legacy).find((c) => c.stage === 'COMPLETE').tickets.length;
+  assert.equal(complete, legacy.filter((t) => t.status === 'CLOSED').length, 'every CLOSED row lands in COMPLETE');
+  assert.equal(pipeline(legacy).closedThisWeek, 4, 'every CLOSED customer row counts, as it always did');
+  assert.equal(completedTickets(legacy).length, complete, 'strip count = drawn count');
+  // Ties at age 0 fall back to ticket id, newest number first.
+  assert.deepEqual(completedTickets(legacy).map((t) => t.ticket), ['S2006', 'S2005', 'S2004', 'S2003', 'S2002']);
+  assert.equal(closedWindowDays(null), WEEK_DAYS, 'the copy says 7 days');
+  assert.equal(closedWindowDays({ open_customer: 1 }), 7);
+  assert.equal(closedWindowDays({ closed_window_days: 90 }), 90);
 });
 
 console.log(`\n${passed} checks passed.`);

@@ -80,6 +80,46 @@ export function filterTickets(queue, filter) {
   return list.slice();
 }
 
+/* ------------------------------------------------------ closed history --
+ * D62. The engine ships CLOSED tickets for 90 days now, each with an
+ * engine-computed `closed_age_days`. The kanban's COMPLETE column is still
+ * "this week"; everything older lives in the Completed strip. Never diff
+ * `closed` against the phone's clock (CLAUDE.md rule 7) — a pre-D62 snapshot
+ * without the key only ever carried 7 days, so a missing age reads as 0. */
+
+export const WEEK_DAYS = 7;
+
+/** Days since close, engine-computed. Missing (pre-D62) reads as 0 = this week. */
+export const closedAge = (t) => (t && typeof t.closed_age_days === 'number' ? t.closed_age_days : 0);
+
+/** CLOSED inside the last 7 days — what the COMPLETE column and "closed this week" count. */
+export const closedThisWeek = (t) => !!t && t.status === 'CLOSED' && closedAge(t) <= WEEK_DAYS;
+
+/** Does a ticket draw a kanban card? Every OPEN one, and only this week's CLOSED ones. */
+export const onBoard = (t) => !!t && (t.status !== 'CLOSED' || closedThisWeek(t));
+
+/** How far back the snapshot's closed tickets reach. Missing (pre-D62) = 7. */
+export function closedWindowDays(summary) {
+  const n = summary && summary.closed_window_days;
+  return typeof n === 'number' && n > 0 ? n : WEEK_DAYS;
+}
+
+/**
+ * The Completed strip (D62): every CLOSED ticket in the snapshot — this week's
+ * too, the column is the week and the strip is the archive — under the chip
+ * filter, narrowed by a case-insensitive substring over customer / equipment /
+ * serial / ticket / issue. Newest closed first, then ticket id descending.
+ */
+export function completedTickets(queue, { filter = 'all', query = '' } = {}) {
+  const q = String(query || '').trim().toLowerCase();
+  return filterTickets(queue, filter)
+    .filter((t) => t && t.status === 'CLOSED')
+    .filter((t) => !q || ['customer', 'equipment', 'serial', 'ticket', 'issue']
+      .some((k) => t[k] != null && String(t[k]).toLowerCase().includes(q)))
+    .sort((a, b) => closedAge(a) - closedAge(b)
+      || String(b.ticket || '').localeCompare(String(a.ticket || ''), undefined, { numeric: true }));
+}
+
 /**
  * The kanban columns a filter shows (D43). Under the Fleet chip the three
  * stages a WSS-owned ticket can never occupy are dropped — seven columns, not
@@ -113,9 +153,9 @@ export const PIPELINE_COLOR = {
 /**
  * Customer-machine repair pipeline.
  *   open             open customer tickets
- *   closedThisWeek   customer tickets already CLOSED. The snapshot only carries
- *                    closed tickets for 7 days, so this is a status count and
- *                    never date arithmetic (CLAUDE.md rule 7).
+ *   closedThisWeek   customer tickets CLOSED within 7 days, by the engine's
+ *                    `closed_age_days` (D62 — the snapshot now carries 90 days
+ *                    of them), never date arithmetic (CLAUDE.md rule 7).
  *   rows             one per PIPELINE_STAGE, pct over `open`, 0 when none.
  * Fleet repairs are deliberately excluded — the Fleet Status board is where a
  * WSS machine's condition lives.
@@ -133,7 +173,7 @@ export function pipeline(queue) {
       pct: open.length ? Math.round((count / open.length) * 100) : 0,
     };
   });
-  return { open: open.length, closedThisWeek: customer.filter((t) => t.status === 'CLOSED').length, rows };
+  return { open: open.length, closedThisWeek: customer.filter(closedThisWeek).length, rows };
 }
 
 /**
@@ -143,7 +183,10 @@ export function pipeline(queue) {
  * filter applied); otherwise it is what's actually rendered.
  */
 export function columnize(queue, { summary = null, filter = 'all' } = {}) {
-  const list = filterTickets(queue, filter);
+  // D62: a ticket closed more than a week ago draws in NO column — it lives in
+  // the Completed strip. open_by_stage.COMPLETE is still "closed ≤ 7 days", so
+  // the summary count and the drawn cards keep agreeing.
+  const list = filterTickets(queue, filter).filter(onBoard);
   const base = columnsFor(filter);
   // Any stage a ticket ON SCREEN actually occupies must have a column, even one
   // this filter would otherwise hide (a WSS ticket the engine parked in
