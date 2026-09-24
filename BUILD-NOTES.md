@@ -1711,3 +1711,47 @@ opens inside the card; search redraws only the list; Customer chip filters and
 the pill is the drawn count; no row under Fleet; All lists WSS tickets). The
 legacy-snapshot check reads the new pill. Service 37 unchanged.
 `npm run money-gate -- ~/.wss-runs/real-snapshot-schema5.json` — 16 passed, 0 failed.
+
+---
+
+# D63 — in-place re-renders keep the scroll position (2026-09-24)
+
+BUILD `2026-09-24-d63`, SW `wss-fleet-shell-v34`. Pages only.
+
+## The bug
+
+`render()` ended with `view.scrollTop = 0; window.scrollTo(0, 0)` every time.
+Every write goes through `render()` without changing the hash (stage change,
+claim, done, readiness, note, assign, opening a sheet, a chip), so each one
+threw the reader to the top of a long ticket or Dispatch board.
+
+## The fix
+
+A module-level `lastRenderedHash` (null until the first full render, so boot
+always starts at the top). `render()` captures `window.scrollY` and
+`#view.scrollTop` before the `innerHTML` swap when the hash matches, and after
+the swap restores only what drifted (a closing sheet can make the view
+shorter, and the browser clamps). A new hash is a navigation and still
+scrolls to the top. The Dispatch deep-link `scrollIntoView` keeps priority.
+No new scrolling was added anywhere. The confirmation line is not chased, so
+it can push content down by one line (~50px), and that's fine.
+Loading and error renders don't touch `lastRenderedHash`.
+
+## Verified at 375×812 against a local Worker (real writes, not mock mode)
+
+- Ticket S1004: opened the stage sheet, then submitted "Move to Ready to
+  schedule". `scrollY` stayed at 1151.5 through both renders, and the picker
+  stayed on screen (top 645px of 812). The page showed "Submitted".
+- Dispatch, lowest Claim (m-pu-900240): scrolled to the sheet's submit and
+  submitted. `scrollY` stayed at 968.5, and the row stayed on screen with its
+  "⏳ 1 pending" line and Undo button. Once the sheet closes, the top of the row
+  sits under the sticky header. That's expected: nothing re-scrolls.
+- Test events acked afterwards, and the local KV was restored to the mock by
+  money-gate.
+
+## Tests
+
+Render 116 (+2): two `render()` calls at the same hash never call
+`scrollTo` and leave `#view.scrollTop` alone. A hash change calls
+`scrollTo(0, 0)` exactly once and zeroes `#view.scrollTop`. `npm test` green.
+Money-gate 16 passed, 0 failed.

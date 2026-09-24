@@ -51,7 +51,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-24-d62b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-24-d63';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -2877,6 +2877,12 @@ function renderTabs(route) {
 
 /* ============================================================= 11. router == */
 
+/* D63: the hash the last full render drew. A render at the SAME hash is an
+ * in-place redraw (a write landed, a sheet opened, a chip flipped) and keeps
+ * the reader where they were; a new hash is a navigation and starts at the top.
+ * null until the first real render, so boot always starts at the top. */
+let lastRenderedHash = null;
+
 function render() {
   const view = $('#view');
   const hash = window.location.hash || '#/';
@@ -2905,9 +2911,15 @@ function render() {
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
   else out = viewCategories();
 
+  // D63: capture before the swap — a shorter view can clamp the scroll.
+  const sameView = hash === lastRenderedHash;
+  const keepY = sameView ? window.scrollY : 0;
+  const keepTop = sameView ? view.scrollTop : 0;
+
   view.innerHTML = out;
   ui.msg = null;                 // the confirmation line shows once, then clears
   renderHeader();
+  lastRenderedHash = hash;
 
   // D52: the map asset is fetched once, lazily — nobody who never opens the map
   // pays for 145 KB. loadMap() re-renders when it lands.
@@ -2921,6 +2933,15 @@ function render() {
   const hot = arg && section === 'dispatch' && arg !== 'map'
     ? $(`#d-${CSS.escape(decodeURIComponent(arg))}`) : null;
   if (hot) { hot.scrollIntoView({ block: 'center' }); return; }
+
+  // D63: an in-place re-render (stage change, claim, readiness, note…) must not
+  // throw the reader to the top. Put back only what drifted — never add a
+  // scroll of our own, and never chase the confirmation line.
+  if (sameView) {
+    if (view.scrollTop !== keepTop) view.scrollTop = keepTop;
+    if (window.scrollY !== keepY) window.scrollTo(0, keepY);
+    return;
+  }
   view.scrollTop = 0;
   window.scrollTo(0, 0);
 }

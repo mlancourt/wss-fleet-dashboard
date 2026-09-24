@@ -2194,4 +2194,40 @@ await check('a CONTRACT doc renders through the 📄 fallback, and no phone can 
   assert.ok(!/value="CONTRACT"/.test(out), 'CONTRACT must not be offerable from a phone');
 });
 
+/* ---- D63: an in-place re-render keeps the reader where they were ---- */
+
+async function withScrollSpy(fn) {
+  const calls = [];
+  const saved = window.scrollTo;
+  window.scrollTo = (...a) => { calls.push(a); };
+  try { await fn(calls); } finally { window.scrollTo = saved; delete window.scrollY; }
+}
+
+await check('D63: two renders at the same hash do not reset scroll', async () => {
+  await ownerFull();
+  await withScrollSpy(async (calls) => {
+    await renderRoute('#/dispatch');           // a navigation: lands at the top
+    window.scrollY = 640;                      // the reader scrolls down the board…
+    view.scrollTop = 120;
+    calls.length = 0;
+    app.__render();                            // …and a claim lands: same hash, redraw
+    await settle();
+    assert.equal(calls.length, 0, 'scrollTo must not be called on an in-place re-render');
+    assert.equal(view.scrollTop, 120, '#view keeps its scroll too');
+    assert.ok(view._html.length > 0, 'and the view still redrew');
+  });
+});
+
+await check('D63: a hash change still scrolls to the top', async () => {
+  await withScrollSpy(async (calls) => {
+    await renderRoute('#/service');
+    window.scrollY = 900;
+    view.scrollTop = 50;
+    calls.length = 0;
+    await renderRoute('#/dispatch');
+    assert.deepEqual(calls, [[0, 0]], 'a real navigation starts at the top');
+    assert.equal(view.scrollTop, 0);
+  });
+});
+
 console.log(`\n${passed} checks passed.`);
