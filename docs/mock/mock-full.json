@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-09-24T14:33:23.575Z",
+    "generated_at": "2026-09-24T16:33:11.729Z",
     "run_id": "mock-full-2026-09-24",
     "fleet_totals": {
       "units": 39
@@ -106,8 +106,9 @@
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-08-10",
-      "readiness_age_days": 45
+      "pending_agreement": null,
+      "readiness_since": "2026-09-16",
+      "readiness_age_days": 8
     },
     {
       "serial": "900114",
@@ -148,8 +149,9 @@
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-07-03",
-      "readiness_age_days": 83
+      "pending_agreement": null,
+      "readiness_since": "2026-08-30",
+      "readiness_age_days": 25
     },
     {
       "serial": "900121",
@@ -205,8 +207,9 @@
         }
       ],
       "service_ticket": "S1006",
-      "readiness_since": "2026-09-19",
-      "readiness_age_days": 5
+      "pending_agreement": null,
+      "readiness_since": "2026-09-04",
+      "readiness_age_days": 20
     },
     {
       "serial": "900128",
@@ -241,8 +244,9 @@
       "customer": "Cedar Ridge Manufacturing",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-13",
-      "readiness_age_days": 73
+      "pending_agreement": null,
+      "readiness_since": "2026-08-12",
+      "readiness_age_days": 43
     },
     {
       "serial": "900135",
@@ -272,8 +276,9 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-02",
-      "readiness_age_days": 53
+      "pending_agreement": null,
+      "readiness_since": "2026-07-21",
+      "readiness_age_days": 65
     },
     {
       "serial": "900142",
@@ -303,8 +308,9 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-15",
-      "readiness_age_days": 71
+      "pending_agreement": null,
+      "readiness_since": "2026-08-29",
+      "readiness_age_days": 26
     },
     {
       "serial": "900149",
@@ -339,8 +345,9 @@
       "customer": "Kestrel Print",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-04",
-      "readiness_age_days": 82
+      "pending_agreement": null,
+      "readiness_since": "2026-07-21",
+      "readiness_age_days": 65
     },
     {
       "serial": "900156",
@@ -375,8 +382,9 @@
       "customer": "Quarry Road Aggregates",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-07",
-      "readiness_age_days": 79
+      "pending_agreement": null,
+      "readiness_since": "2026-08-19",
+      "readiness_age_days": 36
     },
     {
       "serial": "900163",
@@ -417,8 +425,9 @@
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-08-31",
-      "readiness_age_days": 24
+      "pending_agreement": null,
+      "readiness_since": "2026-07-18",
+      "readiness_age_days": 68
     },
     {
       "serial": "900170",
@@ -446,10 +455,22 @@
       "geo": null,
       "agreement": null,
       "customer": null,
-      "reservations": [],
+      "reservations": [
+        {
+          "id": "agmt:R092826A",
+          "held_by": "agreement",
+          "customer": "Ironwood Packaging",
+          "purpose": "RENTAL",
+          "start": "2026-09-25",
+          "end": "2026-10-23",
+          "created": null,
+          "status": "future"
+        }
+      ],
       "service_ticket": null,
-      "readiness_since": "2026-07-15",
-      "readiness_age_days": 71
+      "pending_agreement": "R092826A",
+      "readiness_since": "2026-09-07",
+      "readiness_age_days": 17
     },
     {
       "serial": "900177",
@@ -484,8 +505,9 @@
       "customer": "Redtail Automotive",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-01",
-      "readiness_age_days": 23
+      "pending_agreement": null,
+      "readiness_since": "2026-09-03",
+      "readiness_age_days": 21
     },
     {
       "serial": "900184",
@@ -520,8 +542,9 @@
       "customer": "Redtail Automotive",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-30",
-      "readiness_age_days": 25
+      "pending_agreement": null,
+      "readiness_since": "2026-07-23",
+      "readiness_age_days": 63
     },
     {
       "serial": "900191",
@@ -562,6 +585,7 @@
         }
       ],
       "service_ticket": "S1002",
+      "pending_agreement": null,
       "readiness_since": "2026-09-08",
       "readiness_age_days": 16
     },
@@ -604,6 +628,7 @@
         }
       ],
       "service_ticket": null,
+      "pending_agreement": null,
       "readiness_since": "2026-09-22",
       "readiness_age_days": 2
     },
@@ -635,6 +660,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "pending_agreement": null,
       "readiness_since": "2026-09-15",
       "readiness_age_days": 9
     },
@@ -671,8 +697,9 @@
       "customer": "Granite Peak Warehouse",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-06-27",
-      "readiness_age_days": 89
+      "pending_agreement": null,
+      "readiness_since": "2026-07-19",
+      "readiness_age_days": 67
     },
     {
       "serial": "900219",
@@ -707,8 +734,9 @@
       "customer": "Evergreen Distribution",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-02",
-      "readiness_age_days": 22
+      "pending_agreement": null,
+      "readiness_since": "2026-09-04",
+      "readiness_age_days": 20
     },
     {
       "serial": "900226",
@@ -743,8 +771,9 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-24",
-      "readiness_age_days": 31
+      "pending_agreement": null,
+      "readiness_since": "2026-08-04",
+      "readiness_age_days": 51
     },
     {
       "serial": "900233",
@@ -774,6 +803,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "pending_agreement": null,
       "readiness_since": null,
       "readiness_age_days": null
     },
@@ -810,8 +840,9 @@
       "customer": "Pinnacle Cold Storage",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-10",
-      "readiness_age_days": 76
+      "pending_agreement": null,
+      "readiness_since": "2026-07-29",
+      "readiness_age_days": 57
     },
     {
       "serial": "900247",
@@ -846,8 +877,9 @@
       "customer": "Northgate Fulfillment",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-20",
-      "readiness_age_days": 35
+      "pending_agreement": null,
+      "readiness_since": "2026-08-31",
+      "readiness_age_days": 24
     },
     {
       "serial": "900254",
@@ -882,8 +914,9 @@
       "customer": "Bluebird Logistics",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-10",
-      "readiness_age_days": 76
+      "pending_agreement": null,
+      "readiness_since": "2026-08-10",
+      "readiness_age_days": 45
     },
     {
       "serial": "900261",
@@ -918,8 +951,9 @@
       "customer": "Oakhill Casting",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-22",
-      "readiness_age_days": 33
+      "pending_agreement": null,
+      "readiness_since": "2026-07-09",
+      "readiness_age_days": 77
     },
     {
       "serial": "900268",
@@ -929,7 +963,7 @@
       "description": "Chariot (Stand-on) Scrubber — Ironline SC-1700",
       "category": "Chariot (Stand-on) Scrubber",
       "status": "RENTAL",
-      "unit_state": "AVAILABLE",
+      "unit_state": "RESERVED",
       "readiness": "READY",
       "readiness_note": null,
       "hours": 3212,
@@ -947,10 +981,22 @@
       "geo": null,
       "agreement": null,
       "customer": null,
-      "reservations": [],
+      "reservations": [
+        {
+          "id": "agmt:R092326B",
+          "held_by": "agreement",
+          "customer": "Harbor Line Logistics",
+          "purpose": "RENTAL",
+          "start": "2026-09-23",
+          "end": "2026-09-30",
+          "created": null,
+          "status": "current"
+        }
+      ],
       "service_ticket": null,
-      "readiness_since": "2026-07-09",
-      "readiness_age_days": 77
+      "pending_agreement": "R092326B",
+      "readiness_since": "2026-07-26",
+      "readiness_age_days": 60
     },
     {
       "serial": "900275",
@@ -985,8 +1031,9 @@
       "customer": "Cedar Ridge Manufacturing",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-06",
-      "readiness_age_days": 18
+      "pending_agreement": null,
+      "readiness_since": "2026-07-10",
+      "readiness_age_days": 76
     },
     {
       "serial": "900282",
@@ -1021,8 +1068,9 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-31",
-      "readiness_age_days": 55
+      "pending_agreement": null,
+      "readiness_since": "2026-09-06",
+      "readiness_age_days": 18
     },
     {
       "serial": "900289",
@@ -1052,8 +1100,9 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-19",
-      "readiness_age_days": 5
+      "pending_agreement": null,
+      "readiness_since": "2026-07-04",
+      "readiness_age_days": 82
     },
     {
       "serial": "900296",
@@ -1088,8 +1137,9 @@
       "customer": "Granite Peak Warehouse",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-23",
-      "readiness_age_days": 32
+      "pending_agreement": null,
+      "readiness_since": "2026-07-03",
+      "readiness_age_days": 83
     },
     {
       "serial": "900303",
@@ -1124,8 +1174,9 @@
       "customer": "Acme Foods",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-16",
-      "readiness_age_days": 8
+      "pending_agreement": null,
+      "readiness_since": "2026-07-19",
+      "readiness_age_days": 67
     },
     {
       "serial": "900310",
@@ -1160,8 +1211,9 @@
       "customer": "Kestrel Print",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-30",
-      "readiness_age_days": 25
+      "pending_agreement": null,
+      "readiness_since": "2026-07-05",
+      "readiness_age_days": 81
     },
     {
       "serial": "900317",
@@ -1191,6 +1243,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "pending_agreement": null,
       "readiness_since": "2026-09-19",
       "readiness_age_days": 5
     },
@@ -1227,8 +1280,9 @@
       "customer": "Quarry Road Aggregates",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-09-04",
-      "readiness_age_days": 20
+      "pending_agreement": null,
+      "readiness_since": "2026-08-13",
+      "readiness_age_days": 42
     },
     {
       "serial": "900331",
@@ -1263,8 +1317,9 @@
       "customer": "Evergreen Distribution",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-12",
-      "readiness_age_days": 43
+      "pending_agreement": null,
+      "readiness_since": "2026-08-07",
+      "readiness_age_days": 48
     },
     {
       "serial": "900338",
@@ -1299,8 +1354,9 @@
       "customer": "Acme Foods",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-21",
-      "readiness_age_days": 65
+      "pending_agreement": null,
+      "readiness_since": "2026-08-01",
+      "readiness_age_days": 54
     },
     {
       "serial": "900345",
@@ -1371,8 +1427,9 @@
         }
       ],
       "service_ticket": null,
-      "readiness_since": "2026-08-29",
-      "readiness_age_days": 26
+      "pending_agreement": null,
+      "readiness_since": "2026-08-30",
+      "readiness_age_days": 25
     },
     {
       "serial": "900352",
@@ -1402,6 +1459,7 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
+      "pending_agreement": null,
       "readiness_since": "2026-09-03",
       "readiness_age_days": 21
     },
@@ -1438,8 +1496,9 @@
       "customer": "Evergreen Distribution",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-21",
-      "readiness_age_days": 65
+      "pending_agreement": null,
+      "readiness_since": "2026-07-28",
+      "readiness_age_days": 58
     },
     {
       "serial": "900366",
@@ -1474,8 +1533,9 @@
       "customer": "Evergreen Distribution",
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-08-19",
-      "readiness_age_days": 36
+      "pending_agreement": null,
+      "readiness_since": "2026-08-01",
+      "readiness_age_days": 54
     },
     {
       "serial": "900373",
@@ -1505,8 +1565,9 @@
       "customer": null,
       "reservations": [],
       "service_ticket": null,
-      "readiness_since": "2026-07-18",
-      "readiness_age_days": 68
+      "pending_agreement": null,
+      "readiness_since": "2026-09-03",
+      "readiness_age_days": 21
     }
   ],
   "agreements": [
@@ -1525,7 +1586,17 @@
       "job_site": "4400 Innovation Dr, Waukesha WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": "2026-09-23",
+      "in_move": "PICKUP",
+      "on_rent_since": "2025-12-25",
+      "days_on_rent": 273,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4106,
@@ -1534,15 +1605,25 @@
       "cycle": "28D",
       "cycle_rate": 1500,
       "cycles_billed": 13,
-      "cycles_max": null,
+      "cycles_max": 13,
       "last_invoiced_period_start": "2026-08-27",
       "last_invoiced_period_end": "2026-09-23",
       "last_invoice": "R4106-13",
-      "next_due": "2026-10-21",
+      "next_due": null,
       "job_site": "4400 Innovation Dr, Madison WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "OFF-RENT",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-07-13",
+      "days_on_rent": 73,
+      "off_rent": "2026-09-23",
+      "delivery": null
     },
     {
       "agreement": 4109,
@@ -1561,7 +1642,17 @@
       "alerts": [
         "split cycle — partial period billed"
       ],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-08-14",
+      "days_on_rent": 41,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4112,
@@ -1580,7 +1671,17 @@
       "alerts": [
         "no billing seed — next due unknown"
       ],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-05-23",
+      "days_on_rent": 124,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4115,
@@ -1597,7 +1698,17 @@
       "job_site": "1201 Riverside Blvd, Waukesha WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": "2026-09-25",
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-09-24",
+      "days_on_rent": 0,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4118,
@@ -1614,7 +1725,17 @@
       "job_site": "4400 Innovation Dr, Madison WI",
       "customer_po": "PO-70384",
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-06-14",
+      "days_on_rent": 102,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4121,
@@ -1623,15 +1744,25 @@
       "cycle": "28D",
       "cycle_rate": 2300,
       "cycles_billed": 3,
-      "cycles_max": null,
+      "cycles_max": 3,
       "last_invoiced_period_start": "2026-08-15",
       "last_invoiced_period_end": "2026-09-11",
       "last_invoice": "R4121-3",
-      "next_due": "2026-10-09",
+      "next_due": null,
       "job_site": "W229 N1433 Westwood Dr, Beloit WI",
       "customer_po": "PO-14260",
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "OFF-RENT",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "CUSTOMER-RETURN",
+      "on_rent_since": "2026-05-21",
+      "days_on_rent": 126,
+      "off_rent": "2026-09-22",
+      "delivery": null
     },
     {
       "agreement": 4124,
@@ -1650,7 +1781,17 @@
       "alerts": [
         "past max cycles — confirm extension or pick up"
       ],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2025-11-19",
+      "days_on_rent": 309,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": "R092526A",
@@ -1675,7 +1816,17 @@
           "bytes": 96410,
           "added": "2026-09-21"
         }
-      ]
+      ],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-06-30",
+      "days_on_rent": 86,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4130,
@@ -1692,7 +1843,17 @@
       "job_site": "1400 Industrial Dr, Madison WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-07-06",
+      "days_on_rent": 80,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": null,
@@ -1711,7 +1872,17 @@
       "alerts": [
         "UNBILLED RENTAL — unit is out with no agreement"
       ],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": null,
+      "days_on_rent": null,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4139,
@@ -1728,7 +1899,17 @@
       "job_site": "W229 N1433 Westwood Dr, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-08-13",
+      "days_on_rent": 42,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4142,
@@ -1745,7 +1926,17 @@
       "job_site": "77 Logistics Ln, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-06-07",
+      "days_on_rent": 109,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4145,
@@ -1762,7 +1953,17 @@
       "job_site": "4400 Innovation Dr, Beloit WI",
       "customer_po": "PO-42840",
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-08-28",
+      "days_on_rent": 27,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4148,
@@ -1779,7 +1980,17 @@
       "job_site": "4400 Innovation Dr, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-01-27",
+      "days_on_rent": 240,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4151,
@@ -1796,7 +2007,17 @@
       "job_site": "1201 Riverside Blvd, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2025-11-29",
+      "days_on_rent": 299,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4154,
@@ -1813,7 +2034,17 @@
       "job_site": "820 Commerce Pkwy, Milwaukee WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-03-20",
+      "days_on_rent": 188,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4157,
@@ -1830,7 +2061,17 @@
       "job_site": "1201 Riverside Blvd, Beloit WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-04-17",
+      "days_on_rent": 160,
+      "off_rent": null,
+      "delivery": null
     },
     {
       "agreement": 4160,
@@ -1847,7 +2088,85 @@
       "job_site": "1201 Riverside Blvd, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "status": "ACTIVE",
+      "lead": null,
+      "out_date": null,
+      "out_move": "DELIVER",
+      "in_date": null,
+      "in_move": "PICKUP",
+      "on_rent_since": "2026-09-09",
+      "days_on_rent": 15,
+      "off_rent": null,
+      "delivery": null
+    },
+    {
+      "agreement": "R092826A",
+      "customer": "Ironwood Packaging",
+      "serial": "900170",
+      "cycle": "28D",
+      "cycle_rate": 1750,
+      "cycles_billed": 0,
+      "cycles_max": null,
+      "last_invoiced_period_start": null,
+      "last_invoiced_period_end": null,
+      "last_invoice": null,
+      "next_due": null,
+      "job_site": "2200 S Kinnickinnic Ave, Milwaukee WI",
+      "customer_po": "PO-77120",
+      "alerts": [],
+      "docs": [
+        {
+          "id": "7a0d2c94e1b3f5a8",
+          "name": "2026-09-28-RentalAgreement-R092826A.pdf",
+          "kind": "CONTRACT",
+          "bytes": 88213,
+          "added": "2026-09-23"
+        }
+      ],
+      "status": "PENDING",
+      "lead": "L1008",
+      "out_date": "2026-09-25",
+      "out_move": "DELIVER",
+      "in_date": "2026-10-23",
+      "in_move": "PICKUP",
+      "on_rent_since": null,
+      "days_on_rent": null,
+      "off_rent": null,
+      "delivery": {
+        "id": "m-dl-R092826A",
+        "driver": "Kevin",
+        "rig": "TRAILER-6000",
+        "date": "2026-09-25",
+        "status": "SCHEDULED"
+      }
+    },
+    {
+      "agreement": "R092326B",
+      "customer": "Harbor Line Logistics",
+      "serial": "900268",
+      "cycle": "ONE-SHOT",
+      "cycle_rate": 1425,
+      "cycles_billed": 0,
+      "cycles_max": 1,
+      "last_invoiced_period_start": null,
+      "last_invoiced_period_end": null,
+      "last_invoice": null,
+      "next_due": null,
+      "job_site": "Harbor Line DC, Kenosha WI",
+      "customer_po": null,
+      "alerts": [],
+      "docs": [],
+      "status": "PENDING",
+      "lead": null,
+      "out_date": "2026-09-23",
+      "out_move": "CUSTOMER-PICKUP",
+      "in_date": "2026-09-30",
+      "in_move": "CUSTOMER-RETURN",
+      "on_rent_since": null,
+      "days_on_rent": null,
+      "off_rent": null,
+      "delivery": null
     }
   ],
   "reservations": {
@@ -1865,6 +2184,18 @@
         "status": "current"
       },
       {
+        "serial": "900268",
+        "model": "Ironline SC-1700",
+        "category": "Chariot (Stand-on) Scrubber",
+        "id": "agmt:R092326B",
+        "held_by": "agreement",
+        "customer": "Harbor Line Logistics",
+        "purpose": "RENTAL",
+        "start": "2026-09-23",
+        "end": "2026-09-30",
+        "status": "current"
+      },
+      {
         "serial": "900345",
         "model": "Nordvale R-660",
         "category": "Mid-Size Rider Scrubber",
@@ -1875,6 +2206,18 @@
         "start": "2026-09-24",
         "end": "2026-09-24",
         "status": "current"
+      },
+      {
+        "serial": "900170",
+        "model": "Cascade Clean BX-40",
+        "category": "Small Walk-Behind Scrubber",
+        "id": "agmt:R092826A",
+        "held_by": "agreement",
+        "customer": "Ironwood Packaging",
+        "purpose": "RENTAL",
+        "start": "2026-09-25",
+        "end": "2026-10-23",
+        "status": "future"
       },
       {
         "serial": "900114",
@@ -2052,8 +2395,8 @@
       "assigned": "Josh",
       "scheduled": null,
       "opened": "2026-09-23",
-      "opened_by": "Kevin",
-      "stage_since": "2026-09-24",
+      "opened_by": "Matt",
+      "stage_since": "2026-09-23",
       "age_days": 1,
       "quote": null,
       "parts": null,
@@ -2110,15 +2453,15 @@
       "equipment": "Cascade Clean SC-1700 2026",
       "issue": "Traction motor pulled — checking the controller before we order",
       "priority": "MEDIUM",
-      "site": "Ixonia WI",
+      "site": "Milwaukee WI",
       "location": "IN-SHOP",
       "intake_move": "NONE",
       "return_move": "NONE",
       "assigned": "Zac",
       "scheduled": null,
       "opened": "2026-09-15",
-      "opened_by": "Kevin",
-      "stage_since": "2026-09-17",
+      "opened_by": "Matt",
+      "stage_since": "2026-09-18",
       "age_days": 9,
       "quote": null,
       "parts": null,
@@ -2139,7 +2482,7 @@
       "equipment": "Halstead R-660 (customer owned)",
       "issue": "Squeegee frame bent, deck actuator leaking",
       "priority": "MEDIUM",
-      "site": "Milwaukee WI",
+      "site": "Beloit WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
@@ -2147,7 +2490,7 @@
       "scheduled": null,
       "opened": "2026-09-12",
       "opened_by": "Matt",
-      "stage_since": "2026-09-12",
+      "stage_since": "2026-09-16",
       "age_days": 12,
       "quote": {
         "number": "Q-2211",
@@ -2181,7 +2524,7 @@
       "equipment": "Meridian T-500 (customer owned)",
       "issue": "Pump assembly failed",
       "priority": "MEDIUM",
-      "site": "Waukesha WI",
+      "site": "Beloit WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "DELIVER",
@@ -2189,7 +2532,7 @@
       "scheduled": "2026-09-28",
       "opened": "2026-09-06",
       "opened_by": "Kevin",
-      "stage_since": "2026-09-10",
+      "stage_since": "2026-09-07",
       "age_days": 18,
       "quote": {
         "number": "Q-2198",
@@ -2241,7 +2584,7 @@
       "equipment": "Halstead R-440 (customer owned)",
       "issue": "Vac motor replacement — parts on the shelf, needs a truck day",
       "priority": "MEDIUM",
-      "site": "Milwaukee WI",
+      "site": "Ixonia WI",
       "location": "AT-CUSTOMER",
       "intake_move": "NONE",
       "return_move": "NONE",
@@ -2249,7 +2592,7 @@
       "scheduled": null,
       "opened": "2026-09-16",
       "opened_by": "Matt",
-      "stage_since": "2026-09-16",
+      "stage_since": "2026-09-18",
       "age_days": 8,
       "quote": {
         "number": "Q-2230",
@@ -2270,9 +2613,9 @@
       "docs": [],
       "closed_age_days": null,
       "geo": {
-        "lat": 43.060768,
-        "lng": -87.88302,
-        "precision": "rooftop",
+        "lat": 43.1751,
+        "lng": -88.6009,
+        "precision": "city",
         "in_wi": true
       }
     },
@@ -2293,7 +2636,7 @@
       "assigned": "Josh",
       "scheduled": "2026-09-25",
       "opened": "2026-09-21",
-      "opened_by": "Matt",
+      "opened_by": "Kevin",
       "stage_since": "2026-09-24",
       "age_days": 3,
       "quote": null,
@@ -2327,7 +2670,7 @@
       "assigned": "Zac",
       "scheduled": null,
       "opened": "2026-09-03",
-      "opened_by": "Matt",
+      "opened_by": "Zac",
       "stage_since": "2026-09-07",
       "age_days": 21,
       "quote": {
@@ -2354,14 +2697,14 @@
       "equipment": "Cascade Clean SW-900 (customer owned)",
       "issue": "Charger fault, replaced onboard charger",
       "priority": "MEDIUM",
-      "site": "Milwaukee WI",
+      "site": "Madison WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Josh",
       "scheduled": null,
       "opened": "2026-08-29",
-      "opened_by": "Zac",
+      "opened_by": "Matt",
       "stage_since": "2026-09-22",
       "age_days": 26,
       "quote": {
@@ -2388,15 +2731,15 @@
       "equipment": "Nordvale BX-27 (customer owned)",
       "issue": "Dropping water on the right side",
       "priority": "LOW",
-      "site": "Milwaukee WI",
+      "site": "Oconomowoc WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": null,
       "scheduled": null,
       "opened": "2026-09-20",
-      "opened_by": "Matt",
-      "stage_since": "2026-09-21",
+      "opened_by": "Josh",
+      "stage_since": "2026-09-22",
       "age_days": 4,
       "quote": null,
       "parts": null,
@@ -2417,15 +2760,15 @@
       "equipment": "Meridian R-880 (customer owned)",
       "issue": "Wheel drive noise; teardown started",
       "priority": "MEDIUM",
-      "site": "Watertown WI",
+      "site": "Jefferson WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Zac",
       "scheduled": null,
       "opened": "2026-09-17",
-      "opened_by": "Matt",
-      "stage_since": "2026-09-17",
+      "opened_by": "Kevin",
+      "stage_since": "2026-09-18",
       "age_days": 7,
       "quote": null,
       "parts": null,
@@ -2446,14 +2789,14 @@
       "equipment": "Cascade Clean T-500 (customer owned)",
       "issue": "Drive belt + idler pulley — parts in, on the bench Tuesday",
       "priority": "MEDIUM",
-      "site": "Oconomowoc WI",
+      "site": "Jefferson WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "DELIVER",
       "assigned": "Josh",
       "scheduled": "2026-09-27",
       "opened": "2026-09-14",
-      "opened_by": "Matt",
+      "opened_by": "Zac",
       "stage_since": "2026-09-15",
       "age_days": 10,
       "quote": {
@@ -2487,7 +2830,7 @@
       "assigned": "Josh",
       "scheduled": null,
       "opened": "2026-09-18",
-      "opened_by": "Kevin",
+      "opened_by": "Matt",
       "stage_since": "2026-09-22",
       "age_days": 6,
       "quote": null,
@@ -2537,7 +2880,7 @@
       "assigned": "Zac",
       "scheduled": null,
       "opened": "2026-09-11",
-      "opened_by": "Zac",
+      "opened_by": "Matt",
       "stage_since": "2026-09-19",
       "age_days": 13,
       "quote": null,
@@ -2559,16 +2902,16 @@
       "equipment": "Meridian R-440 (customer owned)",
       "issue": "Brush deck lift actuator replaced",
       "priority": "MEDIUM",
-      "site": "Ixonia WI",
+      "site": "Waukesha WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-09-11",
+      "opened": "2026-09-09",
       "opened_by": "Zac",
       "stage_since": "2026-09-19",
-      "age_days": 13,
+      "age_days": 15,
       "quote": null,
       "parts": null,
       "machinio_ref": null,
@@ -2594,10 +2937,10 @@
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-08-29",
-      "opened_by": "Matt",
+      "opened": "2026-09-02",
+      "opened_by": "Kevin",
       "stage_since": "2026-09-12",
-      "age_days": 26,
+      "age_days": 22,
       "quote": null,
       "parts": "Solution pump 18-3302 — installed",
       "machinio_ref": null,
@@ -2644,10 +2987,10 @@
       "return_move": "NONE",
       "assigned": "Josh",
       "scheduled": null,
-      "opened": "2026-08-23",
-      "opened_by": "Josh",
+      "opened": "2026-08-24",
+      "opened_by": "Zac",
       "stage_since": "2026-09-05",
-      "age_days": 32,
+      "age_days": 31,
       "quote": null,
       "parts": null,
       "machinio_ref": null,
@@ -2667,16 +3010,16 @@
       "equipment": "Nordvale SC-1800 (customer owned)",
       "issue": "Won't hold charge — batteries load-tested, two cells replaced",
       "priority": "MEDIUM",
-      "site": "Waukesha WI",
+      "site": "Sun Prairie WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Josh",
       "scheduled": null,
-      "opened": "2026-08-24",
+      "opened": "2026-08-18",
       "opened_by": "Matt",
       "stage_since": "2026-09-01",
-      "age_days": 31,
+      "age_days": 37,
       "quote": null,
       "parts": null,
       "machinio_ref": null,
@@ -2704,16 +3047,16 @@
       "equipment": "Ironline BX-27 (customer owned)",
       "issue": "Annual PM",
       "priority": "MEDIUM",
-      "site": "Waukesha WI",
+      "site": "Watertown WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": null,
       "scheduled": null,
-      "opened": "2026-08-11",
+      "opened": "2026-08-10",
       "opened_by": "Zac",
       "stage_since": "2026-08-21",
-      "age_days": 44,
+      "age_days": 45,
       "quote": null,
       "parts": null,
       "machinio_ref": null,
@@ -2733,16 +3076,16 @@
       "equipment": "Cascade Clean R-880 (customer owned)",
       "issue": "Drive tire + hub bearing",
       "priority": "MEDIUM",
-      "site": "Ixonia WI",
+      "site": "Oconomowoc WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-07-29",
-      "opened_by": "Kevin",
+      "opened": "2026-07-24",
+      "opened_by": "Matt",
       "stage_since": "2026-08-08",
-      "age_days": 57,
+      "age_days": 62,
       "quote": null,
       "parts": null,
       "machinio_ref": null,
@@ -2768,10 +3111,10 @@
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Josh",
       "scheduled": null,
-      "opened": "2026-07-13",
+      "opened": "2026-07-09",
       "opened_by": "Zac",
       "stage_since": "2026-07-25",
-      "age_days": 73,
+      "age_days": 77,
       "quote": null,
       "parts": null,
       "machinio_ref": null,
@@ -2791,16 +3134,16 @@
       "equipment": "Meridian T-500 (customer owned)",
       "issue": "Squeegee assembly rebuild",
       "priority": "MEDIUM",
-      "site": "Sun Prairie WI",
+      "site": "Ixonia WI",
       "location": "IN-SHOP",
       "intake_move": "CUSTOMER-DROP",
       "return_move": "CUSTOMER-PICKUP",
       "assigned": "Zac",
       "scheduled": null,
-      "opened": "2026-06-22",
-      "opened_by": "Matt",
+      "opened": "2026-06-27",
+      "opened_by": "Kevin",
       "stage_since": "2026-07-06",
-      "age_days": 94,
+      "age_days": 89,
       "quote": null,
       "parts": null,
       "machinio_ref": null,
@@ -2846,6 +3189,7 @@
       "status": "OPEN",
       "note": "Customer called — released, unit at the dock",
       "done": null,
+      "agreement": "R092526A",
       "geo": {
         "lat": 43.082722,
         "lng": -89.441514,
@@ -2869,10 +3213,35 @@
       "status": "SCHEDULED",
       "note": "Released Friday; site closes at 3",
       "done": null,
+      "agreement": 4106,
       "geo": {
         "lat": 43.086455,
         "lng": -89.392965,
         "precision": "street",
+        "in_wi": true
+      }
+    },
+    {
+      "id": "m-dl-R092826A",
+      "kind": "DELIVER",
+      "source": "RENTAL-DELIVER",
+      "serial": "900170",
+      "ticket": null,
+      "what": "Cascade Clean BX-40 #900170",
+      "customer": "Ironwood Packaging",
+      "address": "2200 S Kinnickinnic Ave, Milwaukee WI",
+      "date": "2026-09-25",
+      "billed_through": null,
+      "driver": "Kevin",
+      "rig": "TRAILER-6000",
+      "status": "SCHEDULED",
+      "note": "PO PO-77120",
+      "done": null,
+      "agreement": "R092826A",
+      "geo": {
+        "lat": 43.026978,
+        "lng": -87.928887,
+        "precision": "rooftop",
         "in_wi": true
       }
     },
@@ -2892,6 +3261,7 @@
       "status": "OPEN",
       "note": "Dock closes at 2, ask for Ray",
       "done": null,
+      "agreement": null,
       "geo": {
         "lat": 43.168348,
         "lng": -88.723146,
@@ -2915,6 +3285,7 @@
       "status": "SCHEDULED",
       "note": null,
       "done": null,
+      "agreement": null,
       "geo": {
         "lat": 43.095971,
         "lng": -88.519782,
@@ -2938,6 +3309,7 @@
       "status": "SCHEDULED",
       "note": "Kevin riding along for the walkthrough",
       "done": null,
+      "agreement": null,
       "geo": {
         "lat": 42.531483,
         "lng": -89.023406,
@@ -2961,6 +3333,7 @@
       "status": "OPEN",
       "note": "They open at 6; ask for the maintenance lead",
       "done": null,
+      "agreement": null,
       "geo": {
         "lat": 42.972529,
         "lng": -88.793901,
@@ -2984,6 +3357,7 @@
       "status": "DONE",
       "note": "Picked up both pump assemblies",
       "done": "2026-09-22",
+      "agreement": null,
       "geo": {
         "lat": 43.060768,
         "lng": -87.88302,
@@ -3012,57 +3386,57 @@
         "due": "2026-09-25"
       },
       {
-        "agreement": 4106,
-        "customer": "Cedar Ridge Manufacturing",
-        "serial": "900128",
-        "amount": 1500,
-        "due": "2026-09-26"
-      },
-      {
         "agreement": 4109,
         "customer": "Kestrel Print",
         "serial": "900149",
         "amount": 1300,
-        "due": "2026-09-27"
+        "due": "2026-09-26"
       },
       {
         "agreement": 4118,
         "customer": "Redtail Automotive",
         "serial": "900184",
         "amount": 2175,
+        "due": "2026-09-27"
+      },
+      {
+        "agreement": 4124,
+        "customer": "Evergreen Distribution",
+        "serial": "900219",
+        "amount": 2350,
         "due": "2026-09-28"
       },
       {
-        "agreement": 4121,
-        "customer": "Granite Peak Warehouse",
-        "serial": "900212",
-        "amount": 2300,
+        "agreement": "R092526A",
+        "customer": "Pinnacle Cold Storage",
+        "serial": "900240",
+        "amount": 2125,
         "due": "2026-09-29"
       }
     ],
     "created_last_run": [
-      {
-        "invoice": "R4124-15",
-        "agreement": 4124,
-        "customer": "Evergreen Distribution",
-        "amount": 2350,
-        "period_start": "2026-09-05",
-        "period_end": "2026-09-24"
-      },
-      {
-        "invoice": "R092526A-2",
-        "agreement": "R092526A",
-        "customer": "Pinnacle Cold Storage",
-        "amount": 2125,
-        "period_start": "2026-09-10",
-        "period_end": "2026-09-24"
-      },
       {
         "invoice": "R4130-6",
         "agreement": 4130,
         "customer": "Northgate Fulfillment",
         "amount": 1325,
         "period_start": "2026-09-13",
+        "period_end": "2026-09-24"
+      },
+      {
+        "invoice": "R4139-5",
+        "agreement": 4139,
+        "customer": "Cedar Ridge Manufacturing",
+        "amount": 1400,
+        "period_start": "2026-09-06",
+        "period_end": "2026-09-24"
+      },
+      {
+        "invoice": "R4142-6",
+        "agreement": 4142,
+        "customer": "Granite Peak Warehouse",
+        "amount": 625,
+        "period_start": "2026-09-11",
         "period_end": "2026-09-24"
       }
     ]

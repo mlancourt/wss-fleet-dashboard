@@ -180,7 +180,8 @@ await check('the retired Billing view redirects to Dispatch, never renders billi
 await check('Rentals leads with the recurring-revenue block (D21, moved from Billing)', async () => {
   const out = await renderRoute('#/rentals');
   assert.ok(out.includes('Recurring revenue — per 28-day cycle'), 'revenue headline missing');
-  assert.ok(out.indexOf('Recurring revenue') < out.indexOf('Agreements'), 'revenue must lead the page');
+  // D64: the Agreements list became three groups — revenue still leads all of them.
+  assert.ok(out.indexOf('Recurring revenue') < out.indexOf('On rent'), 'revenue must lead the page');
   assert.ok(/≈ \$[\d,]+ \/ month/.test(out), 'per-month sub-line missing');
 });
 
@@ -582,7 +583,7 @@ async function undoableIds(role) {
   await app.__refresh();
   const seen = new Set();
   const snap = app.__state().snapshot;
-  const routes = ['#/', '#/dispatch', '#/service', '#/holds', '#/leads']
+  const routes = ['#/', '#/rentals', '#/dispatch', '#/service', '#/holds', '#/leads']
     .concat(snap.units.map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
     .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
     .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`));
@@ -2144,7 +2145,7 @@ await check('Rentals renders every agreement id verbatim, int or string (D59)', 
   assert.ok(!/NaN|Infinity/.test(out), 'something did arithmetic on an agreement id');
   // The sort must not mix-compare an int against a string — it sorts on
   // severity then customer, and every row has to survive it.
-  assert.equal((out.match(/Agreement<\/dt>/g) || []).length, snap.agreements.length,
+  assert.equal((out.match(/class="card rtile"/g) || []).length, snap.agreements.length,
     'every agreement row must draw — a throwing comparator loses rows');
 });
 
@@ -2228,6 +2229,287 @@ await check('D63: a hash change still scrolls to the top', async () => {
     assert.deepEqual(calls, [[0, 0]], 'a real navigation starts at the top');
     assert.equal(view.scrollTop, 0);
   });
+});
+
+/* ============================== rental lifecycle (D64) ==================== */
+
+const tileOrder = (out) => [...out.matchAll(/class="card rtile" data-agreement="([^"]*)"/g)].map((m) => m[1]);
+/** The markup of one tile, by agreement id. */
+const tileOf = (out, id) => {
+  const i = out.indexOf(`class="card rtile" data-agreement="${id}"`);
+  assert.ok(i >= 0, `no tile for ${id}`);
+  const j = out.indexOf('class="card rtile"', i + 10);
+  const k = out.indexOf('<h2>', i);
+  const end = [j, k].filter((x) => x > i).reduce((m, x) => Math.min(m, x), out.length);
+  return out.slice(i, end);
+};
+const rentalButtons = (out) => [...out.matchAll(/data-sheet="rental" data-id="([^"]*)"/g)].map((m) => m[1]);
+
+await check('D64: Rentals draws Pending, On rent, Off-rent — in that order, each in its own order', async () => {
+  const snap = await asFull('owner');
+  const out = await renderRoute('#/rentals');
+  const at = (h) => out.indexOf(`<h2>${h}`);
+  assert.ok(at('Pending') > out.indexOf('Recurring revenue'), 'revenue leads');
+  assert.ok(at('Pending') < at('On rent') && at('On rent') < at('Off-rent'), 'group order');
+  const order = tileOrder(out);
+  const by = (st) => snap.agreements.filter((a) => (a.status || 'ACTIVE') === st);
+  const idx = (a) => order.indexOf(String(a.agreement));
+  // Pending: soonest out_date first.
+  const pend = by('PENDING').slice().sort((a, b) => a.out_date.localeCompare(b.out_date));
+  assert.ok(pend.length >= 2, 'the fixture needs two PENDING rows');
+  assert.ok(idx(pend[0]) < idx(pend[1]));
+  // On rent: longest days_on_rent first.
+  const act = by('ACTIVE').filter((a) => typeof a.days_on_rent === 'number').sort((a, b) => b.days_on_rent - a.days_on_rent);
+  for (let i = 1; i < act.length; i++) assert.ok(idx(act[i - 1]) < idx(act[i]), `${act[i - 1].agreement} before ${act[i].agreement}`);
+  // Off-rent: oldest off_rent first.
+  const off = by('OFF-RENT').slice().sort((a, b) => a.off_rent.localeCompare(b.off_rent));
+  assert.ok(off.length >= 2, 'the fixture needs two OFF-RENT rows');
+  assert.ok(idx(off[0]) < idx(off[1]));
+  // Every row lands in exactly one tile.
+  assert.equal(order.length, snap.agreements.length);
+});
+
+await check('D64: a Pending tile says how it leaves, and flags a passed out date in red', async () => {
+  const snap = await asFull('owner');
+  const out = await renderRoute('#/rentals');
+  const dl = snap.agreements.find((a) => a.status === 'PENDING' && a.out_move === 'DELIVER');
+  const pu = snap.agreements.find((a) => a.status === 'PENDING' && a.out_move === 'CUSTOMER-PICKUP');
+  const dlTile = tileOf(out, dl.agreement);
+  assert.ok(dlTile.includes(`href="#/dispatch/${dl.delivery.id}"`), 'the delivery links to its Dispatch row');
+  assert.ok(dlTile.includes(`SCHEDULED ${dl.delivery.driver} / ${dl.delivery.rig}`), 'claim status, driver and rig');
+  assert.ok(/Delivery (Sun|Mon|Tue|Wed|Thu|Fri|Sat) /.test(dlTile), 'the delivery names its weekday');
+  assert.ok(dlTile.includes(`href="#/lead/${dl.lead}"`), 'the lead chip links');
+  assert.ok(dlTile.includes('data-doc=') && dlTile.includes('Contract'), 'the CONTRACT rides on the tile');
+  assert.ok(!dlTile.includes('out date passed'), 'a future out date is not late');
+  assert.ok(!dlTile.includes('data-sheet="rental"'), 'a DELIVER tile has no button — the truck is the OUT');
+  const puTile = tileOf(out, pu.agreement);
+  assert.ok(puTile.includes('Customer picks up'), 'customer pick-up line');
+  assert.ok(puTile.includes('chip bad') && puTile.includes('out date passed'), 'yesterday and still PENDING: red');
+  assert.ok(puTile.includes(`data-id="OUT|${pu.agreement}"`) && puTile.includes('>Went out<'), 'Went out on a customer pick-up');
+});
+
+await check('D64: an On rent tile carries its age, and nags about the due-back date', async () => {
+  const snap = await asFull('owner');
+  const out = await renderRoute('#/rentals');
+  const { todayCentral, addDays } = await import('../docs/dates.js');
+  const today = todayCentral();
+  const late = snap.agreements.find((a) => a.status === 'ACTIVE' && a.in_date === addDays(today, -1));
+  const soon = snap.agreements.find((a) => a.status === 'ACTIVE' && a.in_date === addDays(today, 1));
+  assert.ok(late && soon, 'the fixture needs an ACTIVE row due yesterday and one due tomorrow');
+  assert.ok(tileOf(out, late.agreement).includes('class="due red"'), 'overdue is red');
+  assert.ok(tileOf(out, late.agreement).includes('overdue'));
+  assert.ok(tileOf(out, soon.agreement).includes('class="due amber"'), 'tomorrow is amber');
+  assert.ok(tileOf(out, soon.agreement).includes('0d on rent'), 'a zero-day rental reads 0d, not blank');
+  const quiet = snap.agreements.find((a) => a.status === 'ACTIVE' && a.agreement != null && !a.in_date);
+  assert.ok(!tileOf(out, quiet.agreement).includes('class="due'), 'no in_date, no nag');
+  const t = tileOf(out, soon.agreement);
+  assert.ok(t.includes(`data-id="OFF-RENT|${soon.agreement}"`) && t.includes('>Off-rent<'), 'Off-rent button');
+  assert.ok(!/class="btn ghost"[^>]*data-sheet="rental"/.test(t), 'Off-rent is the filled maroon button');
+  assert.ok(t.includes('Stops the clock and puts a pickup on Dispatch.'));
+});
+
+await check('D64: an Off-rent tile shows the pickup run, or the customer-return button', async () => {
+  const snap = await asFull('owner');
+  const out = await renderRoute('#/rentals');
+  const offPu = snap.agreements.find((a) => a.status === 'OFF-RENT' && a.in_move === 'PICKUP');
+  const offRet = snap.agreements.find((a) => a.status === 'OFF-RENT' && a.in_move === 'CUSTOMER-RETURN');
+  const row = snap.dispatch.find((r) => r.source === 'RENTAL-RETURN' && r.agreement === offPu.agreement);
+  const a = tileOf(out, offPu.agreement);
+  assert.ok(a.includes(`href="#/dispatch/${row.id}"`) && a.includes(`${row.status} ${row.driver} / ${row.rig}`), 'pickup line');
+  assert.ok(a.includes('Billed through') && a.includes('Off-rent'));
+  assert.ok(a.includes(`data-id="IN|${offPu.agreement}"`) && a.includes('Owner override'), 'owner sees the override');
+  const b = tileOf(out, offRet.agreement);
+  assert.ok(b.includes('Customer brings it back'));
+  assert.ok(b.includes(`data-id="IN|${offRet.agreement}"`) && b.includes('>Back in shop<'));
+});
+
+await check('D64: the button matrix per role — sales, owner, service', async () => {
+  const snap = await asFull('sales');
+  const offPu = snap.agreements.find((a) => a.status === 'OFF-RENT' && a.in_move === 'PICKUP');
+  let out = await renderRoute('#/rentals');
+  assert.ok(!tileOf(out, offPu.agreement).includes('data-sheet="rental"'), 'sales gets no override');
+  const salesBtns = rentalButtons(out);
+  assert.ok(salesBtns.some((k) => k.startsWith('OUT|')) && salesBtns.some((k) => k.startsWith('OFF-RENT|')) && salesBtns.some((k) => k.startsWith('IN|')));
+  await asFull('service');
+  out = await renderRoute('#/rentals');
+  assert.equal(rentalButtons(out).length, 0, 'service gets no rental buttons at all');
+  assert.ok(out.includes('class="card rtile"'), '…but sees every tile');
+  await asFull('owner');
+});
+
+await check('D64: a legacy snapshot renders Rentals as before — all On rent, Off-rent the only button', async () => {
+  for (const who of ['owner', 'sales', 'service']) {
+    window.location.href = `http://localhost:8787/?mock=legacy&role=${who}`;
+    window.location.search = `?mock=legacy&role=${who}`;
+    await app.__refresh();
+    const snap = app.__state().snapshot;
+    assert.ok(snap.agreements.every((a) => !('status' in a)), 'the legacy fixture must carry no status');
+    const out = await renderRoute('#/rentals');
+    assert.ok(!out.includes('<h2>Pending') && !out.includes('<h2>Off-rent'), 'no empty groups on a legacy file');
+    assert.ok(out.includes('<h2>On rent'));
+    assert.equal(tileOrder(out).length, snap.agreements.length);
+    const btns = rentalButtons(out);
+    if (who === 'service') assert.equal(btns.length, 0);
+    else {
+      assert.equal(btns.length, snap.agreements.filter((a) => a.agreement != null).length, 'one Off-rent per billable row');
+      assert.ok(btns.every((k) => k.startsWith('OFF-RENT|')), 'Off-rent and nothing else');
+    }
+  }
+  await asFull('owner');
+});
+
+/** API mode as a given identity, capturing every POST /api/event body. */
+async function apiAs(me, extraPending = []) {
+  const snapshot = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const posted = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.endsWith('/api/data')) {
+      return { ok: true, status: 200, json: async () => ({ me, snapshot, pending: extraPending.slice() }) };
+    }
+    if (u.endsWith('/api/event') && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      posted.push(body);
+      const stored = { id: `2026-09-25T12:00:00.000Z:abc${posted.length}`, ts: '2026-09-25T12:00:00.000Z', actor: me.name, role: me.role, ...body };
+      return { ok: true, status: 201, json: async () => stored };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  window.location.href = 'https://fleet.wisconsinscrubandsweep.com/?t=0123456789abcdef0123456789abcdef';
+  window.location.search = '?t=0123456789abcdef0123456789abcdef';
+  window.location.hostname = 'fleet.wisconsinscrubandsweep.com';
+  window.location.protocol = 'https:';
+  await app.__refresh();
+  return { snapshot, posted };
+}
+/** Submit a rental sheet the way the page does: a real submit event on a form
+ *  whose fields come from `fields`. Node's FormData refuses a non-DOM form, so
+ *  it is swapped for one that reads the same fields. */
+async function submitRental(verb, id, fields) {
+  const form = { dataset: { action: 'rental_update', verb, id }, _fields: fields,
+    querySelector: (q) => (q === 'button[type=submit]' ? { disabled: false } : null) };
+  form.closest = (q) => (q === 'form.write' ? form : null);
+  const SavedFD = globalThis.FormData;
+  globalThis.FormData = class { constructor(f) { this.f = f; } get(k) { return k in this.f._fields ? this.f._fields[k] : null; } };
+  try {
+    for (const fn of listeners.get('submit') || []) await fn({ target: form, preventDefault() {} });
+  } finally { globalThis.FormData = SavedFD; }
+  await settle();
+}
+
+await check('D64: the Off-rent sheet posts rental_update {OFF-RENT, date, note}, capped at today', async () => {
+  const { todayCentral } = await import('../docs/dates.js');
+  const today = todayCentral();
+  const { snapshot, posted } = await apiAs({ name: 'Kevin', role: 'sales' });
+  const a = snapshot.agreements.find((x) => x.status === 'ACTIVE' && typeof x.agreement === 'number' && x.agreement != null);
+  const key = `OFF-RENT|${a.agreement}`;
+  await renderRoute('#/rentals');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'rental', id: key } }));
+  await settle();
+  const sheet = view._html;
+  assert.ok(sheet.includes('data-action="rental_update" data-verb="OFF-RENT"'), 'the sheet opened');
+  assert.ok(sheet.includes(`max="${today}"`) && sheet.includes(`value="${today}"`), 'default today, max today');
+
+  // A future date never leaves the phone.
+  await submitRental('OFF-RENT', String(a.agreement), { date: '2999-01-01', note: '' });
+  assert.equal(posted.length, 0, 'a future date must not post');
+  assert.ok(view._html.includes('in the future'), 'and it says why');
+
+  await submitRental('OFF-RENT', String(a.agreement), { date: today, note: 'Called at 8' });
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0], { action: 'rental_update', serial: null,
+    payload: { agreement: a.agreement, action: 'OFF-RENT', date: today, note: 'Called at 8' } });
+  assert.equal(typeof posted[0].payload.agreement, 'number', 'a legacy int goes as an int — never coerced');
+  const out = await renderRoute('#/rentals');
+  const t = tileOf(out, a.agreement);
+  assert.ok(t.includes('⏳ 1 pending'), 'the tile badges pending');
+  assert.ok(/data-sheet="rental" data-id="OFF-RENT\|[^"]*" disabled/.test(t), 'and the button waits for the next snapshot');
+  assert.ok(t.includes('>Undo<'), 'the D46 valve is there for your own tap');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D64: Went out on a WSS-paper id posts the string, verbatim', async () => {
+  const { snapshot, posted } = await apiAs({ name: 'Matt', role: 'owner' });
+  const pu = snapshot.agreements.find((x) => x.status === 'PENDING' && x.out_move === 'CUSTOMER-PICKUP');
+  await submitRental('OUT', String(pu.agreement), { date: '', note: '' });
+  assert.deepEqual(posted[0].payload, { agreement: pu.agreement, action: 'OUT', date: null, note: null });
+  assert.equal(typeof posted[0].payload.agreement, 'string');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D64: a RENTAL-DELIVER row — chips, no Cancel, Done copy names the agreement and the lead', async () => {
+  const snap = await asFull('owner');
+  app.__ui().dispatchView = 'list';
+  const row = snap.dispatch.find((r) => r.source === 'RENTAL-DELIVER');
+  assert.ok(row && row.id.startsWith('m-dl-'), 'the fixture needs a RENTAL-DELIVER row');
+  const out = await renderRoute('#/dispatch');
+  const i = out.indexOf(`id="d-${row.id}"`);
+  const next = out.indexOf(' id="d-', i + 10);
+  const drow = out.slice(i, next > 0 ? next : undefined);
+  assert.ok(drow.includes('Rental delivery'), 'the Rental delivery chip');
+  assert.ok(drow.includes(`href="#/agreement/${row.agreement}"`), 'the R-number links to the agreement');
+  assert.ok(drow.includes('>Done<'), 'Done works as on every row');
+  assert.ok(!drow.includes('data-cancel'), 'no Cancel, even for the owner');
+  // Every dispatch row carries `agreement` now — and the rest are null.
+  assert.ok(snap.dispatch.every((r) => 'agreement' in r));
+  // Open the Done sheet: the copy says what the tap sets off.
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'done', id: row.id } }));
+  await settle();
+  const a = snap.agreements.find((x) => x.agreement === row.agreement);
+  assert.ok(view._html.includes(`Marks ${row.agreement} on rent from today and closes lead ${a.lead} as won.`), 'Done copy');
+  app.__ui().form = null;
+  // Without a lead, the clause goes.
+  a.lead = null;
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'done', id: row.id } }));
+  await settle();
+  assert.ok(view._html.includes(`Marks ${row.agreement} on rent from today.`), 'no lead, no clause');
+  app.__ui().form = null;
+  await asFull('owner');
+});
+
+await check('D64: the unit page — rental chip, agmt: hold with no Release, delivery link not a button', async () => {
+  const snap = await asFull('sales');
+  const u = snap.units.find((x) => x.pending_agreement != null && snap.dispatch.some((r) => r.id === `m-dl-${x.pending_agreement}`));
+  assert.ok(u, 'the fixture needs a unit promised to a delivered PENDING rental');
+  const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes(`Reserved for rental ${u.pending_agreement}`) && out.includes(`href="#/agreement/${u.pending_agreement}"`));
+  const h = u.reservations.find((x) => x.id.startsWith('agmt:'));
+  assert.ok(h, 'the implied RENTAL hold');
+  assert.ok(!out.includes(`data-release="${h.id}"`), 'an agmt: hold is never releasable');
+  assert.ok(out.includes('clears itself on delivery'));
+  assert.ok(out.includes('RENTAL'));
+  assert.ok(!out.includes('data-form="dispatch"'), 'Schedule delivery is hidden');
+  assert.ok(out.includes(`href="#/dispatch/m-dl-${u.pending_agreement}"`), 'it points at the derived run instead');
+  assert.ok(out.includes('data-form="reserve"'), 'Reserve-for-later still works (D28)');
+  // A unit with no pending rental keeps its Schedule delivery button.
+  const plain = snap.units.find((x) => x.pending_agreement == null && x.unit_state === 'AVAILABLE');
+  assert.ok((await renderRoute(`#/unit/${encodeURIComponent(plain.serial)}`)).includes('data-form="dispatch"'));
+  // And the Holds view books no truck for an agmt: hold.
+  const holds = await renderRoute('#/holds');
+  assert.ok(!holds.includes(`data-hold="${h.id}"`), 'no Schedule delivery on an agmt: hold');
+  await asFull('owner');
+});
+
+await check('D64: #/agreement/<id> renders int, string and PENDING ids; no Notes; not-found says so', async () => {
+  const snap = await asFull('owner');
+  for (const a of snap.agreements.filter((x) => x.agreement != null)) {
+    const out = await renderRoute(`#/agreement/${encodeURIComponent(String(a.agreement))}`);
+    assert.ok(out.includes(String(a.agreement)) && out.includes(a.customer || 'Unknown customer'), `${a.agreement} detail`);
+    assert.ok(!/undefined|NaN|\[object Object\]|Invalid Date/.test(out), `${a.agreement} leaked a placeholder`);
+    assert.ok(!out.includes('<h2>Notes'), 'agreements have no log[] yet — no timeline');
+  }
+  const dl = snap.agreements.find((x) => x.status === 'PENDING' && x.out_move === 'DELIVER');
+  const out = await renderRoute(`#/agreement/${dl.agreement}`);
+  assert.ok(out.includes(`id="d-${dl.delivery.id}"`), 'its delivery run shows under Moves');
+  assert.ok(out.includes('<h2>Documents'), 'the CONTRACT shows in Documents');
+  assert.ok(!out.includes('data-doc-pick'), 'no phone upload onto an agreement');
+  assert.ok((await renderRoute('#/agreement/R000000Z')).includes('Agreement not found.'));
 });
 
 console.log(`\n${passed} checks passed.`);

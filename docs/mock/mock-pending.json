@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-24T11:33:23.581Z",
+    "ts": "2026-09-24T13:33:11.733Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-24T13:53:23.581Z",
+    "ts": "2026-09-24T15:53:11.733Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-24T14:21:23.581Z",
+    "ts": "2026-09-24T16:21:11.733Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-24T14:27:23.581Z",
+    "ts": "2026-09-24T16:27:11.733Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-24T14:30:23.581Z",
+    "ts": "2026-09-24T16:30:11.733Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-24T14:31:23.581Z",
+    "ts": "2026-09-24T16:31:11.733Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-09-24T14:08:23.581Z",
+    "ts": "2026-09-24T16:08:11.733Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-09-24T14:24:23.581Z",
+    "ts": "2026-09-24T16:24:11.733Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -127,8 +127,22 @@
     }
   },
   {
+    "id": "evt-mock-10",
+    "ts": "2026-09-24T16:26:11.733Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "rental_update",
+    "serial": null,
+    "payload": {
+      "agreement": "R092526A",
+      "action": "OFF-RENT",
+      "date": "2026-09-24",
+      "note": "Plant called — done with it"
+    }
+  },
+  {
     "id": "evt-mock-9",
-    "ts": "2026-09-24T14:29:23.581Z",
+    "ts": "2026-09-24T16:29:11.733Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",

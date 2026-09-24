@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import {
   fmtDate, fmtDateFull, todayCentral, addBusinessDays,
-  fmtInstantCentral, hoursSince, fmtMoney,
+  fmtInstantCentral, hoursSince, fmtMoney, addDays, fmtDateDow,
 } from '../docs/dates.js';
 
 let passed = 0;
@@ -106,6 +106,21 @@ check('todayCentral shape', () => {
   assert.match(todayCentral(), /^\d{4}-\d{2}-\d{2}$/);
   // 2026-09-02T02:00:00Z is still Sep 1 in Central.
   assert.equal(todayCentral(new Date('2026-09-02T02:00:00Z')), '2026-09-01');
+});
+
+check('addDays is calendar days, across a month and a DST change, never parsed', () => {
+  assert.equal(addDays('2026-09-24', 1), '2026-09-25');
+  assert.equal(addDays('2026-09-30', 1), '2026-10-01');
+  assert.equal(addDays('2026-11-01', 1), '2026-11-02');   // US DST ends Nov 1 2026
+  assert.equal(addDays('2026-03-01', -1), '2026-02-28');
+  assert.equal(addDays('junk', 1), 'junk');
+});
+
+check('fmtDateDow names the truck day', () => {
+  assert.equal(fmtDateDow('2026-09-25'), 'Fri Sep 25');
+  assert.equal(fmtDateDow('2026-09-26'), 'Sat Sep 26');
+  assert.equal(fmtDateDow(''), '');
+  assert.equal(fmtDateDow('soon'), 'soon');
 });
 
 check('money', () => {

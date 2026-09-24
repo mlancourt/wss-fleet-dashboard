@@ -52,6 +52,24 @@ export function addBusinessDays(dateStr, n) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+/** Add N CALENDAR days (negative is fine) to a date-only string. Numeric parts
+ *  via Date.UTC, same as addBusinessDays — the string is never parsed. */
+export function addDays(dateStr, n) {
+  const m = DATE_RE.exec(dateStr);
+  if (!m) return dateStr;
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) + n * 86400000).toISOString().slice(0, 10);
+}
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** "2026-09-25" -> "Fri Sep 25" — for a truck day, where the weekday is the point.
+ *  Weekday from UTC numeric parts, so no timezone can move it. */
+export function fmtDateDow(s) {
+  if (!s) return '';
+  const m = DATE_RE.exec(s);
+  if (!m) return String(s);
+  return `${DOW[new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay()]} ${MON[+m[2] - 1]} ${+m[3]}`;
+}
+
 /** meta.generated_at IS a full UTC instant — parsing this one is correct. */
 export function fmtInstantCentral(iso) {
   const t = Date.parse(iso);

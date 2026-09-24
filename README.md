@@ -69,7 +69,8 @@ present and falls back to computing them from `units[]` on a schema-3 snapshot.
 **v1.6 (schema 3)** — the Billing tab is retired: its recurring-revenue block
 moved to the top of Rentals and its nav slot became **Dispatch**. The Service
 tab is real (a nine-stage kanban since D47, ticket detail, `+ New ticket`). Six
-new write actions brought the total to nine, and schema 5 took it to twelve.
+new write actions brought the total to nine, schema 5 took it to twelve,
+`doc_attach` (schema 6) to thirteen and `rental_update` (D64) to fourteen.
 `snapshot.billing` still arrives and is deliberately never rendered.
 
 **This repo is the presentation + transport layer only.** The vault + run engine
@@ -442,7 +443,7 @@ package.json            scripts; wrangler is the sole dev dependency
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
-  app.js                routing, views, write forms, the twelve write actions
+  app.js                routing, views, write forms, the fourteen write actions
   api.js                data source + writes + doc upload (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
   holds.js              hold-list logic (pure)
@@ -452,6 +453,7 @@ docs/                   GitHub Pages root — the app shell
   notes.js              log[] timeline rows, shared by tickets + leads (pure)
   attachments.js        docs[] rows + upload logic (kinds, names, pending rows) — schema 6 (pure)
   map.js                projection, pins, stacking, viewport, precision lines, directions URLs (pure)
+  rentals.js            rental lifecycle (D64): Pending / On rent / Off-rent groups, button matrix, due-back tone (pure)
   wi-map.svg            VENDORED Wisconsin map — vault-generated, never hand-edited
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
@@ -682,6 +684,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `dispatch_done` | any | optional | `dispatch_id`, `note` |
 | `dispatch_cancel` | **owner** | optional | `dispatch_id` |
 | `doc_attach` | any | not used | `record`, `doc_id`, `kind`, `name` — **schema 6 / S2.** The one action the Worker checks state for: 400 if `docmeta:<doc_id>` is not in the store, because an attach with no bytes behind it is a dangling pointer into *our* KV. |
+| `rental_update` | owner, sales | not used | `agreement` (opaque — int or string, kept in its type), `action` OUT·OFF-RENT·IN, `date` (optional `YYYY-MM-DD`), `note` (optional, ≤ 200) — **D64.** Whether the agreement may make that move today is the engine's call. |
 
 Enums the Worker checks membership of, and nothing more:
 `machine_owner` CUSTOMER·WSS · `stage` RECEIVED·CONTACTED·NEEDS-QUOTE·WAITING-ON-CUSTOMER·WAITING-ON-PARTS·READY-TO-SCHEDULE·SCHEDULED·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·

@@ -1755,3 +1755,80 @@ Render 116 (+2): two `render()` calls at the same hash never call
 `scrollTo` and leave `#view.scrollTop` alone. A hash change calls
 `scrollTo(0, 0)` exactly once and zeroes `#view.scrollTop`. `npm test` green.
 Money-gate 16 passed, 0 failed.
+
+---
+
+# D64 — rental lifecycle (2026-09-24)
+
+BUILD `2026-09-25-d64`, SW `wss-fleet-shell-v35`. **Worker first, then Pages.**
+Spec: Rental-Lifecycle-Site-Spec (vault). CLAUDE.md v3.4 → v3.5, copied verbatim
+from the vault's `Site-Repo-CLAUDE.md` (the diff was D64 hunks only).
+
+## Legacy tolerance, checked first
+
+Before any view changed, the mock gained every D64 key (PENDING / OFF-RENT
+rows, `next_due: null`, a `RENTAL-DELIVER` row, `agreement` on every dispatch
+row, `pending_agreement`, `agmt:` holds) and the **pre-D64 app** rendered it:
+all 116 render checks green, every route in all three variants and roles.
+Unknown sources get no glyph, a null `next_due` draws "—", and `canCancel` was
+already MANUAL-only. The one wart: an `agmt:` hold showed a Release button the
+engine would refuse. No crash anywhere.
+**Not checked against the live `/api/data`**: no crew token on this machine.
+`node tools/smoke-real.mjs <live snapshot>` does it (it now walks every
+`#/agreement/<id>` too).
+
+## Worker
+
+`rental_update` (the fourteenth action) for `sales` + `owner`. Payload:
+`agreement` (int → positive safe integer, string → the ref-id shape; kept in the
+type it arrived in), `action` ∈ OUT·OFF-RENT·IN, optional `date` (YYYY-MM-DD),
+optional `note` (≤ 200). Shape only — "not in the future" is the engine's and
+the picker's. m1-loop +15 checks (403 for service; 400 for bad or lower-case
+verb, a missing, traversal-shaped or fractional agreement, a malformed date, a
+201-char note; 201 for a string id and an int id; D46 undo). 187 passed.
+
+## Site
+
+- **`docs/rentals.js`** (new, pure): `statusOf` (legacy → ACTIVE), the three
+  groups and their orders, the role × status × move button matrix,
+  `dueBackTone` (red < today, amber ≤ tomorrow), `outDatePassed`,
+  `clampToToday`, the delivery and return row lookups, and `pendingForAgreement`,
+  which matches the id strictly (`4211` is not `"4211"`). `billsNow` gates D21
+  (`metrics.recurringRevenue`): ACTIVE + OFF-RENT + legacy, never PENDING.
+- **Rentals**: revenue, then **Pending** (soonest out first), **On rent**
+  (longest `days_on_rent` first; a legacy file keeps the old severity order),
+  **Off-rent** (oldest `off_rent` first). Empty Pending and Off-rent groups are
+  omitted, so a legacy file looks like it did before. Buttons: Went out,
+  Off-rent (filled maroon, with the in_move caption) and Back in shop (owner
+  override on PICKUP tiles, drawn as a ghost button with a caption). Each opens a
+  sheet with date (default = max = today) and note. A future date is refused
+  before the POST. Pending state is keyed on `payload.agreement`: the tile shows
+  ⏳ pending, the button is disabled, and Undo is offered.
+- **`#/agreement/<id>`**: full fields, the actions, the Moves (delivery and
+  return rows), and Documents (no add buttons: an R-number is not a record a
+  phone can attach to). There is **no Notes timeline**, because agreements
+  carry no `log[]` in schema 7.
+- **Dispatch**: RENTAL-DELIVER rows get a **Rental delivery** chip and an
+  R-number chip linking the agreement. Every row carrying `agreement` gets the
+  chip, RENTAL-RETURN included. No Cancel (unchanged: MANUAL only). The Done
+  copy reads "Marks R… on rent from today and closes lead L… as won." and drops
+  the clause when there is no lead. Map: same blue DELIVER pin.
+- **Unit page**: a "Reserved for rental R…" chip next to the state chip.
+  Schedule delivery is hidden and replaced by a link to the `m-dl-*` row (or to
+  the agreement for a customer pick-up). An `agmt:` hold renders as RENTAL with
+  no Release and "clears itself on delivery". The Holds view books no truck
+  for it either.
+
+Contract note honoured: `rental_update` goes with **no top-level serial** (the
+vault's v3.5 line: "absent on `rental_update` — it carries
+`payload.agreement`").
+
+## Verified
+
+`npm test` green (rentals 12 new, dates +2, render 127 = +11). The browser at
+375×812 on mock showed tiles, due-back tones, the sheet (today/max today), the
+RENTAL-DELIVER row with its Done copy, the unit chip and link, and agreement
+detail. A **real write through a local Worker as Kevin** stored
+`{agreement:"R092526A", action:"OFF-RENT", date, note}` with `serial: null`.
+The tile went ⏳ pending and disabled, and Undo removed the event (inbox back to
+0). Money-gate 16 passed, 0 failed. smoke-real on the Sep-4 real file: 19 passed.

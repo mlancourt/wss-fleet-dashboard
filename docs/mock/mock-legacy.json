@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-24T14:33:23.575Z",
+    "generated_at": "2026-09-24T16:33:11.729Z",
     "run_id": "mock-legacy-2026-09-24",
     "fleet_totals": {
       "units": 39,
@@ -1760,11 +1760,11 @@
       "cycle": "28D",
       "cycle_rate": 1500,
       "cycles_billed": 13,
-      "cycles_max": null,
+      "cycles_max": 13,
       "last_invoiced_period_start": "2026-08-27",
       "last_invoiced_period_end": "2026-09-23",
       "last_invoice": "R4106-13",
-      "next_due": "2026-10-21",
+      "next_due": null,
       "job_site": "4400 Innovation Dr, Madison WI",
       "customer_po": null,
       "alerts": [],
@@ -1849,11 +1849,11 @@
       "cycle": "28D",
       "cycle_rate": 2300,
       "cycles_billed": 3,
-      "cycles_max": null,
+      "cycles_max": 3,
       "last_invoiced_period_start": "2026-08-15",
       "last_invoiced_period_end": "2026-09-11",
       "last_invoice": "R4121-3",
-      "next_due": "2026-10-09",
+      "next_due": null,
       "job_site": "W229 N1433 Westwood Dr, Beloit WI",
       "customer_po": "PO-14260",
       "alerts": [],
@@ -2411,7 +2411,7 @@
       "unit_desc": "Meridian R-440 (customer owned)",
       "stage": "DIAGNOSED",
       "assigned": "Zac",
-      "opened": "2026-09-11",
+      "opened": "2026-09-09",
       "quote": null,
       "machinio_ref": null
     },
@@ -2422,7 +2422,7 @@
       "unit_desc": "Halstead T-500 (customer owned)",
       "stage": "AWAITING-PARTS",
       "assigned": "Zac",
-      "opened": "2026-08-29",
+      "opened": "2026-09-02",
       "quote": null,
       "machinio_ref": null
     },
@@ -2433,7 +2433,7 @@
       "unit_desc": "Meridian BX-40 2026",
       "stage": "IN-PROGRESS",
       "assigned": "Josh",
-      "opened": "2026-08-23",
+      "opened": "2026-08-24",
       "quote": null,
       "machinio_ref": null
     },
@@ -2444,7 +2444,7 @@
       "unit_desc": "Nordvale SC-1800 (customer owned)",
       "stage": "READY-TO-INVOICE",
       "assigned": "Josh",
-      "opened": "2026-08-24",
+      "opened": "2026-08-18",
       "quote": null,
       "machinio_ref": null
     },
@@ -2455,7 +2455,7 @@
       "unit_desc": "Ironline BX-27 (customer owned)",
       "stage": "DONE",
       "assigned": "Josh",
-      "opened": "2026-08-11",
+      "opened": "2026-08-10",
       "quote": null,
       "machinio_ref": null
     },
@@ -2466,7 +2466,7 @@
       "unit_desc": "Cascade Clean R-880 (customer owned)",
       "stage": "INTAKE",
       "assigned": "Zac",
-      "opened": "2026-07-29",
+      "opened": "2026-07-24",
       "quote": null,
       "machinio_ref": null
     },
@@ -2477,7 +2477,7 @@
       "unit_desc": "Halstead SW-900 (customer owned)",
       "stage": "DIAGNOSED",
       "assigned": "Josh",
-      "opened": "2026-07-13",
+      "opened": "2026-07-09",
       "quote": null,
       "machinio_ref": null
     },
@@ -2488,7 +2488,7 @@
       "unit_desc": "Meridian T-500 (customer owned)",
       "stage": "AWAITING-PARTS",
       "assigned": "Zac",
-      "opened": "2026-06-22",
+      "opened": "2026-06-27",
       "quote": null,
       "machinio_ref": null
     }
@@ -2503,57 +2503,57 @@
         "due": "2026-09-25"
       },
       {
-        "agreement": 4106,
-        "customer": "Cedar Ridge Manufacturing",
-        "serial": "900128",
-        "amount": 1500,
-        "due": "2026-09-26"
-      },
-      {
         "agreement": 4109,
         "customer": "Kestrel Print",
         "serial": "900149",
         "amount": 1300,
-        "due": "2026-09-27"
+        "due": "2026-09-26"
       },
       {
         "agreement": 4118,
         "customer": "Redtail Automotive",
         "serial": "900184",
         "amount": 2175,
+        "due": "2026-09-27"
+      },
+      {
+        "agreement": 4124,
+        "customer": "Evergreen Distribution",
+        "serial": "900219",
+        "amount": 2350,
         "due": "2026-09-28"
       },
       {
-        "agreement": 4121,
-        "customer": "Granite Peak Warehouse",
-        "serial": "900212",
-        "amount": 2300,
+        "agreement": "R092526A",
+        "customer": "Pinnacle Cold Storage",
+        "serial": "900240",
+        "amount": 2125,
         "due": "2026-09-29"
       }
     ],
     "created_last_run": [
-      {
-        "invoice": "R4124-15",
-        "agreement": 4124,
-        "customer": "Evergreen Distribution",
-        "amount": 2350,
-        "period_start": "2026-09-05",
-        "period_end": "2026-09-24"
-      },
-      {
-        "invoice": "R092526A-2",
-        "agreement": "R092526A",
-        "customer": "Pinnacle Cold Storage",
-        "amount": 2125,
-        "period_start": "2026-09-10",
-        "period_end": "2026-09-24"
-      },
       {
         "invoice": "R4130-6",
         "agreement": 4130,
         "customer": "Northgate Fulfillment",
         "amount": 1325,
         "period_start": "2026-09-13",
+        "period_end": "2026-09-24"
+      },
+      {
+        "invoice": "R4139-5",
+        "agreement": 4139,
+        "customer": "Cedar Ridge Manufacturing",
+        "amount": 1400,
+        "period_start": "2026-09-06",
+        "period_end": "2026-09-24"
+      },
+      {
+        "invoice": "R4142-6",
+        "agreement": 4142,
+        "customer": "Granite Peak Warehouse",
+        "amount": 625,
+        "period_start": "2026-09-11",
         "period_end": "2026-09-24"
       }
     ]

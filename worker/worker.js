@@ -54,6 +54,10 @@ const ACTION_ROLES = {
   // person who has the photo. The binary never rides in the event — the file
   // goes to POST /api/doc first and this carries only its id.
   doc_attach: ALL_ROLES,
+  // D64 (2026-09-24) — the FOURTEENTH action. One action, three verbs on the
+  // agreement: OUT (a customer drove it away), OFF-RENT (stop the clock) and IN
+  // (back in the shop). Kevin's and Matt's: a rental is a sales record.
+  rental_update: new Set(['owner', 'sales']),
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -86,6 +90,9 @@ const LEAD_INTERESTS = new Set(['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'P
 const LOST_REASONS = new Set(['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER']);
 const LEAD_OUTCOMES = new Set(['LOST', 'DEAD']);        // WON is reached by moving to INVOICED, not by closing
 const ASSIGNEES = new Set(['Kevin', 'Matt']);
+// D64 — the three rental verbs. Membership only: whether THIS agreement may go
+// OFF-RENT today (is it ACTIVE? is the date after it went out?) is the vault's.
+const RENTAL_VERBS = new Set(['OUT', 'OFF-RENT', 'IN']);
 // The one key a `service` token may put in a lead_update (§5).
 const SERVICE_LEAD_KEYS = new Set(['lead', 'note']);
 const MAX_LEAD_VALUE = 10000000;                        // a typed-in figure, not a computed one — catch a fat finger
@@ -641,6 +648,28 @@ function cleanPayload(action, p, role) {
       outcome: oneOf(obj.outcome, LEAD_OUTCOMES, 'outcome'),
       reason: optOneOf(obj.reason, LOST_REASONS, 'reason'),
       note: optStr(obj.note, 1000, 'note'),
+    };
+  }
+
+  if (action === 'rental_update') {
+    // `agreement` is OPAQUE (D59): a legacy Integra int (4211) or a WSS-paper
+    // string ("R092526A"). Kept in the type it arrived in — coercing either way
+    // would hand the engine an id that matches nothing. `date` is optional (the
+    // engine defaults it to today); "not in the future" is business state, and
+    // the site's picker caps it — this file checks the shape only.
+    const ag = obj.agreement;
+    let agreement;
+    if (typeof ag === 'number') {
+      if (!Number.isSafeInteger(ag) || ag <= 0) throw httpError(400, 'bad agreement');
+      agreement = ag;
+    } else {
+      agreement = refId(ag, 'agreement');
+    }
+    return {
+      agreement,
+      action: oneOf(obj.action, RENTAL_VERBS, 'action'),
+      date: optDate(obj.date, 'date'),
+      note: optStr(obj.note, 200, 'note'),
     };
   }
 

@@ -1065,3 +1065,20 @@ table.ins td.n { color: var(--slate-700); }
 }
 .offmap .offgrp + .offgrp { margin-top: 10px; }
 .offhead { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); margin: 8px 0 2px; }
+
+/* ------------------------------------------------ rental lifecycle (D64) */
+
+/* The R-number and the lead id are ids, not labels: no uppercase, no tracking,
+   and they are links (to the agreement / the lead) that must not underline. */
+a.chip { text-decoration: none; }
+.chip.agmt    { background: var(--slate-100); color: var(--slate-800); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; }
+.chip.leadref { background: var(--ok-bg); color: var(--ok); text-transform: none; letter-spacing: 0; }
+.rtile .rline { font-size: 14px; color: var(--slate-700); margin-top: 8px; }
+.rtile .rline .muted, .rline .muted { color: var(--slate-400); }
+/* Due back: loud by design (§3) — bold always, amber the day before, red once it
+   has passed. The tile nags; nobody auto-ends a rental. */
+.due        { font-weight: 750; font-size: 15px; color: var(--slate-900); margin-top: 8px; }
+.due.amber  { color: var(--warn); }
+.due.red    { color: var(--bad); }
+.tile-docs  { margin-top: 8px; border-top: 1px solid var(--slate-100); }
+.rtile > .drow-btns .btn { width: 100%; }

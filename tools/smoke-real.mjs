@@ -123,7 +123,10 @@ for (const role of ['owner', 'sales', 'service']) {
     .concat((snap.units || []).map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
     .concat((snap.service_queue || []).map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
     .concat((snap.dispatch || []).map((r) => `#/dispatch/${encodeURIComponent(r.id)}`))
-    .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`));
+    .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
+    // D64: every agreement with an id has a page — int or WSS-paper string.
+    .concat((snap.agreements || []).filter((a) => a.agreement != null)
+      .map((a) => `#/agreement/${encodeURIComponent(String(a.agreement))}`));
 
   let bad = null;
   for (const hash of routes) {

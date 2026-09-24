@@ -24,7 +24,7 @@ export const MACHINE_OWNERS = ['CUSTOMER', 'WSS'];
 export const KINDS = ['PICKUP', 'DELIVER'];
 export const RIGS = ['KEVIN-LIFTGATE', 'JOSH-LIFTGATE', 'TRAILER-6000', 'TRAILER-3000'];
 export const DRIVERS = ['Matt', 'Kevin', 'Josh', 'Zac'];
-export const SOURCES = ['RENTAL-RETURN', 'SERVICE-IN', 'SERVICE-OUT', 'MANUAL'];
+export const SOURCES = ['RENTAL-DELIVER', 'RENTAL-RETURN', 'SERVICE-IN', 'SERVICE-OUT', 'MANUAL'];   // +RENTAL-DELIVER, D64
 export const DISPATCH_STATUSES = ['OPEN', 'SCHEDULED', 'DONE'];
 
 /* Shop-floor wording. The enum is the wire value; these are what a glove reads. */
@@ -37,7 +37,7 @@ export const MOVE_LABEL = {
   NONE: 'nothing to move', PICKUP: 'we pick it up', 'CUSTOMER-DROP': "they're dropping it off",
   DELIVER: 'we deliver it back', 'CUSTOMER-PICKUP': "they'll pick it up",
 };
-export const SOURCE_GLYPH = { 'RENTAL-RETURN': '📦', 'SERVICE-IN': '🔧', 'SERVICE-OUT': '🔧', MANUAL: '✏️' };
+export const SOURCE_GLYPH = { 'RENTAL-DELIVER': '📦', 'RENTAL-RETURN': '📦', 'SERVICE-IN': '🔧', 'SERVICE-OUT': '🔧', MANUAL: '✏️' };
 
 /* --------------------------------------------------------------- tickets -- */
 

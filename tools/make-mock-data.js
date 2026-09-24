@@ -525,6 +525,86 @@ function build({ withServiceQueue }) {
     { purpose: 'DEMO — customer site', customer: 'Cedar Ridge Foods', held_by: 'Kevin' });
   // everything else: zero holds
 
+  // ------------------------------------------------ rental lifecycle (D64)
+  // The agreement is the spine: PENDING -> ACTIVE -> OFF-RENT -> (ENDED, never
+  // shipped). Every row carries the new keys; the legacy rows are ACTIVE with
+  // the legacy moves (DELIVER out, PICKUP in). Ages are engine-computed in real
+  // life — here they are written directly, never derived by the page.
+  for (const a of agreements) {
+    const days = a.agreement == null ? null : Math.round(10 + rand() * 300);
+    Object.assign(a, {
+      status: 'ACTIVE', lead: null,
+      out_date: null, out_move: 'DELIVER', in_date: null, in_move: 'PICKUP',
+      on_rent_since: days == null ? null : d(-days), days_on_rent: days,
+      off_rent: null, delivery: null,
+    });
+  }
+  const d64 = { deliver: null };
+  if (withServiceQueue) {
+    const released = new Set(pickups.map((p) => String(p.agreement)));
+    const plain = agreements.filter((a) => a.agreement != null && !released.has(String(a.agreement)) && a.alerts.length === 0);
+    // Three ACTIVE rows with a planned return: overdue, tomorrow, and none.
+    if (plain[0]) plain[0].in_date = d(-1);
+    if (plain[1]) { plain[1].in_date = d(1); plain[1].on_rent_since = d(0); plain[1].days_on_rent = 0; }
+    // OFF-RENT / CUSTOMER-RETURN — the clock is stopped, the machine is still
+    // at the customer's until they drive it back. D7: the cycle it was in bills
+    // in full, so cycles_max is capped at what was billed.
+    const custReturn = plain[3];
+    if (custReturn) Object.assign(custReturn, { status: 'OFF-RENT', in_move: 'CUSTOMER-RETURN', off_rent: d(-2),
+      cycles_max: custReturn.cycles_billed, next_due: null });
+    // OFF-RENT / PICKUP — the released unit whose m-pu row is already claimed.
+    const offPickup = pickups[1] && agreements.find((a) => a.agreement === pickups[1].agreement);
+    if (offPickup) Object.assign(offPickup, { status: 'OFF-RENT', off_rent: d(-1),
+      cycles_max: offPickup.cycles_billed, next_due: null });
+
+    // Two PENDING rentals on units at home. No invoice, no clock, no next_due.
+    const pending = (u, extra) => {
+      const a = {
+        agreement: extra.agreement, customer: extra.customer, serial: u.serial,
+        cycle: extra.cycle, cycle_rate: extra.cycle_rate, cycles_billed: 0, cycles_max: extra.cycle === 'ONE-SHOT' ? 1 : null,
+        last_invoiced_period_start: null, last_invoiced_period_end: null, last_invoice: null, next_due: null,
+        job_site: extra.job_site, customer_po: extra.customer_po || null, alerts: [],
+        docs: extra.docs || [],
+        status: 'PENDING', lead: extra.lead || null,
+        out_date: extra.out_date, out_move: extra.out_move, in_date: extra.in_date, in_move: extra.in_move,
+        on_rent_since: null, days_on_rent: null, off_rent: null, delivery: extra.delivery || null,
+      };
+      agreements.push(a);
+      u.pending_agreement = a.agreement;
+      // The implied RENTAL hold. Not releasable — the engine refuses an agmt: id.
+      hold(u, 0, 0, { id: `agmt:${a.agreement}`, held_by: 'agreement', customer: a.customer, purpose: 'RENTAL',
+        start: a.out_date, end: a.in_date || a.out_date, created: null });
+      const h = u.reservations[u.reservations.length - 1];
+      h.status = status(h);
+      if (h.status === 'current' && u.unit_state === 'AVAILABLE') u.unit_state = 'RESERVED';   // D28
+      return a;
+    };
+    const dlUnit = availReady[4];
+    const puUnit = availReady[5];
+    if (dlUnit) {
+      const id = 'R092826A';
+      d64.deliver = pending(dlUnit, {
+        agreement: id, customer: 'Ironwood Packaging', lead: 'L1008',
+        cycle: '28D', cycle_rate: dlUnit.rate_card.monthly,
+        job_site: '2200 S Kinnickinnic Ave, Milwaukee WI', customer_po: 'PO-77120',
+        out_date: d(1), out_move: 'DELIVER', in_date: d(29), in_move: 'PICKUP',
+        delivery: { id: `m-dl-${id}`, driver: 'Kevin', rig: 'TRAILER-6000', date: d(1), status: 'SCHEDULED' },
+        docs: [doc('7a0d2c94e1b3f5a8', `2026-09-28-RentalAgreement-${id}.pdf`, 'CONTRACT', 88213, -1)],
+      });
+      d64.deliverUnit = dlUnit;
+    }
+    if (puUnit) {
+      // Out date YESTERDAY and still PENDING: the tile has to say so, in red.
+      pending(puUnit, {
+        agreement: 'R092326B', customer: 'Harbor Line Logistics',
+        cycle: 'ONE-SHOT', cycle_rate: puUnit.rate_card.weekly || puUnit.rate_card.monthly,
+        job_site: 'Harbor Line DC, Kenosha WI',
+        out_date: d(-1), out_move: 'CUSTOMER-PICKUP', in_date: d(6), in_move: 'CUSTOMER-RETURN',
+      });
+    }
+  }
+  for (const u of units) if (!('pending_agreement' in u)) u.pending_agreement = null;
+
   // Schema 3: the list is the ONLY source. No `reservation` singular is emitted.
   for (const u of units) u.reservations.sort((a, b) => a.start.localeCompare(b.start));
   const rollupRow = (u, h) => ({ serial: u.serial, model: `${u.brand} ${u.model}`, category: u.category,
@@ -814,6 +894,9 @@ function build({ withServiceQueue }) {
         rig: m.rig != null ? m.rig : null,
         status: m.status, note: m.note != null ? m.note : null,
         done: m.done != null ? m.done : null,
+        // D64: every row carries it — the R-number on RENTAL-DELIVER and
+        // RENTAL-RETURN rows, null on the rest. Opaque (D59).
+        agreement: m.agreement != null ? m.agreement : null,
         geo: geoFor(m.address),          // schema 7 (D52), from `address`
       });
     };
@@ -821,17 +904,27 @@ function build({ withServiceQueue }) {
     // RENTAL-RETURN, OPEN — the first released unit, straight off pickups[].
     if (pickupUnits[0]) {
       const p = pickups[0];
-      move({ id: `m-pu-${p.serial}`, kind: 'PICKUP', source: 'RENTAL-RETURN', serial: p.serial,
+      move({ id: `m-pu-${p.serial}`, kind: 'PICKUP', source: 'RENTAL-RETURN', serial: p.serial, agreement: p.agreement,
         what: `${p.model} #${p.serial} off-rent`, customer: p.customer, address: p.job_site,
         date: null, billed_through: p.billed_through, status: 'OPEN', note: p.note });
     }
     // RENTAL-RETURN, SCHEDULED — the second, already claimed.
     if (pickupUnits[1]) {
       const p = pickups[1];
-      move({ id: `m-pu-${p.serial}`, kind: 'PICKUP', source: 'RENTAL-RETURN', serial: p.serial,
+      move({ id: `m-pu-${p.serial}`, kind: 'PICKUP', source: 'RENTAL-RETURN', serial: p.serial, agreement: p.agreement,
         what: `${p.model} #${p.serial} off-rent`, customer: p.customer, address: p.job_site,
         date: d(1), billed_through: p.billed_through, driver: 'Josh', rig: 'JOSH-LIFTGATE',
         status: 'SCHEDULED', note: p.note });
+    }
+    // RENTAL-DELIVER, SCHEDULED (D64) — derived from the PENDING agreement,
+    // claimed by Kevin. No Cancel: it is not MANUAL. Done on it IS the OUT.
+    if (d64.deliver) {
+      const a = d64.deliver;
+      const u = d64.deliverUnit;
+      move({ id: a.delivery.id, kind: 'DELIVER', source: 'RENTAL-DELIVER', serial: a.serial, agreement: a.agreement,
+        what: `${u.brand} ${u.model} #${u.serial}`, customer: a.customer, address: a.job_site,
+        date: a.delivery.date, driver: a.delivery.driver, rig: a.delivery.rig, status: 'SCHEDULED',
+        note: a.customer_po ? `PO ${a.customer_po}` : null });
     }
     // pickups[2] is deliberately NOT on the board: the engine hasn't spawned its
     // row yet. The Dispatch view has to say so rather than let it go quiet.
@@ -1440,6 +1533,26 @@ function downgradeToSchema2(s3, ledger) {
   }
   snap.meta.fleet_totals = totals;
 
+  // D64 postdates schema 2 by five versions: no lifecycle keys, no PENDING rows
+  // (they never shipped), no implied agmt: holds, no pending_agreement. Every
+  // row that remains is read as ACTIVE, which is exactly what the page must do.
+  const D64_KEYS = ['status', 'lead', 'out_date', 'out_move', 'in_date', 'in_move', 'on_rent_since', 'days_on_rent', 'off_rent', 'delivery'];
+  snap.agreements = snap.agreements.filter((a) => a.status !== 'PENDING');
+  for (const a of snap.agreements) for (const k of D64_KEYS) delete a[k];
+  const isAgmt = (h) => String(h.id || '').startsWith('agmt:');
+  for (const u of snap.units) {
+    delete u.pending_agreement;
+    const had = u.reservations.length;
+    u.reservations = u.reservations.filter((h) => !isAgmt(h));
+    if (had !== u.reservations.length && u.unit_state === 'RESERVED' && !u.reservations.some((h) => h.status === 'current')) {
+      u.unit_state = 'AVAILABLE';
+    }
+  }
+  if (snap.reservations) {
+    snap.reservations.upcoming = snap.reservations.upcoming.filter((h) => !isAgmt(h));
+    snap.reservations.expired = snap.reservations.expired.filter((h) => !isAgmt(h));
+  }
+
   for (const u of snap.units) {
     const cur = u.reservations.find((h) => h.status === 'current') || u.reservations.find((h) => h.status === 'future');
     u.reservation = cur
@@ -1590,6 +1703,15 @@ const pending = [
     actor: 'Kevin', role: 'sales',
     action: 'lead_update', serial: null,
     payload: { lead: 'L1005', stage: 'DEMO-SCHEDULED', demo_date: d(2), demo_serial: '900107', note: 'They asked to see it run' },
+  },
+  // D64: an Off-rent tap on a rental still ACTIVE on the board — keyed on
+  // payload.agreement, no top-level serial. Kevin's, so the sales mock can undo it.
+  {
+    id: 'evt-mock-10',
+    ts: ago(7),
+    actor: 'Kevin', role: 'sales',
+    action: 'rental_update', serial: null,
+    payload: { agreement: WSS_PAPER_AGREEMENT, action: 'OFF-RENT', date: d(0), note: 'Plant called — done with it' },
   },
   // A close proposal on a lead that is still OPEN on the board.
   {

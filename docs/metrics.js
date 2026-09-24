@@ -1,6 +1,8 @@
 /* Client-computed fleet metrics. Pure — no DOM — so tools/selftest-metrics.mjs
  * can pin the band edges. */
 
+import { billsNow } from './rentals.js';
+
 /**
  * Fleet utilization (D19 by units, D44 by dollars) — one rentable population,
  * measured two ways.
@@ -142,7 +144,8 @@ export function statusBoard(units) {
 }
 
 /**
- * Recurring revenue (D21): sum of cycle_rate over agreements with cycle "28D"
+ * Recurring revenue (D21): sum of cycle_rate over ACTIVE + OFF-RENT agreements (D64 —
+ * never PENDING; a legacy row with no status counts) with cycle "28D"
  * that are still running — cycles_max null, or cycles_billed < cycles_max.
  * ONE-SHOT rows never count (the agreement:null orphan is ONE-SHOT). A 28D row
  * with next_due null (missing seed) still counts: the contracted rate is
@@ -151,7 +154,7 @@ export function statusBoard(units) {
  */
 export function recurringRevenue(agreements) {
   const rows = (agreements || []).filter((a) =>
-    a && a.cycle === '28D' && (a.cycles_max == null || Number(a.cycles_billed) < Number(a.cycles_max)));
+    billsNow(a) && a.cycle === '28D' && (a.cycles_max == null || Number(a.cycles_billed) < Number(a.cycles_max)));
   const total = rows.reduce((sum, a) => sum + (typeof a.cycle_rate === 'number' ? a.cycle_rate : 0), 0);
   return { total, count: rows.length, perMonth: Math.round((total * 365) / 28 / 12) };
 }

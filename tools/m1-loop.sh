@@ -8,8 +8,8 @@
 #   -> PUT/GET/DELETE a document (schema 6) with the hash check that names it
 #   -> POST a document from a "phone" + the doc_attach event that points at it (S2)
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all
-# thirteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
-# three schema-5 ones, doc_attach (schema 6 / S2), and the
+# fourteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
+# three schema-5 ones, doc_attach (schema 6 / S2), rental_update (D64), and the
 # schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
@@ -371,6 +371,44 @@ expect "all eight lead events drained -> deleted 8" 200 "b.deleted===8" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
   -d "{\"ids\":[\"$L5A\",\"$L5B\",\"$L5C\",\"$L5D\",\"$L5E\",\"$L5F\",\"$L5G\",\"$L5H\"]}"
 expect "pending back to baseline after the leads" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
+echo "-- crew: rental_update (D64) — the fourteenth action"
+RU() { echo "{\"action\":\"rental_update\",\"payload\":$1}"; }
+expect "service may not touch a rental -> 403" 403 "" -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":"R092526A","action":"OFF-RENT"}')"
+expect "a bad verb -> 400"                 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":"R092526A","action":"ENDED"}')"
+expect "a lower-case verb -> 400"          400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":"R092526A","action":"out"}')"
+expect "no agreement -> 400"               400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"action":"OUT"}')"
+expect "a traversal-shaped agreement -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":"../evt","action":"OUT"}')"
+expect "a fractional agreement -> 400"     400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":4211.5,"action":"OUT"}')"
+expect "a malformed date -> 400"           400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":"R092526A","action":"OFF-RENT","date":"9/26/2026"}')"
+LONG_NOTE=$(printf 'a%.0s' $(seq 1 201))
+expect "a 201-char note -> 400"            400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"rental_update\",\"payload\":{\"agreement\":\"R092526A\",\"action\":\"OFF-RENT\",\"note\":\"$LONG_NOTE\"}}"
+expect "sales takes a WSS-paper rental off-rent -> 201, id kept a string" 201 \
+  "b.action==='rental_update' && b.serial===null && b.payload.agreement==='R092526A' && b.payload.action==='OFF-RENT' && b.payload.date==='2026-09-26' && b.payload.note==='Called at 8'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":"R092526A","action":"OFF-RENT","date":"2026-09-26","note":" Called at 8 "}')"
+RU1=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "owner marks a legacy int back in shop -> 201, id kept an int" 201 \
+  "b.payload.agreement===4211 && b.payload.action==='IN' && b.payload.date===null && b.payload.note===null" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":4211,"action":"IN"}')"
+RU2=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "sales marks a customer pick-up OUT -> 201" 201 "b.payload.action==='OUT'" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d "$(RU '{"agreement":"R092326B","action":"OUT","date":"2026-09-24"}')"
+RU3=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "the undo valve applies (D46) -> 200" 200 "" -X DELETE "$WORKER/api/event/$RU3" -H "$(auth $T_SALES)"
+expect "both remaining rental events drained -> deleted 2" 200 "b.deleted===2" \
+  -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"$RU1\",\"$RU2\"]}"
+expect "pending back to baseline after the rentals" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- the money gate (Leads spec §6, L4) — NOT optional"
 # The literal grep the spec names. It runs on the RAW bytes, before any JSON

@@ -18,7 +18,7 @@
 
 import {
   fmtDate, fmtDateFull, fmtRange, todayCentral, addBusinessDays,
-  fmtInstantCentral, hoursSince, fmtMoney, isDateStr,
+  fmtInstantCentral, hoursSince, fmtMoney, isDateStr, fmtDateDow,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
 import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase } from './api.js';
@@ -29,6 +29,11 @@ import {
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
+import {
+  statusOf, outMove, inMove, rentalGroups, rentalActions, dueBackTone, outDatePassed, clampToToday,
+  deliveryRow, returnRow, agreementForRow, pendingForAgreement, agreementHref, agreementByRoute,
+  STATUS_LABEL as RENTAL_STATUS_LABEL,
+} from './rentals.js';
 import {
   projector, boxToViewBox, viewBoxStr, clampViewBox, zoomAt,
   collect, stack, stackKind, groupOff, geoMeta, hasGeo, precisionNote,
@@ -51,7 +56,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-24-d63';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-25-d64';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -407,10 +412,11 @@ const readyLabel = (r) => READY_LABEL[r] || r;
 
 const chip = (text, cls) => html`<span class="chip ${cls || ''}">${text}</span>`;
 
-function unitChips(u) {
+function unitChips(u, opts = {}) {
   const p = pendingFor(u.serial);
   return html`<div class="chips">
     ${raw(chip(u.unit_state, STATE_CLASS[u.unit_state]))}
+    ${opts.rental && u.pending_agreement != null ? raw(html`<a class="chip hold" href="${agreementHref(u.pending_agreement)}">Reserved for rental ${u.pending_agreement}</a>`) : ''}
     ${showsReadiness(u) || u.readiness === 'NEEDS-PICKUP' ? raw(chip(readyLabel(u.readiness), READY_CLASS[u.readiness])) : ''}
     ${showsAge(u) ? raw(chip(ageText(u.readiness_age_days), `age${ageTone(u.readiness_age_days)}`)) : ''}
     ${u.service_ticket ? raw(chip(`🔧 ${u.service_ticket}`, 'wrench')) : ''}
@@ -632,7 +638,7 @@ function viewUnit(serial) {
     <div class="detail-head">
       <div class="h">${unitName(u)}</div>
       <div class="s"><span class="unit-serial">${unitIds(u)}</span> · ${u.category || '—'}</div>
-      ${raw(unitChips(u))}
+      ${raw(unitChips(u, { rental: true }))}
     </div>
     ${raw(pendingBlock)}
     ${u.readiness_note ? raw(html`<div class="note"><strong>Readiness note</strong>${u.readiness_note}</div>`) : ''}
@@ -680,7 +686,7 @@ function viewUnit(serial) {
     ${ag ? raw(html`
       <h2>Agreement</h2>
       <div class="card"><dl class="kv">
-        ${raw(kvRow('Agreement', ag.agreement))}
+        ${raw(kvRow('Agreement', raw(html`<a href="${agreementHref(ag.agreement)}">${ag.agreement}</a>`)))}
         ${raw(kvRow('Customer', ag.customer))}
         ${raw(kvRow('Cycle', ag.cycle))}
         ${raw(kvRow('Cycle rate', fmtMoney(ag.cycle_rate), 'num'))}
@@ -735,6 +741,7 @@ function holdsSection(u) {
     // the engine sets `demo.hold_id`, and matching on customer + date instead
     // would eventually put the wrong lead on somebody's unit page.
     const lead = isDemoHold(h) ? leadForHold(leads(), h.id) : null;
+    if (isAgmtHold(h)) return agmtHoldRow(h);
     return html`
       <div class="hrow hold-${holdStatus(h, todayCentral())}">
         <div class="hold-top">
@@ -753,6 +760,28 @@ function holdsSection(u) {
     <h2>Holds</h2>
     <div class="card holds">
       ${holds.length ? raw(rows.join('')) : raw('<div class="hold-empty">No holds.</div>')}
+    </div>`;
+}
+
+/**
+ * D64: the implied RENTAL hold a PENDING agreement puts on its unit. It is not
+ * a hold anybody placed, so nobody releases it — the engine refuses an agmt:
+ * id — and it goes away on its own when the machine goes out.
+ */
+const isAgmtHold = (h) => !!h && String(h.id || '').startsWith('agmt:');
+const agmtIdOf = (h) => String(h.id).slice('agmt:'.length);
+function agmtHoldRow(h) {
+  const a = agreementByRoute(agreements(), agmtIdOf(h));
+  const id = a ? a.agreement : agmtIdOf(h);
+  return html`
+    <div class="hrow hold-${holdStatus(h, todayCentral())}">
+      <div class="hold-top">
+        <span class="hold-win">${fmtRange(h.start, h.end)}</span>
+        ${raw(holdPill(h))}
+        ${raw(chip('rental', 'rent'))}
+      </div>
+      <div class="hold-who">${h.customer || '—'} · RENTAL · <a href="${agreementHref(id)}">${id}</a></div>
+      <div class="hold-meta">${a && outMove(a) === 'CUSTOMER-PICKUP' ? 'clears itself when it goes out' : 'clears itself on delivery'}</div>
     </div>`;
 }
 
@@ -775,10 +804,21 @@ function actionsFor(u) {
     <div class="actions">
       ${canReserve ? raw(html`<button class="btn" type="button" data-form="reserve">${u.unit_state === 'AVAILABLE' ? 'Reserve this unit' : 'Reserve for later'}</button>`) : ''}
       ${canReadiness ? raw('<button class="btn ghost" type="button" data-form="readiness">Set readiness</button>') : ''}
-      ${canMove ? raw('<button class="btn ghost" type="button" data-form="dispatch">Schedule delivery</button>') : ''}
+      ${canMove && u.pending_agreement == null ? raw('<button class="btn ghost" type="button" data-form="dispatch">Schedule delivery</button>') : ''}
     </div>
+    ${u.pending_agreement != null ? raw(rentalDeliveryLink(u)) : ''}
     <div id="write-form"></div>
     <div id="write-msg"></div>`;
+}
+
+/** D64: a unit promised to a PENDING rental gets its delivery from the engine,
+ *  not from a hand-added run — so the page points at that run instead. */
+function rentalDeliveryLink(u) {
+  const a = agreementByRoute(agreements(), String(u.pending_agreement));
+  const row = a ? deliveryRow(a, dispatchRows()) : null;
+  if (row) return html`<div class="info">Delivery for ${u.pending_agreement} is <a href="#/dispatch/${raw(enc(row.id))}">on the Dispatch board</a>.</div>`;
+  if (a && outMove(a) === 'CUSTOMER-PICKUP') return html`<div class="info">The customer picks this one up — <a href="${agreementHref(a.agreement)}">rental ${a.agreement}</a>.</div>`;
+  return html`<div class="info">Delivery for <a href="${agreementHref(u.pending_agreement)}">${u.pending_agreement}</a> lands on the Dispatch board at the next run.</div>`;
 }
 
 function reserveForm(u) {
@@ -838,45 +878,281 @@ function readinessForm(u) {
 
 /* ---- rentals / billing / service ---- */
 
+/**
+ * The Rentals tab (D64). The agreement is the spine: every tile is one
+ * agreement, grouped by its lifecycle status — Pending, On rent, Off-rent —
+ * and ENDED rows never ship, so a finished rental simply leaves the tab.
+ * D21's revenue block still leads (it sums ACTIVE + OFF-RENT only).
+ *
+ * A pre-D64 snapshot has no `status`: every row reads as ACTIVE and lands
+ * under On rent, and the only button it can offer is Off-rent.
+ */
 function viewRentals() {
   const rows = agreements();
-  // D21 headline, moved here from the retired Billing view (D39). It leads the
-  // page: the first thing about rentals is what they are worth per cycle.
-  if (!rows.length) return html`<h1>Rentals</h1>${raw(revenueCard())}${raw(emptyState('No agreements in this snapshot.'))}`;
+  const head = html`<h1>Rentals</h1>${raw(msgBlock())}${raw(revenueCard())}`;
+  if (!rows.length) return head + emptyState('No agreements in this snapshot.');
 
-  // Unbilled rentals and alerts first — those are the ones that cost money.
-  const sorted = rows.slice().sort((a, b) => {
-    const sev = (r) => (r.agreement == null ? 0 : (r.alerts && r.alerts.length ? 1 : 2));
-    return sev(a) - sev(b) || String(a.customer || '').localeCompare(String(b.customer || ''));
-  });
+  const g = rentalGroups(rows);
+  const count = (n) => (n ? html` <span class="count">${n}</span>` : '');
+  const group = (title, list, tile, always, emptyText) => (list.length || always ? html`
+    <h2>${title}${raw(count(list.length))}</h2>
+    ${list.length ? raw(list.map(tile).join('')) : raw(html`<div class="card"><div class="hold-empty">${emptyText}</div></div>`)}` : '');
 
-  const cards = sorted.map((a) => {
-    const u = unitBySerial(a.serial);
-    const cycles = a.cycles_max != null ? `${a.cycles_billed} of ${a.cycles_max}` : `${a.cycles_billed}`;
-    return html`
-      <div class="card">
-        <div class="unit-row">
-          <span class="unit-main">
-            <span class="unit-title">${a.customer || 'Unknown customer'}</span>
-            <span class="unit-loc">
-              <a href="#/unit/${raw(encodeURIComponent(a.serial))}">#${a.serial}</a>
-              ${u ? raw(html` · ${unitName(u)}`) : ''}${a.job_site ? raw(html` · ${a.job_site}`) : ''}
-            </span>
-          </span>
-        </div>
-        <dl class="kv" style="margin-top:10px">
-          ${raw(kvRow('Agreement', a.agreement == null ? raw('<span class="none">none</span>') : a.agreement))}
-          ${raw(kvRow('Cycle', `${a.cycle || '—'} · ${fmtMoney(a.cycle_rate)}`))}
-          ${raw(kvRow('Cycles billed', cycles, 'num'))}
-          ${raw(kvRow('Last invoice', a.last_invoice))}
-          ${raw(kvRow('Next due', a.next_due ? fmtDateFull(a.next_due) : ''))}
-        </dl>
-        ${raw(rowAlerts(a))}
-      </div>`;
-  });
+  return head
+    + group('Pending', g.pending, pendingTile, false, '')
+    + group('On rent', g.active, activeTile, true, 'Nothing out on rent.')
+    + group('Off-rent', g.offRent, offRentTile, false, '');
+}
 
-  return html`<h1>Rentals</h1>${raw(revenueCard())}
-    <h2>Agreements</h2><div class="sub">${rows.length} agreements</div>${raw(cards.join(''))}`;
+/* ---- rental tiles: shared parts ---- */
+
+/** The R-number chip, linking to the agreement. Rendered VERBATIM (D59). */
+function agmtChip(a) {
+  if (a.agreement == null) return html`<span class="chip bad">no agreement</span>`;
+  return html`<a class="chip agmt" href="${agreementHref(a.agreement)}">${a.agreement}</a>`;
+}
+const leadChip = (id) => (id ? html`<a class="chip leadref" href="#/lead/${raw(enc(id))}">${id}</a>` : '');
+
+/** Customer · unit line — the head every tile shares. */
+function rentalHead(a, chipsExtra) {
+  const u = unitBySerial(a.serial);
+  return html`
+    <div class="unit-row">
+      <span class="unit-main">
+        <span class="unit-title">${a.customer || 'Unknown customer'}</span>
+        <span class="unit-loc">
+          ${a.serial != null ? raw(html`<a href="#/unit/${raw(enc(a.serial))}">#${a.serial}</a>`) : '—'}
+          ${u ? raw(html` · ${unitName(u)}`) : ''}${a.job_site ? raw(html` · ${a.job_site}`) : ''}
+        </span>
+      </span>
+    </div>
+    <div class="chips">${raw(agmtChip(a))}${raw(chipsExtra || '')}${raw(leadChip(a.lead))}</div>`;
+}
+
+const cyclesText = (a) => (a.cycles_max != null ? `${a.cycles_billed} of ${a.cycles_max}` : `${a.cycles_billed == null ? '—' : a.cycles_billed}`);
+const rateText = (a) => `${a.cycle || '—'} · ${fmtMoney(a.cycle_rate)}`;
+const daysChip = (a) => (typeof a.days_on_rent === 'number' ? html`<span class="chip age">${a.days_on_rent}d on rent</span>` : '');
+
+/** Filed docs on a tile (the CONTRACT lives here) — the same rows and the same
+ *  tap-to-open as a ticket's Documents group, without the add buttons. */
+function tileDocs(a) {
+  const rows = docRows(a);
+  if (!rows.length) return '';
+  return html`<div class="tile-docs">${raw(rows.map((d) => html`
+    <button class="docrow" type="button" data-doc="${d.id}">
+      <span class="doc-ico" aria-hidden="true">${d.icon}</span>
+      <span class="doc-name">${d.label} — ${d.name}</span>
+      ${d.size ? raw(html`<span class="doc-size">${d.size}</span>`) : ''}
+      <span class="doc-go" aria-hidden="true">›</span>
+    </button>`).join(''))}</div>`;
+}
+
+/** "Due back Sat Sep 26" — loud: bold always, amber the day before, red once passed. */
+function dueBack(a) {
+  if (!a.in_date) return '';
+  const tone = dueBackTone(a.in_date, todayCentral());
+  return html`<div class="due${tone ? ' ' + tone : ''}">Due back ${fmtDateDow(a.in_date)}${tone === 'red' ? ' — overdue' : ''}</div>`;
+}
+
+/** A dispatch row as a one-line link: "m-dl-R… · SCHEDULED Kevin / TRAILER-6000". */
+function runLink(id, st, driver, rig) {
+  const who = [driver, rig].filter(Boolean).join(' / ');
+  return html`<a href="#/dispatch/${raw(enc(id))}">${id}</a> · ${st || 'OPEN'}${who ? ` ${who}` : ''}`;
+}
+
+/** How and when a PENDING rental leaves the yard. */
+function outLine(a) {
+  if (outMove(a) === 'CUSTOMER-PICKUP') {
+    return html`<div class="rline">Customer picks up ${a.out_date ? fmtDateDow(a.out_date) : '— no date'}</div>`;
+  }
+  const row = deliveryRow(a, dispatchRows());
+  const dl = a.delivery || {};
+  const id = dl.id || (row && row.id) || null;
+  const date = dl.date || (row && row.date) || a.out_date;
+  const link = id && row
+    ? raw(runLink(id, dl.status || row.status, dl.driver || row.driver, dl.rig || row.rig))
+    : raw(html`<span class="muted">not on the board yet — the next run adds it</span>`);
+  return html`<div class="rline">Delivery ${date ? fmtDateDow(date) : '— no date'} · ${link}</div>`;
+}
+
+/** Pending writes on a tile + the undo valve, keyed on payload.agreement. */
+function rentalPending(a) {
+  const p = pendingForAgreement(state.pending, a.agreement);
+  if (!p.length) return { html: '', busy: false };
+  return {
+    busy: true,
+    html: html`${raw(pendingLine(p.length))}${raw(p.map((e) => html`<div class="pend-row"><span>${RENTAL_VERB_LABEL[pl(e).action] || 'Change'}${pl(e).date ? ` ${fmtDate(pl(e).date)}` : ''} — ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}`,
+  };
+}
+const RENTAL_VERB_LABEL = { OUT: 'Went out', 'OFF-RENT': 'Off-rent', IN: 'Back in shop' };
+
+/**
+ * One verb's button + its sheet. The sheet asks for the date (default today,
+ * capped at today — the engine refuses a future one too) and an optional note.
+ */
+function rentalControl(a, verb, opts = {}) {
+  const key = `${verb}|${String(a.agreement)}`;
+  const open = sheetOpen('rental', key);
+  const pend = opts.busy;
+  const today = todayCentral();
+  const sheet = open ? html`
+    <form class="write sheet" data-action="rental_update" data-verb="${verb}" data-id="${String(a.agreement)}">
+      <label for="rf-date">${verb === 'OUT' ? 'Went out on' : verb === 'IN' ? 'Back in the shop on' : 'Off-rent as of'}</label>
+      <input id="rf-date" name="date" type="date" value="${today}" max="${today}" required>
+      <label for="rf-note">Note (optional)</label>
+      <textarea id="rf-note" name="note" maxlength="200" placeholder="${verb === 'OFF-RENT' ? 'who called, where it is on site' : 'hours on the meter, who signed'}"></textarea>
+      ${raw(sheetButtons(verb === 'OUT' ? 'Mark it out' : verb === 'IN' ? 'Mark it back in' : 'Take it off-rent'))}
+      <div class="form-note">A proposal — the tile moves at the next run.</div>
+    </form>` : '';
+  return html`
+    <div class="drow-btns">
+      <button class="btn${opts.ghost ? ' ghost' : ''}" type="button" data-sheet="rental" data-id="${key}"${pend ? raw(' disabled') : ''}>${opts.label}</button>
+    </div>
+    ${opts.caption ? raw(html`<div class="form-note">${raw(opts.caption)}</div>`) : ''}
+    ${raw(sheet)}`;
+}
+
+/* ---- the three tiles ---- */
+
+function pendingTile(a) {
+  const today = todayCentral();
+  const late = outDatePassed(a, today);
+  const acts = rentalActions(a, role());
+  const pend = rentalPending(a);
+  return html`
+    <div class="card rtile" data-agreement="${String(a.agreement)}">
+      ${raw(rentalHead(a, late ? html`<span class="chip bad">${outMove(a) === 'DELIVER' ? 'not delivered' : 'not picked up'} — out date passed</span>` : ''))}
+      ${raw(outLine(a))}
+      <div class="rline">${rateText(a)}</div>
+      ${raw(tileDocs(a))}
+      ${raw(rowAlerts(a))}
+      ${raw(pend.html)}
+      ${acts.wentOut ? raw(rentalControl(a, 'OUT', { label: 'Went out', busy: pend.busy })) : ''}
+    </div>`;
+}
+
+function activeTile(a) {
+  const acts = rentalActions(a, role());
+  const pend = rentalPending(a);
+  const caption = inMove(a) === 'CUSTOMER-RETURN'
+    ? 'Stops the clock. Tap <strong>Back in shop</strong> when it lands.'
+    : 'Stops the clock and puts a pickup on Dispatch.';
+  return html`
+    <div class="card rtile" data-agreement="${String(a.agreement)}">
+      ${raw(rentalHead(a, daysChip(a)))}
+      ${raw(dueBack(a))}
+      <dl class="kv" style="margin-top:10px">
+        ${a.on_rent_since ? raw(kvRow('On rent since', fmtDateFull(a.on_rent_since))) : ''}
+        ${raw(kvRow('Cycle', rateText(a)))}
+        ${raw(kvRow('Cycles billed', cyclesText(a), 'num'))}
+        ${raw(kvRow('Last invoice', a.last_invoice))}
+        ${raw(kvRow('Next due', a.next_due ? fmtDateFull(a.next_due) : ''))}
+      </dl>
+      ${raw(tileDocs(a))}
+      ${raw(rowAlerts(a))}
+      ${raw(pend.html)}
+      ${acts.offRent ? raw(rentalControl(a, 'OFF-RENT', { label: 'Off-rent', busy: pend.busy, caption })) : ''}
+    </div>`;
+}
+
+function offRentTile(a) {
+  const acts = rentalActions(a, role());
+  const pend = rentalPending(a);
+  const pickup = inMove(a) === 'PICKUP';
+  const row = pickup ? returnRow(a, dispatchRows()) : null;
+  const pickupLine = pickup
+    ? html`<div class="rline">Pickup · ${row
+      ? raw(html`${raw(runLink(row.id, row.status, row.driver, row.rig))}${row.date && isDateStr(row.date) ? ` · ${fmtDateDow(row.date)}` : ''}`)
+      : raw(html`<span class="muted">not on the board yet — the next run adds it</span>`)}</div>`
+    : html`<div class="rline">Customer brings it back</div>`;
+  return html`
+    <div class="card rtile" data-agreement="${String(a.agreement)}">
+      ${raw(rentalHead(a, daysChip(a)))}
+      <dl class="kv" style="margin-top:10px">
+        ${raw(kvRow('Off-rent', a.off_rent ? fmtDateFull(a.off_rent) : ''))}
+        ${raw(kvRow('Billed through', a.last_invoiced_period_end ? fmtDateFull(a.last_invoiced_period_end) : ''))}
+        ${raw(kvRow('Cycles billed', cyclesText(a), 'num'))}
+        ${raw(kvRow('Last invoice', a.last_invoice))}
+      </dl>
+      ${raw(pickupLine)}
+      ${raw(tileDocs(a))}
+      ${raw(rowAlerts(a))}
+      ${raw(pend.html)}
+      ${acts.backInShop ? raw(rentalControl(a, 'IN', {
+        label: 'Back in shop', busy: pend.busy, ghost: pickup,
+        caption: pickup ? 'Owner override — only for a pickup that happened off the board.' : '',
+      })) : ''}
+    </div>`;
+}
+
+/**
+ * Agreement detail (`#/agreement/<id>`). Same anatomy as ticket detail: the
+ * tile's fields in full, its truck moves, its documents. Agreements carry no
+ * `log[]` in schema 7, so there is no Notes timeline here — not an empty one.
+ */
+function viewAgreement(seg) {
+  const a = agreementByRoute(agreements(), seg);
+  if (!a) return html`<a class="crumb" href="#/rentals">‹ Rentals</a>${raw(emptyState('Agreement not found.', 'An ended rental leaves the snapshot.'))}`;
+  const st = statusOf(a);
+  const acts = rentalActions(a, role());
+  const pend = rentalPending(a);
+  const u = unitBySerial(a.serial);
+  const moves = [deliveryRow(a, dispatchRows()), returnRow(a, dispatchRows())].filter(Boolean);
+  const outText = a.out_date || outMove(a)
+    ? `${outMove(a) === 'CUSTOMER-PICKUP' ? 'Customer picks up' : 'We deliver'}${a.out_date ? ` · ${fmtDateFull(a.out_date)}` : ''}` : '';
+  const inText = `${inMove(a) === 'CUSTOMER-RETURN' ? 'Customer brings it back' : 'We pick it up'}${a.in_date ? ` · ${fmtDateFull(a.in_date)}` : ''}`;
+
+  return html`
+    <a class="crumb" href="#/rentals">‹ Rentals</a>
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="h">${a.customer || 'Unknown customer'}</div>
+      <div class="s">${a.agreement == null ? 'no agreement' : a.agreement} · ${RENTAL_STATUS_LABEL[st]}</div>
+      <div class="chips">
+        ${raw(chip(RENTAL_STATUS_LABEL[st], st === 'ACTIVE' ? 'rent' : st === 'PENDING' ? 'hold' : 'pickup'))}
+        ${raw(daysChip(a))}${raw(leadChip(a.lead))}
+        ${st === 'PENDING' && outDatePassed(a, todayCentral()) ? raw(html`<span class="chip bad">out date passed</span>`) : ''}
+      </div>
+    </div>
+    ${st === 'ACTIVE' ? raw(dueBack(a)) : ''}
+    ${raw(rowAlerts(a))}
+
+    <h2>Agreement</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Agreement', a.agreement == null ? raw('<span class="none">none</span>') : a.agreement))}
+      ${raw(kvRow('Customer', a.customer))}
+      ${raw(kvRow('Unit', a.serial != null ? raw(html`<a href="#/unit/${raw(enc(a.serial))}">#${a.serial}</a>${u ? ` · ${unitName(u)}` : ''}`) : ''))}
+      ${raw(kvRow('Job site', a.job_site))}
+      ${raw(kvRow('Customer PO', a.customer_po))}
+      ${raw(kvRow('Lead', a.lead ? raw(html`<a href="#/lead/${raw(enc(a.lead))}">${a.lead}</a>`) : ''))}
+      ${raw(kvRow('Cycle', rateText(a)))}
+      ${raw(kvRow('Cycles billed', cyclesText(a), 'num'))}
+      ${raw(kvRow('Last invoiced', a.last_invoiced_period_start
+        ? `${fmtDate(a.last_invoiced_period_start)} – ${fmtDateFull(a.last_invoiced_period_end)}` : ''))}
+      ${raw(kvRow('Last invoice', a.last_invoice))}
+      ${raw(kvRow('Next due', a.next_due ? fmtDateFull(a.next_due) : ''))}
+    </dl></div>
+
+    <h2>On rent</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Goes out', outText))}
+      ${raw(kvRow('On rent since', a.on_rent_since ? fmtDateFull(a.on_rent_since) : ''))}
+      ${raw(kvRow('Days on rent', typeof a.days_on_rent === 'number' ? `${a.days_on_rent}` : '', 'num'))}
+      ${raw(kvRow('Comes home', inText))}
+      ${raw(kvRow('Off-rent', a.off_rent ? fmtDateFull(a.off_rent) : ''))}
+    </dl></div>
+
+    ${pend.html ? raw(html`<div class="note"><strong>⏳ Pending</strong>${raw(pend.html)}</div>`) : ''}
+    ${acts.wentOut ? raw(rentalControl(a, 'OUT', { label: 'Went out', busy: pend.busy })) : ''}
+    ${acts.offRent ? raw(rentalControl(a, 'OFF-RENT', { label: 'Off-rent', busy: pend.busy,
+      caption: inMove(a) === 'CUSTOMER-RETURN' ? 'Stops the clock. Tap <strong>Back in shop</strong> when it lands.' : 'Stops the clock and puts a pickup on Dispatch.' })) : ''}
+    ${acts.backInShop ? raw(rentalControl(a, 'IN', { label: 'Back in shop', busy: pend.busy, ghost: inMove(a) === 'PICKUP',
+      caption: inMove(a) === 'PICKUP' ? 'Owner override — only for a pickup that happened off the board.' : '' })) : ''}
+
+    ${moves.length ? raw(html`<h2>Moves</h2>
+      <div class="card dlist">${raw(moves.map((r) => dispatchRow(r, { compact: true })).join(''))}</div>`) : ''}
+
+    ${raw(docsSection(a, String(a.agreement)))}`;
 }
 
 /**
@@ -2010,6 +2286,7 @@ function dispatchRow(r, opts = {}) {
     <div class="drow${r.status === 'DONE' ? ' is-done' : ''}${mine ? ' hot' : ''}" id="d-${r.id}">
       <div class="drow-top">
         ${raw(chip(KIND_LABEL[r.kind] || r.kind, r.kind === 'PICKUP' ? 'pickup' : 'rent'))}
+        ${r.source === 'RENTAL-DELIVER' ? raw(chip('Rental delivery', 'rent')) : ''}
         <span class="drow-what">${r.what || '—'}</span>
         <span class="drow-src" title="${r.source}">${SOURCE_GLYPH[r.source] || ''}</span>
       </div>
@@ -2020,6 +2297,7 @@ function dispatchRow(r, opts = {}) {
         ${r.billed_through ? raw(html` · billed through ${fmtDateFull(r.billed_through)}`) : ''}
         ${r.serial ? raw(html` · <a href="#/unit/${raw(enc(r.serial))}">#${r.serial}</a>`) : ''}
         ${r.ticket ? raw(html` · <a href="#/ticket/${raw(enc(r.ticket))}">${r.ticket}</a>`) : ''}
+        ${r.agreement != null ? raw(html` · <a class="chip agmt" href="${agreementHref(r.agreement)}">${r.agreement}</a>`) : ''}
       </div>
       ${r.rig || r.driver ? raw(html`<div class="chips">
         ${r.driver ? raw(chip(r.driver, 'driver')) : ''}${r.rig ? raw(chip(r.rig, 'rig')) : ''}
@@ -2057,10 +2335,19 @@ function doneForm(r) {
   return html`
     <form class="write sheet" data-action="dispatch_done" data-id="${r.id}">
       ${r.source === 'RENTAL-RETURN' ? raw(html`<div class="note"><strong>Bringing it home</strong>This brings ${r.serial ? `#${r.serial}` : 'the unit'} home and ends the agreement at the next run.</div>`) : ''}
+      ${r.source === 'RENTAL-DELIVER' ? raw(deliverDoneNote(r)) : ''}
       <label for="df-note">Note (optional)</label>
       <textarea id="df-note" name="note" placeholder="hours on the meter, damage, who signed"></textarea>
       ${raw(sheetButtons('Mark it done'))}
     </form>`;
+}
+
+/** D64: Done on a rental delivery IS the out. Say what the tap sets off. */
+function deliverDoneNote(r) {
+  const a = agreementForRow(r, agreements());
+  const id = r.agreement != null ? r.agreement : (a ? a.agreement : null);
+  const lead = a && a.lead ? a.lead : null;
+  return html`<div class="note"><strong>Delivering it</strong>Marks ${id != null ? id : 'the rental'} on rent from today${lead ? ` and closes lead ${lead} as won` : ''}.</div>`;
 }
 
 /** + Add a run. Reached from Dispatch, a unit page, or a hold row (§4). */
@@ -2111,7 +2398,9 @@ function viewHolds() {
       <div class="hold-top"><span class="hold-win">${fmtRange(h.start, h.end)}</span>${withPill ? raw(holdPill(h)) : ''}</div>
       <div class="hold-who">${raw(unitLink(h))}</div>
       <div class="hold-meta">${h.customer || '—'}${h.purpose ? raw(html` · ${h.purpose}`) : ''} · held by ${h.held_by || '—'}</div>
-      <button class="btn sm ghost" type="button" data-sheet="add-run" data-serial="${h.serial}" data-hold="${h.id || ''}">Schedule delivery</button>
+      ${isAgmtHold(h)
+        ? raw(html`<div class="hold-meta">Rental <a href="${agreementHref(agmtIdOf(h))}">${agmtIdOf(h)}</a> — clears itself on delivery</div>`)
+        : raw(html`<button class="btn sm ghost" type="button" data-sheet="add-run" data-serial="${h.serial}" data-hold="${h.id || ''}">Schedule delivery</button>`)}
     </div>`;
 
   if (!r.expired.length && !r.upcoming.length) return html`<h1>Holds</h1>${raw(emptyState('Nothing on hold.'))}`;
@@ -2850,7 +3139,7 @@ function renderHeader() {
 }
 
 function renderTabs(route) {
-  const tab = route.startsWith('#/rentals') ? 'rentals'
+  const tab = route.startsWith('#/rentals') || route.startsWith('#/agreement/') ? 'rentals'
     : route.startsWith('#/holds') ? 'holds'
     : route.startsWith('#/dispatch') ? 'dispatch'
     : route.startsWith('#/leads') || route.startsWith('#/lead/') ? 'leads'
@@ -2901,6 +3190,7 @@ function render() {
 
   let out;
   if (section === 'rentals') out = viewRentals();
+  else if (section === 'agreement') out = viewAgreement(decodeURIComponent(arg || ''));
   else if (section === 'holds') out = viewHolds();
   else if (section === 'dispatch') out = viewDispatch(arg ? decodeURIComponent(arg) : null);
   else if (section === 'service') out = viewService();
@@ -3838,6 +4128,22 @@ function eventBody(action, form, fd) {
       payload: { lead: form.dataset.id, outcome, reason: outcome === 'LOST' ? s('reason') : null, note: orNull('note') },
     };
   }
+  if (action === 'rental_update') {
+    // The id travels in the TYPE the snapshot gave it — an int stays an int, a
+    // WSS-paper string stays a string (D59). The form only carries it as text,
+    // so it is looked up again rather than parsed back out of the attribute.
+    // No top-level serial: the contract keys this action on payload.agreement.
+    const a = agreementByRoute(agreements(), form.dataset.id);
+    return {
+      serial: null,
+      payload: {
+        agreement: a ? a.agreement : form.dataset.id,
+        action: form.dataset.verb,
+        date: clampToToday(s('date'), todayCentral()),
+        note: orNull('note'),
+      },
+    };
+  }
   return { serial: null, payload: {} };
 }
 
@@ -3850,6 +4156,12 @@ const SUBMIT_MSG = {
   lead_open: 'The engine assigns the lead number at the next run.',
   lead_update: 'Applies at the next run.',
   lead_close: 'It moves to Closed at the next run.',
+};
+// D64: one action, three verbs — say what each one will actually do.
+const RENTAL_MSG = {
+  OUT: 'It moves to On rent at the next run.',
+  'OFF-RENT': 'The clock stops at the next run.',
+  IN: 'It leaves the tab at the next run.',
 };
 
 // Writes opened from the unit page report into that page's #write-msg; the ones
@@ -3874,6 +4186,16 @@ document.addEventListener('submit', async (ev) => {
     render();
     return;
   }
+  // D64: the picker caps at today, but a typed date can still get past it. The
+  // engine refuses a future date too — this just says so before the round trip.
+  if (action === 'rental_update') {
+    const date = String(fd.get('date') || '').trim();
+    if (date && (!isDateStr(date) || date > todayCentral())) {
+      ui.msg = { tone: 'bad', text: 'That date is in the future — pick today or earlier.' };
+      render();
+      return;
+    }
+  }
   // A lead with no customer is a note to nobody.
   if (action === 'lead_open' && !String(fd.get('customer') || '').trim()) {
     const el = form.querySelector('[name=customer]');
@@ -3896,7 +4218,7 @@ document.addEventListener('submit', async (ev) => {
       if (msg) msg.innerHTML = '<div class="note"><strong>Submitted</strong>Applies at the next run.</div>';
     } else {
       ui.form = null;
-      ui.msg = { tone: 'ok', text: SUBMIT_MSG[action] || 'Applies at the next run.' };
+      ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb]) || SUBMIT_MSG[action] || 'Applies at the next run.' };
       render();
     }
   } catch (err) {
