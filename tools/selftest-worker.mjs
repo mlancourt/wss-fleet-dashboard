@@ -61,7 +61,7 @@ async function refused(role, body, what, status = 400, hint) {
   if (hint) assert.ok(String(r.body.error).includes(hint), `${what}: error should mention ${hint} — got ${r.body.error}`);
 }
 
-console.log('worker self-test (D67 inspection · D65 back-link)');
+console.log('worker self-test (D67 inspection · D65 back-link · D68 stock)');
 
 const FULL_SAVE = {
   action: 'SAVE', inspection: 'I1001', machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND',
@@ -199,6 +199,36 @@ await check('work_order OPEN takes an optional inspection back-link (^I\\d{4}$);
   assert.ok(!('inspection' in plain.payload), 'absent stays absent');
   await refused('service', { action: 'work_order', serial: '900100', payload: { action: 'OPEN', purpose: 'REPAIR', inspection: 'W1001' } }, 'a W-number as the sheet', 400, 'I1001');
   await refused('service', { action: 'work_order', payload: { action: 'CLOSE', work_order: 'W1001', inspection: 'I1001' } }, 'on another verb', 400, 'inspection');
+});
+
+const wo = (payload, serial) => (serial === undefined ? { action: 'work_order', payload } : { action: 'work_order', serial, payload });
+const STOCK = { manufacturer: 'FACTORY-CAT', part_number: '264-4086', description: 'filter', qty: 1 };
+
+await check('D68: parts[].source (VENDOR | SHOP-STOCK | WARRANTY) on OPEN and ADD-PARTS, any role; absent stays absent', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    const o = await ok(role, wo({ action: 'OPEN', purpose: 'REPAIR', parts: [{ ...STOCK, source: 'SHOP-STOCK' }, { ...STOCK, part_number: '1', source: 'WARRANTY' }, { ...STOCK, part_number: '2' }] }, '900100'), `${role} OPEN`);
+    assert.deepEqual(o.payload.parts.map((p) => p.source), ['SHOP-STOCK', 'WARRANTY', undefined]);
+    const a = await ok(role, wo({ action: 'ADD-PARTS', work_order: 'W1002', parts: [{ ...STOCK, source: 'VENDOR' }] }), `${role} ADD-PARTS`);
+    assert.equal(a.payload.parts[0].source, 'VENDOR');
+  }
+  await refused('owner', wo({ action: 'ADD-PARTS', work_order: 'W1002', parts: [{ ...STOCK, source: 'SHELF' }] }), 'source enum', 400, 'source');
+});
+
+await check('D68: PART-STATE {source: SHOP-STOCK} — service + owner 201 (state optional, lands DELIVERED), sales 403', async () => {
+  for (const role of ['owner', 'service']) {
+    const e = await ok(role, wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'SHOP-STOCK', note: 'on the shelf' }), `${role} stock pull`);
+    assert.deepEqual(e.payload, { action: 'PART-STATE', work_order: 'W1002', line: 1, state: 'DELIVERED', source: 'SHOP-STOCK', date: null, note: 'on the shelf' });
+    await ok(role, wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, state: 'DELIVERED', source: 'SHOP-STOCK' }), `${role} with state DELIVERED`);
+  }
+  await refused('sales', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'SHOP-STOCK' }), 'sales stock pull', 403);
+  await refused('owner', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'WARRANTY' }), 'WARRANTY on PART-STATE', 400, 'SHOP-STOCK');
+  await refused('owner', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'VENDOR' }), 'VENDOR on PART-STATE', 400, 'SHOP-STOCK');
+  await refused('owner', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'SHOP-STOCK', state: 'ORDERED' }), 'source + ORDERED', 400, 'ORDERED');
+  await refused('service', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'SHOP-STOCK', state: 'IN-TRANSIT' }), 'source + IN-TRANSIT', 400);
+  await refused('owner', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'SHOP-STOCK', vendor: 'RPS' }), 'a vendor on a stock pull', 400, 'vendor');
+  await refused('owner', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1 }), 'no state and no source', 400, 'state');
+  await refused('service', wo({ action: 'PART-STATE', work_order: 'W1002', line: 1, source: 'SHOP-STOCK', cost: 12 }), 'money on a stock pull', 400, '"cost"');
+  await refused('owner', wo({ action: 'OPEN', purpose: 'REPAIR', parts: [{ ...STOCK, source: 'SHOP-STOCK', price: 9 }] }, '900100'), 'money on a stock line', 400, '"price"');
 });
 
 await check('the undo valve (D46) covers an inspection tap — your own, still pending', async () => {

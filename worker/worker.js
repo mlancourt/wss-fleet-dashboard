@@ -117,6 +117,11 @@ const WO_VENDORS = new Set(['RPS', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'TENNANT
 // REQUESTED is where a line starts, never where a tap sends it — the one
 // backwards move this file can see without knowing the line's current state.
 const WO_PART_STATES = new Set(['ORDERED', 'IN-TRANSIT', 'DELIVERED', 'CANCELLED']);
+// D68 — where a part comes from. A fact about the part, not a step in the
+// ladder: a SHOP-STOCK line is minted DELIVERED (it is already on the bench),
+// WARRANTY still walks the vendor ladder. On PART-STATE only SHOP-STOCK means
+// anything ("pulled it off the shelf" — REQUESTED -> DELIVERED, no PO trail).
+const WO_PART_SOURCES = new Set(['VENDOR', 'SHOP-STOCK', 'WARRANTY']);
 const WO_ID_RE = /^W\d{4}$/;
 const WO_MAX_LINES = 10;             // per event; the engine holds the 20-per-WO cap
 // The keys each verb may carry. Anything else is a 400 — a work order is a new
@@ -124,12 +129,12 @@ const WO_MAX_LINES = 10;             // per event; the engine holds the 20-per-W
 const WO_KEYS = {
   OPEN: ['action', 'purpose', 'note', 'parts', 'inspection'],   // D67: the sheet it was opened from
   'ADD-PARTS': ['action', 'work_order', 'parts'],
-  'PART-STATE': ['action', 'work_order', 'line', 'state', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],
+  'PART-STATE': ['action', 'work_order', 'line', 'state', 'source', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],   // D68: source
   LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'note'],
   CLOSE: ['action', 'work_order', 'note'],
   CANCEL: ['action', 'work_order', 'note'],
 };
-const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty']);
+const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty', 'source']);   // D68: source
 // D67 — the inspection sheet. Shape + enums + lengths ONLY. Which row ids
 // exist, which scale a row uses and whether a retired row may be answered all
 // live in the vault's row library (Fleet/_Inspection-Checklist.md) — the
@@ -792,12 +797,16 @@ function cleanPayload(action, p, role, serial) {
         for (const k of Object.keys(ln)) if (!WO_PART_KEYS.has(k)) throw httpError(400, `parts[${i}] does not take ${k}`);
         const qty = ln.qty;
         if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw httpError(400, `parts[${i}].qty must be a whole number 1–99`);
-        return {
+        const out = {
           manufacturer: oneOf(ln.manufacturer, WO_MANUFACTURERS, `parts[${i}].manufacturer`),
           part_number: str(ln.part_number, 40, `parts[${i}].part_number`, true),
           description: optStr(ln.description, 80, `parts[${i}].description`),
           qty,
         };
+        // D68: absent stays absent — the engine reads a missing source as VENDOR.
+        const src = optOneOf(ln.source, WO_PART_SOURCES, `parts[${i}].source`);
+        if (src) out.source = src;
+        return out;
       });
     };
     const note = () => optStr(obj.note, 200, 'note');
@@ -813,6 +822,25 @@ function cleanPayload(action, p, role, serial) {
       return out;
     }
     if (verb === 'ADD-PARTS') return { action: verb, work_order: woId(), parts: parts(true) };
+    if (verb === 'PART-STATE' && obj.source != null && obj.source !== '') {
+      // D68 "Use from stock": REQUESTED -> DELIVERED off the shelf. SHOP-STOCK is
+      // the only source a tap may set here, `state` may be left off (or say
+      // DELIVERED), and nothing vendor-shaped rides along — there was no order.
+      // Whether the line is still REQUESTED is the engine's call.
+      if (obj.source !== 'SHOP-STOCK') throw httpError(400, 'PART-STATE source may only be SHOP-STOCK');
+      if (obj.state != null && obj.state !== '' && obj.state !== 'DELIVERED') {
+        throw httpError(400, `a stock pull lands DELIVERED — state ${obj.state} does not go with source SHOP-STOCK`);
+      }
+      for (const k of ['vendor', 'vendor_ref', 'tracking']) {
+        if (obj[k] != null && obj[k] !== '') throw httpError(400, `a stock pull has no ${k}`);
+      }
+      if (role !== 'owner' && role !== 'service') throw httpError(403, `role ${role} cannot pull a part from stock`);
+      if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
+      return {
+        action: verb, work_order: woId(), line: obj.line, state: 'DELIVERED', source: 'SHOP-STOCK',
+        date: optDate(obj.date, 'date'), note: note(),
+      };
+    }
     if (verb === 'PART-STATE') {
       const state = oneOf(obj.state, WO_PART_STATES, 'state');
       // Matt places orders — he is the one who reads "PO W1001" to the vendor.

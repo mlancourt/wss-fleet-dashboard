@@ -468,7 +468,7 @@ POSTWO "LABOR with a serial (keyed on work_order) -> 400" 400 "" "$T_OWNER" \
   "$(WO ',"serial":"900233"' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1}')"
 POSTWO "qty 0 -> 400" 400 "" "$T_OWNER" "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":0}]}')"
 POSTWO "an unknown key on a part line -> 400" 400 "" "$T_OWNER" \
-  "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":1,"source":"VENDOR"}]}')"
+  "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":1,"bin":"A3"}]}')"
 # THE D65 refusal: money, by name, at any depth, from any role
 POSTWO "a cost key on a part line -> 400 naming it" 400 "b.error.includes('\"cost\"')" "$T_OWNER" \
   "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":1,"cost":42.5}]}')"
@@ -478,9 +478,34 @@ POSTWO "a Price key on OPEN (any case) -> 400 naming it" 400 "b.error.includes('
   "$(WO ',"serial":"900233"' '{"action":"OPEN","purpose":"REPAIR","Price":10}')"
 POSTWO "a cost key on ANY action, not just work_order -> 400" 400 "b.error.includes('\"cost\"')" "$T_OWNER" \
   '{"action":"ticket_update","payload":{"ticket":"S1001","note":"x","cost":5}}'
-expect "all eight work-order events drained -> deleted 8" 200 "b.deleted===8" \
+# D68 — use from stock: source on a part line (OPEN / ADD-PARTS) and on PART-STATE
+STK='{"manufacturer":"FACTORY-CAT","part_number":"264-4086","description":"filter","qty":1,"source":"SHOP-STOCK"}'
+STK_OPEN='{"action":"OPEN","purpose":"REPAIR","parts":['"$STK"']}'
+POSTWO "D68: service OPENs with a SHOP-STOCK line -> 201" 201 "b.payload.parts[0].source==='SHOP-STOCK'" \
+  "$T_SERVICE" "$(WO ',"serial":"900233"' "$STK_OPEN")"
+WO10=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D68: sales ADD-PARTS with source WARRANTY -> 201" 201 "b.payload.parts[0].source==='WARRANTY'" \
+  "$T_SALES" "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"KODIAK","part_number":"30-750","qty":1,"source":"WARRANTY"}]}')"
+WO11=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D68: a bad parts[].source -> 400" 400 "" "$T_OWNER" \
+  "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":1,"source":"SHELF"}]}')"
+POSTWO "D68: service pulls a line from stock (no state) -> 201" 201 "b.payload.source==='SHOP-STOCK' && b.payload.state==='DELIVERED' && b.payload.note==='on the shelf'" \
+  "$T_SERVICE" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":1,"source":"SHOP-STOCK","note":"on the shelf"}')"
+WO12=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D68: owner pulls from stock with state DELIVERED -> 201" 201 "b.payload.source==='SHOP-STOCK'" \
+  "$T_OWNER" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":2,"state":"DELIVERED","source":"SHOP-STOCK"}')"
+WO13=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D68: sales may not pull from stock -> 403" 403 "" \
+  "$T_SALES" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":1,"source":"SHOP-STOCK"}')"
+POSTWO "D68: source WARRANTY on PART-STATE -> 400" 400 "" \
+  "$T_OWNER" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":1,"source":"WARRANTY"}')"
+POSTWO "D68: source SHOP-STOCK + state ORDERED -> 400" 400 "" \
+  "$T_OWNER" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":1,"state":"ORDERED","source":"SHOP-STOCK"}')"
+POSTWO "D68: a cost key on a stock pull -> 400 naming it" 400 "b.error.includes('\"cost\"')" \
+  "$T_SERVICE" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":1,"source":"SHOP-STOCK","cost":12}')"
+expect "all twelve work-order events drained -> deleted 12" 200 "b.deleted===12" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
-  -d "{\"ids\":[\"$WO1\",\"$WO2\",\"$WO3\",\"$WO4\",\"$WO5\",\"$WO6\",\"$WO7\",\"$WO8\"]}"
+  -d "{\"ids\":[\"$WO1\",\"$WO2\",\"$WO3\",\"$WO4\",\"$WO5\",\"$WO6\",\"$WO7\",\"$WO8\",\"$WO10\",\"$WO11\",\"$WO12\",\"$WO13\"]}"
 expect "pending back to baseline after the work orders" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- crew: inspection (D67) — the sixteenth action, five verbs"
