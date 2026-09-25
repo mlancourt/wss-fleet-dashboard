@@ -26,10 +26,10 @@ const LIB = [
   ] },
   { id: 'ctl', title: 'Controls', rows: [
     { id: 'ctl.key', label: 'Key switch', scale: 'FUNCTION' },
-    { id: 'ctl.horn', label: 'Horn', scale: 'FUNCTION', shows_for: { controls: ['RIDER', 'STAND-ON'] } },
-    { id: 'ctl.seat', label: 'Seat switch', scale: 'FUNCTION', shows_for: { controls: ['RIDER'] } },
+    { id: 'ctl.horn', label: 'Horn', scale: 'FUNCTION', shows_for: { body_style: ['RIDER', 'STAND-ON'] } },
+    { id: 'ctl.seat', label: 'Seat switch', scale: 'FUNCTION', shows_for: { body_style: ['RIDER'] } },
     { id: 'ctl.broom', label: 'Broom lever', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'] } },
-    { id: 'ctl.lift', label: 'Side broom lift', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'], controls: ['RIDER'] } },
+    { id: 'ctl.lift', label: 'Side broom lift', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'], body_style: ['RIDER'] } },
   ] },
   { id: 'deck', title: 'Deck', shows_for: { class: ['SCRUBBER'] }, rows: [
     { id: 'deck.curtains', label: 'Curtains', scale: 'WEAR' },
@@ -37,7 +37,7 @@ const LIB = [
   ] },
 ];
 const ids = (vis) => vis.flatMap((s) => s.rows.map((r) => r.id));
-const P = (machine_class, controls, battery_type) => ({ machine_class, controls, battery_type });
+const P = (machine_class, body_style, battery_type) => ({ machine_class, body_style, battery_type });
 
 check('a pre-D67 snapshot has no sheets and no library — empty, never a throw', () => {
   assert.deepEqual(inspectionsOf({}), []);
@@ -51,17 +51,17 @@ check('a pre-D67 snapshot has no sheets and no library — empty, never a throw'
 });
 
 check('derivation from the category mirrors the engine; the picker default follows §2', () => {
-  assert.deepEqual(deriveProfile('Ride-On Sweeper'), { machine_class: 'SWEEPER', controls: 'RIDER' });
-  assert.deepEqual(deriveProfile('Walk-Behind Sweeper'), { machine_class: 'SWEEPER', controls: 'WALK-BEHIND' });
-  assert.deepEqual(deriveProfile('Chariot (Stand-on) Scrubber'), { machine_class: 'SCRUBBER', controls: 'STAND-ON' });
-  assert.deepEqual(deriveProfile('Mid-Size Rider Scrubber'), { machine_class: 'SCRUBBER', controls: 'RIDER' });
-  assert.deepEqual(deriveProfile(null), { machine_class: 'SCRUBBER', controls: 'WALK-BEHIND' });
+  assert.deepEqual(deriveProfile('Ride-On Sweeper'), { machine_class: 'SWEEPER', body_style: 'RIDER' });
+  assert.deepEqual(deriveProfile('Walk-Behind Sweeper'), { machine_class: 'SWEEPER', body_style: 'WALK-BEHIND' });
+  assert.deepEqual(deriveProfile('Chariot (Stand-on) Scrubber'), { machine_class: 'SCRUBBER', body_style: 'STAND-ON' });
+  assert.deepEqual(deriveProfile('Mid-Size Rider Scrubber'), { machine_class: 'SCRUBBER', body_style: 'RIDER' });
+  assert.deepEqual(deriveProfile(null), { machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND' });
   assert.equal(defaultKind({ unit_state: 'ON-RENT', readiness: 'NEEDS-PREP' }), 'RETURN', 'coming back off rent wins');
   assert.equal(defaultKind({ unit_state: 'IN-SHOP', readiness: 'NEEDS-PREP' }), 'CHECKOUT');
   assert.equal(defaultKind({ unit_state: 'AVAILABLE', readiness: 'READY' }), 'PM');
 });
 
-check('shows_for filters by class · controls · battery, on the section and the row; absent = everyone', () => {
+check('shows_for filters by class · body_style · battery, on the section and the row; absent = everyone', () => {
   const wb = ids(visibleSections(LIB, P('SCRUBBER', 'WALK-BEHIND', 'WET')));
   assert.deepEqual(wb, ['bat.terminals', 'bat.watering', 'ctl.key', 'deck.curtains', 'sqg.blades']);
   const rider = ids(visibleSections(LIB, P('SCRUBBER', 'RIDER', 'WET')));
@@ -69,7 +69,7 @@ check('shows_for filters by class · controls · battery, on the section and the
   assert.ok(wb.every((id) => rider.includes(id)), 'and takes nothing away');
   const sweeper = ids(visibleSections(LIB, P('SWEEPER', 'RIDER', 'AGM')));
   assert.ok(!sweeper.includes('deck.curtains'), 'a section-level class hides the whole deck on a sweeper');
-  assert.ok(sweeper.includes('ctl.broom') && sweeper.includes('ctl.lift'), 'class AND controls both have to fit');
+  assert.ok(sweeper.includes('ctl.broom') && sweeper.includes('ctl.lift'), 'class AND body_style both have to fit');
   assert.ok(!sweeper.includes('bat.watering'), 'AGM hides a WET-only row');
   assert.ok(!ids(visibleSections(LIB, P('SWEEPER', 'STAND-ON', 'AGM'))).includes('ctl.lift'));
   assert.equal(visibleSections(LIB, P('SWEEPER', 'WALK-BEHIND', 'LITHIUM')).find((s) => s.section.id === 'deck'), undefined, 'an empty section is dropped');
@@ -110,8 +110,8 @@ check('the hydrometer: 1.265 and 1265 both read 1.265; out of 1.000–1.400 is r
 });
 
 const ROW = {
-  id: 'I1001', serial: '900100', kind: 'CHECKOUT', status: 'DRAFT', machine_class: 'SCRUBBER', controls: 'WALK-BEHIND',
-  battery: { type: 'WET', voltage: 24, pack: '4x6V' }, readings: { hours_key: null, recharge_count: 88 },
+  id: 'I1001', serial: '900100', kind: 'CHECKOUT', status: 'DRAFT', machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND',
+  battery: { type: 'WET', voltage: 24, pack: '4x6V' }, readings: { hours_key: null, brush1_pct: 60 },
   cells: [{ battery: 1, cell: 'A', sg: 1.265, clarity: 'CLEAR', level: 'FULL' }],
   items: [{ id: 'ctl.key', result: 'IN-SPEC', note: null }, { id: 'sqg.blades', result: 'REPAIR', note: 'rolled' }],
   comments: 'x', flags: 1, age_days: 0, log: [],
@@ -121,7 +121,7 @@ check('overlay = the engine’s SAVE merge: a present section replaces, an absen
   const s = sheetFrom(ROW);
   const t = overlay(s, { action: 'SAVE', inspection: 'I1001', readings: { hours_key: 412.5 } });
   assert.equal(t.readings.hours_key, 412.5);
-  assert.equal(t.readings.recharge_count, null, 'readings is ONE section — replaced whole');
+  assert.equal(t.readings.brush1_pct, null, 'readings is ONE section — replaced whole');
   assert.equal(t.items.size, 2, 'items untouched');
   assert.equal(t.comments, 'x');
   assert.equal(overlay(s, { comments: null }).comments, null, 'a present null clears');
@@ -165,13 +165,14 @@ check('a section on the wire: only visible answers, only laid-out cells, the pac
   assert.deepEqual(sectionValue(overlay(s, { battery: { type: 'WET', voltage: 36, pack: '4x6V' } }), 'battery', LIB), { type: 'WET', voltage: 36, pack: null });
   assert.deepEqual(sectionValue(overlay(s, { battery: { type: 'AGM', voltage: 24 } }), 'cells', LIB), [], 'no grid, no cells');
   const r = sectionValue(s, 'readings', LIB);
-  assert.deepEqual(Object.keys(r).sort(), ['brush1_length', 'brush2_length', 'brushes_rotated', 'hours_key', 'hours_scrub',
-    'hours_traction', 'main_broom_length', 'recharge_count'], 'readings go whole');
+  assert.deepEqual(Object.keys(r).sort(), ['brush1_pct', 'brush2_pct', 'brushes_rotated', 'hours_key', 'hours_scrub',
+    'hours_traction', 'main_broom_pct'], 'readings go whole — v1.2: no recharge counter, no lengths');
+  assert.equal(sectionValue(overlay(s, { readings: { hours_key: 5, brush1_pct: 62.6 } }), 'readings', LIB).brush1_pct, 63, 'a percent goes out whole');
   assert.equal(sectionValue(overlay(s, { comments: '   ' }), 'comments', LIB), null, 'a blank box is null');
   assert.equal(sectionValue(s, 'machine_class', LIB), 'SCRUBBER');
   assert.ok(!/\$\s?\d/.test(JSON.stringify(SECTIONS_ALL(s))), 'nothing money-shaped in any section');
 });
-function SECTIONS_ALL(s) { return ['machine_class', 'controls', 'battery', 'readings', 'cells', 'items', 'comments'].map((k) => sectionValue(s, k, LIB)); }
+function SECTIONS_ALL(s) { return ['machine_class', 'body_style', 'battery', 'readings', 'cells', 'items', 'comments'].map((k) => sectionValue(s, k, LIB)); }
 
 check('Central wall clock from Intl parts; minutes between two engine stamps', () => {
   assert.equal(ctNow(new Date('2026-09-25T17:05:00Z')), '2026-09-25 12:05', 'CDT is UTC-5');

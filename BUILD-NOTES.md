@@ -2068,3 +2068,40 @@ zero throws or leaks; `#/inspection/…` fell back to the landing page).
   any day-old mock will do this.
 - Mock units' `hours` are now `null` except where a DONE sheet wrote them back,
   which is what the real fleet looked like before D67.
+
+---
+
+# D67b — red-pen #1: body style, % life left, no recharge counter (2026-09-25)
+
+Against `CLAUDE.md` v3.7.1 and `Inspection-Site-Spec.md` v1.2. Engine already
+live on the new keys.
+
+- `controls` → **`body_style`** everywhere: the sheet row, `shows_for.body_style`
+  filtering, the SAVE section key, the dropdown label "Body style". The site
+  never sends `controls`.
+- Readings: **`recharge_count` gone**; `*_length` → **`main_broom_pct` /
+  `brush1_pct` / `brush2_pct`** — "… life left", `inputmode="numeric"`, a `%`
+  suffix on the field, whole numbers 0–100.
+- Worker: `body_style` enum; readings shape is the seven keys; a percent must be
+  an integer 0–100.
+- Money gate: inspections + library checked by **key** (cost / cost_source_inv
+  / rate / price / amount, any depth), not text. The lead-log text scan and the
+  D65 work-order checks are unchanged.
+
+## Floor calls
+
+1. **The Worker refuses a stale `controls` (400), while the engine would
+   ignore it.** The Worker's rule is unknown keys → 400, the site never sends
+   it, and a phone still on the v37 shell would be refused on the old readings
+   keys anyway. The SW bump moves it to v38 on its next load.
+2. **A typed fraction is rounded on the phone** (62.6 → 63) rather than turned
+   red: the engine rounds too, and the Worker requires the integer.
+3. **The render money test now matches the gate**: no money *key* on a sheet or
+   the library, plus a positive check that a "$40 blade" note renders as typed.
+
+## Noticed, not done
+
+The engine now resolves SAVE / DONE / VOID with no `inspection` to the serial's
+one DRAFT (the fallback asked for in the D67 report). That makes Done possible
+on a ⏳ NEW sheet — but it needs the Worker to accept DONE (and VOID) keyed on
+the serial, which this brief didn't ask for. The OPEN-fold keeps working as is.

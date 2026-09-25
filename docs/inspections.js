@@ -22,8 +22,9 @@ export const KINDS = ['CHECKOUT', 'RETURN', 'PM'];
 export const KIND_LABEL = { CHECKOUT: 'Check-out', RETURN: 'Return', PM: 'PM' };
 export const CLASSES = ['SCRUBBER', 'SWEEPER'];
 export const CLASS_LABEL = { SCRUBBER: 'Scrubber', SWEEPER: 'Sweeper' };
-export const CONTROLS = ['WALK-BEHIND', 'RIDER', 'STAND-ON'];
-export const CONTROLS_LABEL = { 'WALK-BEHIND': 'Walk-behind', RIDER: 'Rider', 'STAND-ON': 'Stand-on' };
+// D67 v1.2 (Matt's red-pen): "body style" — the word the guys use. Was `controls`.
+export const BODY_STYLES = ['WALK-BEHIND', 'RIDER', 'STAND-ON'];
+export const BODY_STYLE_LABEL = { 'WALK-BEHIND': 'Walk-behind', RIDER: 'Rider', 'STAND-ON': 'Stand-on' };
 export const BATTERY_TYPES = ['WET', 'AGM', 'LITHIUM'];
 export const BATTERY_LABEL = { WET: 'Wet', AGM: 'AGM', LITHIUM: 'Lithium' };
 export const VOLTAGES = [24, 36];
@@ -39,18 +40,22 @@ export const RESULT_LABEL = {
 };
 export const FLAG_RESULTS = new Set(['REPAIR', 'PROBLEM', 'REPLACE']);
 export const HOURS_KEYS = ['hours_key', 'hours_traction', 'hours_scrub'];
-/** The typed readings, hours first (§4.3). `class` limits a reading to one machine class. */
+/**
+ * The typed readings, hours first (§4.3). `class` limits a reading to one
+ * machine class. v1.2: broom / brush wear is "% life remaining", a whole
+ * number 0–100 (`pct`) — no recharge counter.
+ */
 export const READINGS = [
   { key: 'hours_key', label: 'Key hours', max: 99999, hours: true },
   { key: 'hours_traction', label: 'Traction hours', max: 99999, hours: true },
   { key: 'hours_scrub', label: 'Scrub hours', max: 99999, hours: true },
-  { key: 'recharge_count', label: 'Recharge count', max: 99999 },
-  { key: 'main_broom_length', label: 'Main broom length (in)', max: 24, class: 'SWEEPER' },
-  { key: 'brush1_length', label: 'Brush 1 length (in)', max: 24, class: 'SCRUBBER' },
-  { key: 'brush2_length', label: 'Brush 2 length (in)', max: 24, class: 'SCRUBBER' },
+  { key: 'main_broom_pct', label: 'Main broom life left', max: 100, pct: true, class: 'SWEEPER' },
+  { key: 'brush1_pct', label: 'Brush 1 life left', max: 100, pct: true, class: 'SCRUBBER' },
+  { key: 'brush2_pct', label: 'Brush 2 life left', max: 100, pct: true, class: 'SCRUBBER' },
 ];
 export const READING_KEYS = [...READINGS.map((r) => r.key), 'brushes_rotated'];
-export const SECTION_KEYS = ['machine_class', 'controls', 'battery', 'readings', 'cells', 'items', 'comments'];
+export const PCT_KEYS = new Set(READINGS.filter((r) => r.pct).map((r) => r.key));
+export const SECTION_KEYS = ['machine_class', 'body_style', 'battery', 'readings', 'cells', 'items', 'comments'];
 export const INSP_ID_RE = /^I\d{4}$/;
 export const MAX_COMMENTS = 1000;
 export const MAX_ITEM_NOTE = 120;
@@ -89,13 +94,13 @@ export function forSerial(list, serial) {
 
 /* ------------------------------------------------------------ the machine */
 
-/** rental category → {machine_class, controls}: the engine's derivation, as a default the tech may flip. */
+/** rental category → {machine_class, body_style}: the engine's derivation, as a default the tech may flip. */
 export function deriveProfile(category) {
   const c = String(category || '').toLowerCase();
   const machine_class = c.includes('sweeper') ? 'SWEEPER' : 'SCRUBBER';
-  const controls = c.includes('stand-on') || c.includes('chariot') ? 'STAND-ON'
+  const body_style = c.includes('stand-on') || c.includes('chariot') ? 'STAND-ON'
     : c.includes('rider') || c.includes('ride-on') ? 'RIDER' : 'WALK-BEHIND';
-  return { machine_class, controls };
+  return { machine_class, body_style };
 }
 
 /** The picker's default (§2): coming back off rent → RETURN; in prep → CHECKOUT; else PM. */
@@ -108,13 +113,13 @@ export function defaultKind(unit) {
 const fits = (sf, p) => {
   if (!sf || typeof sf !== 'object') return true;
   if (Array.isArray(sf.class) && !sf.class.includes(p.machine_class)) return false;
-  if (Array.isArray(sf.controls) && !sf.controls.includes(p.controls)) return false;
+  if (Array.isArray(sf.body_style) && !sf.body_style.includes(p.body_style)) return false;
   if (Array.isArray(sf.battery) && !sf.battery.includes(p.battery_type)) return false;
   return true;
 };
 /**
  * Does this row belong on this machine's sheet? `shows_for` on the section AND
- * the row, against class / controls / battery type (absent key = everyone). A
+ * the row, against class / body_style / battery type (absent key = everyone). A
  * retired row is hidden on new sheets and still drawn on a sheet that carries
  * an answer for it — `carried` is the set of row ids the sheet has answered.
  */
@@ -130,7 +135,7 @@ export function visibleSections(sections, profile, carried) {
     .filter((s) => s.rows.length);
 }
 export const profileOf = (sheet) => ({
-  machine_class: sheet && sheet.machine_class, controls: sheet && sheet.controls,
+  machine_class: sheet && sheet.machine_class, body_style: sheet && sheet.body_style,
   battery_type: sheet && sheet.battery ? sheet.battery.type : null,
 });
 
@@ -178,7 +183,7 @@ export function sheetFrom(row) {
     id: r.id || null, serial: r.serial == null ? null : String(r.serial), asset_item: r.asset_item || null,
     kind: r.kind || null, status: r.status || 'DRAFT', opened: r.opened || null, opened_by: r.opened_by || null,
     done: r.done || null, tech: r.tech || null, ticket: r.ticket || null, work_order: r.work_order || null,
-    machine_class: r.machine_class || null, controls: r.controls || null,
+    machine_class: r.machine_class || null, body_style: r.body_style || null,
     battery: { type: null, voltage: null, pack: null, ...(r.battery || {}) },
     readings: { ...blankReadings(), ...(r.readings || {}) },
     cells: cellMap(r.cells), items: itemMap(r.items), comments: r.comments == null ? null : r.comments,
@@ -197,7 +202,7 @@ export function overlay(sheet, payload) {
   const s = { ...sheet };
   if ('kind' in p && p.kind) s.kind = p.kind;
   if ('machine_class' in p) s.machine_class = p.machine_class;
-  if ('controls' in p) s.controls = p.controls;
+  if ('body_style' in p) s.body_style = p.body_style;
   if ('battery' in p) {
     s.battery = { type: null, voltage: null, pack: null, ...(p.battery || {}) };
     if (s.battery.type !== 'WET') s.cells = new Map();
@@ -245,13 +250,13 @@ export function flaggedLabels(sheet, sections) {
  * One section as it goes on the wire (§2 — SAVE replaces the whole section).
  *   items     every answered row the machine SEES (a retired row the sheet
  *             already carries counts as seen). Answers on rows the current
- *             class / controls hide stay in the page, not in the vault.
+ *             class / body style hide stay in the page, not in the vault.
  *   cells     only the cells the current pack lays out, and only ones with a
  *             value; nothing at all off a WET pack (the engine clears them).
  *   battery   pack only on WET, and only when it matches the voltage.
  */
 export function sectionValue(sheet, key, sections) {
-  if (key === 'machine_class' || key === 'controls') return sheet[key];
+  if (key === 'machine_class' || key === 'body_style') return sheet[key];
   if (key === 'comments') {
     const c = sheet.comments == null ? '' : String(sheet.comments).trim();
     return c ? c.slice(0, MAX_COMMENTS) : null;
@@ -267,7 +272,9 @@ export function sectionValue(sheet, key, sections) {
     const out = {};
     for (const k of READING_KEYS) {
       const v = sheet.readings[k];
-      out[k] = k === 'brushes_rotated' ? (typeof v === 'boolean' ? v : null) : num(v);
+      const n = num(v);
+      out[k] = k === 'brushes_rotated' ? (typeof v === 'boolean' ? v : null)
+        : PCT_KEYS.has(k) && n != null ? Math.round(n) : n;
     }
     return out;
   }

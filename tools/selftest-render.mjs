@@ -2915,7 +2915,12 @@ await check('D67: the sheet renders FROM the checklist — sections in library o
   assert.ok(!out.includes('data-iseg="ctl.horn"'), 'walk-behind: no horn');
   assert.ok(out.includes('data-iseg="bat.watering"'), 'WET: the watering row');
   assert.ok(!out.includes('data-iseg="bat.old_gauge"'), 'a retired row stays off a sheet that never answered it');
-  assert.ok(out.includes('data-ifield="readings.brush1_length"') && !out.includes('readings.main_broom_length'), 'readings follow the class');
+  assert.ok(out.includes('data-ifield="readings.brush1_pct"') && !out.includes('readings.main_broom_pct'), 'readings follow the class');
+  // v1.2: % life left — whole numbers, the number pad, a % on the field; no recharge counter; "Body style".
+  assert.ok(/<input type="number" inputmode="numeric" pattern="\[0-9\]\*" step="1" min="0" max="100" data-ifield="readings.brush1_pct"/.test(out), 'a numeric-keypad percent field');
+  assert.ok(out.includes('<span>Brush 1 life left</span>') && out.includes('<span class="pct-suf" aria-hidden="true">%</span>'), 'labelled, with a % suffix');
+  assert.ok(!out.includes('recharge') && !out.includes('_length'), 'no recharge counter, no lengths');
+  assert.ok(out.includes('<span>Body style</span>') && out.includes('data-ifield="body_style"') && !out.includes('data-ifield="controls"'), 'the dropdown is Body style');
   assert.ok(out.includes('<span class="count">3/4 answered</span>'), 'Batteries: 3 of 4');
   // The WEAR scale on a WEAR row, FUNCTION on a FUNCTION row — from the library, never hard-coded.
   assert.ok(/data-iseg="deck.curtains" data-val="REPLACE"/.test(out) && !/data-iseg="deck.curtains" data-val="REPAIR"/.test(out));
@@ -2924,20 +2929,20 @@ await check('D67: the sheet renders FROM the checklist — sections in library o
   assert.ok((await renderRoute('#/inspection/I1002')).includes('Analog charge gauge (retired)'));
 });
 
-await check('D67: switching controls to RIDER adds the rider rows and keeps every answer', async () => {
+await check('D67: switching body style to RIDER adds the rider rows and keeps every answer', async () => {
   await asFull('service');
   resetSheets();
   await renderRoute('#/inspection/I1005');
   await tapSeg('ctl.key_switch', 'REPAIR');
-  await fireOn('change', fieldTarget('controls', 'RIDER', 'SELECT'));
+  await fireOn('change', fieldTarget('body_style', 'RIDER', 'SELECT'));
   await settle();
   let out = view._html;
   assert.ok(out.includes('data-iseg="ctl.horn"') && out.includes('data-iseg="ctl.seat_switch"'), 'the rider rows appear');
   assert.ok(out.includes('data-iseg="ctl.key_switch" data-val="REPAIR" aria-pressed="true"'), 'the answer typed before the switch is kept');
   assert.ok(out.includes('data-iseg="deck.curtains" data-val="WORN" aria-pressed="true"'), 'and the engine’s answers too');
   await tapSeg('ctl.horn', 'PROBLEM');
-  await fireOn('change', fieldTarget('controls', 'WALK-BEHIND', 'SELECT'));
-  await fireOn('change', fieldTarget('controls', 'RIDER', 'SELECT'));
+  await fireOn('change', fieldTarget('body_style', 'WALK-BEHIND', 'SELECT'));
+  await fireOn('change', fieldTarget('body_style', 'RIDER', 'SELECT'));
   await settle();
   out = view._html;
   assert.ok(out.includes('data-iseg="ctl.horn" data-val="PROBLEM" aria-pressed="true"'), 'flip away and back: the horn answer survives');
@@ -3057,9 +3062,22 @@ await check('D67: a numbered sheet saves ONE section per SAVE, and takes back it
   const saves = app.__state().pending.filter((e) => e.action === 'inspection' && e.payload.action === 'SAVE');
   assert.deepEqual(saves.map((e) => Object.keys(e.payload).filter((k) => k !== 'action' && k !== 'inspection')).sort(), [['comments'], ['items']]);
   assert.ok(!posted.some((p) => /\$\s?\d/.test(JSON.stringify(p)) || /"(cost|rate|price)"/.test(JSON.stringify(p))), 'no money');
+  // v1.2: a body-style flip goes out as `body_style` — never `controls` — and a percent goes out whole.
+  await fireOn('change', fieldTarget('body_style', 'RIDER', 'SELECT'));
+  await fireOn('input', fieldTarget('readings.brush1_pct', '62.6'));
+  await fireOn('change', fieldTarget('readings.brush1_pct', '62.6'));
+  await app.__flushSheets();
+  const bs = posted.find((p) => 'body_style' in p.payload);
+  assert.deepEqual(bs && bs.payload, { action: 'SAVE', inspection: 'I1005', body_style: 'RIDER' });
+  assert.ok(!posted.some((p) => 'controls' in p.payload), 'never `controls`');
+  const rd = posted.filter((p) => 'readings' in p.payload).pop().payload.readings;
+  assert.equal(rd.brush1_pct, 63);
+  assert.ok(!('recharge_count' in rd) && !('brush1_length' in rd));
+  await fireOn('input', fieldTarget('readings.brush2_pct', '140'));
+  assert.equal(app.__sheetLocal().get('I1005').edits.readings.brush2_pct, null, '140% is refused on the phone');
   // The pending save is drawn on the sheet — badged, never as applied.
   const out = await renderRoute('#/inspection/I1005');
-  assert.ok(out.includes('⏳ 2 pending changes') && out.includes('saved items') && out.includes('saved comments'));
+  assert.ok(out.includes('saved items') && out.includes('saved comments') && out.includes('saved body_style'));
   await leaveApi();
 });
 
@@ -3171,7 +3189,7 @@ await check('D67: undoing a NEW sheet’s OPEN discards what was typed into it',
   await leaveApi();
 });
 
-await check('D67: no money anywhere on a sheet, a strip or the fixture — for any role', async () => {
+await check('D67: no money KEY on a sheet or the library — and a tech\'s "$40 blade" note is honest data, drawn as typed', async () => {
   for (const role of ['owner', 'service', 'sales']) {
     const snap = await asFull(role);
     app.__ui().showInspections = true;
@@ -3180,8 +3198,15 @@ await check('D67: no money anywhere on a sheet, a strip or the fixture — for a
       assert.ok(!MONEY_RE.test(out), `${role} ${r}: a dollar figure`);
     }
     app.__ui().showInspections = false;
-    assert.ok(!/"(cost|rate|price)"/.test(JSON.stringify(snap.inspections)) && !MONEY_RE.test(JSON.stringify(snap.inspections)));
+    assert.ok(!/"(cost|cost_source_inv|rate|price|amount)"\s*:/i.test(JSON.stringify([snap.inspections, snap.inspection_checklist])), `${role}: no money key`);
   }
+  // Red-pen #1: the gate is on KEYS. A figure a tech types is theirs to type.
+  resetSheets();
+  await renderRoute('#/inspection/I1005');
+  await tapSeg('sqg.blades', 'REPAIR');
+  await fireOn('input', fieldTarget('note:sqg.blades', '$40 blade from RPS'));
+  assert.ok((await renderRoute('#/inspection/I1005')).includes('value="$40 blade from RPS"'));
+  resetSheets();
   await asFull('owner');
 });
 

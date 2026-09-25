@@ -1760,7 +1760,7 @@ function downgradeToSchema2(s3, ledger) {
 /**
  * D67 — the row library, TRIMMED from the vault's real one to three sections
  * that still exercise every axis the page filters on: both scales, `shows_for`
- * on a section (class) and on rows (class · controls · battery), and a retired
+ * on a section (class) and on rows (class · body_style · battery), and a retired
  * row that an old sheet still carries. Labels are generic shop wording.
  */
 const CHECKLIST_FIXTURE = {
@@ -1779,10 +1779,10 @@ const CHECKLIST_FIXTURE = {
         { id: 'ctl.key_switch', label: 'Main power / key switch', scale: 'FUNCTION' },
         { id: 'ctl.estop', label: 'E-stop', scale: 'FUNCTION', shows_for: { class: ['SCRUBBER'] } },
         { id: 'ctl.drive_forward', label: 'Drive — forward', scale: 'FUNCTION' },
-        { id: 'ctl.horn', label: 'Horn', scale: 'FUNCTION', shows_for: { controls: ['RIDER', 'STAND-ON'] } },
-        { id: 'ctl.seat_switch', label: 'Seat switch', scale: 'FUNCTION', shows_for: { controls: ['RIDER'] } },
+        { id: 'ctl.horn', label: 'Horn', scale: 'FUNCTION', shows_for: { body_style: ['RIDER', 'STAND-ON'] } },
+        { id: 'ctl.seat_switch', label: 'Seat switch', scale: 'FUNCTION', shows_for: { body_style: ['RIDER'] } },
         { id: 'ctl.main_broom_ctl', label: 'Main broom lever / switch', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'] } },
-        { id: 'ctl.side_broom_lift', label: 'Side broom lift mechanism', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'], controls: ['RIDER', 'STAND-ON'] } },
+        { id: 'ctl.side_broom_lift', label: 'Side broom lift mechanism', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'], body_style: ['RIDER', 'STAND-ON'] } },
         { id: 'ctl.side_broom', label: 'Side broom condition', scale: 'WEAR', shows_for: { class: ['SWEEPER'] } },
       ] },
     { id: 'deck', title: 'Scrub deck & squeegee', shows_for: { class: ['SCRUBBER'] },
@@ -1827,8 +1827,8 @@ function buildInspections({ withInspections, units, work_orders }) {
     return u;
   };
   const cat = (u, s) => String(u.category || '').includes(s);
-  const blankReadings = () => ({ hours_key: null, hours_traction: null, hours_scrub: null, recharge_count: null,
-    main_broom_length: null, brush1_length: null, brush2_length: null, brushes_rotated: null });
+  const blankReadings = () => ({ hours_key: null, hours_traction: null, hours_scrub: null,
+    main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null });
   const cells = (n, per, sgs) => {
     const out = [];
     for (let b = 1; b <= n; b++) for (const c of 'ABCDEF'.slice(0, per)) {
@@ -1843,7 +1843,7 @@ function buildInspections({ withInspections, units, work_orders }) {
     const row = {
       id, serial: u.serial, asset_item: u.asset_item, kind: 'PM', status: 'DRAFT', opened: d(-(o.age || 0)),
       opened_by: 'Josh', done: null, tech: null, ticket: null, work_order: null, machine_class: 'SCRUBBER',
-      controls: 'WALK-BEHIND', battery: { type: null, voltage: null, pack: null }, readings: blankReadings(),
+      body_style: 'WALK-BEHIND', battery: { type: null, voltage: null, pack: null }, readings: blankReadings(),
       cells: [], items: [], comments: null, flags: 0, age_days: null, log: [], ...o,
     };
     row.readings = { ...blankReadings(), ...(o.readings || {}) };
@@ -1877,8 +1877,8 @@ function buildInspections({ withInspections, units, work_orders }) {
     rows.push(sheet('I1002', woUnit, { kind: 'PM', status: 'DONE', age: 4, done: d(-3), tech: 'Zac', opened_by: 'Zac',
       ...p, work_order: 'W1002', battery: { type: 'AGM', voltage: 24, pack: null },
       readings: p.machine_class === 'SWEEPER'
-        ? { hours_key: 961.5, recharge_count: 212, main_broom_length: 2.5, brushes_rotated: true }
-        : { hours_key: 961.5, recharge_count: 212, brush1_length: 1.25, brush2_length: 1.25, brushes_rotated: true },
+        ? { hours_key: 961.5, main_broom_pct: 45, brushes_rotated: true }
+        : { hours_key: 961.5, brush1_pct: 55, brush2_pct: 50, brushes_rotated: true },
       items: [
         { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
         { id: 'ctl.drive_forward', result: 'REPAIR', note: 'hesitates in forward' },
@@ -1893,9 +1893,9 @@ function buildInspections({ withInspections, units, work_orders }) {
   }
   if (returnUnit) {
     rows.push(sheet('I1003', returnUnit, { kind: 'RETURN', status: 'DONE', age: 1, done: d(-1), tech: 'Josh',
-      machine_class: 'SCRUBBER', controls: deriveProfileMock(returnUnit.category).controls,
+      machine_class: 'SCRUBBER', body_style: deriveProfileMock(returnUnit.category).body_style,
       battery: { type: 'WET', voltage: 36, pack: '3x12V' },
-      readings: { hours_key: 412.5, recharge_count: 88, brush1_length: 1.5, brush2_length: 1.5, brushes_rotated: false },
+      readings: { hours_key: 412.5, brush1_pct: 60, brush2_pct: 60, brushes_rotated: false },
       cells: cells(3, 6, [1.265, 1.27, 1.26, 1.265, 1.255, 1.27, 1.26, 1.265, 1.19, 1.26, 1.265, 1.27, 1.265, 1.26, 1.27, 1.265, 1.26, 1.265]),
       items: [
         { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
@@ -1911,7 +1911,7 @@ function buildInspections({ withInspections, units, work_orders }) {
   }
   if (pmUnit) {
     rows.push(sheet('I1004', pmUnit, { kind: 'PM', age: 3, opened_by: 'Zac', machine_class: 'SWEEPER',
-      controls: deriveProfileMock(pmUnit.category).controls, battery: { type: 'AGM', voltage: 36, pack: null },
+      body_style: deriveProfileMock(pmUnit.category).body_style, battery: { type: 'AGM', voltage: 36, pack: null },
       readings: { hours_key: 233 },
       items: [{ id: 'ctl.key_switch', result: 'IN-SPEC', note: null }, { id: 'ctl.horn', result: 'PROBLEM', note: 'intermittent' }],
       log: [{ ts: stamp(3, '13:15'), who: 'Zac', text: 'OPEN by Zac (PM)' }, { ts: stamp(3, '13:40'), who: 'Zac', text: 'Zac saved — readings, items×2; 1 flag(s)' }] }));
@@ -1944,12 +1944,12 @@ function buildInspections({ withInspections, units, work_orders }) {
   }
   return { inspections: shipped, inspection_summary: summary(shipped) };
 }
-/** The engine's category → class / controls derivation, for the fixtures. */
+/** The engine's category → class / body_style derivation, for the fixtures. */
 function deriveProfileMock(category) {
   const c = String(category || '').toLowerCase();
   return {
     machine_class: c.includes('sweeper') ? 'SWEEPER' : 'SCRUBBER',
-    controls: c.includes('stand-on') || c.includes('chariot') ? 'STAND-ON' : c.includes('rider') || c.includes('ride-on') ? 'RIDER' : 'WALK-BEHIND',
+    body_style: c.includes('stand-on') || c.includes('chariot') ? 'STAND-ON' : c.includes('rider') || c.includes('ride-on') ? 'RIDER' : 'WALK-BEHIND',
   };
 }
 
@@ -2104,8 +2104,8 @@ const pending = [
     ts: ago(6),
     actor: 'Josh', role: 'service',
     action: 'inspection', serial: inspNewUnit.serial,
-    payload: { action: 'OPEN', kind: 'RETURN', readings: { hours_key: 1204, hours_traction: null, hours_scrub: null, recharge_count: null,
-      main_broom_length: null, brush1_length: null, brush2_length: null, brushes_rotated: null } },
+    payload: { action: 'OPEN', kind: 'RETURN', readings: { hours_key: 1204, hours_traction: null, hours_scrub: null,
+      main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null } },
   },
   {
     id: 'evt-mock-14',

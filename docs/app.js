@@ -37,7 +37,7 @@ import {
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
 } from './workorders.js';
 import {
-  KINDS as INSP_KINDS, KIND_LABEL as INSP_KIND_LABEL, CLASSES, CLASS_LABEL, CONTROLS, CONTROLS_LABEL,
+  KINDS as INSP_KINDS, KIND_LABEL as INSP_KIND_LABEL, CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
   BATTERY_TYPES, BATTERY_LABEL, VOLTAGES, PACKS_BY_VOLTAGE, PACK_LABEL, CLARITY, CLARITY_LABEL, LEVEL, LEVEL_LABEL,
   SCALES, RESULT_LABEL, READINGS, SECTION_KEYS, MAX_COMMENTS, MAX_ITEM_NOTE, MAX_NOTE,
   inspectionsOf, inspById, checklistOf, forSerial, deriveProfile, defaultKind, visibleSections, profileOf,
@@ -73,7 +73,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-25-d67';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-25-d67b';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -2424,7 +2424,7 @@ function woFooter(wo, me) {
  *
  * WHAT IS ON SCREEN, in layers, bottom to top:
  *   1. the snapshot's row (the vault's truth), or for a NEW sheet the defaults
- *      the engine will derive (class / controls from the category, the battery
+ *      the engine will derive (class / body style from the category, the battery
  *      from this unit's last sheet);
  *   2. this sheet's still-pending taps, in the order they were made — badged
  *      pending, never drawn as applied;
@@ -2573,7 +2573,7 @@ function viewInspection(arg) {
         ${c.isNew ? raw(selectField('kind', 'Sheet', INSP_KINDS, INSP_KIND_LABEL, sheet.kind, dis, false)) : ''}
         <div class="insp-2">
           ${raw(selectField('machine_class', 'Class', CLASSES, CLASS_LABEL, sheet.machine_class, dis, false))}
-          ${raw(selectField('controls', 'Controls', CONTROLS, CONTROLS_LABEL, sheet.controls, dis, false))}
+          ${raw(selectField('body_style', 'Body style', BODY_STYLES, BODY_STYLE_LABEL, sheet.body_style, dis, false))}
         </div>
         ${editable ? raw('<div class="form-note">Pre-set from the unit — change it if it\'s wrong. The rows below follow; nothing you answered is lost.</div>') : ''}
       </div>
@@ -2613,8 +2613,12 @@ function selectField(field, label, values, labels, cur, dis, blank) {
 
 function readingsCard(sheet, dis, editable) {
   const r = sheet.readings;
-  const numField = (d) => html`<label class="ifl${d.hours ? ' big' : ''}"><span>${d.label}</span>
-    <input type="number" inputmode="decimal" step="any" min="0" max="${d.max}" data-ifield="readings.${d.key}" value="${r[d.key] == null ? '' : r[d.key]}"${dis}></label>`;
+  // v1.2: broom / brush wear is "% life remaining" — whole numbers, the number pad, a % on the field.
+  const numField = (d) => (d.pct
+    ? html`<label class="ifl"><span>${d.label}</span>
+      <span class="pct-wrap"><input type="number" inputmode="numeric" pattern="[0-9]*" step="1" min="0" max="100" data-ifield="readings.${d.key}" value="${r[d.key] == null ? '' : r[d.key]}"${dis}><span class="pct-suf" aria-hidden="true">%</span></span></label>`
+    : html`<label class="ifl${d.hours ? ' big' : ''}"><span>${d.label}</span>
+      <input type="number" inputmode="decimal" step="any" min="0" max="${d.max}" data-ifield="readings.${d.key}" value="${r[d.key] == null ? '' : r[d.key]}"${dis}></label>`);
   const shown = READINGS.filter((d) => !d.class || d.class === sheet.machine_class);
   const rot = r.brushes_rotated;
   const rb = (v, label) => html`<button type="button" class="seg-b${rot === v ? ' on' : ''}" data-irot="${String(v)}" aria-pressed="${rot === v ? 'true' : 'false'}"${dis}>${label}</button>`;
@@ -2921,7 +2925,7 @@ function onInspField(el, committed) {
   const soon = { redraw: false, now: committed };
 
   if (f === 'kind') { editSheet((l) => { l.edits.kind = v || null; }, ['kind'], { now: true }); return; }
-  if (f === 'machine_class' || f === 'controls') {
+  if (f === 'machine_class' || f === 'body_style') {
     // "Answers already given are kept" (§4.2): the page holds every answer, so
     // flipping back brings them back. The vault gets the rows this machine sees.
     editSheet((l, sh) => { l.edits[f] = v || null; if (!l.edits.items) l.edits.items = new Map(sh.items); }, [f, 'items'], { now: true });
@@ -2945,7 +2949,8 @@ function onInspField(el, committed) {
   if (f.startsWith('readings.')) {
     const k = f.slice(9);
     const d = READINGS.find((x) => x.key === k);
-    const n = v.trim() === '' ? null : Number(v);
+    let n = v.trim() === '' ? null : Number(v);
+    if (n != null && d && d.pct && isFinite(n)) n = Math.round(n);     // a percent is a whole number
     if (n != null && (!isFinite(n) || n < 0 || (d && n > d.max))) { bad(true); return; }
     bad(false);
     editSheet((l, sh) => { l.edits.readings = { ...sh.readings, [k]: n }; }, ['readings'], soon);

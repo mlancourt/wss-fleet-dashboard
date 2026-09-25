@@ -37,8 +37,9 @@
  *
  * D65 extends the gate to `work_orders[]` for EVERY role: no money key, and no
  * figure anywhere in its text (part descriptions, labor notes, the log).
- * D67 applies the same gate, unchanged, to `inspections[]` and the shipped
- * row library (`inspection_checklist`).
+ * D67 checks `inspections[]` and the shipped row library by KEY only (no
+ * cost / rate / price / amount at any depth). Not by text: a tech's note
+ * saying "$40 blade" is honest data about the machine, not a money leak.
  *
  * TICKET logs are deliberately NOT checked: they carry quote amounts, those are
  * visible to every role by design, and `service_queue[].quote.amount` has
@@ -49,6 +50,18 @@ import path from 'node:path';
 
 /** The figure shape the contract forbids in a lead log. */
 const MONEY_RE = /\$\s?\d/;
+
+/** D67: every money-named KEY (any case, any depth) — the paths, for the failure line. */
+const MONEY_KEY_RE = /^(cost|cost_source_inv|rate|price|amount)$/i;
+function moneyKeys(v, at = '', out = []) {
+  if (!v || typeof v !== 'object') return out;
+  for (const [k, x] of Object.entries(v)) {
+    const here = Array.isArray(v) ? `${at}[${k}]` : `${at}.${k}`;
+    if (!Array.isArray(v) && MONEY_KEY_RE.test(k)) out.push(here);
+    moneyKeys(x, here, out);
+  }
+  return out;
+}
 
 const file = process.argv[2];
 const WORKER = (process.argv[3] || process.env.WORKER || 'http://localhost:8788').replace(/\/+$/, '');
@@ -170,12 +183,14 @@ try {
     const n = Array.isArray(wos) ? wos.length : 'no key';
     ok(!/"(cost|cost_source_inv|rate|price)"\s*:/.test(text), `${role}: no money key on any work order (${n})`);
     ok(!MONEY_RE.test(text), `${role}: no work_orders text matches /\\$\\s?\\d/`);
-    // D67: "the D65 gate applies unchanged" to the inspection sheet — nothing
-    // on it is money-shaped, and the row library is shipped to every phone.
-    const insp = JSON.stringify([doc.snapshot.inspections || [], doc.snapshot.inspection_checklist || null]);
+    // D67: nothing on an inspection sheet or the shipped row library is
+    // money-SHAPED — checked by KEY, at any depth. Deliberately not a text
+    // scan: a tech writing "$40 blade" in a row note or the comments is honest
+    // data about the machine, not a leak of our money (red-pen #1, 9/25).
     const ni = Array.isArray(doc.snapshot.inspections) ? doc.snapshot.inspections.length : 'no key';
-    ok(!/"(cost|cost_source_inv|rate|price)"\s*:/.test(insp), `${role}: no money key on any inspection or library row (${ni})`);
-    ok(!MONEY_RE.test(insp), `${role}: no inspections text matches /\\$\\s?\\d/`);
+    const found = moneyKeys([doc.snapshot.inspections || [], doc.snapshot.inspection_checklist || null]);
+    ok(found.length === 0, `${role}: no cost / rate / price / amount key on any inspection or library row (${ni})`);
+    for (const f of found) console.log(`         ${f}`);
   }
 } finally {
   // Put the mock back, whatever happened above. Real data does not linger in a
