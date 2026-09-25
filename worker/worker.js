@@ -139,7 +139,7 @@ const INSP_VERBS = new Set(['OPEN', 'SAVE', 'DONE', 'REOPEN', 'VOID']);
 const INSP_ID_RE = /^I\d{4}$/;
 const INSP_KINDS = new Set(['CHECKOUT', 'RETURN', 'PM']);
 const INSP_CLASSES = new Set(['SWEEPER', 'SCRUBBER']);
-const INSP_CONTROLS = new Set(['WALK-BEHIND', 'RIDER', 'STAND-ON']);
+const INSP_BODY_STYLES = new Set(['WALK-BEHIND', 'RIDER', 'STAND-ON']);   // v1.2: was `controls`
 const INSP_BATTERY_TYPES = new Set(['WET', 'AGM', 'LITHIUM']);
 const INSP_PACKS = { 24: ['4x6V', '2x12V'], 36: ['3x12V', '6x6V'] };
 const INSP_CLARITY = new Set(['CLEAR', 'CLOUDY', 'PARTICULATE', 'DARK']);
@@ -147,16 +147,17 @@ const INSP_LEVEL = new Set(['OVERFILLED', 'FULL', 'LOW', 'DRY']);
 // Both scales' answers. Which one a row takes is the library's — this file can
 // only refuse a word that belongs to neither.
 const INSP_RESULTS = new Set(['IN-SPEC', 'REPAIR', 'PROBLEM', 'GOOD', 'WORN', 'REPLACE', 'N/A']);
-const INSP_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub', 'recharge_count',
-  'main_broom_length', 'brush1_length', 'brush2_length', 'brushes_rotated']);
-const INSP_METER_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub', 'recharge_count']);
+// v1.2: no recharge counter; broom / brush wear is % life remaining, a whole number 0–100.
+const INSP_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub',
+  'main_broom_pct', 'brush1_pct', 'brush2_pct', 'brushes_rotated']);
+const INSP_METER_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub']);
 const INSP_ROW_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;   // "ctl.key_switch" — shape only; which ids exist is the library's
 const INSP_MAX_CELLS = 18;
 const INSP_MAX_ITEMS = 120;
 // The sections a SAVE may carry. Present = "replace this section", absent =
 // "leave it alone" (merge by section) — so a key is kept even when its value is
 // null, because a null there is an instruction to clear it.
-const INSP_SECTIONS = ['machine_class', 'controls', 'battery', 'readings', 'cells', 'items', 'comments'];
+const INSP_SECTIONS = ['machine_class', 'body_style', 'battery', 'readings', 'cells', 'items', 'comments'];
 const INSP_KEYS = {
   // OPEN may carry a first SAVE: the engine merges it into the new sheet. That
   // is how a sheet typed before its I-number exists reaches the vault.
@@ -869,7 +870,7 @@ function cleanPayload(action, p, role, serial) {
     const sections = () => {
       const out = {};
       if ('machine_class' in obj) out.machine_class = oneOf(obj.machine_class, INSP_CLASSES, 'machine_class');
-      if ('controls' in obj) out.controls = oneOf(obj.controls, INSP_CONTROLS, 'controls');
+      if ('body_style' in obj) out.body_style = oneOf(obj.body_style, INSP_BODY_STYLES, 'body_style');
       if ('battery' in obj) {
         if (obj.battery == null) out.battery = null;
         else {
@@ -900,8 +901,12 @@ function cleanPayload(action, p, role, serial) {
             if (k === 'brushes_rotated') {
               if (r[k] != null && typeof r[k] !== 'boolean') throw httpError(400, 'brushes_rotated must be true or false');
               rd[k] = r[k] == null ? null : r[k];
+            } else if (INSP_METER_READINGS.has(k)) {
+              rd[k] = num(r[k], 0, 99999, k);
             } else {
-              rd[k] = num(r[k], 0, INSP_METER_READINGS.has(k) ? 99999 : 24, k);
+              const v = num(r[k], 0, 100, k);
+              if (v != null && !Number.isInteger(v)) throw httpError(400, `${k} is a whole-number percent (0–100)`);
+              rd[k] = v;
             }
           }
           out.readings = rd;

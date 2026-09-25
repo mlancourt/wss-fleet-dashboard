@@ -506,6 +506,9 @@ POSTWO "sg 2.0 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection"
 POSTWO "an unknown top-level key -> 400" 400 "b.error.includes('signature')" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","signature":"x"}')"
 POSTWO "a result outside both scales -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","items":[{"id":"ctl.key_switch","result":"FINE"}]}')"
 POSTWO "OPEN without a serial -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"OPEN","kind":"PM"}')"
+POSTWO "v1.2: the retired controls key -> 400" 400 "b.error.includes('controls')" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","controls":"RIDER"}')"
+POSTWO "v1.2: a fractional brush percent -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"brush1_pct":55.5}}')"
+POSTWO "v1.2: recharge_count is gone -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"recharge_count":8}}')"
 expect "all six inspection events drained -> deleted 6" 200 "b.deleted===6" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
   -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\"]}"

@@ -64,9 +64,9 @@ async function refused(role, body, what, status = 400, hint) {
 console.log('worker self-test (D67 inspection · D65 back-link)');
 
 const FULL_SAVE = {
-  action: 'SAVE', inspection: 'I1001', machine_class: 'SCRUBBER', controls: 'WALK-BEHIND',
+  action: 'SAVE', inspection: 'I1001', machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND',
   battery: { type: 'WET', voltage: 24, pack: '4x6V' },
-  readings: { hours_key: 412.5, hours_traction: null, recharge_count: 88, brush1_length: 1.5, brushes_rotated: true },
+  readings: { hours_key: 412.5, hours_traction: null, brush1_pct: 60, brush2_pct: 0, brushes_rotated: true },
   cells: [{ battery: 1, cell: 'A', sg: 1.265, clarity: 'CLEAR', level: 'FULL' }, { battery: 1, cell: 'B', sg: null, clarity: null, level: null }],
   items: [{ id: 'ctl.key_switch', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'REPLACE', note: 'torn' }, { id: 'sqg.blades', result: null }],
   comments: 'ready after blade',
@@ -138,7 +138,11 @@ await check('lengths, enums and shapes inside the sections', async () => {
   await bad({ items: [{ id: 'ctl.a', result: 'GOOD', photo: 'x' }] }, 'unknown item key', 'photo');
   await bad({ comments: 'x'.repeat(1001) }, 'comments 1001', 'comments');
   await bad({ machine_class: 'VACUUM' }, 'class enum');
-  await bad({ controls: 'RIDE-ON' }, 'controls enum');
+  await bad({ body_style: 'RIDE-ON' }, 'body_style enum');
+  // v1.2 (red-pen #1): the old names are gone from the shape, and the Worker says which.
+  await bad({ controls: 'RIDER' }, 'the retired controls key', 'controls');
+  await bad({ readings: { recharge_count: 88 } }, 'no recharge counter any more', 'recharge_count');
+  await bad({ readings: { brush1_length: 1.5 } }, 'lengths are gone', 'brush1_length');
   await bad({ battery: { type: 'GEL', voltage: 24 } }, 'battery type enum');
   await bad({ battery: { type: 'WET', voltage: 48 } }, 'voltage 48', 'voltage');
   await bad({ battery: { type: 'WET', voltage: 24, pack: '3x12V' } }, 'pack vs voltage', 'pack');
@@ -147,7 +151,10 @@ await check('lengths, enums and shapes inside the sections', async () => {
   await bad({ readings: { hours_key: '412' } }, 'hours as a string', 'number');
   await bad({ readings: { hours_key: -1 } }, 'negative hours');
   await bad({ readings: { hours_key: 100000 } }, 'hours > 99999');
-  await bad({ readings: { brush1_length: 30 } }, 'a 30-inch brush');
+  await bad({ readings: { brush1_pct: 101 } }, 'a brush at 101%', 'brush1_pct');
+  await bad({ readings: { main_broom_pct: -1 } }, 'a broom at -1%');
+  await bad({ readings: { brush2_pct: 55.5 } }, 'a fractional percent', 'whole-number');
+  await ok('owner', insp({ action: 'SAVE', inspection: 'I1001', readings: { main_broom_pct: 0, brush1_pct: 100, brush2_pct: null } }), 'percent edges + null');
   await bad({ readings: { brushes_rotated: 'Y' } }, 'rotated as a string', 'true or false');
   await bad({ readings: { odometer: 5 } }, 'unknown reading', 'odometer');
   await bad({ cells: [{ battery: 7, cell: 'A' }] }, 'battery 7');
