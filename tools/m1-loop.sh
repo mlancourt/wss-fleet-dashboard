@@ -8,8 +8,9 @@
 #   -> PUT/GET/DELETE a document (schema 6) with the hash check that names it
 #   -> POST a document from a "phone" + the doc_attach event that points at it (S2)
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all
-# fourteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
-# three schema-5 ones, doc_attach (schema 6 / S2), rental_update (D64), and the
+# fifteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
+# three schema-5 ones, doc_attach (schema 6 / S2), rental_update (D64),
+# work_order (D65, with its by-name money refusal), and the
 # schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
@@ -410,6 +411,78 @@ expect "both remaining rental events drained -> deleted 2" 200 "b.deleted===2" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" -d "{\"ids\":[\"$RU1\",\"$RU2\"]}"
 expect "pending back to baseline after the rentals" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
+echo "-- crew: work_order (D65) — the fifteenth action, six verbs"
+WO() { echo "{\"action\":\"work_order\"$1,\"payload\":$2}"; }
+POSTWO() { local label="$1" want="$2" check="$3" tok="$4"; shift 4
+  expect "$label" "$want" "$check" -X POST "$WORKER/api/event" -H "$(auth $tok)" -H "Content-Type: application/json" -d "$1"; }
+OPEN_OK='{"action":"OPEN","purpose":"RENT-READY","note":"rent-ready for Acme Foods","parts":[{"manufacturer":"FACTORY-CAT","part_number":"150-4500","description":"Solution valve 24V","qty":1},{"manufacturer":"FACTORY-CAT","part_number":"21-422S","description":"Squeegee blade rear","qty":2}]}'
+POSTWO "service opens a work order with two lines -> 201" 201 \
+  "b.action==='work_order' && b.serial==='900233' && b.payload.action==='OPEN' && b.payload.purpose==='RENT-READY' && b.payload.parts.length===2 && b.payload.parts[1].qty===2" \
+  "$T_SERVICE" "$(WO ',"serial":"900233"' "$OPEN_OK")"
+WO1=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "a labor-only OPEN (no parts) is legal -> 201" 201 "b.payload.parts.length===0 && b.payload.purpose==='PM'" \
+  "$T_SALES" "$(WO ',"serial":"900107"' '{"action":"OPEN","purpose":"PM"}')"
+WO2=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "ADD-PARTS (any role) -> 201" 201 "b.serial===null && b.payload.work_order==='W1001' && b.payload.parts[0].description===null" \
+  "$T_SALES" "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"KODIAK","part_number":"30-750","qty":1}]}')"
+WO3=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "owner marks a line ORDERED -> 201" 201 \
+  "b.payload.state==='ORDERED' && b.payload.line===1 && b.payload.vendor==='RPS' && b.payload.vendor_ref==='SO-448121'" \
+  "$T_OWNER" "$(WO '' '{"action":"PART-STATE","work_order":"W1001","line":1,"state":"ORDERED","date":"2026-09-26","vendor":"RPS","vendor_ref":"SO-448121"}')"
+WO4=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "service marks a line IN-TRANSIT with tracking -> 201" 201 "b.payload.state==='IN-TRANSIT' && b.payload.tracking==='UPS 1Z999AA10123456784'" \
+  "$T_SERVICE" "$(WO '' '{"action":"PART-STATE","work_order":"W1001","line":1,"state":"IN-TRANSIT","tracking":"UPS 1Z999AA10123456784"}')"
+WO5=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "service marks a line DELIVERED -> 201" 201 "b.payload.state==='DELIVERED'" \
+  "$T_SERVICE" "$(WO '' '{"action":"PART-STATE","work_order":"W1001","line":1,"state":"DELIVERED","date":"2026-09-30"}')"
+WO6=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "LABOR 1.5 h for Zac, logged by Matt -> 201" 201 "b.payload.hours===1.5 && b.payload.who==='Zac' && b.actor==='Test Matt'" \
+  "$T_OWNER" "$(WO '' '{"action":"LABOR","work_order":"W1001","date":"2026-09-25","who":"Zac","hours":1.5,"note":"squeegee rebuild"}')"
+WO7=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "owner CLOSEs -> 201" 201 "b.payload.action==='CLOSE' && b.payload.note===null" \
+  "$T_OWNER" "$(WO '' '{"action":"CLOSE","work_order":"W1001","note":""}')"
+WO8=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "CANCEL passes the Worker for the opener (the engine referees it) -> 201" 201 "b.payload.action==='CANCEL'" \
+  "$T_SERVICE" "$(WO '' '{"action":"CANCEL","work_order":"W1002","note":"found in shop stock"}')"
+WO9=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "the undo valve applies to a work_order tap (D46) -> 200" 200 "" -X DELETE "$WORKER/api/event/$WO9" -H "$(auth $T_SERVICE)"
+# Refusals — role
+POSTWO "service may not mark a part ORDERED -> 403" 403 "" \
+  "$T_SERVICE" "$(WO '' '{"action":"PART-STATE","work_order":"W1001","line":1,"state":"ORDERED"}')"
+POSTWO "sales may not mark a part DELIVERED -> 403" 403 "" \
+  "$T_SALES" "$(WO '' '{"action":"PART-STATE","work_order":"W1001","line":1,"state":"DELIVERED"}')"
+POSTWO "service may not CLOSE -> 403" 403 "" "$T_SERVICE" "$(WO '' '{"action":"CLOSE","work_order":"W1001"}')"
+# Refusals — shape
+POSTWO "a 7th verb -> 400" 400 "" "$T_OWNER" "$(WO '' '{"action":"REOPEN","work_order":"W1001"}')"
+ELEVEN=$(node -e "console.log(JSON.stringify({action:'OPEN',purpose:'REPAIR',parts:Array.from({length:11},(_,i)=>({manufacturer:'OTHER',part_number:'P'+i,qty:1}))}))")
+POSTWO "an 11-line OPEN -> 400" 400 "" "$T_OWNER" "$(WO ',"serial":"900233"' "$ELEVEN")"
+POSTWO "a bad manufacturer -> 400" 400 "" "$T_OWNER" \
+  "$(WO ',"serial":"900233"' '{"action":"OPEN","purpose":"REPAIR","parts":[{"manufacturer":"ACME","part_number":"1","qty":1}]}')"
+POSTWO "work_order S1001 -> 400" 400 "" "$T_OWNER" "$(WO '' '{"action":"CLOSE","work_order":"S1001"}')"
+POSTWO "hours 13 -> 400"   400 "" "$T_OWNER" "$(WO '' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":13}')"
+POSTWO "hours 1.3 -> 400"  400 "" "$T_OWNER" "$(WO '' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1.3}')"
+POSTWO "a backwards state (-> REQUESTED) -> 400" 400 "" "$T_OWNER" \
+  "$(WO '' '{"action":"PART-STATE","work_order":"W1001","line":1,"state":"REQUESTED"}')"
+POSTWO "OPEN without a serial -> 400" 400 "" "$T_OWNER" "$(WO '' '{"action":"OPEN","purpose":"PM"}')"
+POSTWO "LABOR with a serial (keyed on work_order) -> 400" 400 "" "$T_OWNER" \
+  "$(WO ',"serial":"900233"' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1}')"
+POSTWO "qty 0 -> 400" 400 "" "$T_OWNER" "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":0}]}')"
+POSTWO "an unknown key on a part line -> 400" 400 "" "$T_OWNER" \
+  "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":1,"source":"VENDOR"}]}')"
+# THE D65 refusal: money, by name, at any depth, from any role
+POSTWO "a cost key on a part line -> 400 naming it" 400 "b.error.includes('\"cost\"')" "$T_OWNER" \
+  "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":1,"cost":42.5}]}')"
+POSTWO "a rate key on LABOR -> 400 naming it" 400 "b.error.includes('\"rate\"')" "$T_OWNER" \
+  "$(WO '' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1,"rate":95}')"
+POSTWO "a Price key on OPEN (any case) -> 400 naming it" 400 "b.error.includes('\"Price\"')" "$T_SERVICE" \
+  "$(WO ',"serial":"900233"' '{"action":"OPEN","purpose":"REPAIR","Price":10}')"
+POSTWO "a cost key on ANY action, not just work_order -> 400" 400 "b.error.includes('\"cost\"')" "$T_OWNER" \
+  '{"action":"ticket_update","payload":{"ticket":"S1001","note":"x","cost":5}}'
+expect "all eight work-order events drained -> deleted 8" 200 "b.deleted===8" \
+  -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
+  -d "{\"ids\":[\"$WO1\",\"$WO2\",\"$WO3\",\"$WO4\",\"$WO5\",\"$WO6\",\"$WO7\",\"$WO8\"]}"
+expect "pending back to baseline after the work orders" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
 echo "-- the money gate (Leads spec §6, L4) — NOT optional"
 # The literal grep the spec names. It runs on the RAW bytes, before any JSON
 # parse, because the thing being asserted is that the string is not in the
@@ -476,6 +549,14 @@ expect "sales KEEPS the money, and the lead log with it" 200 \
 expect "owner KEEPS the money" 200 \
   "b.snapshot.scoreboard.money && typeof b.snapshot.scoreboard.money.on_table_commission==='number'" \
   "$WORKER/api/data" -H "$(auth $T_OWNER)"
+# D65: work orders carry no money for ANY role — no cost / rate / price key and
+# no figure in the text. The builder never emits one; this holds it to that.
+for RN in owner sales service; do
+  case $RN in owner) R=$T_OWNER;; sales) R=$T_SALES;; service) R=$T_SERVICE;; esac
+  expect "$RN: work_orders carry no money key, no /\\\$\\s?\\d/ in the text" 200 \
+    "Array.isArray(b.snapshot.work_orders) && b.snapshot.work_orders.length>0 && !/\\\$\\s?\\d/.test(JSON.stringify(b.snapshot.work_orders)) && !/\"(cost|cost_source_inv|rate|price)\"/.test(JSON.stringify(b.snapshot.work_orders))" \
+    "$WORKER/api/data" -H "$(auth $R)"
+done
 
 echo "-- documents (schema 6): the doc id IS the sha256 of the bytes"
 PDF="${PDF:-$(dirname "$0")/../test/fixtures/sample-quote.pdf}"

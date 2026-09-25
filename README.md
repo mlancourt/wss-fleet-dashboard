@@ -70,7 +70,8 @@ present and falls back to computing them from `units[]` on a schema-3 snapshot.
 moved to the top of Rentals and its nav slot became **Dispatch**. The Service
 tab is real (a nine-stage kanban since D47, ticket detail, `+ New ticket`). Six
 new write actions brought the total to nine, schema 5 took it to twelve,
-`doc_attach` (schema 6) to thirteen and `rental_update` (D64) to fourteen.
+`doc_attach` (schema 6) to thirteen, `rental_update` (D64) to fourteen and
+`work_order` (D65) to fifteen.
 `snapshot.billing` still arrives and is deliberately never rendered.
 
 **This repo is the presentation + transport layer only.** The vault + run engine
@@ -443,7 +444,7 @@ package.json            scripts; wrangler is the sole dev dependency
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
-  app.js                routing, views, write forms, the fourteen write actions
+  app.js                routing, views, write forms, the fifteen write actions
   api.js                data source + writes + doc upload (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
   holds.js              hold-list logic (pure)
@@ -454,6 +455,7 @@ docs/                   GitHub Pages root — the app shell
   attachments.js        docs[] rows + upload logic (kinds, names, pending rows) — schema 6 (pure)
   map.js                projection, pins, stacking, viewport, precision lines, directions URLs (pure)
   rentals.js            rental lifecycle (D64): Pending / On rent / Off-rent groups, button matrix, due-back tone (pure)
+  workorders.js         internal work orders (D65): Parts strip groups + tone, line-button matrix, carrier links, pending keys (pure)
   wi-map.svg            VENDORED Wisconsin map — vault-generated, never hand-edited
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
@@ -685,6 +687,14 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `dispatch_cancel` | **owner** | optional | `dispatch_id` |
 | `doc_attach` | any | not used | `record`, `doc_id`, `kind`, `name` — **schema 6 / S2.** The one action the Worker checks state for: 400 if `docmeta:<doc_id>` is not in the store, because an attach with no bytes behind it is a dangling pointer into *our* KV. |
 | `rental_update` | owner, sales | not used | `agreement` (opaque — int or string, kept in its type), `action` OUT·OFF-RENT·IN, `date` (optional `YYYY-MM-DD`), `note` (optional, ≤ 200) — **D64.** Whether the agreement may make that move today is the engine's call. |
+| `work_order` | any (per verb below) | **OPEN only** — required there, refused on the other five | `action` OPEN·ADD-PARTS·PART-STATE·LABOR·CLOSE·CANCEL — **D65.** OPEN: `purpose` RENT-READY·REPAIR·PM·OTHER, `note` ≤ 200, `parts` 0–10. ADD-PARTS: `work_order` (`^W\d{4}$`), `parts` 1–10. A part line is exactly `{manufacturer, part_number ≤ 40, description ≤ 80, qty 1–99}`. PART-STATE: `work_order`, `line`, `state` ORDERED (**owner**) · IN-TRANSIT · DELIVERED · CANCELLED (service/owner), optional `date`, `vendor`, `vendor_ref`, `tracking`, `note`. LABOR: `work_order`, `who` (driver enum), `hours` 0.25–12 in quarter steps, optional `date`, `note`. CLOSE (**owner**) / CANCEL: `work_order`, `note`. Unknown keys → 400. Forward-only states, one OPEN per serial and the close guard are the engine's. |
+
+**No money from a phone (D65).** A `cost`, `rate` or `price` key — any case, at
+any depth, in **any** action's payload — is refused with a 400 that names the key,
+before any other shape check. Work-order cost lives in the vault (backfilled from
+the vendor invoice, D66); the snapshot's `work_orders[]` carries none, and
+`npm run m1` / `npm run money-gate` assert no role's copy has a money key or a
+`/\$\s?\d/` figure in it.
 
 Enums the Worker checks membership of, and nothing more:
 `machine_owner` CUSTOMER·WSS · `stage` RECEIVED·CONTACTED·NEEDS-QUOTE·WAITING-ON-CUSTOMER·WAITING-ON-PARTS·READY-TO-SCHEDULE·SCHEDULED·IN-PROGRESS·READY-TO-INVOICE·COMPLETE ·

@@ -35,6 +35,9 @@
  * into a lead log, the right fix is upstream in the engine — not a strip here,
  * and never a regex redaction over free text.
  *
+ * D65 extends the gate to `work_orders[]` for EVERY role: no money key, and no
+ * figure anywhere in its text (part descriptions, labor notes, the log).
+ *
  * TICKET logs are deliberately NOT checked: they carry quote amounts, those are
  * visible to every role by design, and `service_queue[].quote.amount` has
  * rendered for everyone since schema 3.
@@ -151,6 +154,21 @@ try {
 
   const owner = await asRole('owner').then((r) => r.json());
   ok(!!owner.snapshot.scoreboard.money, 'owner keeps scoreboard.money');
+
+  /* ------ D65: work orders carry no money for ANY role --------------------
+   * Not a strip — there is nothing to strip. The engine's builder never emits
+   * cost, cost_source_inv or a rate on a work order (cost lives in the vault,
+   * backfilled from the vendor invoice by D66), and the Worker refuses a money
+   * key on any incoming payload by name. This holds the builder to it on the
+   * real file, for every role, key AND text. A pre-D65 snapshot has no
+   * work_orders at all, which passes vacuously and says so. */
+  for (const [role, doc] of [['owner', owner], ['sales', sales], ['service', svc]]) {
+    const wos = doc.snapshot.work_orders;
+    const text = JSON.stringify(wos || []);
+    const n = Array.isArray(wos) ? wos.length : 'no key';
+    ok(!/"(cost|cost_source_inv|rate|price)"\s*:/.test(text), `${role}: no money key on any work order (${n})`);
+    ok(!MONEY_RE.test(text), `${role}: no work_orders text matches /\\$\\s?\\d/`);
+  }
 } finally {
   // Put the mock back, whatever happened above. Real data does not linger in a
   // KV this script touched.

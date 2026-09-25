@@ -58,6 +58,12 @@ const ACTION_ROLES = {
   // agreement: OUT (a customer drove it away), OFF-RENT (stop the clock) and IN
   // (back in the shop). Kevin's and Matt's: a rental is a sales record.
   rental_update: new Set(['owner', 'sales']),
+  // D65 (2026-09-24) — the FIFTEENTH action. An internal work order on a fleet
+  // unit: parts + labor, and the W-number is the vendor PO. Open to everyone at
+  // the action level — the tech with the machine apart is the one who knows the
+  // part number. The owner-only verbs (ORDERED, CLOSE) and the service/owner
+  // ones (IN-TRANSIT, DELIVERED, a cancelled line) are narrowed in cleanPayload.
+  work_order: ALL_ROLES,
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -95,6 +101,36 @@ const ASSIGNEES = new Set(['Kevin', 'Matt']);
 const RENTAL_VERBS = new Set(['OUT', 'OFF-RENT', 'IN']);
 // The one key a `service` token may put in a lead_update (§5).
 const SERVICE_LEAD_KEYS = new Set(['lead', 'note']);
+// D65 — work orders. Membership only, as everywhere: forward-only part states,
+// one OPEN per serial and the close guard are the engine's, not ours.
+const WO_VERBS = new Set(['OPEN', 'ADD-PARTS', 'PART-STATE', 'LABOR', 'CLOSE', 'CANCEL']);
+const WO_PURPOSES = new Set(['RENT-READY', 'REPAIR', 'PM', 'OTHER']);
+const WO_MANUFACTURERS = new Set(['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'OTHER']);
+const WO_VENDORS = new Set(['RPS', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'TENNANT', 'OTHER']);
+// REQUESTED is where a line starts, never where a tap sends it — the one
+// backwards move this file can see without knowing the line's current state.
+const WO_PART_STATES = new Set(['ORDERED', 'IN-TRANSIT', 'DELIVERED', 'CANCELLED']);
+const WO_ID_RE = /^W\d{4}$/;
+const WO_MAX_LINES = 10;             // per event; the engine holds the 20-per-WO cap
+// The keys each verb may carry. Anything else is a 400 — a work order is a new
+// shape, so there is no old client to be lenient with.
+const WO_KEYS = {
+  OPEN: ['action', 'purpose', 'note', 'parts'],
+  'ADD-PARTS': ['action', 'work_order', 'parts'],
+  'PART-STATE': ['action', 'work_order', 'line', 'state', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],
+  LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'note'],
+  CLOSE: ['action', 'work_order', 'note'],
+  CANCEL: ['action', 'work_order', 'note'],
+};
+const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty']);
+/**
+ * D65: NO MONEY FROM A PHONE, for any role, in any action. Cost is backfilled
+ * in the vault from the vendor invoice (D66) and the shop rate lives there too;
+ * a figure typed on a phone is not a proposal the vault will ever take. Refused
+ * BY NAME, at any depth, before any other shape check — so the 400 always says
+ * which key it was rather than "unknown key". Exact names, any case.
+ */
+const MONEY_KEYS = new Set(['cost', 'rate', 'price']);
 const MAX_LEAD_VALUE = 10000000;                        // a typed-in figure, not a computed one — catch a fat finger
 
 const SERIAL_RE = /^[A-Za-z0-9-]{1,32}$/;
@@ -378,7 +414,8 @@ async function crewEvent({ request, me, env }) {
     throw httpError(400, 'bad serial');
   }
 
-  const payload = cleanPayload(action, body.payload, me.role);
+  refuseMoneyKeys(body.payload);
+  const payload = cleanPayload(action, body.payload, me.role, serial);
 
   // THE ONE BUSINESS-STATE CHECK IN THIS FILE, and it is deliberate (S2).
   // Every other action is shape-only because the vault owns state — but a
@@ -399,7 +436,19 @@ async function crewEvent({ request, me, env }) {
   return json(event, 201);
 }
 
-function cleanPayload(action, p, role) {
+/** The D65 money refusal: walk the payload, 400 on the first money key, by name. */
+function refuseMoneyKeys(v, depth = 0) {
+  if (!v || typeof v !== 'object' || depth > 6) return;
+  if (Array.isArray(v)) { for (const x of v) refuseMoneyKeys(x, depth + 1); return; }
+  for (const k of Object.keys(v)) {
+    if (MONEY_KEYS.has(k.toLowerCase())) {
+      throw httpError(400, `refused: "${k}" — no cost, rate or price travels from a phone (D65)`);
+    }
+    refuseMoneyKeys(v[k], depth + 1);
+  }
+}
+
+function cleanPayload(action, p, role, serial) {
   const obj = p && typeof p === 'object' && !Array.isArray(p) ? p : {};
   const str = (v, max, field, required) => {
     if (v == null || v === '') {
@@ -671,6 +720,76 @@ function cleanPayload(action, p, role) {
       date: optDate(obj.date, 'date'),
       note: optStr(obj.note, 200, 'note'),
     };
+  }
+
+  if (action === 'work_order') {
+    const verb = oneOf(obj.action, WO_VERBS, 'action');
+    for (const k of Object.keys(obj)) {
+      if (!WO_KEYS[verb].includes(k)) throw httpError(400, `${verb} does not take ${k}`);
+    }
+    // The serial names the unit on OPEN and nowhere else: every later verb is
+    // keyed on the W-number, which already knows its serial.
+    if (verb === 'OPEN' && !serial) throw httpError(400, 'OPEN needs the unit serial');
+    if (verb !== 'OPEN' && serial) throw httpError(400, `${verb} is keyed on work_order, not serial`);
+    const woId = () => {
+      const t = str(obj.work_order, 16, 'work_order', true);
+      if (!WO_ID_RE.test(t)) throw httpError(400, 'work_order must look like W1001');
+      return t;
+    };
+    const parts = (required) => {
+      const list = obj.parts == null ? [] : obj.parts;
+      if (!Array.isArray(list)) throw httpError(400, 'parts must be a list');
+      if (required && !list.length) throw httpError(400, 'parts needs at least one line');
+      if (list.length > WO_MAX_LINES) throw httpError(400, `parts is limited to ${WO_MAX_LINES} lines per tap`);
+      return list.map((ln, i) => {
+        if (!ln || typeof ln !== 'object' || Array.isArray(ln)) throw httpError(400, `parts[${i}] must be an object`);
+        for (const k of Object.keys(ln)) if (!WO_PART_KEYS.has(k)) throw httpError(400, `parts[${i}] does not take ${k}`);
+        const qty = ln.qty;
+        if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw httpError(400, `parts[${i}].qty must be a whole number 1–99`);
+        return {
+          manufacturer: oneOf(ln.manufacturer, WO_MANUFACTURERS, `parts[${i}].manufacturer`),
+          part_number: str(ln.part_number, 40, `parts[${i}].part_number`, true),
+          description: optStr(ln.description, 80, `parts[${i}].description`),
+          qty,
+        };
+      });
+    };
+    const note = () => optStr(obj.note, 200, 'note');
+
+    if (verb === 'OPEN') {
+      return { action: verb, purpose: oneOf(obj.purpose, WO_PURPOSES, 'purpose'), note: note(), parts: parts(false) };
+    }
+    if (verb === 'ADD-PARTS') return { action: verb, work_order: woId(), parts: parts(true) };
+    if (verb === 'PART-STATE') {
+      const state = oneOf(obj.state, WO_PART_STATES, 'state');
+      // Matt places orders — he is the one who reads "PO W1001" to the vendor.
+      // A box on the move or on the shelf is the techs' to call as well.
+      if (state === 'ORDERED' && role !== 'owner') throw httpError(403, `role ${role} cannot mark a part ordered`);
+      if (state !== 'ORDERED' && role !== 'owner' && role !== 'service') throw httpError(403, `role ${role} cannot move a part to ${state}`);
+      if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
+      return {
+        action: verb,
+        work_order: woId(),
+        line: obj.line,
+        state,
+        date: optDate(obj.date, 'date'),
+        vendor: optOneOf(obj.vendor, WO_VENDORS, 'vendor'),
+        vendor_ref: optStr(obj.vendor_ref, 40, 'vendor_ref'),
+        tracking: optStr(obj.tracking, 60, 'tracking'),
+        note: note(),
+      };
+    }
+    if (verb === 'LABOR') {
+      const h = obj.hours;
+      if (typeof h !== 'number' || !isFinite(h) || h < 0.25 || h > 12) throw httpError(400, 'hours must be 0.25–12');
+      if (Math.round(h * 4) !== h * 4) throw httpError(400, 'hours go in quarter-hour steps');
+      return { action: verb, work_order: woId(), date: optDate(obj.date, 'date'), who: oneOf(obj.who, DRIVERS, 'who'), hours: h, note: note() };
+    }
+    if (verb === 'CLOSE' && role !== 'owner') throw httpError(403, `role ${role} cannot close a work order`);
+    // CANCEL is owner, or whoever opened it while nothing has been ordered —
+    // both halves are business state (opened_by, line states), so the engine
+    // referees it and this file passes any role through.
+    return { action: verb, work_order: woId(), note: note() };
   }
 
   return {}; // every action in ACTION_ROLES is handled above
