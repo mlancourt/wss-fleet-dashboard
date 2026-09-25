@@ -8,9 +8,9 @@
 #   -> PUT/GET/DELETE a document (schema 6) with the hash check that names it
 #   -> POST a document from a "phone" + the doc_attach event that points at it (S2)
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all
-# fifteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
+# sixteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
 # three schema-5 ones, doc_attach (schema 6 / S2), rental_update (D64),
-# work_order (D65, with its by-name money refusal), and the
+# work_order (D65, with its by-name money refusal), inspection (D67), and the
 # schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
@@ -482,6 +482,34 @@ expect "all eight work-order events drained -> deleted 8" 200 "b.deleted===8" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
   -d "{\"ids\":[\"$WO1\",\"$WO2\",\"$WO3\",\"$WO4\",\"$WO5\",\"$WO6\",\"$WO7\",\"$WO8\"]}"
 expect "pending back to baseline after the work orders" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+
+echo "-- crew: inspection (D67) — the sixteenth action, five verbs"
+IN() { echo "{\"action\":\"inspection\"$1,\"payload\":$2}"; }
+POSTWO "service opens a check-out sheet -> 201" 201 "b.serial==='900233' && b.payload.action==='OPEN' && b.payload.kind==='CHECKOUT'" \
+  "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"OPEN","kind":"CHECKOUT"}')"
+IN1=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "SAVE one section (merge) -> 201" 201 "b.payload.inspection==='I1001' && b.payload.readings.hours_key===412.5 && !('items' in b.payload)" \
+  "$T_SERVICE" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"hours_key":412.5}}')"
+IN2=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "DONE (any role) -> 201" 201 "b.payload.tech==='Zac'" "$T_SALES" "$(IN '' '{"action":"DONE","inspection":"I1001","tech":"Zac"}')"
+IN3=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "REOPEN -> 201 (who may is the engine's call)" 201 "" "$T_SERVICE" "$(IN '' '{"action":"REOPEN","inspection":"I1001","note":"missed a row"}')"
+IN4=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "VOID -> 201" 201 "" "$T_OWNER" "$(IN '' '{"action":"VOID","inspection":"I1001","note":"wrong unit"}')"
+IN5=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "work_order OPEN from a sheet carries inspection -> 201" 201 "b.payload.inspection==='I1001'" "$T_SERVICE" \
+  "$(WO ',"serial":"900233"' '{"action":"OPEN","purpose":"REPAIR","inspection":"I1001","note":"from I1001: Check and rotate blades","parts":[]}')"
+IN6=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "a 6th verb -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SIGN","inspection":"I1001"}')"
+POSTWO "inspection W1001 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"DONE","inspection":"W1001"}')"
+POSTWO "sg 2.0 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","cells":[{"battery":1,"cell":"A","sg":2.0}]}')"
+POSTWO "an unknown top-level key -> 400" 400 "b.error.includes('signature')" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","signature":"x"}')"
+POSTWO "a result outside both scales -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","items":[{"id":"ctl.key_switch","result":"FINE"}]}')"
+POSTWO "OPEN without a serial -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"OPEN","kind":"PM"}')"
+expect "all six inspection events drained -> deleted 6" 200 "b.deleted===6" \
+  -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
+  -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\"]}"
+expect "pending back to baseline after the inspections" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- the money gate (Leads spec §6, L4) — NOT optional"
 # The literal grep the spec names. It runs on the RAW bytes, before any JSON

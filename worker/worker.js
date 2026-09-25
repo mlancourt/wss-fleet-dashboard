@@ -64,6 +64,13 @@ const ACTION_ROLES = {
   // part number. The owner-only verbs (ORDERED, CLOSE) and the service/owner
   // ones (IN-TRANSIT, DELIVERED, a cancelled line) are narrowed in cleanPayload.
   work_order: ALL_ROLES,
+  // D67 (2026-09-25) — the SIXTEENTH action. The fleet inspection sheet
+  // (check-out / return / PM). OPEN / SAVE / DONE are anyone's — whoever has
+  // the machine in front of them fills the sheet. REOPEN (owner, or the tech
+  // within 24 h of DONE) and VOID (owner, or the opener while DRAFT) hinge on
+  // who did what and when, which is business state: the engine referees both,
+  // so this file passes every role through at the action level.
+  inspection: ALL_ROLES,
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -115,7 +122,7 @@ const WO_MAX_LINES = 10;             // per event; the engine holds the 20-per-W
 // The keys each verb may carry. Anything else is a 400 — a work order is a new
 // shape, so there is no old client to be lenient with.
 const WO_KEYS = {
-  OPEN: ['action', 'purpose', 'note', 'parts'],
+  OPEN: ['action', 'purpose', 'note', 'parts', 'inspection'],   // D67: the sheet it was opened from
   'ADD-PARTS': ['action', 'work_order', 'parts'],
   'PART-STATE': ['action', 'work_order', 'line', 'state', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],
   LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'note'],
@@ -123,6 +130,42 @@ const WO_KEYS = {
   CANCEL: ['action', 'work_order', 'note'],
 };
 const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty']);
+// D67 — the inspection sheet. Shape + enums + lengths ONLY. Which row ids
+// exist, which scale a row uses and whether a retired row may be answered all
+// live in the vault's row library (Fleet/_Inspection-Checklist.md) — the
+// library is deliberately NOT on this Worker: a row is a vault edit, never a
+// deploy, and a second copy here would be the one that goes stale.
+const INSP_VERBS = new Set(['OPEN', 'SAVE', 'DONE', 'REOPEN', 'VOID']);
+const INSP_ID_RE = /^I\d{4}$/;
+const INSP_KINDS = new Set(['CHECKOUT', 'RETURN', 'PM']);
+const INSP_CLASSES = new Set(['SWEEPER', 'SCRUBBER']);
+const INSP_CONTROLS = new Set(['WALK-BEHIND', 'RIDER', 'STAND-ON']);
+const INSP_BATTERY_TYPES = new Set(['WET', 'AGM', 'LITHIUM']);
+const INSP_PACKS = { 24: ['4x6V', '2x12V'], 36: ['3x12V', '6x6V'] };
+const INSP_CLARITY = new Set(['CLEAR', 'CLOUDY', 'PARTICULATE', 'DARK']);
+const INSP_LEVEL = new Set(['OVERFILLED', 'FULL', 'LOW', 'DRY']);
+// Both scales' answers. Which one a row takes is the library's — this file can
+// only refuse a word that belongs to neither.
+const INSP_RESULTS = new Set(['IN-SPEC', 'REPAIR', 'PROBLEM', 'GOOD', 'WORN', 'REPLACE', 'N/A']);
+const INSP_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub', 'recharge_count',
+  'main_broom_length', 'brush1_length', 'brush2_length', 'brushes_rotated']);
+const INSP_METER_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub', 'recharge_count']);
+const INSP_ROW_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;   // "ctl.key_switch" — shape only; which ids exist is the library's
+const INSP_MAX_CELLS = 18;
+const INSP_MAX_ITEMS = 120;
+// The sections a SAVE may carry. Present = "replace this section", absent =
+// "leave it alone" (merge by section) — so a key is kept even when its value is
+// null, because a null there is an instruction to clear it.
+const INSP_SECTIONS = ['machine_class', 'controls', 'battery', 'readings', 'cells', 'items', 'comments'];
+const INSP_KEYS = {
+  // OPEN may carry a first SAVE: the engine merges it into the new sheet. That
+  // is how a sheet typed before its I-number exists reaches the vault.
+  OPEN: ['action', 'kind', ...INSP_SECTIONS],
+  SAVE: ['action', 'inspection', ...INSP_SECTIONS],
+  DONE: ['action', 'inspection', 'tech'],
+  REOPEN: ['action', 'inspection', 'note'],
+  VOID: ['action', 'inspection', 'note'],
+};
 /**
  * D65: NO MONEY FROM A PHONE, for any role, in any action. Cost is backfilled
  * in the vault from the vendor invoice (D66) and the shop rate lives there too;
@@ -170,7 +213,9 @@ const DOC_RECORD_RE = /^[SL]\d{4}$/;
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const DOC_NAME_MAX = 120;
 
-const MAX_EVENT_BYTES = 8 * 1024;
+// 32 KB: a whole inspection sheet (120 answered rows with notes, 18 cells,
+// the comments box) can travel as one OPEN or SAVE. Nothing else comes close.
+const MAX_EVENT_BYTES = 32 * 1024;
 const MAX_ACK_IDS = 1000;
 const MAX_SNAPSHOT_BYTES = 24 * 1024 * 1024;    // KV value limit is 25 MiB
 
@@ -757,7 +802,14 @@ function cleanPayload(action, p, role, serial) {
     const note = () => optStr(obj.note, 200, 'note');
 
     if (verb === 'OPEN') {
-      return { action: verb, purpose: oneOf(obj.purpose, WO_PURPOSES, 'purpose'), note: note(), parts: parts(false) };
+      const out = { action: verb, purpose: oneOf(obj.purpose, WO_PURPOSES, 'purpose'), note: note(), parts: parts(false) };
+      // D67: the inspection sheet this work order came from. A back-link only —
+      // whether that sheet is on this serial is the engine's call.
+      if (obj.inspection != null && obj.inspection !== '') {
+        if (typeof obj.inspection !== 'string' || !INSP_ID_RE.test(obj.inspection)) throw httpError(400, 'inspection must look like I1001');
+        out.inspection = obj.inspection;
+      }
+      return out;
     }
     if (verb === 'ADD-PARTS') return { action: verb, work_order: woId(), parts: parts(true) };
     if (verb === 'PART-STATE') {
@@ -790,6 +842,129 @@ function cleanPayload(action, p, role, serial) {
     // both halves are business state (opened_by, line states), so the engine
     // referees it and this file passes any role through.
     return { action: verb, work_order: woId(), note: note() };
+  }
+
+  if (action === 'inspection') {
+    const verb = oneOf(obj.action, INSP_VERBS, 'action');
+    for (const k of Object.keys(obj)) {
+      if (!INSP_KEYS[verb].includes(k)) throw httpError(400, `${verb} does not take ${k}`);
+    }
+    const inspId = (required) => {
+      if (!required && (obj.inspection == null || obj.inspection === '')) return null;
+      const t = str(obj.inspection, 16, 'inspection', true);
+      if (!INSP_ID_RE.test(t)) throw httpError(400, 'inspection must look like I1001');
+      return t;
+    };
+    const num = (v, lo, hi, field) => {
+      if (v == null) return null;
+      if (typeof v !== 'number' || !isFinite(v)) throw httpError(400, `${field} must be a number`);
+      if (v < lo || v > hi) throw httpError(400, `${field} must be ${lo}–${hi}`);
+      return v;
+    };
+    const obj2 = (v, field) => {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) throw httpError(400, `${field} must be an object`);
+      return v;
+    };
+    // Only the sections present travel — absent means untouched (merge by section).
+    const sections = () => {
+      const out = {};
+      if ('machine_class' in obj) out.machine_class = oneOf(obj.machine_class, INSP_CLASSES, 'machine_class');
+      if ('controls' in obj) out.controls = oneOf(obj.controls, INSP_CONTROLS, 'controls');
+      if ('battery' in obj) {
+        if (obj.battery == null) out.battery = null;
+        else {
+          const b = obj2(obj.battery, 'battery');
+          for (const k of Object.keys(b)) if (!['type', 'voltage', 'pack'].includes(k)) throw httpError(400, `battery does not take ${k}`);
+          const type = optOneOf(b.type, INSP_BATTERY_TYPES, 'battery.type');
+          let voltage = null;
+          if (b.voltage != null && b.voltage !== '') {
+            if (b.voltage !== 24 && b.voltage !== 36) throw httpError(400, 'battery.voltage must be 24 or 36');
+            voltage = b.voltage;
+          }
+          let pack = null;
+          if (b.pack != null && b.pack !== '') {
+            if (type !== 'WET') throw httpError(400, 'battery.pack is only for a WET pack');
+            if (!voltage || !INSP_PACKS[voltage].includes(b.pack)) throw httpError(400, `battery.pack must match the voltage (24 → 4x6V|2x12V, 36 → 3x12V|6x6V)`);
+            pack = b.pack;
+          }
+          out.battery = { type, voltage, pack };
+        }
+      }
+      if ('readings' in obj) {
+        if (obj.readings == null) out.readings = null;
+        else {
+          const r = obj2(obj.readings, 'readings');
+          const rd = {};
+          for (const k of Object.keys(r)) {
+            if (!INSP_READINGS.has(k)) throw httpError(400, `readings does not take ${k}`);
+            if (k === 'brushes_rotated') {
+              if (r[k] != null && typeof r[k] !== 'boolean') throw httpError(400, 'brushes_rotated must be true or false');
+              rd[k] = r[k] == null ? null : r[k];
+            } else {
+              rd[k] = num(r[k], 0, INSP_METER_READINGS.has(k) ? 99999 : 24, k);
+            }
+          }
+          out.readings = rd;
+        }
+      }
+      if ('cells' in obj) {
+        const list = obj.cells == null ? [] : obj.cells;
+        if (!Array.isArray(list)) throw httpError(400, 'cells must be a list');
+        if (list.length > INSP_MAX_CELLS) throw httpError(400, `cells is limited to ${INSP_MAX_CELLS}`);
+        const seen = new Set();
+        out.cells = list.map((c, i) => {
+          if (!c || typeof c !== 'object' || Array.isArray(c)) throw httpError(400, `cells[${i}] must be an object`);
+          for (const k of Object.keys(c)) if (!['battery', 'cell', 'sg', 'clarity', 'level'].includes(k)) throw httpError(400, `cells[${i}] does not take ${k}`);
+          if (!Number.isInteger(c.battery) || c.battery < 1 || c.battery > 6) throw httpError(400, `cells[${i}].battery must be 1–6`);
+          if (typeof c.cell !== 'string' || !/^[A-F]$/.test(c.cell)) throw httpError(400, `cells[${i}].cell must be A–F`);
+          const key = `${c.battery}${c.cell}`;
+          if (seen.has(key)) throw httpError(400, `cell ${key} is in the list twice`);
+          seen.add(key);
+          return {
+            battery: c.battery,
+            cell: c.cell,
+            sg: num(c.sg, 1, 1.4, `cells[${i}].sg`),
+            clarity: optOneOf(c.clarity, INSP_CLARITY, `cells[${i}].clarity`),
+            level: optOneOf(c.level, INSP_LEVEL, `cells[${i}].level`),
+          };
+        });
+      }
+      if ('items' in obj) {
+        const list = obj.items == null ? [] : obj.items;
+        if (!Array.isArray(list)) throw httpError(400, 'items must be a list');
+        if (list.length > INSP_MAX_ITEMS) throw httpError(400, `items is limited to ${INSP_MAX_ITEMS}`);
+        const seen = new Set();
+        out.items = list.map((it, i) => {
+          if (!it || typeof it !== 'object' || Array.isArray(it)) throw httpError(400, `items[${i}] must be an object`);
+          for (const k of Object.keys(it)) if (!['id', 'result', 'note'].includes(k)) throw httpError(400, `items[${i}] does not take ${k}`);
+          if (typeof it.id !== 'string' || !INSP_ROW_ID_RE.test(it.id)) throw httpError(400, `items[${i}].id must look like ctl.key_switch`);
+          if (seen.has(it.id)) throw httpError(400, `row ${it.id} is answered twice`);
+          seen.add(it.id);
+          return { id: it.id, result: optOneOf(it.result, INSP_RESULTS, `items[${i}].result`), note: optStr(it.note, 120, `items[${i}].note`) };
+        });
+      }
+      if ('comments' in obj) out.comments = optStr(obj.comments, 1000, 'comments');
+      return out;
+    };
+
+    if (verb === 'OPEN') {
+      // The unit is named by the top-level serial; the engine mints the I-number.
+      if (!serial) throw httpError(400, 'OPEN needs the unit serial');
+      return { action: verb, kind: optOneOf(obj.kind, INSP_KINDS, 'kind'), ...sections() };
+    }
+    if (verb === 'SAVE') {
+      // Keyed on the I-number — or, before the engine has minted one, on the
+      // top-level serial (the sheet's one DRAFT). Exactly one of the two.
+      const id = inspId(false);
+      if (id && serial) throw httpError(400, 'SAVE is keyed on inspection or serial, not both');
+      if (!id && !serial) throw httpError(400, 'SAVE needs the inspection (or, before it has one, the serial)');
+      const out = sections();
+      if (!Object.keys(out).length) throw httpError(400, 'SAVE needs at least one section');
+      return id ? { action: verb, inspection: id, ...out } : { action: verb, ...out };
+    }
+    if (serial) throw httpError(400, `${verb} is keyed on inspection, not serial`);
+    if (verb === 'DONE') return { action: verb, inspection: inspId(true), tech: optOneOf(obj.tech, DRIVERS, 'tech') };
+    return { action: verb, inspection: inspId(true), note: optStr(obj.note, 200, 'note') };
   }
 
   return {}; // every action in ACTION_ROLES is handled above
