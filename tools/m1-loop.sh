@@ -506,12 +506,19 @@ POSTWO "sg 2.0 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection"
 POSTWO "an unknown top-level key -> 400" 400 "b.error.includes('signature')" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","signature":"x"}')"
 POSTWO "a result outside both scales -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","items":[{"id":"ctl.key_switch","result":"FINE"}]}')"
 POSTWO "OPEN without a serial -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"OPEN","kind":"PM"}')"
+POSTWO "D67c: DONE keyed on the serial -> 201" 201 "b.serial==='900233' && !('inspection' in b.payload) && b.payload.tech==='Josh'" "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"DONE","tech":"Josh"}')"
+IN7=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D67c: VOID keyed on the serial -> 201" 201 "b.serial==='900233' && !('inspection' in b.payload)" "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"VOID","note":"wrong unit"}')"
+IN8=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D67c: DONE with both serial and inspection -> 400" 400 "" "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"DONE","inspection":"I1001"}')"
+POSTWO "D67c: VOID with neither -> 400" 400 "" "$T_SERVICE" "$(IN '' '{"action":"VOID"}')"
+POSTWO "D67c: REOPEN keyed on the serial -> 400" 400 "" "$T_OWNER" "$(IN ',"serial":"900233"' '{"action":"REOPEN"}')"
 POSTWO "v1.2: the retired controls key -> 400" 400 "b.error.includes('controls')" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","controls":"RIDER"}')"
 POSTWO "v1.2: a fractional brush percent -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"brush1_pct":55.5}}')"
 POSTWO "v1.2: recharge_count is gone -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"recharge_count":8}}')"
-expect "all six inspection events drained -> deleted 6" 200 "b.deleted===6" \
+expect "all eight inspection events drained -> deleted 8" 200 "b.deleted===8" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
-  -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\"]}"
+  -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\",\"$IN7\",\"$IN8\"]}"
 expect "pending back to baseline after the inspections" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- the money gate (Leads spec §6, L4) — NOT optional"

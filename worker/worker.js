@@ -957,19 +957,26 @@ function cleanPayload(action, p, role, serial) {
       if (!serial) throw httpError(400, 'OPEN needs the unit serial');
       return { action: verb, kind: optOneOf(obj.kind, INSP_KINDS, 'kind'), ...sections() };
     }
+    // REOPEN targets a DONE sheet by number — never by serial (a serial has
+    // one DRAFT, not one DONE).
+    if (verb === 'REOPEN') {
+      if (serial) throw httpError(400, 'REOPEN is keyed on inspection, not serial');
+      return { action: verb, inspection: inspId(true), note: optStr(obj.note, 200, 'note') };
+    }
+    // SAVE / DONE / VOID: keyed on the I-number — or, before the engine has
+    // minted one, on the top-level serial, which the engine resolves to that
+    // serial's one DRAFT. Exactly one of the two.
+    const id = inspId(false);
+    if (id && serial) throw httpError(400, `${verb} is keyed on inspection or serial, not both`);
+    if (!id && !serial) throw httpError(400, `${verb} needs the inspection (or, before it has one, the serial)`);
+    const key = id ? { inspection: id } : {};
     if (verb === 'SAVE') {
-      // Keyed on the I-number — or, before the engine has minted one, on the
-      // top-level serial (the sheet's one DRAFT). Exactly one of the two.
-      const id = inspId(false);
-      if (id && serial) throw httpError(400, 'SAVE is keyed on inspection or serial, not both');
-      if (!id && !serial) throw httpError(400, 'SAVE needs the inspection (or, before it has one, the serial)');
       const out = sections();
       if (!Object.keys(out).length) throw httpError(400, 'SAVE needs at least one section');
-      return id ? { action: verb, inspection: id, ...out } : { action: verb, ...out };
+      return { action: verb, ...key, ...out };
     }
-    if (serial) throw httpError(400, `${verb} is keyed on inspection, not serial`);
-    if (verb === 'DONE') return { action: verb, inspection: inspId(true), tech: optOneOf(obj.tech, DRIVERS, 'tech') };
-    return { action: verb, inspection: inspId(true), note: optStr(obj.note, 200, 'note') };
+    if (verb === 'DONE') return { action: verb, ...key, tech: optOneOf(obj.tech, DRIVERS, 'tech') };
+    return { action: verb, ...key, note: optStr(obj.note, 200, 'note') };
   }
 
   return {}; // every action in ACTION_ROLES is handled above

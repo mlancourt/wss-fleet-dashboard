@@ -109,7 +109,25 @@ await check('before the I-number exists: OPEN may carry the first sections; SAVE
   await refused('service', insp({ action: 'SAVE', inspection: 'I1003', comments: 'x' }, '900101'), 'SAVE with both', 400, 'not both');
   await refused('service', insp({ action: 'SAVE', comments: 'x' }), 'SAVE with neither');
   await refused('service', insp({ action: 'OPEN', kind: 'PM' }), 'OPEN without a serial', 400, 'serial');
-  await refused('service', insp({ action: 'DONE', inspection: 'I1003' }, '900101'), 'DONE with a serial', 400, 'keyed on inspection');
+  await refused('service', insp({ action: 'DONE', inspection: 'I1003' }, '900101'), 'DONE with both', 400, 'not both');
+});
+
+await check('DONE and VOID key on the serial before the I-number exists; exactly one of the two; REOPEN never does', async () => {
+  const d = await ok('service', insp({ action: 'DONE', tech: 'Josh' }, '150074'), 'DONE by serial');
+  assert.equal(d.serial, '150074');
+  assert.deepEqual(d.payload, { action: 'DONE', tech: 'Josh' }, 'no invented inspection key');
+  const v = await ok('service', insp({ action: 'VOID', note: 'wrong unit' }, '150074'), 'VOID by serial');
+  assert.deepEqual(v.payload, { action: 'VOID', note: 'wrong unit' });
+  await ok('service', insp({ action: 'DONE', inspection: 'I1003', tech: 'Zac' }), 'DONE by number still fine');
+  await ok('service', insp({ action: 'VOID', inspection: 'I1003' }), 'VOID by number still fine');
+  for (const verb of ['SAVE', 'DONE', 'VOID']) {
+    const extra = verb === 'SAVE' ? { comments: 'x' } : {};
+    await refused('service', insp({ action: verb, inspection: 'I1003', ...extra }, '150074'), `${verb} with both`, 400, 'not both');
+    await refused('service', insp({ action: verb, ...extra }), `${verb} with neither`, 400, 'needs the inspection');
+  }
+  await refused('owner', insp({ action: 'REOPEN', note: 'x' }, '150074'), 'REOPEN by serial', 400, 'keyed on inspection');
+  await refused('owner', insp({ action: 'REOPEN', inspection: 'I1003' }, '150074'), 'REOPEN with both', 400, 'keyed on inspection');
+  await refused('owner', insp({ action: 'REOPEN' }), 'REOPEN with neither', 400, 'inspection is required');
 });
 
 await check('refused: a 6th verb, inspection "W1001", 19 cells, sg 2.0, an unknown top-level key, a result outside both scales', async () => {
