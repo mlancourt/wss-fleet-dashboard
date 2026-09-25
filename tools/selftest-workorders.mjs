@@ -8,6 +8,7 @@ import {
   workOrdersOf, woById, stripGroups, openPartCount, requestedTone, lineTone, trackingUrl,
   fmtHours, hoursValid, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
+  isStockLine, sourceOf, pendingLineLabel, PART_VERB_LABEL,
 } from '../docs/workorders.js';
 
 let passed = 0;
@@ -116,12 +117,16 @@ check('OPEN defaults: rent-ready for a unit in prep, else repair; the make from 
   assert.equal(vendorFor('OTHER'), 'OTHER');
 });
 
-check('line buttons by role × state (§5 table)', () => {
+check('line buttons by role × state (D68 §3 table)', () => {
   const w = wo('W1', { opened_by: 'Josh' });
   const acts = (state, role, me = 'Someone') => partActions(w, part(1, state), role, me);
-  assert.deepEqual(acts('REQUESTED', 'owner'), ['ORDERED', 'CANCELLED']);
-  assert.deepEqual(acts('REQUESTED', 'service', 'Josh'), ['CANCELLED'], 'own work order');
-  assert.deepEqual(acts('REQUESTED', 'service', 'Zac'), [], 'not his');
+  assert.deepEqual(acts('REQUESTED', 'owner'), ['ORDERED', 'SHOP-STOCK', 'CANCELLED']);
+  assert.deepEqual(acts('REQUESTED', 'service', 'Josh'), ['SHOP-STOCK', 'CANCELLED'], 'own work order');
+  assert.deepEqual(acts('REQUESTED', 'service', 'Zac'), ['SHOP-STOCK'], 'not his — but the shelf is anyone on the bench');
+  assert.equal(PART_VERB_LABEL['SHOP-STOCK'], 'Use from stock');
+  for (const st of ['ORDERED', 'IN-TRANSIT', 'DELIVERED', 'CANCELLED']) {
+    for (const r of ['owner', 'service', 'sales']) assert.ok(!acts(st, r, 'Josh').includes('SHOP-STOCK'), `${st}/${r}: already on order or settled — no stock pull`);
+  }
   assert.deepEqual(acts('REQUESTED', 'sales'), []);
   assert.deepEqual(acts('ORDERED', 'owner'), ['IN-TRANSIT', 'DELIVERED']);
   assert.deepEqual(acts('ORDERED', 'service'), ['IN-TRANSIT', 'DELIVERED']);
@@ -163,6 +168,28 @@ check('pending: OPEN keyed on serial (no id), the rest on payload.work_order', (
   assert.equal(describeWoEvent(P[0]), 'new work order — labor only');
   assert.equal(describeWoEvent(P[1]), '1.5 h logged for Zac');
   assert.equal(describeWoEvent(P[2]), 'line 2 → Delivered');
+});
+
+check('D68: source is a fact about the part — stock lines are DELIVERED, land in Delivered, never block Close', () => {
+  const stock = part(2, 'DELIVERED', { source: 'SHOP-STOCK', delivered: '2026-09-25' });
+  assert.equal(sourceOf(part(1, 'REQUESTED', { source: undefined })), 'VENDOR', 'legacy line = VENDOR');
+  assert.equal(sourceOf(part(1, 'REQUESTED', { source: 'WARRANTY' })), 'WARRANTY');
+  assert.equal(sourceOf(stock), 'SHOP-STOCK');
+  assert.ok(isStockLine(stock));
+  assert.ok(!isStockLine(part(1, 'DELIVERED')), 'a vendor delivery is not stock');
+  assert.ok(!isStockLine(part(1, 'CANCELLED', { source: 'SHOP-STOCK' })), 'a cancelled line reads cancelled');
+  const w = wo('W9', { parts: [part(1, 'ORDERED', { ordered: '2026-09-24' }), stock] });
+  const g = stripGroups([w]);
+  assert.deepEqual(g.delivered.map((r) => r.part.line), [2], 'the stock line is in Delivered');
+  assert.ok(![...g.ordered, ...g.inTransit, ...g.requested].some((r) => r.part.line === 2), 'and never Ordered / In transit / Requested');
+  assert.equal(openPartCount(null, [w]), 1, 'not counted open');
+  assert.ok(closeEnabled(wo('W9', { parts: [stock, part(3, 'CANCELLED')] })), 'stock lines never hold Close');
+  assert.ok(!closeEnabled(w), 'the vendor line still does');
+  const pull = { id: 'e9', action: 'work_order', serial: null, payload: { action: 'PART-STATE', work_order: 'W9', line: 1, source: 'SHOP-STOCK', note: null } };
+  assert.equal(pendingLineLabel(pull.payload), 'from stock');
+  assert.equal(describeWoEvent(pull), 'line 1 → from stock');
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'ADD-PARTS', work_order: 'W9',
+    parts: [{ part_number: 'a', qty: 1, source: 'SHOP-STOCK' }, { part_number: 'b', qty: 1 }] } }), '2 parts added (1 from stock)');
 });
 
 check('no money: nothing this module returns carries a figure or a money key', () => {

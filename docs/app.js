@@ -35,6 +35,7 @@ import {
   workOrdersOf, woById, laborOf, isOpenLine, stripGroups, openPartCount, requestedTone, lineTone, trackingUrl,
   fmtHours, hoursValid, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
+  isStockLine, sourceOf, pendingLineLabel,
 } from './workorders.js';
 import {
   KINDS as INSP_KINDS, KIND_LABEL as INSP_KIND_LABEL, CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
@@ -73,7 +74,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-25-d67e';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-25-d68';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -685,14 +686,27 @@ function partStripRow({ wo, part }) {
       </a>
       <div class="chips">
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">${asset}</a>
-        ${part.ordered ? raw(chip(`ordered ${fmtDate(part.ordered)}`, 'cal')) : ''}
-        ${part.vendor ? raw(chip(VENDOR_LABEL[part.vendor] || part.vendor, 'rig')) : ''}
-        ${raw(trackingChip(part))}
+        ${raw(partTrailChips(part))}
         ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
         ${isOpenLine(part) && typeof wo.age_days === 'number' ? raw(chip(ageText(wo.age_days), `age${tone ? ' ' + tone : ''}`)) : ''}
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
       </div>
     </div>`;
+}
+
+/**
+ * The order trail — ordered · vendor · tracking. D68: a stock line never had
+ * one, so it draws the "stock" chip and a dash for the trail, and never a
+ * carrier link, whatever the row happens to carry.
+ */
+function partTrailChips(part, withRef = false) {
+  if (isStockLine(part)) return chip('stock', 'stock') + chip('ordered — · vendor — · tracking —', 'cal nopo');
+  return [
+    part.ordered ? chip(`ordered ${fmtDate(part.ordered)}`, 'cal') : '',
+    part.vendor ? chip(VENDOR_LABEL[part.vendor] || part.vendor, 'rig') : '',
+    withRef && part.vendor_ref ? chip(part.vendor_ref, 'cal') : '',
+    trackingChip(part),
+  ].join('');
 }
 
 /** Tracking: a carrier link only when the engine named the carrier; else plain text. */
@@ -1146,6 +1160,11 @@ function partLineRow(mfr) {
       <input name="p_num" maxlength="40" placeholder="Part #" autocomplete="off" aria-label="Part number">
       <input name="p_desc" maxlength="80" placeholder="Description" autocomplete="off" aria-label="Description">
       <input name="p_qty" type="number" inputmode="numeric" min="1" max="99" step="1" value="1" aria-label="Quantity">
+      <div class="wo-src" role="group" aria-label="Order or from stock">
+        <button type="button" class="tg on" data-wo-src="VENDOR">Order</button>
+        <button type="button" class="tg" data-wo-src="SHOP-STOCK">Stock</button>
+      </div>
+      <input type="hidden" name="p_src" value="VENDOR">
     </div>`;
 }
 function partLinesEditor(mfr, required) {
@@ -1153,6 +1172,7 @@ function partLinesEditor(mfr, required) {
     <label>Parts${required ? '' : ' (optional — a labor-only work order is fine)'}</label>
     <div class="wo-lines" data-mfr="${mfr}">${raw(partLineRow(mfr))}</div>
     <button class="btn sm ghost" type="button" data-wo-addline="1">+ line</button>
+    <div class="form-note stock-note" data-stock-note hidden>Stock lines are delivered now — nothing to order.</div>
     <div class="form-note">Up to ${MAX_LINES} lines. Part # and quantity — no prices here; cost comes off the vendor invoice.</div>`;
 }
 
@@ -2312,18 +2332,15 @@ function woPartRow(wo, part, pend, me) {
     <div class="drow wo-part${part.state === 'CANCELLED' ? ' cancelled' : ''}">
       <div class="drow-top">
         <span class="drow-what"><span class="wo-ln">${part.line}</span> <span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
-        ${raw(chip(PART_STATE_LABEL[part.state] || part.state, cls))}
+        ${raw(isStockLine(part) ? chip('stock', 'stock') : chip(PART_STATE_LABEL[part.state] || part.state, cls))}
       </div>
-      <div class="drow-meta">${part.description || ''}${part.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[part.manufacturer] || part.manufacturer}`) : ''}${part.source && part.source !== 'VENDOR' ? ` · ${part.source.toLowerCase().replace('-', ' ')}` : ''}</div>
+      <div class="drow-meta">${part.description || ''}${part.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[part.manufacturer] || part.manufacturer}`) : ''}${sourceOf(part) === 'WARRANTY' ? ' · warranty' : ''}</div>
       <div class="chips">
-        ${part.ordered ? raw(chip(`ordered ${fmtDate(part.ordered)}`, 'cal')) : ''}
-        ${part.vendor ? raw(chip(VENDOR_LABEL[part.vendor] || part.vendor, 'rig')) : ''}
-        ${part.vendor_ref ? raw(chip(part.vendor_ref, 'cal')) : ''}
-        ${raw(trackingChip(part))}
+        ${raw(isStockLine(part) ? chip('ordered — · vendor — · tracking —', 'cal nopo') : partTrailChips(part, true))}
         ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
         ${tone && typeof wo.age_days === 'number' ? raw(chip(`${ageText(wo.age_days)} unordered`, `age ${tone}`)) : ''}
       </div>
-      ${mine.length ? raw(html`<div class="row-pending">⏳ → ${PART_STATE_LABEL[pl(mine[0]).state] || pl(mine[0]).state} — applies at the next run</div>`) : ''}
+      ${mine.length ? raw(html`<div class="row-pending">⏳ → ${pendingLineLabel(pl(mine[0]))} — applies at the next run</div>`) : ''}
       ${acts.length ? raw(html`<div class="drow-btns">${raw(acts.map((st) => html`
         <button class="btn sm${st === 'CANCELLED' ? ' ghost' : ''}" type="button" data-sheet="wo-part" data-id="${wo.id}|${part.line}|${st}">${PART_VERB_LABEL[st]}</button>`).join(''))}</div>`) : ''}
       ${sheetState ? raw(woPartStateForm(wo, part, sheetState)) : ''}
@@ -2332,6 +2349,17 @@ function woPartRow(wo, part, pend, me) {
 
 /** The sheet behind one line button. Each state asks only for what it stamps. */
 function woPartStateForm(wo, part, st) {
+  // D68: one confirm line and an optional note. No date, no vendor — it came off the shelf today.
+  if (st === 'SHOP-STOCK') {
+    return html`
+    <form class="write sheet" data-action="work_order" data-verb="PART-STATE" data-wo="${wo.id}" data-line="${part.line}" data-state="SHOP-STOCK">
+      <div class="confirm-line">Pulled <strong>${part.part_number || `line ${part.line}`}</strong> ×${part.qty ?? 1} from the shelf?</div>
+      <label for="wp-note">Note (optional)</label>
+      <textarea id="wp-note" name="note" maxlength="200" placeholder="which bin, last one…"></textarea>
+      ${raw(sheetButtons(`Use from stock — line ${part.line}`))}
+      <div class="form-note">Nothing gets ordered — the line reads <strong>stock</strong> at the next run.</div>
+    </form>`;
+  }
   const today = todayCentral();
   const vendor = part.vendor || vendorFor(part.manufacturer);
   const vopt = (v) => html`<option value="${v}"${v === vendor ? raw(' selected') : ''}>${VENDOR_LABEL[v]}</option>`;
@@ -2367,7 +2395,7 @@ function woAddPartsForm(wo) {
     <form class="write sheet" data-action="work_order" data-verb="ADD-PARTS" data-wo="${wo.id}">
       ${raw(partLinesEditor(first || manufacturerFor(u && u.brand), true))}
       ${raw(sheetButtons('Add the parts'))}
-      <div class="form-note">A proposal — the lines appear at the next run, REQUESTED.</div>
+      <div class="form-note">A proposal — the lines appear at the next run: Order lines REQUESTED, Stock lines already delivered.</div>
     </form>`;
 }
 
@@ -4906,6 +4934,18 @@ document.addEventListener('click', async (ev) => {
   }
   if (ev.target.closest('[data-parts-delivered-toggle]')) { ui.showPartsDelivered = !ui.showPartsDelivered; render(); return; }
 
+  // D68 Order · Stock, per line. In place, like "+ line" — typed fields survive.
+  const src = ev.target.closest('[data-wo-src]');
+  if (src) {
+    const row = src.closest('.wo-line');
+    const form = src.closest('form');
+    const input = row && row.querySelector('[name=p_src]');
+    if (input) input.value = src.dataset.woSrc;
+    if (row) row.querySelectorAll('[data-wo-src]').forEach((b) => b.classList.toggle('on', b === src));
+    const note = form && form.querySelector('[data-stock-note]');
+    if (note) note.hidden = ![...form.querySelectorAll('[name=p_src]')].some((i) => i.value === 'SHOP-STOCK');
+    return;
+  }
   // D65 "+ line": appended in place — a render() would wipe what's been typed.
   const addLine = ev.target.closest('[data-wo-addline]');
   if (addLine) {
@@ -5462,6 +5502,10 @@ function woEventBody(form, fd, s, orNull) {
     return { serial: form.dataset.serial, payload };
   }
   if (verb === 'ADD-PARTS') return { serial: null, payload: { action: verb, work_order: wo, parts: woLines(fd) } };
+  if (verb === 'PART-STATE' && form.dataset.state === 'SHOP-STOCK') {
+    // D68: a source, not a state — no `state` key; the engine lands it DELIVERED.
+    return { serial: null, payload: { action: verb, work_order: wo, line: Number(form.dataset.line), source: 'SHOP-STOCK', note: orNull('note') } };
+  }
   if (verb === 'PART-STATE') {
     const payload = { action: verb, work_order: wo, line: Number(form.dataset.line), state: form.dataset.state };
     for (const k of ['date', 'vendor', 'vendor_ref', 'tracking']) { const v = orNull(k); if (v) payload[k] = v; }
@@ -5479,12 +5523,18 @@ function woLines(fd) {
   const mfrs = fd.getAll('p_mfr');
   const descs = fd.getAll('p_desc');
   const qtys = fd.getAll('p_qty');
-  return nums.map((n, i) => ({
-    manufacturer: String(mfrs[i] || 'OTHER'),
-    part_number: String(n || '').trim(),
-    description: String(descs[i] || '').trim() || null,
-    qty: Number(qtys[i]),
-  })).filter((l) => l.part_number || l.description);
+  const srcs = fd.getAll('p_src');
+  return nums.map((n, i) => {
+    const line = {
+      manufacturer: String(mfrs[i] || 'OTHER'),
+      part_number: String(n || '').trim(),
+      description: String(descs[i] || '').trim() || null,
+      qty: Number(qtys[i]),
+    };
+    // D68: Order is the default and rides as no key at all (the engine reads VENDOR).
+    if (srcs[i] === 'SHOP-STOCK') line.source = 'SHOP-STOCK';
+    return line;
+  }).filter((l) => l.part_number || l.description);
 }
 /** What's wrong with a work-order form before it goes, or null. */
 function woFormProblem(form, fd) {

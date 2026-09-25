@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-09-25T15:04:50.461Z",
+    "generated_at": "2026-09-25T17:34:43.571Z",
     "run_id": "mock-full-2026-09-25",
     "fleet_totals": {
       "units": 39
@@ -4837,6 +4837,21 @@
           "carrier": "UPS",
           "delivered": null,
           "source": "VENDOR"
+        },
+        {
+          "line": 4,
+          "manufacturer": "OTHER",
+          "part_number": "264-4086",
+          "description": "Filter",
+          "qty": 1,
+          "state": "DELIVERED",
+          "ordered": null,
+          "vendor": null,
+          "vendor_ref": null,
+          "tracking": null,
+          "carrier": null,
+          "delivered": "2026-09-25",
+          "source": "SHOP-STOCK"
         }
       ],
       "labor": [
@@ -4870,6 +4885,11 @@
           "ts": "2026-09-25 08:05 CT",
           "who": null,
           "text": "Line 3 in transit — UPS"
+        },
+        {
+          "ts": "2026-09-25 09:40 CT",
+          "who": "Zac",
+          "text": "Zac pulled #4 264-4086 ×1 (Filter) from shop stock"
         }
       ],
       "inspection": null
@@ -5004,6 +5024,21 @@
           "carrier": null,
           "delivered": null,
           "source": "SHOP-STOCK"
+        },
+        {
+          "line": 3,
+          "manufacturer": "OTHER",
+          "part_number": "18-2204",
+          "description": "Brush drive belt",
+          "qty": 2,
+          "state": "DELIVERED",
+          "ordered": null,
+          "vendor": null,
+          "vendor_ref": null,
+          "tracking": null,
+          "carrier": null,
+          "delivered": "2026-09-18",
+          "source": "SHOP-STOCK"
         }
       ],
       "labor": [
@@ -5041,7 +5076,7 @@
     "parts_requested": 2,
     "parts_ordered": 1,
     "parts_in_transit": 2,
-    "delivered_30d": 1,
+    "delivered_30d": 3,
     "closed_window_days": 30
   },
   "inspections": [

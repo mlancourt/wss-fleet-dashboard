@@ -1143,14 +1143,15 @@ function build({ withServiceQueue }) {
 
 /* --------------------------------------------------- work orders (D65)
  * Hand-built, like the leads: spec §7 names the exact cases.
- *   W1001  OPEN, RENT-READY, three lines — REQUESTED (1d) · ORDERED · IN-TRANSIT
- *          with a UPS number — and 2.5 h of labor
+ *   W1001  OPEN, RENT-READY, four lines — REQUESTED (1d) · ORDERED · IN-TRANSIT
+ *          with a UPS number · a SHOP-STOCK line (D68: born DELIVERED, no PO
+ *          trail) — and 2.5 h of labor
  *   W1002  OPEN, PM, labor only (no parts at all — legal)
  *   W1003  OPEN, REPAIR, a REQUESTED line 8 days old (-> red) + an LTL freight
  *          line whose carrier the engine could not detect (tracking, no link);
  *          linked to the unit's open WSS ticket
  *   W1004  CLOSED 5 days ago — DELIVERED lines inside the 30-day window + one
- *          CANCELLED line
+ *          CANCELLED line + a SHOP-STOCK line (the strip's Delivered (30d) chip)
  *   W1005  CLOSED 40 days ago — NOT EMITTED. The window is the engine's; its
  *          absence here is the test.
  * NO money key anywhere: no cost, no cost_source_inv, no rate. The vault holds
@@ -1209,6 +1210,8 @@ function buildWorkOrders({ withWorkOrders, units }) {
         line(3, { manufacturer: m, part_number: '30-750', description: 'Vac hose 1.5in x 6ft', qty: 1,
           state: 'IN-TRANSIT', ordered: d(-1), vendor: 'RPS', vendor_ref: 'SO-448121',
           tracking: '1Z999AA10123456784', carrier: 'UPS' }),
+        line(4, { manufacturer: m, part_number: '264-4086', description: 'Filter', qty: 1,
+          state: 'DELIVERED', delivered: d(0), source: 'SHOP-STOCK' }),
       ],
       labor: [
         { date: d(-1), who: 'Josh', hours: 1.5, note: 'teardown, found the valve' },
@@ -1218,6 +1221,7 @@ function buildWorkOrders({ withWorkOrders, units }) {
         [ts(-1, '09:12'), 'Josh', 'Opened — 3 parts requested'],
         [ts(-1, '14:40'), 'Matt', 'Lines 2, 3 ordered — RPS SO-448121'],
         [ts(0, '08:05'), null, 'Line 3 in transit — UPS'],
+        [ts(0, '09:40'), 'Zac', 'Zac pulled #4 264-4086 ×1 (Filter) from shop stock'],
       ]),
     }));
   }
@@ -1250,6 +1254,8 @@ function buildWorkOrders({ withWorkOrders, units }) {
           tracking: '9400111899223856924218', carrier: 'USPS', delivered: d(-7) }),
         line(2, { manufacturer: mfr(closedUnit), part_number: '18-3310', description: 'Filter screen', qty: 1,
           state: 'CANCELLED', source: 'SHOP-STOCK' }),
+        line(3, { manufacturer: mfr(closedUnit), part_number: '18-2204', description: 'Brush drive belt', qty: 2,
+          state: 'DELIVERED', delivered: d(-7), source: 'SHOP-STOCK' }),
       ],
       labor: [{ date: d(-7), who: 'Josh', hours: 2, note: 'pump swap + test run' }],
       log: logOf([

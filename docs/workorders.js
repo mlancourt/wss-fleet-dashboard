@@ -30,8 +30,21 @@ export const PART_STATES = ['REQUESTED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED', '
 export const PART_STATE_LABEL = {
   REQUESTED: 'Requested', ORDERED: 'Ordered', 'IN-TRANSIT': 'In transit', DELIVERED: 'Delivered', CANCELLED: 'Cancelled',
 };
-/** The verb on the button that moves a line INTO this state. */
-export const PART_VERB_LABEL = { ORDERED: 'Mark ordered', 'IN-TRANSIT': 'In transit', DELIVERED: 'Delivered', CANCELLED: 'Cancel line' };
+/** The verb on the button that moves a line INTO this state. SHOP-STOCK is the
+ *  D68 pull — a source, not a state, but it rides the same button row. */
+export const PART_VERB_LABEL = {
+  ORDERED: 'Mark ordered', 'IN-TRANSIT': 'In transit', DELIVERED: 'Delivered', CANCELLED: 'Cancel line', 'SHOP-STOCK': 'Use from stock',
+};
+/**
+ * D68: where a part comes from. A fact about the part, not a step in the
+ * ladder — a SHOP-STOCK line is born DELIVERED (it is already on the bench) and
+ * never had an order, a vendor or a box in transit. WARRANTY still walks the
+ * vendor ladder. A line without `source` (pre-D68) is VENDOR.
+ */
+export const SOURCES = ['VENDOR', 'SHOP-STOCK', 'WARRANTY'];
+export const sourceOf = (p) => (p && SOURCES.includes(p.source) ? p.source : 'VENDOR');
+/** A line that came off the shelf: drawn "stock", never with a PO trail or a carrier link. */
+export const isStockLine = (p) => !!p && sourceOf(p) === 'SHOP-STOCK' && p.state === 'DELIVERED';
 export const OPEN_PART_STATES = new Set(['REQUESTED', 'ORDERED', 'IN-TRANSIT']);
 export const MAX_LINES = 10;                   // per tap — the Worker's cap too
 export const WO_ID_RE = /^W\d{4}$/;
@@ -175,10 +188,13 @@ export function vendorFor(manufacturer) {
 /**
  * Which state buttons a role is OFFERED on one line (§5's table):
  *
- *   state        owner                          service                          sales
- *   REQUESTED    Mark ordered · Cancel line     Cancel line (own work order)     —
- *   ORDERED      In transit · Delivered         In transit · Delivered           —
- *   IN-TRANSIT   Delivered                      Delivered                        —
+ *   state        owner                                   service                                         sales
+ *   REQUESTED    Mark ordered · Use from stock · Cancel   Use from stock · Cancel line (own work order)   —
+ *   ORDERED      In transit · Delivered                  In transit · Delivered                          —
+ *   IN-TRANSIT   Delivered                               Delivered                                       —
+ *
+ * "Use from stock" (D68) is returned as 'SHOP-STOCK': REQUESTED only — once
+ * Matt has called the order in, the box is coming and the shelf is moot.
  *
  * Nothing on a closed work order. "Own work order" is `opened_by` against the
  * signed-in name — shown here so a tech isn't offered a button the engine will
@@ -188,8 +204,8 @@ export function partActions(wo, part, role, meName) {
   if (!wo || wo.status === 'CLOSED' || !part) return [];
   const works = role === 'owner' || role === 'service';
   if (part.state === 'REQUESTED') {
-    if (role === 'owner') return ['ORDERED', 'CANCELLED'];
-    if (role === 'service' && meName && wo.opened_by === meName) return ['CANCELLED'];
+    if (role === 'owner') return ['ORDERED', 'SHOP-STOCK', 'CANCELLED'];
+    if (role === 'service') return meName && wo.opened_by === meName ? ['SHOP-STOCK', 'CANCELLED'] : ['SHOP-STOCK'];
     return [];
   }
   if (part.state === 'ORDERED') return works ? ['IN-TRANSIT', 'DELIVERED'] : [];
@@ -219,6 +235,10 @@ export const pendingOpenFor = (pending, serial) => (serial == null ? [] : pendin
 export const pendingForWo = (pending, id) => (!id || !Array.isArray(pending) ? []
   : pending.filter((e) => isWo(e) && pl(e).action !== 'OPEN' && pl(e).work_order === id));
 
+/** Where a pending PART-STATE sends its line: "from stock" for a D68 pull, else the state. */
+export const pendingLineLabel = (p) => (p && p.source === 'SHOP-STOCK' ? 'from stock'
+  : (p && (PART_STATE_LABEL[p.state] || p.state)) || '');
+
 /** One line of English for a pending work_order tap, whatever verb it was. */
 export function describeWoEvent(e) {
   const p = pl(e);
@@ -226,8 +246,11 @@ export function describeWoEvent(e) {
   const parts = `${n} part${n === 1 ? '' : 's'}`;
   switch (p.action) {
     case 'OPEN': return `new work order — ${n ? parts : 'labor only'}`;
-    case 'ADD-PARTS': return `${parts} added`;
-    case 'PART-STATE': return `line ${p.line} → ${PART_STATE_LABEL[p.state] || p.state}`;
+    case 'ADD-PARTS': {
+      const stock = Array.isArray(p.parts) ? p.parts.filter((x) => x && x.source === 'SHOP-STOCK').length : 0;
+      return `${parts} added${stock ? ` (${stock} from stock)` : ''}`;
+    }
+    case 'PART-STATE': return `line ${p.line} → ${pendingLineLabel(p)}`;
     case 'LABOR': return `${fmtHours(p.hours)} h logged for ${p.who || 'someone'}`;
     case 'CLOSE': return 'close';
     case 'CANCEL': return 'cancel the work order';

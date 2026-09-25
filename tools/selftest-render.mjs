@@ -2743,6 +2743,178 @@ await check('D65: the ORDERED sheet names the PO and defaults the vendor; hours 
   await asFull('owner');
 });
 
+/* ------------------------------------------- D68: use from stock ------- */
+
+/** The one `.drow wo-part` block for a line on a rendered WO page. */
+const partRowOf = (out, line) => {
+  const blocks = out.split('<div class="drow wo-part').slice(1);
+  return blocks.find((b) => b.includes(`<span class="wo-ln">${line}</span>`)) || '';
+};
+
+await check('D68: a stock line on the WO page reads "stock", dashes the order trail, no carrier link — open, closed and pending', async () => {
+  const snap = await asFull('owner');
+  const w1 = snap.work_orders.find((w) => w.id === 'W1001');
+  const stock = w1.parts.find((p) => p.source === 'SHOP-STOCK');
+  assert.ok(stock && stock.state === 'DELIVERED' && !stock.ordered && !stock.vendor, 'fixture: a stock line, born DELIVERED, no PO trail');
+  // 1 — on an OPEN work order
+  const out = await renderRoute('#/wo/W1001');
+  const row = partRowOf(out, stock.line);
+  assert.ok(row.includes('<span class="chip stock">stock</span>'), 'the state chip reads stock');
+  assert.ok(!row.includes('>Delivered<'), 'not "Delivered"');
+  assert.ok(row.includes('ordered — · vendor — · tracking —'), 'the order trail is dashes');
+  assert.ok(row.includes('<span class="chip ok">delivered '), 'the delivered date shows');
+  assert.ok(!/ups\.com|fedex\.com|usps\.com/.test(row), 'never a carrier link');
+  assert.ok(!row.includes('data-sheet="wo-part"'), 'a stock line offers no buttons');
+  // Close is still held by the vendor lines — stock never was in the way.
+  assert.ok(/data-sheet="wo-close" data-id="W1001" disabled/.test(out));
+  // 2 — on a CLOSED work order
+  const closed = await renderRoute('#/wo/W1004');
+  const w4 = snap.work_orders.find((w) => w.id === 'W1004');
+  const cs = w4.parts.find((p) => p.source === 'SHOP-STOCK' && p.state === 'DELIVERED');
+  const crow = partRowOf(closed, cs.line);
+  assert.ok(crow.includes('<span class="chip stock">stock</span>') && crow.includes('ordered — · vendor — · tracking —'));
+  const cancelled = partRowOf(closed, w4.parts.find((p) => p.state === 'CANCELLED').line);
+  assert.ok(cancelled.includes('>Cancelled<') && !cancelled.includes('chip stock'), 'a cancelled line still reads Cancelled');
+  const vend = partRowOf(closed, w4.parts.find((p) => p.source === 'VENDOR' && p.state === 'DELIVERED').line);
+  assert.ok(vend.includes('>Delivered<') && vend.includes('tools.usps.com'), 'a vendor delivery keeps its trail + link');
+  // 3 — a pending pull on a REQUESTED line (the D67c pattern: badge + undo)
+  const req = w1.parts.find((p) => p.state === 'REQUESTED');
+  const pull = { id: '2026-09-25T12:00:00.000Z:zz1', ts: '2026-09-25T12:00:00.000Z', actor: 'Zac', role: 'service', action: 'work_order', serial: null,
+    payload: { action: 'PART-STATE', work_order: 'W1001', line: req.line, source: 'SHOP-STOCK', note: 'bin A3' } };
+  await apiAs({ name: 'Zac', role: 'service' }, [pull]);
+  const pend = await renderRoute('#/wo/W1001');
+  const prow = partRowOf(pend, req.line);
+  assert.ok(prow.includes('⏳ → from stock — applies at the next run'), 'the line waits, saying where it is going');
+  assert.ok(!prow.includes('data-sheet="wo-part"'), 'its buttons go while it waits');
+  assert.ok(pend.includes(`line ${req.line} → from stock — by Zac`) && pend.includes('>Undo<'), 'badged, with Undo for the tapper');
+  assert.ok(!MONEY_RE.test(pend), 'no money');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D68: the strip — a stock line only in Delivered (30d), with the stock chip, no PO trail, no carrier link', async () => {
+  const snap = await asFull('owner');
+  app.__ui().showParts = true; app.__ui().showPartsDelivered = false;
+  const folded = partsStripOf(await renderRoute('#/'));
+  assert.ok(!folded.includes('264-4086'), 'never under Ordered / In transit / Requested');
+  app.__ui().showPartsDelivered = true;
+  const st = partsStripOf(await renderRoute('#/'));
+  const rowsOf = (pn) => st.split('<div class="prow">').slice(1).filter((b) => b.includes(`>${pn}</span>`));
+  for (const pn of ['264-4086', '18-2204']) {
+    const [r] = rowsOf(pn);
+    assert.ok(r, `${pn} is in Delivered (30d)`);
+    assert.ok(r.includes('<span class="chip stock">stock</span>') && r.includes('ordered — · vendor — · tracking —'), `${pn}: stock chip, dashed trail`);
+    assert.ok(r.includes('delivered '), `${pn}: the delivered date`);
+    assert.ok(!/ups\.com|fedex\.com|usps\.com/.test(r), `${pn}: no carrier link`);
+  }
+  assert.equal(snap.work_order_summary.delivered_30d, snap.work_orders.flatMap((w) => w.parts).filter((p) => p.state === 'DELIVERED').length,
+    'delivered_30d counts stock lines');
+  assert.ok(!MONEY_RE.test(st), 'no money in the strip');
+  setParts(false);
+});
+
+await check('D68: "Use from stock" by role — owner + service on REQUESTED lines only, never sales, never once ordered', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    const snap = await asFull(role);
+    const w1 = snap.work_orders.find((w) => w.id === 'W1001');
+    const out = await renderRoute('#/wo/W1001');
+    for (const p of w1.parts) {
+      const has = out.includes(`data-id="W1001|${p.line}|SHOP-STOCK">Use from stock<`);
+      const want = p.state === 'REQUESTED' && (role === 'owner' || role === 'service');
+      assert.equal(has, want, `${role} · line ${p.line} ${p.state}: ${want ? 'offered' : 'not offered'}`);
+    }
+    if (role === 'owner') {
+      const r1 = partRowOf(out, w1.parts.find((p) => p.state === 'REQUESTED').line);
+      const order = ['>Mark ordered<', '>Use from stock<', '>Cancel line<'].map((t) => r1.indexOf(t));
+      assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2], 'owner: Mark ordered · Use from stock · Cancel line');
+    }
+  }
+  await asFull('owner');
+});
+
+await check('D68: the Use-from-stock sheet — one confirm line, optional note, posts {work_order, line, source} with no state', async () => {
+  const { posted } = await apiAs({ name: 'Zac', role: 'service' });
+  const w1 = app.__state().snapshot.work_orders.find((w) => w.id === 'W1001');
+  const req = w1.parts.find((p) => p.state === 'REQUESTED');
+  await renderRoute('#/wo/W1001');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'wo-part', id: `W1001|${req.line}|SHOP-STOCK` } }));
+  await settle();
+  assert.ok(view._html.includes(`Pulled <strong>${req.part_number}</strong> ×${req.qty} from the shelf?`), 'the confirm line names the part');
+  assert.ok(!view._html.includes('name="vendor"') && !view._html.includes('id="wp-date"'), 'no vendor, no date');
+  await submitWo({ verb: 'PART-STATE', wo: 'W1001', line: String(req.line), state: 'SHOP-STOCK' }, { note: '' });
+  assert.deepEqual(posted[0], { action: 'work_order', serial: null,
+    payload: { action: 'PART-STATE', work_order: 'W1001', line: req.line, source: 'SHOP-STOCK', note: null } });
+  const out = await renderRoute('#/wo/W1001');
+  assert.ok(out.includes('⏳ 1 pending') && out.includes('→ from stock'), 'pending badge');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D68: the line sheet — Order · Stock per row, default Order; Stock rows post source SHOP-STOCK, Order rows post none', async () => {
+  const snap = await asFull('service');
+  const u = snap.units.find((x) => !x.work_order && x.unit_state !== 'RETIRED');
+  const { posted } = await apiAs({ name: 'Zac', role: 'service' });
+  // The editor: every row starts on Order, and the helper copy is hidden until a row is Stock.
+  await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  const mount = { innerHTML: '' };
+  nodes['#write-form'] = mount;
+  try {
+    await fireOn('click', fakeTarget('[data-form]', { dataset: { form: 'wo-open' } }));
+  } finally { delete nodes['#write-form']; }
+  const sheet = mount.innerHTML;
+  assert.ok(sheet.includes('<button type="button" class="tg on" data-wo-src="VENDOR">Order</button>'), 'Order is lit by default');
+  assert.ok(sheet.includes('data-wo-src="SHOP-STOCK">Stock</button>') && sheet.includes('name="p_src" value="VENDOR"'));
+  assert.ok(sheet.includes('data-stock-note hidden>Stock lines are delivered now — nothing to order.<'), 'helper copy, hidden until a Stock row');
+  // The tap: sets that row's hidden input, lights the button, shows the copy.
+  const input = { value: 'VENDOR' };
+  const btns = [{ dataset: { woSrc: 'VENDOR' }, classList: { on: true, toggle(c, v) { this.on = v; } } }];
+  const note = { hidden: true };
+  const row = { querySelector: (q) => (q === '[name=p_src]' ? input : null), querySelectorAll: () => btns };
+  const form = { querySelector: (q) => (q === '[data-stock-note]' ? note : null), querySelectorAll: () => [input] };
+  const tap = { dataset: { woSrc: 'SHOP-STOCK' }, classList: { on: false, toggle(c, v) { this.on = v; } } };
+  btns.push(tap);
+  tap.closest = (q) => (q === '[data-wo-src]' ? tap : q === '.wo-line' ? row : q === 'form' ? form : null);
+  await fireOn('click', tap);
+  assert.equal(input.value, 'SHOP-STOCK', 'the row now posts stock');
+  assert.ok(tap.classList.on && !btns[0].classList.on, 'Stock lit, Order dark');
+  assert.equal(note.hidden, false, 'the copy shows');
+  // OPEN: one Stock row, one Order row.
+  await submitWo({ verb: 'OPEN', serial: u.serial }, {
+    purpose: 'REPAIR', note: '', p_mfr: ['FACTORY-CAT', 'FACTORY-CAT'], p_num: ['264-4086', '150-4500'],
+    p_desc: ['Filter', 'Solution valve'], p_qty: ['1', '1'], p_src: ['SHOP-STOCK', 'VENDOR'],
+  }, true);
+  assert.deepEqual(posted[0].payload.parts, [
+    { manufacturer: 'FACTORY-CAT', part_number: '264-4086', description: 'Filter', qty: 1, source: 'SHOP-STOCK' },
+    { manufacturer: 'FACTORY-CAT', part_number: '150-4500', description: 'Solution valve', qty: 1 },
+  ]);
+  // ADD-PARTS: same rows, same rule.
+  await submitWo({ verb: 'ADD-PARTS', wo: 'W1001' }, { p_mfr: ['KODIAK'], p_num: ['21-422S'], p_desc: [''], p_qty: ['2'], p_src: ['SHOP-STOCK'] });
+  assert.deepEqual(posted[1].payload, { action: 'ADD-PARTS', work_order: 'W1001',
+    parts: [{ manufacturer: 'KODIAK', part_number: '21-422S', description: null, qty: 2, source: 'SHOP-STOCK' }] });
+  assert.ok(!posted.some((b) => /"(cost|rate|price)"/i.test(JSON.stringify(b)) || MONEY_RE.test(JSON.stringify(b))), 'money gate: nothing built carries money');
+  assert.ok((await renderRoute('#/wo/W1001')).includes('1 part added (1 from stock)'), 'the pending row says so');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D68: money gate on the new fixtures — no money key or figure on any stock line, any role', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    const snap = await asFull(role);
+    const stock = snap.work_orders.flatMap((w) => w.parts).filter((p) => p.source === 'SHOP-STOCK');
+    assert.ok(stock.length >= 2, 'fixture carries stock lines');
+    const text = JSON.stringify(snap.work_orders);
+    assert.ok(!/"(cost|cost_source_inv|rate|price)"/.test(text) && !MONEY_RE.test(text), `${role}: no money`);
+    for (const id of ['W1001', 'W1004']) assert.ok(!MONEY_RE.test(await renderRoute(`#/wo/${id}`)), `${role} ${id}: rendered page carries no figure`);
+  }
+  await asFull('owner');
+});
+
 await check('D65: ticket detail carries a read-only 🔩 chip when its unit has a work order', async () => {
   const snap = await asFull('service');
   const w = snap.work_orders.find((x) => x.ticket);
