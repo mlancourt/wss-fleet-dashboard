@@ -1,8 +1,8 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-09-24T16:33:11.729Z",
-    "run_id": "mock-legacy-2026-09-24",
+    "generated_at": "2026-09-25T00:17:29.460Z",
+    "run_id": "mock-legacy-2026-09-25",
     "fleet_totals": {
       "units": 39,
       "cost": 557800,

@@ -59,6 +59,12 @@ globalThis.localStorage = {
   setItem(k, v) { this._m.set(k, String(v)); },
   removeItem(k) { this._m.delete(k); },
 };
+globalThis.sessionStorage = {
+  _m: new Map(),
+  getItem(k) { return this._m.has(k) ? this._m.get(k) : null; },
+  setItem(k, v) { this._m.set(k, String(v)); },
+  removeItem(k) { this._m.delete(k); },
+};
 globalThis.CSS = { escape: (s) => String(s).replace(/[^A-Za-z0-9_-]/g, '\\$&') };
 // Node 22 already defines navigator (getter-only) — app.js only reads it.
 /* The image pipeline, stubbed (S2). Node has no canvas and no JPEG encoder, so
@@ -143,7 +149,9 @@ async function allRoutes(variant, role) {
     ...(snap.service_queue || []).map((t) => `#/ticket/${encodeURIComponent(t.ticket || t.ticket_id || '')}`),
     ...(snap.dispatch || []).map((r) => `#/dispatch/${encodeURIComponent(r.id)}`),
     ...(snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`),
-    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999',
+    ...(snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`),
+    ...snap.units.filter((u) => u.work_order).map((u) => `#/unit/${encodeURIComponent(u.serial)}`),
+    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999', '#/wo/W9999',
   ];
   for (const hash of ROUTES.concat(extra)) out.push([hash, await renderRoute(hash)]);
   return out;
@@ -586,7 +594,8 @@ async function undoableIds(role) {
   const routes = ['#/', '#/rentals', '#/dispatch', '#/service', '#/holds', '#/leads']
     .concat(snap.units.map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
     .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
-    .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`));
+    .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
+    .concat((snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`));
   for (const r of routes) {
     const out = await renderRoute(r);
     for (const [, id] of out.matchAll(/data-sheet="undo" data-id="([^"]+)"/g)) seen.add(id);
@@ -2510,6 +2519,241 @@ await check('D64: #/agreement/<id> renders int, string and PENDING ids; no Notes
   assert.ok(out.includes('<h2>Documents'), 'the CONTRACT shows in Documents');
   assert.ok(!out.includes('data-doc-pick'), 'no phone upload onto an agreement');
   assert.ok((await renderRoute('#/agreement/R000000Z')).includes('Agreement not found.'));
+});
+
+/* ============================================ D65 — work orders ========== */
+
+const MONEY_RE = /\$\s?\d/;
+const partsStripOf = (out) => {
+  const i = out.indexOf('<section class="parts');
+  if (i < 0) return '';
+  return out.slice(i, out.indexOf('</section>', i) + 10);
+};
+const setParts = (open) => { app.__ui().showParts = open; app.__ui().showPartsDelivered = open; };
+
+await check('D65: the Parts strip sits under the utilization card, above the cards, folded, with the engine pill', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  const out = await renderRoute('#/');
+  const util = out.indexOf('class="util"');
+  const strip = out.indexOf('<section class="parts');
+  const card = out.indexOf('cat-card');
+  assert.ok(util >= 0 && strip > util && card > strip, 'util → strip → category cards');
+  const s = snap.work_order_summary;
+  const n = s.parts_requested + s.parts_ordered + s.parts_in_transit;
+  const st = partsStripOf(out);
+  assert.ok(st.includes('🔩 Parts ▸'), 'reads 🔩 Parts ▸');
+  assert.ok(st.includes(`>${n} open<`), `pill = requested + ordered + in transit (${n})`);
+  assert.ok(!st.includes('id="parts-body"'), 'collapsed by default');
+  assert.ok(/parts-n red/.test(st), 'a REQUESTED line on an 8-day-old work order is red');
+});
+
+await check('D65: expanded — part lines grouped Ordered · In transit · Requested, Delivered folded inside, PO leads', async () => {
+  const snap = await asFull('owner');
+  app.__ui().showParts = true; app.__ui().showPartsDelivered = false;
+  const st = partsStripOf(await renderRoute('#/'));
+  const o = st.indexOf('>Ordered <'); const t = st.indexOf('>In transit <'); const r = st.indexOf('>Requested <');
+  assert.ok(o > 0 && t > o && r > t, 'Ordered, then In transit, then Requested');
+  assert.ok(st.includes('Delivered (30d)') && !st.includes('delivered '), 'Delivered is folded');
+  const rows = [...st.matchAll(/<div class="prow">/g)].length;
+  const lines = snap.work_orders.filter((w) => w.status === 'OPEN')
+    .flatMap((w) => w.parts).filter((p) => ['REQUESTED', 'ORDERED', 'IN-TRANSIT'].includes(p.state)).length;
+  assert.equal(rows, lines, 'one row per open PART LINE, not per work order');
+  assert.ok(st.includes('PO <strong>W1001</strong>') && st.includes('href="#/wo/W1001"'), 'W-number labelled PO, tap → #/wo/');
+  assert.ok(st.includes('href="https://www.ups.com/track?tracknum=1Z999AA10123456784"'), 'UPS → a carrier link');
+  assert.ok(st.includes('<span class="chip track">LTL PRO 48213377</span>'), 'unknown carrier → plain text, no link');
+  assert.ok(st.includes('href="#/ticket/S1002"'), 'the 🔩 row carries its ticket chip');
+  assert.ok(!MONEY_RE.test(st), 'no money in the strip');
+  app.__ui().showPartsDelivered = true;
+  const st2 = partsStripOf(await renderRoute('#/'));
+  assert.ok(st2.includes('delivered ') && st2.includes('tools.usps.com'), 'Delivered (30d) opens, USPS links');
+  setParts(false);
+});
+
+await check('D65: the strip toggle is remembered for the session', async () => {
+  await asFull('owner');
+  setParts(false);
+  await renderRoute('#/');
+  await fireOn('click', fakeTarget('[data-parts-toggle]', {}));
+  await settle();
+  assert.equal(app.__ui().showParts, true);
+  assert.equal(sessionStorage.getItem('wss.parts.open'), '1');
+  assert.ok(partsStripOf(view._html).includes('id="parts-body"'));
+  setParts(false);
+  sessionStorage.removeItem('wss.parts.open');
+});
+
+await check('D65: empty strip on the legacy fixture (no work_orders key) and on the quiet one', async () => {
+  for (const v of ['legacy', 'empty']) {
+    window.location.href = `http://localhost:8787/?mock=${v}&role=owner`;
+    window.location.search = `?mock=${v}&role=owner`;
+    await app.__refresh();
+    app.__ui().showParts = true;
+    const st = partsStripOf(await renderRoute('#/'));
+    assert.ok(st.includes('>0 open<') && st.includes('parts-n zero'), `${v}: 0 open, quiet`);
+    assert.ok(!st.includes('class="prow"'), `${v}: no rows`);
+    assert.ok(st.includes('Nothing on order.'), `${v}: says so`);
+  }
+  setParts(false);
+  await asFull('owner');
+});
+
+await check('D65: unit page — the chip when a work order is open, "Open work order" when not, any role', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    const snap = await asFull(role);
+    const u = snap.units.find((x) => x.work_order === 'W1001');
+    const wo = snap.work_orders.find((w) => w.id === 'W1001');
+    const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+    assert.ok(out.includes(`href="#/wo/W1001">🔩 W1001 · ${wo.parts_open} parts open · ${wo.hours_total} h<`), `${role}: the chip`);
+    assert.ok(!out.includes('data-form="wo-open"'), `${role}: no second work order on the serial`);
+    const plain = snap.units.find((x) => !x.work_order && x.unit_state !== 'RETIRED');
+    assert.ok((await renderRoute(`#/unit/${encodeURIComponent(plain.serial)}`)).includes('data-form="wo-open">Open work order<'), `${role}: the button`);
+  }
+  await asFull('owner');
+});
+
+/** Submit a work-order form the way the page does. FormData is swapped for one
+ *  that reads the given fields (arrays for the repeated part-line inputs). */
+async function submitWo(dataset, fields, inline = false) {
+  const writeMsg = { innerHTML: '' };
+  const form = { dataset: { action: 'work_order', ...dataset }, _fields: fields,
+    querySelector: (q) => (q === 'button[type=submit]' ? { disabled: false } : null) };
+  form.closest = (q) => (q === 'form.write' ? form : q === '#write-form' && inline ? {} : null);
+  const SavedFD = globalThis.FormData;
+  globalThis.FormData = class {
+    constructor(f) { this.f = f; }
+    get(k) { const v = this.f._fields[k]; return v == null ? null : Array.isArray(v) ? v[0] : v; }
+    getAll(k) { const v = this.f._fields[k]; return v == null ? [] : Array.isArray(v) ? v : [v]; }
+  };
+  nodes['#write-msg'] = writeMsg;
+  try {
+    for (const fn of listeners.get('submit') || []) await fn({ target: form, preventDefault() {} });
+  } finally { globalThis.FormData = SavedFD; delete nodes['#write-msg']; }
+  await settle();
+  return writeMsg.innerHTML;
+}
+
+await check('D65: OPEN posts {serial, OPEN, purpose, parts} and draws a synthetic ⏳ NEW card — never an invented W-number', async () => {
+  const { snapshot, posted } = await apiAs({ name: 'Josh', role: 'service' });
+  const u = snapshot.units.find((x) => !x.work_order && x.unit_state === 'IN-SHOP' && x.readiness === 'NEEDS-PREP')
+    || snapshot.units.find((x) => !x.work_order && x.unit_state !== 'RETIRED');
+  // The sheet's defaults: rent-ready for a unit in prep, the make from its brand.
+  const sheet = await (async () => {
+    const mod = await import('../docs/workorders.js');
+    return { purpose: mod.defaultPurpose(u), mfr: mod.manufacturerFor(u.brand) };
+  })();
+  assert.equal(sheet.purpose, u.readiness === 'NEEDS-PREP' ? 'RENT-READY' : 'REPAIR');
+  // A line with a description but no part # never leaves the phone.
+  let msg = await submitWo({ verb: 'OPEN', serial: u.serial },
+    { purpose: 'RENT-READY', note: '', p_mfr: ['OTHER'], p_num: [''], p_desc: ['valve'], p_qty: ['1'] }, true);
+  assert.equal(posted.length, 0);
+  assert.ok(msg.includes('part number'), 'it says why');
+  msg = await submitWo({ verb: 'OPEN', serial: u.serial }, {
+    purpose: 'RENT-READY', note: 'rent-ready for Acme Foods',
+    p_mfr: ['FACTORY-CAT', 'FACTORY-CAT', 'FACTORY-CAT'], p_num: ['150-4500', '21-422S', ''],
+    p_desc: ['Solution valve 24V', 'Squeegee blade rear', ''], p_qty: ['1', '2', '1'],
+  }, true);
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0], { action: 'work_order', serial: u.serial, payload: { action: 'OPEN', purpose: 'RENT-READY', note: 'rent-ready for Acme Foods',
+    parts: [
+      { manufacturer: 'FACTORY-CAT', part_number: '150-4500', description: 'Solution valve 24V', qty: 1 },
+      { manufacturer: 'FACTORY-CAT', part_number: '21-422S', description: 'Squeegee blade rear', qty: 2 },
+    ] } }, 'the blank third row is not a line');
+  assert.ok(!JSON.stringify(posted[0]).match(/cost|rate|price/i), 'no money key is ever built');
+  assert.ok(msg.includes('W-number'), 'the confirmation says the engine numbers it');
+  const unitOut = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(unitOut.includes('⏳ New work order — applies at the next run'), 'the unit page waits');
+  assert.ok(!unitOut.includes('data-form="wo-open"'), 'and offers no second OPEN');
+  app.__ui().showParts = true;
+  const st = partsStripOf(await renderRoute('#/'));
+  assert.ok(st.includes(`⏳ NEW — ${u.asset_item} — 2 parts — applies at the next run`), 'the synthetic card, keyed on the serial');
+  assert.ok(st.includes('⏳ 1 new'), 'the folded header says so too');
+  assert.ok(st.includes('>Undo<'), 'Josh can take it back (D46)');
+  setParts(false);
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D65: #/wo/W1001 — PO big, per-role line buttons, Close disabled with a line open, no money', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    await asFull(role);
+    const out = await renderRoute('#/wo/W1001');
+    assert.ok(out.includes('<div class="po-big">PO <span>W1001</span></div>'), `${role}: PO W1001, big`);
+    assert.ok(!MONEY_RE.test(out) && !/\b(cost|rate|price)\b/i.test(out.replace(/rate-?/g, '')), `${role}: no money anywhere`);
+    assert.ok(out.includes('data-sheet="wo-labor"') && out.includes('+ Log hours'), `${role}: + Log hours`);
+    assert.ok(out.includes('data-sheet="wo-add"'), `${role}: + Add parts`);
+    const ordered = out.includes('>Mark ordered<');
+    const transit = /data-id="W1001\|2\|IN-TRANSIT"/.test(out);
+    const delivered = /data-id="W1001\|3\|DELIVERED"/.test(out);
+    if (role === 'owner') {
+      assert.ok(ordered && transit && delivered, 'owner: Mark ordered + In transit + Delivered');
+      assert.ok(/data-sheet="wo-close" data-id="W1001" disabled/.test(out), 'Close is disabled while a line is open');
+      assert.ok(out.includes('Every line has to be delivered or cancelled'), 'and says why');
+    } else if (role === 'service') {
+      assert.ok(!ordered, 'service is never offered Mark ordered');
+      assert.ok(transit && delivered, 'service moves boxes: In transit + Delivered');
+      assert.ok(!out.includes('data-sheet="wo-close"'), 'no Close for service');
+    } else {
+      assert.ok(!ordered && !transit && !delivered, 'sales moves no line');
+      assert.ok(!out.includes('data-sheet="wo-close"'), 'no Close for sales');
+    }
+  }
+  // A labor-only work order has nothing open: the owner may close it.
+  await asFull('owner');
+  const pm = await renderRoute('#/wo/W1002');
+  assert.ok(/data-sheet="wo-close" data-id="W1002">/.test(pm), 'labor-only → Close enabled');
+  assert.ok(pm.includes('No parts on this work order'), 'labor only, said plainly');
+  const closed = await renderRoute('#/wo/W1004');
+  assert.ok(!closed.includes('data-sheet="wo-') && closed.includes('CLOSED'), 'a closed one offers nothing');
+  assert.ok((await renderRoute('#/wo/W9999')).includes('Work order not found.'));
+});
+
+await check('D65: the ORDERED sheet names the PO and defaults the vendor; hours are quarter hours', async () => {
+  const { posted } = await apiAs({ name: 'Matt', role: 'owner' });
+  await renderRoute('#/wo/W1001');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'wo-part', id: 'W1001|1|ORDERED' } }));
+  await settle();
+  assert.ok(view._html.includes('Give them <strong>PO W1001</strong>'), 'the sheet says what to read to the vendor');
+  const { vendorFor } = await import('../docs/workorders.js');
+  const want = vendorFor(app.__state().snapshot.work_orders.find((w) => w.id === 'W1001').parts[0].manufacturer);
+  assert.ok(view._html.includes(`<option value="${want}" selected>`), `the vendor defaults from the make (${want})`);
+  await submitWo({ verb: 'PART-STATE', wo: 'W1001', line: '1', state: 'ORDERED' },
+    { date: '2026-09-24', vendor: 'RPS', vendor_ref: 'SO-448121', note: '' });
+  assert.deepEqual(posted[0], { action: 'work_order', serial: null, payload: { action: 'PART-STATE', work_order: 'W1001', line: 1,
+    state: 'ORDERED', date: '2026-09-24', vendor: 'RPS', vendor_ref: 'SO-448121', note: null } });
+  // A labor line off the quarter hour never leaves the phone.
+  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-24', who: 'Zac', hours: '1.3', note: '' });
+  assert.equal(posted.length, 1, '1.3 h is refused before the POST');
+  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-24', who: 'Zac', hours: '1.5', note: 'rebuild' });
+  assert.deepEqual(posted[1].payload, { action: 'LABOR', work_order: 'W1001', date: '2026-09-24', who: 'Zac', hours: 1.5, note: 'rebuild' });
+  const out = await renderRoute('#/wo/W1001');
+  assert.ok(out.includes('⏳ 2 pending') && out.includes('line 1 → Ordered') && out.includes('1.5 h logged for Zac'), 'badged on payload.work_order');
+  assert.ok(out.includes('⏳ → Ordered — applies at the next run') && !/data-id="W1001\|1\|ORDERED"/.test(out), 'the line waits, its buttons go');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D65: ticket detail carries a read-only 🔩 chip when its unit has a work order', async () => {
+  const snap = await asFull('service');
+  const w = snap.work_orders.find((x) => x.ticket);
+  const out = await renderRoute(`#/ticket/${w.ticket}`);
+  assert.ok(out.includes(`<a class="chip wo" href="#/wo/${w.id}">🔩 ${w.id}</a>`));
+  const plain = snap.service_queue.find((t) => !t.serial || !(snap.units.find((u) => u.serial === t.serial) || {}).work_order);
+  assert.ok(!(await renderRoute(`#/ticket/${plain.ticket}`)).includes('class="chip wo"'));
+  await asFull('owner');
+});
+
+await check('D65: the mock itself carries no money key on any work order, and W1005 (closed 40d) never ships', async () => {
+  const snap = await asFull('owner');
+  const text = JSON.stringify(snap.work_orders);
+  assert.ok(!/"(cost|cost_source_inv|rate|price)"/.test(text), 'no money key');
+  assert.ok(!MONEY_RE.test(text), 'no figure');
+  assert.ok(!snap.work_orders.some((w) => w.id === 'W1005'), 'outside the 30-day window');
+  assert.ok(snap.work_orders.every((w) => w.status !== 'CLOSED' || w.age_days === null), 'age_days is null once CLOSED');
 });
 
 console.log(`\n${passed} checks passed.`);

@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v35';
+const CACHE = 'wss-fleet-shell-v36';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
@@ -23,6 +23,7 @@ const SHELL = [
   'attachments.js',
   'map.js',
   'rentals.js',
+  'workorders.js',
   // D52: the vendored Wisconsin map. Big (~145 KB) and never changing between
   // deploys, which is exactly what the shell cache is for — a tech opening the
   // map in a warehouse should not be waiting on it.

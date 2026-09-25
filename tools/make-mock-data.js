@@ -85,9 +85,13 @@ const pick = (arr) => arr[Math.floor(rand() * arr.length)];
 const money = (lo, hi, step = 25) => Math.round((lo + rand() * (hi - lo)) / step) * step;
 
 const DAY = 86400000;
-// Anchor on today's UTC date. Generator-side date math only — the PAGE never
-// parses date-only strings (CLAUDE.md rule 7).
-const TODAY = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+// Anchor on today's CENTRAL date — the page's "today" (todayCentral()). The UTC
+// date was a day ahead every evening after 7 pm CT, so "yesterday" in the mock
+// was today on the page and the date-relative render checks flaked by the clock.
+// Generator-side date math only — the PAGE never parses date-only strings
+// (CLAUDE.md rule 7).
+const CENTRAL_TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
+const TODAY = Date.parse(CENTRAL_TODAY + 'T00:00:00Z');
 const d = (offsetDays) => new Date(TODAY + offsetDays * DAY).toISOString().slice(0, 10);
 
 // A log row's `ts` (v2.4) is a DISPLAY STRING the engine has already formatted
@@ -1051,6 +1055,9 @@ function build({ withServiceQueue }) {
   const { leads, leads_summary, scoreboard, insights } =
     buildLeads({ withLeads: withServiceQueue, demoHold, demoUnit: availReady[1], service_queue });
 
+  // ------------------------------------------------- work orders (D65)
+  const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units });
+
   // schema 4: a count and nothing else. No cost, no book, no ask (D45).
   const totals = { units: units.length };
 
@@ -1118,9 +1125,147 @@ function build({ withServiceQueue }) {
     leads_summary,
     scoreboard,
     insights,
+    // D65 (schema 7, additive): internal work orders. OPEN + CLOSED <= 30d.
+    work_orders,
+    work_order_summary,
   };
 
   return { snapshot, ledger };
+}
+
+/* --------------------------------------------------- work orders (D65)
+ * Hand-built, like the leads: spec §7 names the exact cases.
+ *   W1001  OPEN, RENT-READY, three lines — REQUESTED (1d) · ORDERED · IN-TRANSIT
+ *          with a UPS number — and 2.5 h of labor
+ *   W1002  OPEN, PM, labor only (no parts at all — legal)
+ *   W1003  OPEN, REPAIR, a REQUESTED line 8 days old (-> red) + an LTL freight
+ *          line whose carrier the engine could not detect (tracking, no link);
+ *          linked to the unit's open WSS ticket
+ *   W1004  CLOSED 5 days ago — DELIVERED lines inside the 30-day window + one
+ *          CANCELLED line
+ *   W1005  CLOSED 40 days ago — NOT EMITTED. The window is the engine's; its
+ *          absence here is the test.
+ * NO money key anywhere: no cost, no cost_source_inv, no rate. The vault holds
+ * those (D66) and the builder never emits them — nor does this file.
+ * Every unit carries `work_order` + `wo_parts_open` (null / 0 when none), as
+ * the engine emits them.
+ */
+function buildWorkOrders({ withWorkOrders, units }) {
+  for (const u of units) { u.work_order = null; u.wo_parts_open = 0; }
+  const empty = { open: 0, parts_requested: 0, parts_ordered: 0, parts_in_transit: 0, delivered_30d: 0, closed_window_days: 30 };
+  if (!withWorkOrders) return { work_orders: [], work_order_summary: empty };
+
+  const used = new Set();
+  const take = (fn) => {
+    const u = units.find((x) => !used.has(x.serial) && fn(x));
+    if (u) used.add(u.serial);
+    return u;
+  };
+  const prepUnit = take((u) => u.unit_state === 'IN-SHOP' && u.readiness === 'NEEDS-PREP' && !u.service_ticket);
+  const pmUnit = take((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY' && !u.service_ticket);
+  const ticketUnit = take((u) => u.service_ticket && u.unit_state === 'IN-SHOP');
+  const closedUnit = take((u) => u.unit_state === 'ON-RENT');
+
+  const line = (n, o) => ({
+    line: n, manufacturer: 'FACTORY-CAT', part_number: '', description: null, qty: 1,
+    state: 'REQUESTED', ordered: null, vendor: null, vendor_ref: null, tracking: null, carrier: null,
+    delivered: null, source: 'VENDOR', ...o,
+  });
+  const mfr = (u) => {
+    const b = String(u.brand || '').toUpperCase().replace(/\s+/g, '-');
+    return ['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN'].includes(b) ? b : 'OTHER';
+  };
+  const wo = (id, u, o) => {
+    const row = {
+      id, serial: u.serial, asset_item: u.asset_item, ticket: null, status: 'OPEN', purpose: 'REPAIR',
+      opened: d(-o.age), opened_by: 'Josh', closed: null, age_days: o.age, note: null,
+      parts: [], labor: [], parts_open: 0, hours_total: 0, log: [], ...o,
+    };
+    delete row.age;
+    if (row.status === 'CLOSED') row.age_days = null;
+    row.parts_open = row.parts.filter((p) => p.state !== 'DELIVERED' && p.state !== 'CANCELLED').length;
+    row.hours_total = row.labor.reduce((n, l) => n + l.hours, 0);
+    if (row.status === 'OPEN') { u.work_order = id; u.wo_parts_open = row.parts_open; }
+    return row;
+  };
+
+  const out = [];
+  if (prepUnit) {
+    const m = mfr(prepUnit);
+    out.push(wo('W1001', prepUnit, {
+      age: 1, purpose: 'RENT-READY', note: 'rent-ready for Acme Foods',
+      parts: [
+        line(1, { manufacturer: m, part_number: '150-4500', description: 'Solution valve 24V', qty: 1 }),
+        line(2, { manufacturer: m, part_number: '21-422S', description: 'Squeegee blade rear', qty: 2,
+          state: 'ORDERED', ordered: d(-1), vendor: 'RPS', vendor_ref: 'SO-448121' }),
+        line(3, { manufacturer: m, part_number: '30-750', description: 'Vac hose 1.5in x 6ft', qty: 1,
+          state: 'IN-TRANSIT', ordered: d(-1), vendor: 'RPS', vendor_ref: 'SO-448121',
+          tracking: '1Z999AA10123456784', carrier: 'UPS' }),
+      ],
+      labor: [
+        { date: d(-1), who: 'Josh', hours: 1.5, note: 'teardown, found the valve' },
+        { date: d(0), who: 'Zac', hours: 1, note: 'squeegee assembly off' },
+      ],
+      log: logOf([
+        [ts(-1, '09:12'), 'Josh', 'Opened — 3 parts requested'],
+        [ts(-1, '14:40'), 'Matt', 'Lines 2, 3 ordered — RPS SO-448121'],
+        [ts(0, '08:05'), null, 'Line 3 in transit — UPS'],
+      ]),
+    }));
+  }
+  if (pmUnit) {
+    out.push(wo('W1002', pmUnit, {
+      age: 2, purpose: 'PM', opened_by: 'Zac',
+      labor: [{ date: d(-2), who: 'Zac', hours: 1, note: '250-hour PM, no parts' }],
+      log: logOf([[ts(-2, '10:30'), 'Zac', 'Opened — labor only']]),
+    }));
+  }
+  if (ticketUnit) {
+    out.push(wo('W1003', ticketUnit, {
+      age: 8, purpose: 'REPAIR', ticket: ticketUnit.service_ticket, opened_by: 'Josh',
+      parts: [
+        line(1, { manufacturer: 'OTHER', part_number: 'DRV-2210', description: 'Drive motor brushes (set)', qty: 1 }),
+        line(2, { manufacturer: 'KODIAK', part_number: 'K-88-114', description: 'Battery 6V 415Ah', qty: 6,
+          state: 'IN-TRANSIT', ordered: d(-6), vendor: 'OTHER', vendor_ref: null,
+          tracking: 'LTL PRO 48213377', carrier: null }),
+      ],
+      labor: [],
+      log: logOf([[ts(-8, '15:02'), 'Josh', `Opened — linked to ${ticketUnit.service_ticket}`]]),
+    }));
+  }
+  if (closedUnit) {
+    out.push(wo('W1004', closedUnit, {
+      age: 12, status: 'CLOSED', purpose: 'RENT-READY', closed: d(-5), opened_by: 'Matt',
+      parts: [
+        line(1, { manufacturer: mfr(closedUnit), part_number: '18-3302', description: 'Solution pump', qty: 1,
+          state: 'DELIVERED', ordered: d(-11), vendor: 'RPS', vendor_ref: 'SO-447702',
+          tracking: '9400111899223856924218', carrier: 'USPS', delivered: d(-7) }),
+        line(2, { manufacturer: mfr(closedUnit), part_number: '18-3310', description: 'Filter screen', qty: 1,
+          state: 'CANCELLED', source: 'SHOP-STOCK' }),
+      ],
+      labor: [{ date: d(-7), who: 'Josh', hours: 2, note: 'pump swap + test run' }],
+      log: logOf([
+        [ts(-12, '11:20'), 'Matt', 'Opened — 2 parts requested'],
+        [ts(-11, '09:00'), 'Matt', 'Line 1 ordered — RPS SO-447702; line 2 cancelled, found in shop stock'],
+        [ts(-5, '16:10'), 'Matt', 'Closed'],
+      ]),
+    }));
+  }
+  // W1005 closed 40 days ago would be here — outside closed_window_days, so it never ships.
+
+  const lines = out.flatMap((w) => w.parts.map((p) => ({ w, p })));
+  const cnt = (st) => lines.filter(({ p }) => p.state === st).length;
+  return {
+    work_orders: out,
+    work_order_summary: {
+      open: out.filter((w) => w.status === 'OPEN').length,
+      parts_requested: cnt('REQUESTED'),
+      parts_ordered: cnt('ORDERED'),
+      parts_in_transit: cnt('IN-TRANSIT'),
+      delivered_30d: cnt('DELIVERED'),
+      closed_window_days: 30,
+    },
+  };
 }
 
 /* --------------------------------------------------------- leads (schema 5)
@@ -1590,6 +1735,11 @@ function downgradeToSchema2(s3, ledger) {
   delete snap.leads_summary;
   delete snap.scoreboard;
   delete snap.insights;
+  // D65 postdates it too: no work orders, no summary, no unit keys. The Parts
+  // strip must simply not draw and the unit page must offer the button anyway.
+  delete snap.work_orders;
+  delete snap.work_order_summary;
+  for (const u of snap.units) { delete u.work_order; delete u.wo_parts_open; }
   return snap;
 }
 
@@ -1622,6 +1772,8 @@ const avail = full.snapshot.units.filter((u) => u.unit_state === 'AVAILABLE');
 // generator releases, so a hard-coded `m-pu-<serial>` here rots the day that set
 // changes (it did, at D59).
 const claimedPickup = full.snapshot.dispatch.find((r) => r.source === 'RENTAL-RETURN' && r.status === 'SCHEDULED');
+// A unit with no open work order, for the pending OPEN (D65).
+const woOpenUnit = full.snapshot.units.find((u) => u.work_order == null && u.unit_state === 'IN-SHOP' && u !== avail[1]);
 const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 const pending = [
   {
@@ -1712,6 +1864,24 @@ const pending = [
     actor: 'Kevin', role: 'sales',
     action: 'rental_update', serial: null,
     payload: { agreement: WSS_PAPER_AGREEMENT, action: 'OFF-RENT', date: d(0), note: 'Plant called — done with it' },
+  },
+  // D65: a work-order OPEN has no W-number until the engine runs — the strip
+  // and the unit page draw a synthetic ⏳ NEW card keyed on the serial.
+  {
+    id: 'evt-mock-11',
+    ts: ago(5),
+    actor: 'Josh', role: 'service',
+    action: 'work_order', serial: woOpenUnit.serial,
+    payload: { action: 'OPEN', purpose: 'REPAIR', note: 'brush motor noisy',
+      parts: [{ manufacturer: 'OTHER', part_number: 'BM-1180', description: 'Brush motor', qty: 1 }] },
+  },
+  // D65: the other verbs badge on payload.work_order. Josh's, so he can undo it.
+  {
+    id: 'evt-mock-12',
+    ts: ago(3),
+    actor: 'Josh', role: 'service',
+    action: 'work_order', serial: null,
+    payload: { action: 'LABOR', work_order: 'W1001', date: d(0), who: 'Josh', hours: 0.75, note: 'valve seat cleaned' },
   },
   // A close proposal on a lead that is still OPEN on the board.
   {

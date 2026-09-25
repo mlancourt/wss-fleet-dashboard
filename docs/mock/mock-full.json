@@ -1,8 +1,8 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-09-24T16:33:11.729Z",
-    "run_id": "mock-full-2026-09-24",
+    "generated_at": "2026-09-25T00:17:29.460Z",
+    "run_id": "mock-full-2026-09-25",
     "fleet_totals": {
       "units": 39
     },
@@ -108,7 +108,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-16",
-      "readiness_age_days": 8
+      "readiness_age_days": 8,
+      "work_order": "W1002",
+      "wo_parts_open": 0
     },
     {
       "serial": "900114",
@@ -151,7 +153,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-30",
-      "readiness_age_days": 25
+      "readiness_age_days": 25,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900121",
@@ -209,7 +213,9 @@
       "service_ticket": "S1006",
       "pending_agreement": null,
       "readiness_since": "2026-09-04",
-      "readiness_age_days": 20
+      "readiness_age_days": 20,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900128",
@@ -246,7 +252,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-12",
-      "readiness_age_days": 43
+      "readiness_age_days": 43,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900135",
@@ -278,7 +286,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-21",
-      "readiness_age_days": 65
+      "readiness_age_days": 65,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900142",
@@ -310,7 +320,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-29",
-      "readiness_age_days": 26
+      "readiness_age_days": 26,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900149",
@@ -347,7 +359,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-21",
-      "readiness_age_days": 65
+      "readiness_age_days": 65,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900156",
@@ -384,7 +398,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-19",
-      "readiness_age_days": 36
+      "readiness_age_days": 36,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900163",
@@ -427,7 +443,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-18",
-      "readiness_age_days": 68
+      "readiness_age_days": 68,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900170",
@@ -470,7 +488,9 @@
       "service_ticket": null,
       "pending_agreement": "R092826A",
       "readiness_since": "2026-09-07",
-      "readiness_age_days": 17
+      "readiness_age_days": 17,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900177",
@@ -507,7 +527,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-03",
-      "readiness_age_days": 21
+      "readiness_age_days": 21,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900184",
@@ -544,7 +566,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-23",
-      "readiness_age_days": 63
+      "readiness_age_days": 63,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900191",
@@ -587,7 +611,9 @@
       "service_ticket": "S1002",
       "pending_agreement": null,
       "readiness_since": "2026-09-08",
-      "readiness_age_days": 16
+      "readiness_age_days": 16,
+      "work_order": "W1003",
+      "wo_parts_open": 2
     },
     {
       "serial": "900198",
@@ -630,7 +656,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-22",
-      "readiness_age_days": 2
+      "readiness_age_days": 2,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900205",
@@ -662,7 +690,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-15",
-      "readiness_age_days": 9
+      "readiness_age_days": 9,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900212",
@@ -699,7 +729,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-19",
-      "readiness_age_days": 67
+      "readiness_age_days": 67,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900219",
@@ -736,7 +768,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-04",
-      "readiness_age_days": 20
+      "readiness_age_days": 20,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900226",
@@ -773,7 +807,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-04",
-      "readiness_age_days": 51
+      "readiness_age_days": 51,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900233",
@@ -805,7 +841,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": null,
-      "readiness_age_days": null
+      "readiness_age_days": null,
+      "work_order": "W1001",
+      "wo_parts_open": 3
     },
     {
       "serial": "900240",
@@ -842,7 +880,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-29",
-      "readiness_age_days": 57
+      "readiness_age_days": 57,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900247",
@@ -879,7 +919,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-31",
-      "readiness_age_days": 24
+      "readiness_age_days": 24,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900254",
@@ -916,7 +958,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-10",
-      "readiness_age_days": 45
+      "readiness_age_days": 45,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900261",
@@ -953,7 +997,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-09",
-      "readiness_age_days": 77
+      "readiness_age_days": 77,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900268",
@@ -996,7 +1042,9 @@
       "service_ticket": null,
       "pending_agreement": "R092326B",
       "readiness_since": "2026-07-26",
-      "readiness_age_days": 60
+      "readiness_age_days": 60,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900275",
@@ -1033,7 +1081,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-10",
-      "readiness_age_days": 76
+      "readiness_age_days": 76,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900282",
@@ -1070,7 +1120,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-06",
-      "readiness_age_days": 18
+      "readiness_age_days": 18,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900289",
@@ -1102,7 +1154,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-04",
-      "readiness_age_days": 82
+      "readiness_age_days": 82,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900296",
@@ -1139,7 +1193,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-03",
-      "readiness_age_days": 83
+      "readiness_age_days": 83,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900303",
@@ -1176,7 +1232,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-19",
-      "readiness_age_days": 67
+      "readiness_age_days": 67,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900310",
@@ -1213,7 +1271,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-05",
-      "readiness_age_days": 81
+      "readiness_age_days": 81,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900317",
@@ -1245,7 +1305,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-19",
-      "readiness_age_days": 5
+      "readiness_age_days": 5,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900324",
@@ -1282,7 +1344,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-13",
-      "readiness_age_days": 42
+      "readiness_age_days": 42,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900331",
@@ -1319,7 +1383,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-07",
-      "readiness_age_days": 48
+      "readiness_age_days": 48,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900338",
@@ -1356,7 +1422,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-01",
-      "readiness_age_days": 54
+      "readiness_age_days": 54,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900345",
@@ -1429,7 +1497,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-30",
-      "readiness_age_days": 25
+      "readiness_age_days": 25,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900352",
@@ -1461,7 +1531,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-03",
-      "readiness_age_days": 21
+      "readiness_age_days": 21,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900359",
@@ -1498,7 +1570,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-07-28",
-      "readiness_age_days": 58
+      "readiness_age_days": 58,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900366",
@@ -1535,7 +1609,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-08-01",
-      "readiness_age_days": 54
+      "readiness_age_days": 54,
+      "work_order": null,
+      "wo_parts_open": 0
     },
     {
       "serial": "900373",
@@ -1567,7 +1643,9 @@
       "service_ticket": null,
       "pending_agreement": null,
       "readiness_since": "2026-09-03",
-      "readiness_age_days": 21
+      "readiness_age_days": 21,
+      "work_order": null,
+      "wo_parts_open": 0
     }
   ],
   "agreements": [
@@ -4573,5 +4651,266 @@
         "won": 0
       }
     }
+  },
+  "work_orders": [
+    {
+      "id": "W1001",
+      "serial": "900233",
+      "asset_item": "A-1019",
+      "ticket": null,
+      "status": "OPEN",
+      "purpose": "RENT-READY",
+      "opened": "2026-09-23",
+      "opened_by": "Josh",
+      "closed": null,
+      "age_days": 1,
+      "note": "rent-ready for Acme Foods",
+      "parts": [
+        {
+          "line": 1,
+          "manufacturer": "OTHER",
+          "part_number": "150-4500",
+          "description": "Solution valve 24V",
+          "qty": 1,
+          "state": "REQUESTED",
+          "ordered": null,
+          "vendor": null,
+          "vendor_ref": null,
+          "tracking": null,
+          "carrier": null,
+          "delivered": null,
+          "source": "VENDOR"
+        },
+        {
+          "line": 2,
+          "manufacturer": "OTHER",
+          "part_number": "21-422S",
+          "description": "Squeegee blade rear",
+          "qty": 2,
+          "state": "ORDERED",
+          "ordered": "2026-09-23",
+          "vendor": "RPS",
+          "vendor_ref": "SO-448121",
+          "tracking": null,
+          "carrier": null,
+          "delivered": null,
+          "source": "VENDOR"
+        },
+        {
+          "line": 3,
+          "manufacturer": "OTHER",
+          "part_number": "30-750",
+          "description": "Vac hose 1.5in x 6ft",
+          "qty": 1,
+          "state": "IN-TRANSIT",
+          "ordered": "2026-09-23",
+          "vendor": "RPS",
+          "vendor_ref": "SO-448121",
+          "tracking": "1Z999AA10123456784",
+          "carrier": "UPS",
+          "delivered": null,
+          "source": "VENDOR"
+        }
+      ],
+      "labor": [
+        {
+          "date": "2026-09-23",
+          "who": "Josh",
+          "hours": 1.5,
+          "note": "teardown, found the valve"
+        },
+        {
+          "date": "2026-09-24",
+          "who": "Zac",
+          "hours": 1,
+          "note": "squeegee assembly off"
+        }
+      ],
+      "parts_open": 3,
+      "hours_total": 2.5,
+      "log": [
+        {
+          "ts": "2026-09-23 09:12 CT",
+          "who": "Josh",
+          "text": "Opened — 3 parts requested"
+        },
+        {
+          "ts": "2026-09-23 14:40 CT",
+          "who": "Matt",
+          "text": "Lines 2, 3 ordered — RPS SO-448121"
+        },
+        {
+          "ts": "2026-09-24 08:05 CT",
+          "who": null,
+          "text": "Line 3 in transit — UPS"
+        }
+      ]
+    },
+    {
+      "id": "W1002",
+      "serial": "900107",
+      "asset_item": "A-1001",
+      "ticket": null,
+      "status": "OPEN",
+      "purpose": "PM",
+      "opened": "2026-09-22",
+      "opened_by": "Zac",
+      "closed": null,
+      "age_days": 2,
+      "note": null,
+      "parts": [],
+      "labor": [
+        {
+          "date": "2026-09-22",
+          "who": "Zac",
+          "hours": 1,
+          "note": "250-hour PM, no parts"
+        }
+      ],
+      "parts_open": 0,
+      "hours_total": 1,
+      "log": [
+        {
+          "ts": "2026-09-22 10:30 CT",
+          "who": "Zac",
+          "text": "Opened — labor only"
+        }
+      ]
+    },
+    {
+      "id": "W1003",
+      "serial": "900191",
+      "asset_item": "A-1013",
+      "ticket": "S1002",
+      "status": "OPEN",
+      "purpose": "REPAIR",
+      "opened": "2026-09-16",
+      "opened_by": "Josh",
+      "closed": null,
+      "age_days": 8,
+      "note": null,
+      "parts": [
+        {
+          "line": 1,
+          "manufacturer": "OTHER",
+          "part_number": "DRV-2210",
+          "description": "Drive motor brushes (set)",
+          "qty": 1,
+          "state": "REQUESTED",
+          "ordered": null,
+          "vendor": null,
+          "vendor_ref": null,
+          "tracking": null,
+          "carrier": null,
+          "delivered": null,
+          "source": "VENDOR"
+        },
+        {
+          "line": 2,
+          "manufacturer": "KODIAK",
+          "part_number": "K-88-114",
+          "description": "Battery 6V 415Ah",
+          "qty": 6,
+          "state": "IN-TRANSIT",
+          "ordered": "2026-09-18",
+          "vendor": "OTHER",
+          "vendor_ref": null,
+          "tracking": "LTL PRO 48213377",
+          "carrier": null,
+          "delivered": null,
+          "source": "VENDOR"
+        }
+      ],
+      "labor": [],
+      "parts_open": 2,
+      "hours_total": 0,
+      "log": [
+        {
+          "ts": "2026-09-16 15:02 CT",
+          "who": "Josh",
+          "text": "Opened — linked to S1002"
+        }
+      ]
+    },
+    {
+      "id": "W1004",
+      "serial": "900121",
+      "asset_item": "A-1003",
+      "ticket": null,
+      "status": "CLOSED",
+      "purpose": "RENT-READY",
+      "opened": "2026-09-12",
+      "opened_by": "Matt",
+      "closed": "2026-09-19",
+      "age_days": null,
+      "note": null,
+      "parts": [
+        {
+          "line": 1,
+          "manufacturer": "OTHER",
+          "part_number": "18-3302",
+          "description": "Solution pump",
+          "qty": 1,
+          "state": "DELIVERED",
+          "ordered": "2026-09-13",
+          "vendor": "RPS",
+          "vendor_ref": "SO-447702",
+          "tracking": "9400111899223856924218",
+          "carrier": "USPS",
+          "delivered": "2026-09-17",
+          "source": "VENDOR"
+        },
+        {
+          "line": 2,
+          "manufacturer": "OTHER",
+          "part_number": "18-3310",
+          "description": "Filter screen",
+          "qty": 1,
+          "state": "CANCELLED",
+          "ordered": null,
+          "vendor": null,
+          "vendor_ref": null,
+          "tracking": null,
+          "carrier": null,
+          "delivered": null,
+          "source": "SHOP-STOCK"
+        }
+      ],
+      "labor": [
+        {
+          "date": "2026-09-17",
+          "who": "Josh",
+          "hours": 2,
+          "note": "pump swap + test run"
+        }
+      ],
+      "parts_open": 0,
+      "hours_total": 2,
+      "log": [
+        {
+          "ts": "2026-09-12 11:20 CT",
+          "who": "Matt",
+          "text": "Opened — 2 parts requested"
+        },
+        {
+          "ts": "2026-09-13 09:00 CT",
+          "who": "Matt",
+          "text": "Line 1 ordered — RPS SO-447702; line 2 cancelled, found in shop stock"
+        },
+        {
+          "ts": "2026-09-19 16:10 CT",
+          "who": "Matt",
+          "text": "Closed"
+        }
+      ]
+    }
+  ],
+  "work_order_summary": {
+    "open": 3,
+    "parts_requested": 2,
+    "parts_ordered": 1,
+    "parts_in_transit": 2,
+    "delivered_30d": 1,
+    "closed_window_days": 30
   }
 }

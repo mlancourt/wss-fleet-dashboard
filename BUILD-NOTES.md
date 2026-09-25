@@ -1832,3 +1832,120 @@ detail. A **real write through a local Worker as Kevin** stored
 `{agreement:"R092526A", action:"OFF-RENT", date, note}` with `serial: null`.
 The tile went ⏳ pending and disabled, and Undo removed the event (inbox back to
 0). Money-gate 16 passed, 0 failed. smoke-real on the Sep-4 real file: 19 passed.
+
+---
+
+# D65 — internal work orders: parts + labor on fleet units (2026-09-24)
+
+BUILD `2026-09-25-d65`, SW `wss-fleet-shell-v36`. **Worker first, then Pages.**
+Spec: Parts-Request-Site-Spec (vault). CLAUDE.md v3.5 → v3.6, committed as
+handed over (Matt's uncommitted copy — the D65 paragraph, the fifteen-action
+write model, the Parts strip under the utilization card).
+
+## Legacy tolerance, checked first
+
+**Not checked against the live `/api/data`** — still no crew token on this
+machine, and the browser pane had none stored either. Instead, as at D64: the
+mock gained every D65 key first (`work_orders[]`, `work_order_summary`,
+`units[].work_order` / `wo_parts_open`, two pending `work_order` events) and the
+**pre-D65 app** rendered it — every route × all three variants × all three
+roles green. The only failure was the new fixture's LABOR tap expecting an Undo
+the old app had nowhere to draw. No crash anywhere. `node tools/smoke-real.mjs
+<live snapshot>` walks every `#/wo/<W>` now too once somebody runs it on a live
+file.
+
+## Worker
+
+`work_order` (the fifteenth action), any role at the action level; narrowed by
+verb inside `cleanPayload`: PART-STATE → ORDERED and CLOSE **owner**; IN-TRANSIT
+/ DELIVERED / CANCELLED **service + owner**; CANCEL passes for anyone (owner, or
+`opened_by` before anything is ordered — business state, the engine's). `serial`
+required on OPEN and **refused** on the other five verbs. Every verb has an exact
+key list; an unknown key is a 400 (it is a new shape — no old client to be
+lenient with). REQUESTED is refused as a target state: it is the one backwards
+move the Worker can see without knowing a line's current state.
+
+**The money refusal** (`refuseMoneyKeys`) runs on **every** action's payload,
+before `cleanPayload`, so the 400 always names the key: `cost`, `rate`, `price`,
+any case, any depth. No existing client sends any of the three.
+
+m1-loop **+33 checks → 220 passed, 0 failed**: all six verbs (OPEN with lines,
+labor-only OPEN, ADD-PARTS, the three part states, LABOR for someone else,
+CLOSE, CANCEL, D46 undo); 403 for service ORDERED / sales DELIVERED / service
+CLOSE; 400 for a 7th verb, an 11-line OPEN, a bad manufacturer, `S1001`, hours
+13 and 1.3, → REQUESTED, OPEN without serial, LABOR with one, qty 0, an unknown
+part key, and **cost / rate / Price by name** (one on a `ticket_update`, to prove
+it is not work-order-only); and per role, `work_orders` carries no money key and
+no `/\$\s?\d/`. `npm run money-gate` **22 passed** (the original 16 + 6: key and
+text, per role) on the Sep-4 real file (no `work_orders` — passes vacuously and
+says "no key") and on the mock.
+
+## Site
+
+- **`docs/workorders.js`** (new, pure): strip groups and their orders, the pill
+  (the engine's summary; counted from rows only without one), `requestedTone`,
+  the §5 line-button matrix, close/cancel gates, carrier links (UPS/FedEx/USPS
+  only; a leading carrier word is dropped from the number), hours validation,
+  OPEN defaults, pending keys. `tools/selftest-workorders.mjs`, 12 checks.
+- **Landing**: `🔩 Parts ▸ N open` between the utilization card and the category
+  cards, folded by default, open/closed kept in **sessionStorage** (per session,
+  per the spec). Amber/red from `PARTS_AMBER = 3` / `PARTS_RED = 7`, beside
+  `AGE_AMBER`. Expanded: part lines grouped Ordered · In transit · Requested,
+  Delivered folded inside, pending OPENs as `⏳ NEW — <asset> — N parts` cards
+  on top with Undo. Row = **PO W1001** · part # × qty · description · asset chip ·
+  ordered · vendor · tracking · age · 🔧 ticket. A legacy / quiet snapshot draws
+  the strip with `0 open` and "Nothing on order."
+- **Unit page**: beside Set readiness — `Open work order` (any role), or the
+  `🔩 W1001 · 3 parts open · 2.5 h` chip → `#/wo/W1001`, or a disabled `⏳ New
+  work order` while an OPEN is pending. The OPEN sheet: purpose toggle (default
+  RENT-READY on NEEDS-PREP, else REPAIR), line rows (make defaulted from `brand`,
+  part #, description, qty) with `+ line` appended in place (no re-render, so
+  typing survives), up to 10, note, `Links to S…` when the unit has a ticket.
+- **`#/wo/<W>`**: `PO W1001` big; `W1001 · A-1019 · OPEN 1d · Rent-ready`; parts
+  with per-line buttons by role × state, each opening a sheet asking only for
+  what that state stamps (ORDERED: date, vendor defaulted from the make —
+  Factory Cat/Kodiak → RPS — vendor #, and the reminder to give them the PO;
+  IN-TRANSIT: tracking; DELIVERED: date). `+ Add parts`, labor rows with
+  `+ Log hours` (date, who defaulting to you, a ±¼ h stepper, 0.25–12), Close
+  (owner, disabled with the reason while a line is open), Cancel (owner, or the
+  opener before anything is ordered), and the log newest first. No rate, no
+  dollars, no cost column.
+- **Ticket detail**: read-only `🔩 W1003` chip when the ticket's unit has one.
+- **Pending**: OPEN keyed on the top-level serial (never an invented id); the
+  other verbs on `payload.work_order` — the WO page lists them with Undo, and a
+  line with a pending state change shows `⏳ → Ordered` and loses its buttons.
+
+## Decisions I made
+
+1. **The strip always draws**, even on a legacy snapshot (`0 open`, "Nothing on
+   order.") — read "empty strip on a legacy snapshot" literally, and it gives a
+   pending OPEN somewhere to show on a quiet day.
+2. **Delivered (30d)** shows every DELIVERED line the snapshot carries; the
+   30-day window is the engine's and I don't re-filter dates client-side.
+3. **Part description is optional** at the Worker (part # and qty are what a
+   vendor needs); the site asks for it but only a part # is required.
+4. **Cancel line for service** only on work orders they opened (the spec's
+   "own WO only"), matched on `opened_by` vs the token name — the engine
+   enforces it anyway.
+5. **No publish-side refusal** of a snapshot carrying a money key on a work
+   order. The spec puts that guarantee in the builder; a Worker refusal would
+   stop the hourly publish outright. The tests hold the builder to it instead.
+
+## Ride-along fix
+
+`tools/make-mock-data.js` anchored its `TODAY` on the **UTC** date, so after
+7 pm CT every mock "yesterday" was today on the page and the D64 check
+"yesterday and still PENDING: red" failed — reproduced on a clean HEAD
+checkout. `TODAY` is now Central (`Intl.DateTimeFormat` with
+`America/Chicago`), matching `todayCentral()`.
+
+## Verified
+
+`npm test` green (workorders 12 new, render 127 → 137), also under
+`TZ=Pacific/Pago_Pago` and `TZ=Pacific/Kiritimati`. Browser at 375×812 on the
+mock: folded and open strip, the WO page, the OPEN sheet with a second line; no
+console errors. A **real write through the local Worker as Josh**: the OPEN
+stored `{serial:"900198", payload:{action:"OPEN", purpose:"RENT-READY", note,
+parts:[2 lines]}}`, the unit page flipped to `⏳ New work order`, the strip drew
+`⏳ NEW — A-1014 — 2 parts`, and Undo from the card took the inbox back to 0.
+smoke-real on the Sep-4 file: 19 passed.

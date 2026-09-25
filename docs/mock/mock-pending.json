@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-24T13:33:11.733Z",
+    "ts": "2026-09-24T21:17:29.463Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-24T15:53:11.733Z",
+    "ts": "2026-09-24T23:37:29.463Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-24T16:21:11.733Z",
+    "ts": "2026-09-25T00:05:29.463Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-24T16:27:11.733Z",
+    "ts": "2026-09-25T00:11:29.463Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-24T16:30:11.733Z",
+    "ts": "2026-09-25T00:14:29.463Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-24T16:31:11.733Z",
+    "ts": "2026-09-25T00:15:29.463Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-09-24T16:08:11.733Z",
+    "ts": "2026-09-24T23:52:29.463Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-09-24T16:24:11.733Z",
+    "ts": "2026-09-25T00:08:29.463Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -128,7 +128,7 @@
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-09-24T16:26:11.733Z",
+    "ts": "2026-09-25T00:10:29.463Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -141,8 +141,45 @@
     }
   },
   {
+    "id": "evt-mock-11",
+    "ts": "2026-09-25T00:12:29.463Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "work_order",
+    "serial": "900317",
+    "payload": {
+      "action": "OPEN",
+      "purpose": "REPAIR",
+      "note": "brush motor noisy",
+      "parts": [
+        {
+          "manufacturer": "OTHER",
+          "part_number": "BM-1180",
+          "description": "Brush motor",
+          "qty": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "evt-mock-12",
+    "ts": "2026-09-25T00:14:29.463Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "work_order",
+    "serial": null,
+    "payload": {
+      "action": "LABOR",
+      "work_order": "W1001",
+      "date": "2026-09-24",
+      "who": "Josh",
+      "hours": 0.75,
+      "note": "valve seat cleaned"
+    }
+  },
+  {
     "id": "evt-mock-9",
-    "ts": "2026-09-24T16:29:11.733Z",
+    "ts": "2026-09-25T00:13:29.463Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",

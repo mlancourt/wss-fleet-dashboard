@@ -1082,3 +1082,90 @@ a.chip { text-decoration: none; }
 .due.red    { color: var(--bad); }
 .tile-docs  { margin-top: 8px; border-top: 1px solid var(--slate-100); }
 .rtile > .drow-btns .btn { width: 100%; }
+
+/* ------------------------------------------- Parts strip + work orders (D65)
+   The strip sits between the utilization card and the category cards, folded
+   to one row so the lights still read first. Rows are PART LINES; each leads
+   with the W-number labelled PO, because that is what is on the packing slip.
+   No money on any of it — there is none in the snapshot to draw. */
+.parts { padding: 0; overflow: hidden; }
+.parts-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: var(--tap);
+  padding: 12px 16px; border: 0; background: none; font: inherit; color: inherit;
+  text-align: left; cursor: pointer;
+}
+.parts-head:focus-visible { outline: 2px solid var(--red); outline-offset: -2px; }
+.parts-t { font-weight: 700; font-size: 15px; color: var(--slate-900); flex: 1 1 auto; }
+.parts-n {
+  font-size: 12.5px; font-weight: 700; border-radius: 999px; padding: 3px 10px;
+  background: var(--slate-800); color: var(--white); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.parts-n.zero  { background: var(--slate-100); color: var(--slate-500); }
+.parts-n.amber { background: var(--warn-bg); color: var(--warn); }
+.parts-n.red   { background: var(--bad-bg); color: var(--bad); }
+.parts-new { font-size: 12px; font-weight: 700; color: var(--red-deep); white-space: nowrap; }
+.parts-body { border-top: 1px solid var(--slate-100); padding: 4px 16px 10px; }
+.parts-g {
+  margin: 12px 0 2px; font-size: 11.5px; font-weight: 750; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--slate-500);
+}
+.parts-g .count, .parts-sub .count {
+  background: var(--slate-100); color: var(--slate-700); border-radius: 999px; padding: 0 7px; margin-left: 4px; letter-spacing: 0;
+}
+.parts-sub {
+  display: block; width: 100%; min-height: var(--tap); margin-top: 8px; padding: 10px 0 4px;
+  border: 0; border-top: 1px solid var(--slate-100); background: none; font: inherit;
+  font-size: 13px; font-weight: 700; color: var(--slate-600); text-align: left; cursor: pointer;
+}
+.prow { padding: 10px 0; border-bottom: 1px solid var(--slate-100); }
+.prow:last-child { border-bottom: 0; }
+.prow-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; color: var(--slate-900); text-decoration: none; min-height: 28px; }
+.prow-po { font-size: 12px; color: var(--slate-500); font-weight: 650; }
+.prow-po strong { font-family: var(--mono); font-size: 15px; color: var(--red-deep); letter-spacing: .3px; }
+.prow-part { font-weight: 650; font-size: 14.5px; }
+.prow-desc { flex-basis: 100%; font-size: 13px; color: var(--ink-3); }
+.prow .chips { margin-top: 6px; }
+.prow.pending-card { background: var(--red-soft); border-radius: var(--radius-sm); padding: 10px; margin: 8px 0; border-bottom: 0; }
+.prow.pending-card .prow-main { font-weight: 650; font-size: 13.5px; color: var(--red-deep); }
+.chip.asset { background: var(--slate-100); color: var(--slate-800); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; font-family: var(--mono); }
+.chip.track { background: var(--white); color: var(--slate-700); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; font-family: var(--mono); white-space: normal; word-break: break-all; }
+a.chip.track { color: var(--rent); border-color: #BFDBFE; }
+.chip.wo { background: #E0E7FF; color: #3730A3; text-transform: none; letter-spacing: 0; }
+a.chip { text-decoration: none; }
+
+/* unit page: the Work order control reads as a chip-shaped button */
+.btn.wo-chip { display: flex; align-items: center; justify-content: center; text-decoration: none; font-family: var(--mono); font-size: 14.5px; }
+
+/* work-order page */
+.po-big { font-size: 30px; font-weight: 800; letter-spacing: -.2px; color: var(--slate-900); line-height: 1.1; }
+.po-big span { font-family: var(--mono); color: var(--red-deep); letter-spacing: .5px; }
+.wo-part .drow-what { font-weight: 650; }
+.wo-part.cancelled { opacity: .55; }
+.wo-ln {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px; border-radius: 6px;
+  background: var(--slate-100); color: var(--slate-600); font-size: 11.5px; font-weight: 700; margin-right: 2px;
+}
+.lrow { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--slate-100); font-size: 14.5px; }
+.lrow:last-child { border-bottom: 0; }
+.lrow-d { color: var(--ink-3); min-width: 56px; }
+.lrow-w { font-weight: 650; color: var(--slate-900); }
+.lrow-h { font-variant-numeric: tabular-nums; font-weight: 700; margin-left: auto; }
+.lrow-n { flex-basis: 100%; font-size: 13px; color: var(--ink-3); }
+
+/* part-line editor: make / part # / description / qty. Two rows on a phone. */
+.wo-lines { display: grid; gap: 10px; margin-bottom: 8px; }
+.wo-line {
+  display: grid; grid-template-columns: 1fr 76px; grid-template-areas: "mfr mfr" "num qty" "desc desc";
+  gap: 6px; padding: 8px; border: 1px solid var(--slate-200); border-radius: var(--radius-sm); background: var(--slate-50);
+}
+form.write .wo-line select, form.write .wo-line input { margin: 0; min-width: 0; }
+.wo-line [name=p_mfr]  { grid-area: mfr; }
+.wo-line [name=p_num]  { grid-area: num; }
+.wo-line [name=p_qty]  { grid-area: qty; }
+.wo-line [name=p_desc] { grid-area: desc; }
+@media (min-width: 700px) {
+  .wo-line { grid-template-columns: 150px 1fr 2fr 76px; grid-template-areas: "mfr num desc qty"; }
+}
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper input { flex: 1 1 auto; text-align: center; font-variant-numeric: tabular-nums; margin: 0; }
+.stepper .btn.sm { min-width: 48px; min-height: var(--tap); font-size: 20px; margin: 0; }

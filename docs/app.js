@@ -30,6 +30,13 @@ import {
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
 import {
+  PURPOSES, PURPOSE_LABEL, MANUFACTURERS, MANUFACTURER_LABEL, VENDORS, VENDOR_LABEL, PART_STATE_LABEL, PART_VERB_LABEL,
+  MAX_LINES, HOURS_MIN, HOURS_MAX, HOURS_STEP,
+  workOrdersOf, woById, laborOf, isOpenLine, stripGroups, openPartCount, requestedTone, lineTone, trackingUrl,
+  fmtHours, hoursValid, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
+  closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
+} from './workorders.js';
+import {
   statusOf, outMove, inMove, rentalGroups, rentalActions, dueBackTone, outDatePassed, clampToToday,
   deliveryRow, returnRow, agreementForRow, pendingForAgreement, agreementHref, agreementByRoute,
   STATUS_LABEL as RENTAL_STATUS_LABEL,
@@ -56,7 +63,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-25-d64';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-25-d65';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -144,6 +151,12 @@ const rememberMapKinds = () => {
   try { localStorage.setItem(MAP_KINDS_KEY, [...ui.mapKinds].join(',')); } catch (_) { /* ignore */ }
 };
 
+// D65: the Parts strip's open/closed state lives for the SESSION, not the
+// device — it opens for a job and should be folded again tomorrow morning.
+const PARTS_OPEN_KEY = 'wss.parts.open';
+function storedPartsOpen() {
+  try { return sessionStorage.getItem(PARTS_OPEN_KEY) === '1'; } catch (_) { return false; }
+}
 const LEAD_FILTER_KEY = 'wss_fleet_lead_filter';
 function storedLeadFilter() {
   try {
@@ -172,6 +185,8 @@ const ui = {
   showClosedLeads: false,
   showCompleted: false,  // D62: the Service tab's Completed strip — collapsed by default, per session
   completedQuery: '',    // D62: its search box
+  showParts: storedPartsOpen(),   // D65: the landing Parts strip — collapsed by default, remembered per session
+  showPartsDelivered: false,      // D65: Delivered (30d) inside it — always starts folded
 };
 
 /* ---- uploads in flight (S2) --------------------------------------------
@@ -287,6 +302,10 @@ const leads = () => (state.snapshot && state.snapshot.leads) || [];
 const leadsSummary = () => (state.snapshot && state.snapshot.leads_summary) || null;
 const scoreboard = () => (state.snapshot && state.snapshot.scoreboard) || null;
 const insights = () => (state.snapshot && state.snapshot.insights) || null;
+// D65. Absent on a pre-D65 snapshot, which reads as "no work orders" — the
+// strip draws empty and the unit page still offers the button.
+const workOrders = () => workOrdersOf(state.snapshot);
+const woSummary = () => (state.snapshot && state.snapshot.work_order_summary) || null;
 const hasLeads = () => !!(state.snapshot && (Array.isArray(state.snapshot.leads) || state.snapshot.leads_summary));
 // `snapshot.billing` is deliberately NOT read: the Billing view was retired at
 // v1.6 (D39). The field stays in the contract for the engine's own consumers.
@@ -359,6 +378,13 @@ const showsReadiness = (u) => ON_HAND.has(u.unit_state);
  */
 const AGE_AMBER = 7;
 const AGE_RED = 14;
+/**
+ * D65 — the Parts strip's tone, in CALENDAR days on the work order's own
+ * `age_days` (engine-computed). Amber once a REQUESTED line has sat 3 days
+ * unordered, red at a week. Matt retunes these two, beside the two above.
+ */
+const PARTS_AMBER = 3;
+const PARTS_RED = 7;
 // The readiness values the Shop List is about. NEEDS-PICKUP is deliberately not
 // one: it's an out-unit state and Dispatch owns its clock (D32/D38).
 const SHOP_READINESS = ['NEEDS-PREP', 'DOWN'];
@@ -473,7 +499,103 @@ function viewCategories() {
   // Landing = utilization bar (D19) + category cards (D15) + the Shop List (D56).
   // D15 is amended, not repealed: the cards still own the top of the page, and
   // the work list sits UNDER them so Kevin's read (the lights) is unchanged.
-  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(cards.join(''))}${raw(shopList())}`;
+  // D65: the Parts strip sits directly under the utilization card, above the
+  // cards — but folded, so the lights still read first (D15 intact; a work
+  // list, not a totals block, like the D56 Shop List).
+  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(cards.join(''))}${raw(shopList())}`;
+}
+
+/**
+ * The Parts strip (D65 §3) — "what job does this box go to".
+ *
+ * Collapsed it is one row: 🔩 Parts ▸ N open, where N is every line still
+ * REQUESTED, ORDERED or IN-TRANSIT (the engine's summary), toned amber/red when
+ * a REQUESTED line has sat unordered on an old work order. Expanded, the rows
+ * are PART LINES, not work orders, grouped Ordered · In transit · Requested,
+ * with Delivered folded inside. Every row leads with the W-number labelled PO,
+ * because that is what is written on the packing slip in the tech's hand.
+ * No money anywhere — the snapshot carries none to draw.
+ */
+function partsStrip() {
+  const list = workOrders();
+  const g = stripGroups(list);
+  const opens = pendingOpens(state.pending);
+  const n = openPartCount(woSummary(), list);
+  const tone = requestedTone(list, PARTS_AMBER, PARTS_RED);
+  const open = ui.showParts;
+
+  const group = (title, rows) => (rows.length ? html`
+    <div class="parts-g">${title} <span class="count">${rows.length}</span></div>
+    ${raw(rows.map(partStripRow).join(''))}` : '');
+  const body = open ? html`
+    <div class="parts-body" id="parts-body">
+      ${raw(opens.map(pendingWoCard).join(''))}
+      ${raw(group('Ordered', g.ordered))}
+      ${raw(group('In transit', g.inTransit))}
+      ${raw(group('Requested', g.requested))}
+      ${!g.ordered.length && !g.inTransit.length && !g.requested.length && !opens.length
+        ? raw('<div class="hold-empty">Nothing on order. Open a work order from a unit page.</div>') : ''}
+      ${g.delivered.length ? raw(html`
+        <button type="button" class="parts-sub" data-parts-delivered-toggle="1" aria-expanded="${ui.showPartsDelivered ? 'true' : 'false'}">
+          Delivered (30d) <span class="count">${g.delivered.length}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
+        ${ui.showPartsDelivered ? raw(g.delivered.map(partStripRow).join('')) : ''}`) : ''}
+    </div>` : '';
+
+  return html`
+    <section class="parts card" aria-label="Parts on order">
+      <button type="button" class="parts-head" data-parts-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="parts-body">
+        <span class="parts-t">🔩 Parts ${open ? '▾' : '▸'}</span>
+        <span class="parts-n${tone ? ' ' + tone : ''}${n ? '' : ' zero'}">${n} open</span>
+        ${opens.length ? raw(html`<span class="parts-new">⏳ ${opens.length} new</span>`) : ''}
+      </button>
+      ${raw(body)}
+    </section>`;
+}
+
+/** One part line in the strip. The PO leads; the chips say where it is and whose it is. */
+function partStripRow({ wo, part }) {
+  const u = unitBySerial(wo.serial);
+  const asset = wo.asset_item || (u && u.asset_item) || `#${wo.serial}`;
+  const tone = lineTone(wo, part, PARTS_AMBER, PARTS_RED);
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="#/wo/${raw(enc(wo.id))}">
+        <span class="prow-po">PO <strong>${wo.id}</strong></span>
+        <span class="prow-part"><span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
+        ${part.description ? raw(html`<span class="prow-desc">${part.description}</span>`) : ''}
+      </a>
+      <div class="chips">
+        <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">${asset}</a>
+        ${part.ordered ? raw(chip(`ordered ${fmtDate(part.ordered)}`, 'cal')) : ''}
+        ${part.vendor ? raw(chip(VENDOR_LABEL[part.vendor] || part.vendor, 'rig')) : ''}
+        ${raw(trackingChip(part))}
+        ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
+        ${isOpenLine(part) && typeof wo.age_days === 'number' ? raw(chip(ageText(wo.age_days), `age${tone ? ' ' + tone : ''}`)) : ''}
+        ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
+      </div>
+    </div>`;
+}
+
+/** Tracking: a carrier link only when the engine named the carrier; else plain text. */
+function trackingChip(part) {
+  if (!part.tracking) return '';
+  const url = trackingUrl(part.carrier, part.tracking);
+  return url
+    ? html`<a class="chip track" href="${url}" target="_blank" rel="noopener noreferrer">${part.carrier} ${part.tracking} ↗</a>`
+    : html`<span class="chip track">${part.tracking}</span>`;
+}
+
+/** A pending OPEN: no W-number yet, so none is shown (§2). Keyed on the serial. */
+function pendingWoCard(e) {
+  const p = pl(e);
+  const u = unitBySerial(e.serial);
+  const n = Array.isArray(p.parts) ? p.parts.length : 0;
+  return html`
+    <div class="prow pending-card">
+      <div class="prow-main">⏳ NEW — ${(u && u.asset_item) || `#${e.serial}`} — ${n ? `${n} part${n === 1 ? '' : 's'}` : 'labor only'} — applies at the next run</div>
+      <div class="kan-foot"><span class="kan-pend">by ${e.actor || 'someone'}</span></div>
+      ${raw(undoControl(e))}
+    </div>`;
 }
 
 /**
@@ -619,7 +741,9 @@ function viewUnit(serial) {
   const pendingLine = (e) => html`<div class="pend-row">
     ${e.action === 'reserve'
       ? raw(html`<span>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</span>`)
-      : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
+      : e.action === 'work_order'
+        ? raw(html`<span>${describeWoEvent(e)} by ${e.actor || 'someone'}</span>`)
+        : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
     ${raw(undoControl(e))}
   </div>`;
   const pendingBlock = p.length ? html`
@@ -793,7 +917,9 @@ function actionsFor(u) {
   const canReadiness = role() === 'service' || role() === 'owner';
   // Booking a truck is everyone's job (§4) — a run is a proposal like any other.
   const canMove = u.unit_state !== 'RETIRED';
-  if (!canReserve && !canReadiness && !canMove) return '';
+  // D65: a work order is anyone's to open — the tech with it apart knows the part #.
+  const canWo = u.unit_state !== 'RETIRED';
+  if (!canReserve && !canReadiness && !canMove && !canWo) return '';
 
   // In mock mode the forms still open — the UI is reviewable — but submitting
   // is refused in postEvent(). Nothing fake ever enters the pending list.
@@ -804,11 +930,65 @@ function actionsFor(u) {
     <div class="actions">
       ${canReserve ? raw(html`<button class="btn" type="button" data-form="reserve">${u.unit_state === 'AVAILABLE' ? 'Reserve this unit' : 'Reserve for later'}</button>`) : ''}
       ${canReadiness ? raw('<button class="btn ghost" type="button" data-form="readiness">Set readiness</button>') : ''}
+      ${canWo ? raw(woControl(u)) : ''}
       ${canMove && u.pending_agreement == null ? raw('<button class="btn ghost" type="button" data-form="dispatch">Schedule delivery</button>') : ''}
     </div>
     ${u.pending_agreement != null ? raw(rentalDeliveryLink(u)) : ''}
     <div id="write-form"></div>
     <div id="write-msg"></div>`;
+}
+
+/**
+ * D65 — the unit page's Work order control, beside Set readiness (§4):
+ *   an OPEN work order    the chip "W1001 · 2 parts open · 3.5 h" -> #/wo/W1001
+ *   a pending OPEN        "⏳ New work order — applies at the next run" (no id yet)
+ *   neither               "Open work order"
+ * One OPEN per serial is the engine's rule; the page just doesn't offer a second.
+ */
+function woControl(u) {
+  if (u.work_order) {
+    const wo = woById(workOrders(), u.work_order);
+    return html`<a class="btn ghost wo-chip" href="#/wo/${raw(enc(u.work_order))}">🔩 ${woChipText(wo, u)}</a>`;
+  }
+  if (pendingOpenFor(state.pending, u.serial).length) {
+    return html`<button class="btn ghost" type="button" disabled>⏳ New work order — applies at the next run</button>`;
+  }
+  return html`<button class="btn ghost" type="button" data-form="wo-open">Open work order</button>`;
+}
+
+/** One part line's inputs: make · part # · description · qty. The OPEN and + Add parts sheets share it. */
+function partLineRow(mfr) {
+  const opt = (m) => html`<option value="${m}"${m === mfr ? raw(' selected') : ''}>${MANUFACTURER_LABEL[m]}</option>`;
+  return html`
+    <div class="wo-line">
+      <select name="p_mfr" aria-label="Make">${raw(MANUFACTURERS.map(opt).join(''))}</select>
+      <input name="p_num" maxlength="40" placeholder="Part #" autocomplete="off" aria-label="Part number">
+      <input name="p_desc" maxlength="80" placeholder="Description" autocomplete="off" aria-label="Description">
+      <input name="p_qty" type="number" inputmode="numeric" min="1" max="99" step="1" value="1" aria-label="Quantity">
+    </div>`;
+}
+function partLinesEditor(mfr, required) {
+  return html`
+    <label>Parts${required ? '' : ' (optional — a labor-only work order is fine)'}</label>
+    <div class="wo-lines" data-mfr="${mfr}">${raw(partLineRow(mfr))}</div>
+    <button class="btn sm ghost" type="button" data-wo-addline="1">+ line</button>
+    <div class="form-note">Up to ${MAX_LINES} lines. Part # and quantity — no prices here; cost comes off the vendor invoice.</div>`;
+}
+
+/** The OPEN sheet (§4), mounted into the unit page's #write-form. */
+function woOpenForm(u) {
+  const mfr = manufacturerFor(u.brand);
+  return html`
+    <form class="write" data-action="work_order" data-verb="OPEN" data-serial="${u.serial}">
+      <label>Purpose</label>
+      ${raw(toggle('purpose', PURPOSES.map((p) => [p, PURPOSE_LABEL[p]]), defaultPurpose(u)))}
+      ${raw(partLinesEditor(mfr, false))}
+      <label for="wo-note">Note (optional)</label>
+      <textarea id="wo-note" name="note" maxlength="200" placeholder="what it's for — rent-ready for …"></textarea>
+      ${u.service_ticket ? raw(html`<div class="info">Links to ${u.service_ticket}.</div>`) : ''}
+      <div class="actions"><button class="btn" type="submit">Submit</button></div>
+      <div class="form-note">A proposal. The engine assigns the W-number — the PO you give the vendor — at the next run.</div>
+    </form>`;
 }
 
 /** D64: a unit promised to a PENDING rental gets its delivery from the engine,
@@ -1705,6 +1885,7 @@ function viewTicket(id) {
         ${raw(chip(PRI_LABEL[t.priority] || t.priority || '—', `pri-chip pri-${t.priority || 'MEDIUM'}`))}
         ${raw(chip(t.machine_owner === 'WSS' ? 'Our machine' : "Customer's machine", t.machine_owner === 'WSS' ? 'rent' : 'out'))}
         ${t.status === 'CLOSED' ? raw(chip('CLOSED', 'ok')) : ''}
+        ${u && u.work_order ? raw(html`<a class="chip wo" href="#/wo/${raw(enc(u.work_order))}">🔩 ${u.work_order}</a>`) : ''}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
     </div>
@@ -1839,6 +2020,216 @@ function moveForm(t, which) {
       ${raw(sheetButtons('Book it'))}
       <div class="form-note">The engine puts the run on the Dispatch board at the next run.</div>
     </form>`;
+}
+
+/* ========================================================= work order == */
+
+/**
+ * `#/wo/W1001` (D65 §5) — same anatomy as ticket detail. The header leads with
+ * "PO W1001", big, because that is the number Matt reads to the vendor and the
+ * number a tech looks for on the box. Parts, then labor, then close.
+ *
+ * NO RATE, NO DOLLARS, NO COST COLUMN — the snapshot carries none, and when
+ * pricing reaches a phone it comes through the owner-only gate (D66+), not here.
+ */
+function viewWorkOrder(id) {
+  const wo = woById(workOrders(), id);
+  if (!wo) {
+    return html`<a class="crumb" href="#/">‹ Fleet</a>
+      ${raw(emptyState('Work order not found.', 'A closed one leaves after 30 days; a new one gets its W-number at the next run.'))}`;
+  }
+  const u = unitBySerial(wo.serial);
+  const pend = pendingForWo(state.pending, wo.id);
+  const isOpen = wo.status !== 'CLOSED';
+  const parts = Array.isArray(wo.parts) ? wo.parts.filter(Boolean) : [];
+  const labor = laborOf(wo);
+  const me = (state.me && state.me.name) || '';
+  const statusText = isOpen
+    ? `OPEN${typeof wo.age_days === 'number' ? ` ${ageText(wo.age_days)}` : ''}`
+    : `CLOSED${wo.closed ? ` ${fmtDate(wo.closed)}` : ''}`;
+
+  const partRows = parts.map((part) => woPartRow(wo, part, pend, me)).join('');
+  const laborRows = labor.map((l) => html`
+    <div class="lrow">
+      <span class="lrow-d">${fmtDate(l.date) || '—'}</span>
+      <span class="lrow-w">${l.who || '—'}</span>
+      <span class="lrow-h">${fmtHours(l.hours)} h</span>
+      ${l.note ? raw(html`<span class="lrow-n">${l.note}</span>`) : ''}
+    </div>`).join('');
+  const log = Array.isArray(wo.log) ? wo.log.filter(Boolean).slice().reverse() : [];
+
+  return html`
+    <a class="crumb" href="${u ? raw(`#/unit/${enc(u.serial)}`) : '#/'}">‹ ${u ? unitName(u) : 'Fleet'}</a>
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="po-big">PO <span>${wo.id}</span></div>
+      <div class="s">${wo.id} · ${wo.asset_item || `#${wo.serial}`} · ${statusText} · ${PURPOSE_LABEL[wo.purpose] || wo.purpose || '—'}</div>
+      <div class="chips">
+        <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">#${wo.serial}${u ? ` ${unitName(u)}` : ''}</a>
+        ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
+        ${isOpen ? '' : raw(chip('CLOSED', 'ok'))}
+        ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
+      </div>
+    </div>
+
+    ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
+      ${raw(pend.map((e) => html`<div class="pend-row"><span>${describeWoEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
+      <div style="margin-top:6px">Applies at the next run — the page still shows the current truth.</div></div>`) : ''}
+    ${wo.note ? raw(html`<div class="note"><strong>Note</strong>${wo.note}</div>`) : ''}
+
+    <h2>Parts${parts.length ? raw(html` <span class="count">${parts.length}</span>`) : ''}</h2>
+    <div class="card dlist">
+      ${parts.length ? raw(partRows) : raw('<div class="hold-empty">No parts on this work order — labor only.</div>')}
+    </div>
+    ${isOpen ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-add" data-id="${wo.id}">+ Add parts</button></div>`) : ''}
+    ${sheetOpen('wo-add', wo.id) ? raw(woAddPartsForm(wo)) : ''}
+
+    <h2>Labor · ${fmtHours(wo.hours_total)} h</h2>
+    <div class="card dlist">
+      ${labor.length ? raw(laborRows) : raw('<div class="hold-empty">No hours logged yet.</div>')}
+    </div>
+    ${isOpen ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-labor" data-id="${wo.id}">+ Log hours</button></div>`) : ''}
+    ${sheetOpen('wo-labor', wo.id) ? raw(woLaborForm(wo)) : ''}
+
+    <h2>Work order</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('PO / work order', wo.id))}
+      ${raw(kvRow('Purpose', PURPOSE_LABEL[wo.purpose] || wo.purpose))}
+      ${raw(kvRow('Opened', `${fmtDateFull(wo.opened)}${wo.opened_by ? ` by ${wo.opened_by}` : ''}`))}
+      ${raw(kvRow('Ticket', wo.ticket ? raw(html`<a href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''))}
+      ${wo.closed ? raw(kvRow('Closed', fmtDateFull(wo.closed))) : ''}
+    </dl></div>
+
+    ${raw(woFooter(wo, me))}
+
+    <h2>Log${log.length ? raw(html` <span class="count">${log.length}</span>`) : ''}</h2>
+    <div class="card notes">
+      ${log.length ? raw(log.map((n) => html`
+        <div class="nrow">
+          <div class="ntext">${n.text}</div>
+          <div class="nmeta">${n.who ? raw(html`<span class="nwho">${n.who}</span>`) : ''}${n.ts ? raw(html`<span class="nts">${n.ts}</span>`) : ''}</div>
+        </div>`).join('')) : raw('<div class="hold-empty">Nothing logged yet.</div>')}
+    </div>`;
+}
+
+/** One part line on the work-order page, with the buttons its state + your role get. */
+function woPartRow(wo, part, pend, me) {
+  const mine = pend.filter((e) => pl(e).action === 'PART-STATE' && pl(e).line === part.line);
+  const acts = mine.length ? [] : partActions(wo, part, role(), me);
+  const cls = { REQUESTED: 'warn', ORDERED: 'hold', 'IN-TRANSIT': 'rent', DELIVERED: 'ok', CANCELLED: '' }[part.state] || '';
+  const tone = lineTone(wo, part, PARTS_AMBER, PARTS_RED);
+  const open = ui.form && ui.form.kind === 'wo-part' ? String(ui.form.id).split('|') : null;
+  const sheetState = open && open[0] === wo.id && Number(open[1]) === part.line ? open[2] : null;
+  return html`
+    <div class="drow wo-part${part.state === 'CANCELLED' ? ' cancelled' : ''}">
+      <div class="drow-top">
+        <span class="drow-what"><span class="wo-ln">${part.line}</span> <span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
+        ${raw(chip(PART_STATE_LABEL[part.state] || part.state, cls))}
+      </div>
+      <div class="drow-meta">${part.description || ''}${part.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[part.manufacturer] || part.manufacturer}`) : ''}${part.source && part.source !== 'VENDOR' ? ` · ${part.source.toLowerCase().replace('-', ' ')}` : ''}</div>
+      <div class="chips">
+        ${part.ordered ? raw(chip(`ordered ${fmtDate(part.ordered)}`, 'cal')) : ''}
+        ${part.vendor ? raw(chip(VENDOR_LABEL[part.vendor] || part.vendor, 'rig')) : ''}
+        ${part.vendor_ref ? raw(chip(part.vendor_ref, 'cal')) : ''}
+        ${raw(trackingChip(part))}
+        ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
+        ${tone && typeof wo.age_days === 'number' ? raw(chip(`${ageText(wo.age_days)} unordered`, `age ${tone}`)) : ''}
+      </div>
+      ${mine.length ? raw(html`<div class="row-pending">⏳ → ${PART_STATE_LABEL[pl(mine[0]).state] || pl(mine[0]).state} — applies at the next run</div>`) : ''}
+      ${acts.length ? raw(html`<div class="drow-btns">${raw(acts.map((st) => html`
+        <button class="btn sm${st === 'CANCELLED' ? ' ghost' : ''}" type="button" data-sheet="wo-part" data-id="${wo.id}|${part.line}|${st}">${PART_VERB_LABEL[st]}</button>`).join(''))}</div>`) : ''}
+      ${sheetState ? raw(woPartStateForm(wo, part, sheetState)) : ''}
+    </div>`;
+}
+
+/** The sheet behind one line button. Each state asks only for what it stamps. */
+function woPartStateForm(wo, part, st) {
+  const today = todayCentral();
+  const vendor = part.vendor || vendorFor(part.manufacturer);
+  const vopt = (v) => html`<option value="${v}"${v === vendor ? raw(' selected') : ''}>${VENDOR_LABEL[v]}</option>`;
+  const fields = st === 'ORDERED' ? html`
+      <label for="wp-date">Ordered on</label>
+      <input id="wp-date" name="date" type="date" value="${today}" max="${today}" required>
+      <label for="wp-vendor">Vendor</label>
+      <select id="wp-vendor" name="vendor">${raw(VENDORS.map(vopt).join(''))}</select>
+      <label for="wp-ref">Vendor order # (optional)</label>
+      <input id="wp-ref" name="vendor_ref" maxlength="40" autocomplete="off" placeholder="SO-…">
+      <div class="form-note">Give them <strong>PO ${wo.id}</strong> — it prints on the packing slip.</div>`
+    : st === 'IN-TRANSIT' ? html`
+      <label for="wp-track">Tracking # (optional)</label>
+      <input id="wp-track" name="tracking" maxlength="60" autocomplete="off" placeholder="UPS 1Z… · FedEx · USPS">`
+    : st === 'DELIVERED' ? html`
+      <label for="wp-date">Delivered on</label>
+      <input id="wp-date" name="date" type="date" value="${today}" max="${today}" required>
+      <div class="form-note">Shelve it under #${wo.serial}.</div>`
+    : '';
+  return html`
+    <form class="write sheet" data-action="work_order" data-verb="PART-STATE" data-wo="${wo.id}" data-line="${part.line}" data-state="${st}">
+      ${raw(fields)}
+      <label for="wp-note">Note (optional)</label>
+      <textarea id="wp-note" name="note" maxlength="200" placeholder="${st === 'CANCELLED' ? 'found in shop stock, wrong part…' : 'backorder, ETA…'}"></textarea>
+      ${raw(sheetButtons(`${PART_VERB_LABEL[st]} — line ${part.line}`))}
+    </form>`;
+}
+
+function woAddPartsForm(wo) {
+  const u = unitBySerial(wo.serial);
+  const first = Array.isArray(wo.parts) && wo.parts[0] ? wo.parts[0].manufacturer : null;
+  return html`
+    <form class="write sheet" data-action="work_order" data-verb="ADD-PARTS" data-wo="${wo.id}">
+      ${raw(partLinesEditor(first || manufacturerFor(u && u.brand), true))}
+      ${raw(sheetButtons('Add the parts'))}
+      <div class="form-note">A proposal — the lines appear at the next run, REQUESTED.</div>
+    </form>`;
+}
+
+function woLaborForm(wo) {
+  const today = todayCentral();
+  const me = state.me && DRIVERS.includes(state.me.name) ? state.me.name : DRIVERS[0];
+  return html`
+    <form class="write sheet" data-action="work_order" data-verb="LABOR" data-wo="${wo.id}">
+      <label for="wl-date">Day</label>
+      <input id="wl-date" name="date" type="date" value="${today}" max="${today}" required>
+      <label>Who</label>
+      ${raw(toggle('who', DRIVERS.map((n) => [n, n]), me))}
+      <label for="wl-hours">Hours</label>
+      <div class="stepper">
+        <button class="btn sm ghost" type="button" data-hours-step="-1" aria-label="Quarter hour less">−</button>
+        <input id="wl-hours" name="hours" type="number" inputmode="decimal" min="${HOURS_MIN}" max="${HOURS_MAX}" step="${HOURS_STEP}" value="1" required>
+        <button class="btn sm ghost" type="button" data-hours-step="1" aria-label="Quarter hour more">+</button>
+      </div>
+      <label for="wl-note">Note (optional)</label>
+      <textarea id="wl-note" name="note" maxlength="200" placeholder="what got done"></textarea>
+      ${raw(sheetButtons('Log the hours'))}
+      <div class="form-note">Hours only — the shop rate lives in the vault, not on the phone.</div>
+    </form>`;
+}
+
+/** Close (owner, every line settled) and Cancel (owner, or the opener before anything is ordered). */
+function woFooter(wo, me) {
+  const r = role();
+  const showClose = closeShown(wo, r);
+  const showCancel = cancelShown(wo, r, me);
+  if (!showClose && !showCancel) return '';
+  const canClose = closeEnabled(wo);
+  return html`
+    <div class="actions row">
+      ${showClose ? raw(html`<button class="btn" type="button" data-sheet="wo-close" data-id="${wo.id}"${canClose ? '' : raw(' disabled')}>Close work order</button>`) : ''}
+      ${showCancel ? raw(html`<button class="btn ghost" type="button" data-sheet="wo-cancel" data-id="${wo.id}">Cancel work order</button>`) : ''}
+    </div>
+    ${showClose && !canClose ? raw('<div class="form-note">Every line has to be delivered or cancelled before it closes.</div>') : ''}
+    ${sheetOpen('wo-close', wo.id) && canClose ? raw(html`
+      <form class="write sheet" data-action="work_order" data-verb="CLOSE" data-wo="${wo.id}">
+        <label for="wc-note">Note (optional)</label>
+        <textarea id="wc-note" name="note" maxlength="200"></textarea>
+        ${raw(sheetButtons(`Close ${wo.id}`))}
+      </form>`) : ''}
+    ${sheetOpen('wo-cancel', wo.id) ? raw(html`
+      <form class="write sheet" data-action="work_order" data-verb="CANCEL" data-wo="${wo.id}">
+        <label for="wx-note">Why (optional)</label>
+        <textarea id="wx-note" name="note" maxlength="200" placeholder="found it in shop stock…"></textarea>
+        ${raw(sheetButtons(`Cancel ${wo.id}`))}
+      </form>`) : ''}`;
 }
 
 /* ============================================================== dispatch == */
@@ -3199,6 +3590,7 @@ function render() {
   else if (section === 'lead') out = viewLead(decodeURIComponent(arg || ''));
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
+  else if (section === 'wo') out = viewWorkOrder(decodeURIComponent(arg || ''));
   else out = viewCategories();
 
   // D63: capture before the swap — a shorter view can clamp the scroll.
@@ -3659,6 +4051,46 @@ document.addEventListener('click', async (ev) => {
   }
 
   if (ev.target.closest('[data-done-toggle]')) { ui.showDone = !ui.showDone; render(); return; }
+  // D65: the Parts strip. Remembered for the session, not the device.
+  if (ev.target.closest('[data-parts-toggle]')) {
+    ui.showParts = !ui.showParts;
+    try { sessionStorage.setItem(PARTS_OPEN_KEY, ui.showParts ? '1' : '0'); } catch (_) { /* storage blocked */ }
+    render();
+    return;
+  }
+  if (ev.target.closest('[data-parts-delivered-toggle]')) { ui.showPartsDelivered = !ui.showPartsDelivered; render(); return; }
+
+  // D65 "+ line": appended in place — a render() would wipe what's been typed.
+  const addLine = ev.target.closest('[data-wo-addline]');
+  if (addLine) {
+    const form = addLine.closest('form');
+    const wrap = form && form.querySelector('.wo-lines');
+    if (!wrap) return;
+    const rows = wrap.querySelectorAll('.wo-line');
+    if (rows.length >= MAX_LINES) {
+      addLine.disabled = true;
+      addLine.textContent = `${MAX_LINES} lines max — add more after the next run`;
+      return;
+    }
+    // A new line takes the make of the line above it: one machine, one make, usually.
+    const last = rows[rows.length - 1];
+    const mfr = (last && last.querySelector('[name=p_mfr]') && last.querySelector('[name=p_mfr]').value) || wrap.dataset.mfr;
+    wrap.insertAdjacentHTML('beforeend', partLineRow(mfr));
+    const added = wrap.querySelectorAll('.wo-line');
+    const input = added[added.length - 1] && added[added.length - 1].querySelector('[name=p_num]');
+    if (input) input.focus();
+    return;
+  }
+  // D65 hours stepper: quarter hours, clamped to 0.25–12. In place, no render.
+  const step = ev.target.closest('[data-hours-step]');
+  if (step) {
+    const input = step.closest('form') && step.closest('form').querySelector('[name=hours]');
+    if (!input) return;
+    const cur = Number(input.value) || 0;
+    const next = Math.min(HOURS_MAX, Math.max(HOURS_MIN, Math.round((cur + Number(step.dataset.hoursStep) * HOURS_STEP) * 4) / 4));
+    input.value = String(next);
+    return;
+  }
   if (ev.target.closest('[data-completed-toggle]')) { ui.showCompleted = !ui.showCompleted; render(); return; }
   if (ev.target.closest('[data-closed-toggle]')) { ui.showClosedLeads = !ui.showClosedLeads; render(); return; }
   if (ev.target.closest('[data-score-toggle]')) { ui.showScore = !scoreOpen(); render(); return; }
@@ -3915,6 +4347,7 @@ document.addEventListener('click', async (ev) => {
     // pre-filled from the unit's placement (§4).
     const form = kind === 'reserve' ? reserveForm(u)
       : kind === 'dispatch' ? addRunForm(runPrefillForUnit(u, currentHold(u, todayCentral())))
+      : kind === 'wo-open' ? woOpenForm(u)
       : readinessForm(u);
     $('#write-form').innerHTML = form;
     const el = $('#write-form form');
@@ -4128,6 +4561,7 @@ function eventBody(action, form, fd) {
       payload: { lead: form.dataset.id, outcome, reason: outcome === 'LOST' ? s('reason') : null, note: orNull('note') },
     };
   }
+  if (action === 'work_order') return woEventBody(form, fd, s, orNull);
   if (action === 'rental_update') {
     // The id travels in the TYPE the snapshot gave it — an int stays an int, a
     // WSS-paper string stays a string (D59). The form only carries it as text,
@@ -4146,6 +4580,68 @@ function eventBody(action, form, fd) {
   }
   return { serial: null, payload: {} };
 }
+
+/**
+ * D65: one action, six verbs. `serial` rides at the top level on OPEN only —
+ * that is how the pending OPEN finds its unit before it has a W-number. Every
+ * other verb is keyed on payload.work_order. No cost / rate / price key is ever
+ * built here; the Worker would refuse it by name if one were.
+ */
+function woEventBody(form, fd, s, orNull) {
+  const verb = form.dataset.verb;
+  const wo = form.dataset.wo || null;
+  if (verb === 'OPEN') {
+    return { serial: form.dataset.serial, payload: { action: 'OPEN', purpose: s('purpose'), note: orNull('note'), parts: woLines(fd) } };
+  }
+  if (verb === 'ADD-PARTS') return { serial: null, payload: { action: verb, work_order: wo, parts: woLines(fd) } };
+  if (verb === 'PART-STATE') {
+    const payload = { action: verb, work_order: wo, line: Number(form.dataset.line), state: form.dataset.state };
+    for (const k of ['date', 'vendor', 'vendor_ref', 'tracking']) { const v = orNull(k); if (v) payload[k] = v; }
+    payload.note = orNull('note');
+    return { serial: null, payload };
+  }
+  if (verb === 'LABOR') {
+    return { serial: null, payload: { action: verb, work_order: wo, date: orNull('date'), who: s('who'), hours: Number(s('hours')), note: orNull('note') } };
+  }
+  return { serial: null, payload: { action: verb, work_order: wo, note: orNull('note') } };
+}
+/** The typed lines, in order. A row with nothing typed is not a line. */
+function woLines(fd) {
+  const nums = fd.getAll('p_num');
+  const mfrs = fd.getAll('p_mfr');
+  const descs = fd.getAll('p_desc');
+  const qtys = fd.getAll('p_qty');
+  return nums.map((n, i) => ({
+    manufacturer: String(mfrs[i] || 'OTHER'),
+    part_number: String(n || '').trim(),
+    description: String(descs[i] || '').trim() || null,
+    qty: Number(qtys[i]),
+  })).filter((l) => l.part_number || l.description);
+}
+/** What's wrong with a work-order form before it goes, or null. */
+function woFormProblem(form, fd) {
+  const verb = form.dataset.verb;
+  const today = todayCentral();
+  const date = String(fd.get('date') || '').trim();
+  if (date && (!isDateStr(date) || date > today)) return 'That date is in the future — pick today or earlier.';
+  if (verb === 'OPEN' || verb === 'ADD-PARTS') {
+    const lines = woLines(fd);
+    if (verb === 'ADD-PARTS' && !lines.length) return 'Put at least one part number in.';
+    if (lines.some((l) => !l.part_number)) return 'Every line needs a part number.';
+    if (lines.some((l) => !Number.isInteger(l.qty) || l.qty < 1 || l.qty > 99)) return 'Quantity is a whole number, 1 to 99.';
+    if (lines.length > MAX_LINES) return `${MAX_LINES} lines per tap — add the rest after the next run.`;
+  }
+  if (verb === 'LABOR' && !hoursValid(Number(fd.get('hours')))) return `Hours go in quarter hours, ${HOURS_MIN} to ${HOURS_MAX}.`;
+  return null;
+}
+const WO_MSG = {
+  OPEN: 'The engine assigns the W-number at the next run.',
+  'ADD-PARTS': 'The lines appear at the next run.',
+  'PART-STATE': 'The line moves at the next run.',
+  LABOR: 'The hours land at the next run.',
+  CLOSE: 'It closes at the next run.',
+  CANCEL: 'It comes off the board at the next run.',
+};
 
 const SUBMIT_MSG = {
   ticket_open: 'The engine assigns the ticket number at the next run.',
@@ -4196,6 +4692,20 @@ document.addEventListener('submit', async (ev) => {
       return;
     }
   }
+  // D65: say what's wrong before the round trip — the Worker refuses it anyway.
+  if (action === 'work_order') {
+    const problem = woFormProblem(form, fd);
+    if (problem) {
+      if (isInline(action, form)) {
+        const msg = $('#write-msg');
+        if (msg) msg.innerHTML = html`<div class="alert">⚠️ ${problem}</div>`;
+      } else {
+        ui.msg = { tone: 'bad', text: problem };
+        render();
+      }
+      return;
+    }
+  }
   // A lead with no customer is a note to nobody.
   if (action === 'lead_open' && !String(fd.get('customer') || '').trim()) {
     const el = form.querySelector('[name=customer]');
@@ -4215,10 +4725,12 @@ document.addEventListener('submit', async (ev) => {
     if (inline) {
       render();
       const msg = $('#write-msg');
-      if (msg) msg.innerHTML = '<div class="note"><strong>Submitted</strong>Applies at the next run.</div>';
+      const text = action === 'work_order' ? WO_MSG[form.dataset.verb] : 'Applies at the next run.';
+      if (msg) msg.innerHTML = html`<div class="note"><strong>Submitted</strong>${text}</div>`;
     } else {
       ui.form = null;
-      ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb]) || SUBMIT_MSG[action] || 'Applies at the next run.' };
+      ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb])
+        || (action === 'work_order' && WO_MSG[form.dataset.verb]) || SUBMIT_MSG[action] || 'Applies at the next run.' };
       render();
     }
   } catch (err) {
