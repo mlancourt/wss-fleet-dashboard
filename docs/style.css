@@ -920,12 +920,12 @@ table.ins td.n { color: var(--slate-700); }
 
 /* --- List | Map ---------------------------------------------------------- */
 .segbar { display: flex; gap: 0; margin: 0 0 12px; border: 1px solid var(--slate-300); border-radius: 12px; overflow: hidden; }
-.seg {
+.segbar .seg {
   flex: 1 1 0; min-height: var(--tap); padding: 8px 12px; border: 0; cursor: pointer;
   background: var(--white); color: var(--slate-700); font: inherit; font-weight: 650; font-size: 14.5px;
 }
-.seg + .seg { border-left: 1px solid var(--slate-300); }
-.seg.on { background: var(--red); color: var(--white); }
+.segbar .seg + .seg { border-left: 1px solid var(--slate-300); }
+.segbar .seg.on { background: var(--red); color: var(--white); }
 
 /* --- filter chips --------------------------------------------------------
    A chip wears its own kind's colour, not the brand's: on = filled, off =
