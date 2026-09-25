@@ -330,4 +330,4 @@ Do them in order. Do not start M2 before M1's curl loop is in the README.
 
 ## Ask Matt vs. decide yourself
 
-**Ask Matt:** anything touching money display formats, category names/order, adding any write action beyond the fifteen, anything requiring a new DNS record or a paid plan, repo visibility. **Decide yourself:** all layout/CSS details within the brand, code structure, icon design, copy tone (plain, terse, shop-floor). When the snapshot contract seems wrong or insufficient — **stop and say so**; the contract is owned by "the Architect" on Matt's side and changes there first.
+**Ask Matt:** anything touching money display formats, category names/order, adding any write action beyond the sixteen, anything requiring a new DNS record or a paid plan, repo visibility. **Decide yourself:** all layout/CSS details within the brand, code structure, icon design, copy tone (plain, terse, shop-floor). When the snapshot contract seems wrong or insufficient — **stop and say so**; the contract is owned by "the Architect" on Matt's side and changes there first.
