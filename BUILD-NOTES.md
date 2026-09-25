@@ -1949,3 +1949,122 @@ stored `{serial:"900198", payload:{action:"OPEN", purpose:"RENT-READY", note,
 parts:[2 lines]}}`, the unit page flipped to `⏳ New work order`, the strip drew
 `⏳ NEW — A-1014 — 2 parts`, and Undo from the card took the inbox back to 0.
 smoke-real on the Sep-4 file: 19 passed.
+
+---
+
+# D67 — the fleet inspection sheet: check-out / return / PM (2026-09-25)
+
+Built from `Inspection-Site-Spec.md` v1.0 against `CLAUDE.md` v3.7. Schema
+stays 7; one new action (sixteen). The engine was already publishing the keys —
+the pre-D67 build was verified first to tolerate them (213 renders, three roles,
+zero throws or leaks; `#/inspection/…` fell back to the landing page).
+
+## What shipped
+
+- **Worker**: `inspection`, five verbs, shape + enums + lengths only (see the
+  README action table). `work_order` OPEN takes an optional `inspection`
+  back-link. The row library is **not** on the Worker. `MAX_EVENT_BYTES`
+  8 KB → 32 KB so a whole sheet fits one event.
+- **Landing**: `📋 Inspections ▸ N drafts · M done this week` under the Parts
+  strip, folded, remembered per session, amber at `INSPECT_AMBER = 2` days
+  (engine `age_days`). Drafts oldest first with Resume, then Done (7d) with
+  tech · hours · ⚑ · WO chip; a pending OPEN is a `⏳ NEW` card keyed on its
+  serial. "No inspections yet" when there are none (legacy, or empty).
+- **Unit page**: `412.5 h · as of 9/24` in the header; beside Work order,
+  `📋 Resume I1005 · CHECKOUT · 3 ⚑`, `⏳ Resume new sheet`, or `📋 Inspect` →
+  Check-out · Return · PM with the §2 default lit; Inspections list (last 5).
+- **`#/inspection/<I>`** (and `#/inspection/new/<serial>`): rendered from
+  `inspection_checklist` — no row is named in the site. Machine dropdowns
+  re-filter and keep every answer; readings follow the class, hours first and
+  big; battery type → voltage → pack with the WET grid grouped per pack; one
+  segmented control per row in the row's own scale + N/A (tap the lit answer to
+  clear it); a flag tints the row and opens its note; `n/m answered` per
+  section; comments; Done (disabled until an hours reading) · Void. DONE:
+  read-only, Reopen, and "Open work order from this inspection" → the D65 OPEN
+  sheet pre-filled (purpose, `from I1003: <flagged labels>`, the back-link).
+- **Chips**: `📋 I1005` on the ticket the engine linked; `📋 I1002` on the work
+  order opened from a sheet.
+- **Saving**: every change marks its section dirty; a save follows 2.5 s later,
+  or at once on blur / a dropdown pick / leaving the route / the app going to
+  the background. One SAVE per section; a newer save of a section takes back
+  my older unapplied save of that same section (D46), so the inbox holds one
+  per section. A failure pins "Didn't save — tap to retry" above the tab bar.
+
+## Decisions I made on the floor (the spec didn't settle these)
+
+1. **A sheet typed before its I-number is folded into the pending OPEN, not
+   queued as serial-keyed SAVEs.** The spec says SAVEs "queue against serial",
+   but the live engine's SAVE and DONE are keyed only on `payload.inspection`
+   (`wss_inspections.h_inspection` → `find(payload.get("inspection"))`) — a
+   serial-keyed SAVE would be refused and the tech's typing lost. What the
+   engine *does* accept is an OPEN carrying the first sections ("OPEN may carry
+   a first SAVE"). So each save on a NEW sheet re-POSTs the OPEN with every
+   section typed so far, then DELETEs the previous one: one OPEN in the inbox,
+   always the latest. If the take-back 404s (the engine drained it mid-save) the
+   fresh OPEN is withdrawn too and the tech is told to finish on the numbered
+   sheet. The Worker still **accepts** a serial-keyed SAVE per the spec, so the
+   engine can add the serial fallback later without a Worker deploy.
+2. **Done waits for the I-number** on a NEW sheet — same root cause: a DONE
+   with no id is refused by the engine. The footer says so ("Done unlocks once
+   the engine numbers this sheet"). The spec's exit story (open → fill → Done in
+   one sitting) needs the engine to resolve `serial → its DRAFT` for SAVE and
+   DONE. **Flagged to the Architect.**
+3. **Kind is editable only on a NEW sheet.** The engine's SAVE merge has no
+   `kind` section, so on a numbered sheet the kind is text, not a dropdown.
+4. **Answers on rows the machine no longer shows stay on the phone, not in the
+   vault.** A SAVE sends only the answered rows the current class / controls /
+   battery sees (plus a retired row the sheet already carries). Flipping back
+   restores them within the session. Otherwise a horn flag on a walk-behind
+   would count toward `flags` and land on the work order.
+5. **Battery**: no pack is guessed when the voltage is picked — the grid waits
+   for the pack. Changing voltage clears a pack that no longer fits. Cells
+   typed under one pack stay on the phone if the pack/type changes.
+6. **Hydrometer**: `1265` reads as `1.265` (gloves); anything outside
+   1.000–1.400 turns the field red and is not saved.
+7. **Work order from a RETURN** gets purpose REPAIR (the spec names PM → REPAIR
+   and CHECKOUT → RENT-READY only). The note is cut to 200 with `…`. If the unit
+   already has an OPEN work order, the button is replaced by a link to add the
+   parts there (the engine allows one OPEN per serial).
+8. **Reopen for the tech** is drawn only when the DONE row in the sheet's
+   `log[]` is ≤ 24 h old by Central wall clock (the same stamp the engine
+   reads); no stamp → owner only. **Void** on a DONE sheet is owner-only.
+9. **Done asks for the tech** (defaults to you) and saves anything unsaved
+   first; if that save fails, Done refuses rather than lock a sheet missing its
+   last section.
+10. **"No inspections yet"** also shows on a snapshot that ships the keys but
+    no sheets (the empty mock), not only the legacy one.
+11. **Money gate**: `tools/money-gate.mjs` applies the D65 check (no money key,
+    no `/\$\s?\d/`) to `inspections[]` and the shipped library, every role. Note
+    comments and item notes are typed text — if a tech ever writes a dollar
+    figure in one, this fails on honest data; the contract says nothing on the
+    sheet is money-shaped, so I held it to that.
+
+## Tests
+
+- `tools/selftest-worker.mjs` (new, 8) — drives the real `worker.js` against an
+  in-memory KV, so the Worker's rules now run under `npm test`: five verbs
+  accepted; a 6th verb, `inspection: "W1001"`, 19 cells, sg 2.0, an unknown
+  top-level key and a result outside both scales refused; lengths / enums /
+  shapes; the money refusal; the `work_order` back-link; undo.
+- `tools/selftest-inspections.mjs` (new, 18) — the pure module.
+- `tools/selftest-render.mjs` 137 → 157 — spec §8's sheet / unit / strip cases,
+  the save pipeline against a fake Worker (per-section SAVE + take-back, the
+  NEW-sheet fold, the 404 race, Done-saves-first, WO back-link, undo), the
+  redirect when the I-number lands, no money on any sheet, and a new guard that
+  every module `app.js` imports is precached by `sw.js`.
+- `npm test`: **424 checks** (378 before). `npm run m1` against `wrangler dev`:
+  **234 / 0** (14 new inspection cases). `npm run money-gate` on the mock:
+  **28 / 0**.
+- The engine's own `_merge` (run read-only from the vault's `_templates/` with
+  bytecode off; nothing written) accepted every payload shape the site builds,
+  including the browser's folded OPEN — and refused a retired row on a sheet
+  that never carried it, as the site assumes.
+
+## Ride-along
+
+- The mocks were regenerated: they are anchored on the day they're built, and
+  the D64 "due yesterday / tomorrow" check had drifted overnight — **`npm test`
+  was red on a clean HEAD this morning** until `npm run mock`. Worth knowing:
+  any day-old mock will do this.
+- Mock units' `hours` are now `null` except where a DONE sheet wrote them back,
+  which is what the real fleet looked like before D67.

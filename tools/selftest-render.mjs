@@ -151,7 +151,11 @@ async function allRoutes(variant, role) {
     ...(snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`),
     ...(snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`),
     ...snap.units.filter((u) => u.work_order).map((u) => `#/unit/${encodeURIComponent(u.serial)}`),
-    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999', '#/wo/W9999',
+    // D67: every sheet, every unit that carries one, and every ⏳ NEW sheet.
+    ...(snap.inspections || []).map((i) => `#/inspection/${encodeURIComponent(i.id)}`),
+    ...snap.units.filter((u) => u.inspection_draft || u.last_inspection).map((u) => `#/unit/${encodeURIComponent(u.serial)}`),
+    ...app.__state().pending.filter((e) => e.action === 'inspection' && e.serial).map((e) => `#/inspection/new/${encodeURIComponent(e.serial)}`),
+    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999', '#/wo/W9999', '#/inspection/I9999', '#/inspection/new/nope',
   ];
   for (const hash of ROUTES.concat(extra)) out.push([hash, await renderRoute(hash)]);
   return out;
@@ -595,7 +599,9 @@ async function undoableIds(role) {
     .concat(snap.units.map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
     .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
     .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
-    .concat((snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`));
+    .concat((snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`))
+    // D67: a SAVE on a numbered sheet only shows on that sheet.
+    .concat((snap.inspections || []).map((i) => `#/inspection/${encodeURIComponent(i.id)}`));
   for (const r of routes) {
     const out = await renderRoute(r);
     for (const [, id] of out.matchAll(/data-sheet="undo" data-id="([^"]+)"/g)) seen.add(id);
@@ -2754,6 +2760,456 @@ await check('D65: the mock itself carries no money key on any work order, and W1
   assert.ok(!MONEY_RE.test(text), 'no figure');
   assert.ok(!snap.work_orders.some((w) => w.id === 'W1005'), 'outside the 30-day window');
   assert.ok(snap.work_orders.every((w) => w.status !== 'CLOSED' || w.age_days === null), 'age_days is null once CLOSED');
+});
+
+/* ----------------------------------------------- D67: the inspection sheet */
+
+const inspStripOf = (out) => {
+  const i = out.indexOf('<section class="parts insp-strip');
+  return i < 0 ? '' : out.slice(i, out.indexOf('</section>', i) + 10);
+};
+const resetSheets = () => { app.__sheetLocal().clear(); app.__ui().form = null; };
+const fieldTarget = (ifield, value, tag = 'INPUT') => {
+  const node = { dataset: { ifield }, value, tagName: tag, classList: { add() {}, remove() {} } };
+  node.closest = (q) => (q === '[data-ifield]' ? node : null);
+  return node;
+};
+const tapSeg = (id, val) => fireOn('click', fakeTarget('[data-iseg]', { dataset: { iseg: id, val } }));
+const { fmtMD: FMT_MD } = await import('../docs/dates.js');
+const INSP = await import('../docs/inspections.js');
+
+/** A fake Worker for the sheet's saves: POSTs are stored and echoed; DELETE answers delStatus(id). */
+async function apiInsp(me, extraPending = [], { delStatus = () => 200 } = {}) {
+  const snapshot = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const posted = [];
+  const deleted = [];
+  let n = 0;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.endsWith('/api/data')) return { ok: true, status: 200, json: async () => ({ me, snapshot, pending: extraPending.slice() }) };
+    if (u.endsWith('/api/event') && init.method === 'POST') {
+      const body = JSON.parse(init.body);
+      posted.push(body);
+      n++;
+      const ts = `2026-09-25T12:00:${String(n).padStart(2, '0')}.000Z`;
+      const stored = { id: `${ts}:t${n}`, ts, actor: me.name, role: me.role, ...body };
+      return { ok: true, status: 201, json: async () => stored };
+    }
+    const m = /\/api\/event\/(.+)$/.exec(u);
+    if (m && init.method === 'DELETE') {
+      const id = decodeURIComponent(m[1]);
+      deleted.push(id);
+      const st = delStatus(id);
+      return { ok: st === 200, status: st, json: async () => ({ deleted: id }) };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  window.location.href = 'https://fleet.wisconsinscrubandsweep.com/?t=0123456789abcdef0123456789abcdef';
+  window.location.search = '?t=0123456789abcdef0123456789abcdef';
+  window.location.hostname = 'fleet.wisconsinscrubandsweep.com';
+  window.location.protocol = 'https:';
+  resetSheets();
+  await app.__refresh();
+  return { snapshot, posted, deleted };
+}
+async function leaveApi() {
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  resetSheets();
+  await asFull('owner');
+}
+/** Submit any form.write the way the page does. */
+async function submitForm(dataset, fields) {
+  const form = { dataset, querySelector: (q) => (q === 'button[type=submit]' ? { disabled: false } : null) };
+  form.closest = (q) => (q === 'form.write' ? form : null);
+  const SavedFD = globalThis.FormData;
+  globalThis.FormData = class {
+    get(k) { const v = fields[k]; return v == null ? null : Array.isArray(v) ? v[0] : v; }
+    getAll(k) { const v = fields[k]; return v == null ? [] : Array.isArray(v) ? v : [v]; }
+  };
+  try { for (const fn of listeners.get('submit') || []) await fn({ target: form, preventDefault() {} }); }
+  finally { globalThis.FormData = SavedFD; }
+  await settle();
+}
+
+await check('D67: a pre-D67 snapshot — "No inspections yet", no Inspect button, the route says not found', async () => {
+  window.location.href = 'http://localhost:8787/?mock=legacy&role=owner';
+  window.location.search = '?mock=legacy&role=owner';
+  await app.__refresh();
+  const st = inspStripOf(await renderRoute('#/'));
+  assert.ok(st.includes('>No inspections yet<'), 'the strip says so');
+  const u = app.__state().snapshot.units.find((x) => x.unit_state !== 'RETIRED');
+  const unit = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(!unit.includes('data-form="insp-open"') && !unit.includes('<h2>Inspections'), 'no library → no button, no list');
+  assert.ok((await renderRoute('#/inspection/I1005')).includes('Sheet not found.'));
+  await asFull('owner');
+});
+
+await check('D67: the strip sits under the Parts strip, above the cards — folded, engine counts, amber at 2 days', async () => {
+  const snap = await asFull('owner');
+  app.__ui().showInspections = false;
+  app.__ui().showParts = false;
+  const out = await renderRoute('#/');
+  const parts = out.indexOf('<section class="parts card');
+  const insp = out.indexOf('<section class="parts insp-strip');
+  assert.ok(parts >= 0 && insp > parts && out.indexOf('cat-card') > insp, 'Parts → Inspections → category cards');
+  const st = inspStripOf(out);
+  const s = snap.inspection_summary;
+  assert.ok(st.includes('📋 Inspections ▸'));
+  assert.ok(st.includes(`>${s.drafts} drafts · ${s.done_7d} done this week<`), 'the engine summary');
+  assert.ok(/parts-n amber/.test(st), 'a 3-day-old DRAFT turns it amber');
+  assert.ok(!st.includes('id="insp-body"'), 'collapsed by default');
+  await fireOn('click', fakeTarget('[data-insp-toggle]', {}));
+  await settle();
+  assert.equal(sessionStorage.getItem('wss.inspections.open'), '1', 'remembered for the session');
+  const open = inspStripOf(view._html);
+  const d4 = open.indexOf('>I1004<'); const d5 = open.indexOf('>I1005<'); const done = open.indexOf('Done (7d)');
+  assert.ok(d4 > 0 && d5 > d4 && done > d5, 'Drafts oldest first, then Done (7d)');
+  assert.ok(open.includes('href="#/inspection/I1004"') && open.includes('Resume ›'));
+  assert.ok(open.includes('href="#/wo/W1002">🔩 W1002<'), 'a Done row carries its work order');
+  assert.ok(!open.includes('I1001'), 'the 100-day-old sheet never shipped');
+  app.__ui().showInspections = false;
+  sessionStorage.removeItem('wss.inspections.open');
+});
+
+await check('D67: amber only from a DRAFT two days old; the empty fixture reads "No inspections yet"', async () => {
+  const snap = await asFull('owner');
+  assert.equal(INSP.draftTone(snap.inspections, 2), 'amber');
+  assert.equal(INSP.draftTone(snap.inspections.map((i) => ({ ...i, age_days: i.status === 'DRAFT' ? 1 : null })), 2), '');
+  window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
+  window.location.search = '?mock=empty&role=owner';
+  await app.__refresh();
+  assert.ok(inspStripOf(await renderRoute('#/')).includes('>No inspections yet<'));
+  await asFull('owner');
+});
+
+await check('D67: unit page — Resume on a DRAFT, the picker otherwise (default per §2), hours in the header, last 5', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    const snap = await asFull(role);
+    const du = snap.units.find((u) => u.inspection_draft === 'I1005');
+    const d = snap.inspections.find((i) => i.id === 'I1005');
+    const out = await renderRoute(`#/unit/${encodeURIComponent(du.serial)}`);
+    assert.ok(out.includes(`href="#/inspection/I1005">📋 ${INSP.resumeText(d)}<`), `${role}: Resume`);
+    assert.ok(!out.includes('data-form="insp-open"'), `${role}: never a second DRAFT`);
+    const hu = snap.units.find((u) => u.last_inspection && u.last_inspection.id === 'I1003');
+    const hout = await renderRoute(`#/unit/${encodeURIComponent(hu.serial)}`);
+    assert.ok(hout.includes(`<div class="s hours-line">412.5 h · as of ${FMT_MD(hu.hours_as_of)}</div>`), `${role}: the meter in the header`);
+    assert.ok(hout.includes('data-form="insp-open">📋 Inspect<'), `${role}: the Inspect button`);
+    assert.ok(hout.includes(`I1003 · RETURN · ${FMT_MD(hu.last_inspection.done)} · Josh · 412.5 h · 2 ⚑`), `${role}: the list row`);
+  }
+  const snap = await asFull('service');
+  const bare = snap.units.find((u) => !u.hours && !u.inspection_draft && u.unit_state !== 'RETIRED');
+  assert.ok(!(await renderRoute(`#/unit/${encodeURIComponent(bare.serial)}`)).includes('hours-line'), 'no meter, no line');
+  await asFull('owner');
+});
+
+await check('D67: the sheet renders FROM the checklist — sections in library order, filtered for the machine', async () => {
+  const snap = await asFull('service');
+  resetSheets();
+  const out = await renderRoute('#/inspection/I1005');
+  const lib = snap.inspection_checklist.sections;
+  const titles = lib.map((s) => s.title).filter((t) => out.includes(`<h2>${t.replace(/&/g, '&amp;')} <span class="count">`));
+  assert.deepEqual(titles, ['Batteries', 'Check operation & condition of', 'Scrub deck & squeegee'], 'library order, scrubber sees the deck');
+  assert.ok(out.includes('data-iseg="ctl.estop"') && !out.includes('data-iseg="ctl.main_broom_ctl"'), 'class filter');
+  assert.ok(!out.includes('data-iseg="ctl.horn"'), 'walk-behind: no horn');
+  assert.ok(out.includes('data-iseg="bat.watering"'), 'WET: the watering row');
+  assert.ok(!out.includes('data-iseg="bat.old_gauge"'), 'a retired row stays off a sheet that never answered it');
+  assert.ok(out.includes('data-ifield="readings.brush1_length"') && !out.includes('readings.main_broom_length'), 'readings follow the class');
+  assert.ok(out.includes('<span class="count">3/4 answered</span>'), 'Batteries: 3 of 4');
+  // The WEAR scale on a WEAR row, FUNCTION on a FUNCTION row — from the library, never hard-coded.
+  assert.ok(/data-iseg="deck.curtains" data-val="REPLACE"/.test(out) && !/data-iseg="deck.curtains" data-val="REPAIR"/.test(out));
+  assert.ok(/data-iseg="ctl.estop" data-val="PROBLEM"/.test(out) && /data-iseg="ctl.estop" data-val="N\/A"/.test(out));
+  // A DONE sheet that carries the retired row still draws it.
+  assert.ok((await renderRoute('#/inspection/I1002')).includes('Analog charge gauge (retired)'));
+});
+
+await check('D67: switching controls to RIDER adds the rider rows and keeps every answer', async () => {
+  await asFull('service');
+  resetSheets();
+  await renderRoute('#/inspection/I1005');
+  await tapSeg('ctl.key_switch', 'REPAIR');
+  await fireOn('change', fieldTarget('controls', 'RIDER', 'SELECT'));
+  await settle();
+  let out = view._html;
+  assert.ok(out.includes('data-iseg="ctl.horn"') && out.includes('data-iseg="ctl.seat_switch"'), 'the rider rows appear');
+  assert.ok(out.includes('data-iseg="ctl.key_switch" data-val="REPAIR" aria-pressed="true"'), 'the answer typed before the switch is kept');
+  assert.ok(out.includes('data-iseg="deck.curtains" data-val="WORN" aria-pressed="true"'), 'and the engine’s answers too');
+  await tapSeg('ctl.horn', 'PROBLEM');
+  await fireOn('change', fieldTarget('controls', 'WALK-BEHIND', 'SELECT'));
+  await fireOn('change', fieldTarget('controls', 'RIDER', 'SELECT'));
+  await settle();
+  out = view._html;
+  assert.ok(out.includes('data-iseg="ctl.horn" data-val="PROBLEM" aria-pressed="true"'), 'flip away and back: the horn answer survives');
+  await fireOn('change', fieldTarget('machine_class', 'SWEEPER', 'SELECT'));
+  await settle();
+  assert.ok(!view._html.includes('data-iseg="deck.curtains"') && view._html.includes('data-iseg="ctl.side_broom_lift"'), 'a sweeper: no deck, the broom rows');
+  resetSheets();
+});
+
+await check('D67: the WET cell grid follows voltage and pack; AGM hides it', async () => {
+  await asFull('service');
+  resetSheets();
+  let out = await renderRoute('#/inspection/I1005');
+  const rows = (o) => [...o.matchAll(/class="cell-r"/g)].length;
+  const groups = (o) => [...o.matchAll(/class="cell-gh">Battery \d/g)].length;
+  assert.equal(rows(out), 12, '24V: 12 cells');
+  assert.equal(groups(out), 4, '4 × 6V: four batteries of A–C');
+  assert.ok(out.includes('data-ifield="cell:4C:sg"') && !out.includes('cell:1D:sg'));
+  await fireOn('change', fieldTarget('battery.pack', '2x12V', 'SELECT'));
+  await settle();
+  out = view._html;
+  assert.equal(rows(out), 12, 'still 12 cells');
+  assert.equal(groups(out), 2, '2 × 12V: two batteries of A–F');
+  assert.ok(out.includes('data-ifield="cell:2F:sg"'));
+  await fireOn('change', fieldTarget('battery.voltage', '36', 'SELECT'));
+  await settle();
+  out = view._html;
+  assert.equal(rows(out), 0, 'a 24V pack does not fit 36V — no grid until the pack is picked');
+  assert.ok(out.includes('Pick the voltage and the pack'));
+  await fireOn('change', fieldTarget('battery.pack', '6x6V', 'SELECT'));
+  await settle();
+  assert.equal(rows(view._html), 18, '36V: 18 cells');
+  assert.equal(groups(view._html), 6);
+  await fireOn('change', fieldTarget('battery.type', 'AGM', 'SELECT'));
+  await settle();
+  out = view._html;
+  assert.equal(rows(out), 0, 'AGM: no grid');
+  assert.ok(out.includes('Sealed pack') && !out.includes('data-ifield="battery.pack"'), 'and no pack dropdown');
+  assert.ok(!out.includes('data-iseg="bat.watering"'), 'the WET-only row goes too');
+  resetSheets();
+});
+
+await check('D67: Done is disabled until an hours field has a value (the engine’s one rule)', async () => {
+  await asFull('service');
+  resetSheets();
+  let out = await renderRoute('#/inspection/I1005');
+  assert.ok(/data-sheet="insp-done" data-id="I1005" disabled>Done</.test(out), 'no hours: disabled');
+  assert.ok(out.includes('Done needs an hours reading'));
+  await fireOn('input', fieldTarget('readings.hours_traction', '88.5'));
+  out = await renderRoute('#/inspection/I1005');
+  assert.ok(/data-sheet="insp-done" data-id="I1005">Done</.test(out), 'traction hours count');
+  await fireOn('input', fieldTarget('readings.hours_traction', ''));
+  out = await renderRoute('#/inspection/I1005');
+  assert.ok(/data-sheet="insp-done" data-id="I1005" disabled>Done</.test(out), 'cleared again: disabled again');
+  resetSheets();
+});
+
+await check('D67: flagged rows tint; the WO button only on DONE + flags + no work order', async () => {
+  await asFull('owner');
+  resetSheets();
+  const i3 = await renderRoute('#/inspection/I1003');
+  assert.equal([...i3.matchAll(/class="irow flag"/g)].length, 2, 'two flags, two tinted rows');
+  assert.ok(i3.includes('data-sheet="insp-wo"') && i3.includes('Open work order from this inspection'));
+  assert.ok(!(await renderRoute('#/inspection/I1002')).includes('data-sheet="insp-wo"'), 'I1002 already has W1002');
+  assert.ok(!(await renderRoute('#/inspection/I1005')).includes('data-sheet="insp-wo"'), 'not on a DRAFT');
+  await renderRoute('#/inspection/I1005');
+  await tapSeg('sqg.blades', 'REPAIR');
+  assert.ok(/class="irow flag">\s*<div class="irow-top"><span class="irow-l">Check and rotate blades/.test(view._html), 'a fresh flag tints at once');
+  assert.ok(view._html.includes('data-ifield="note:sqg.blades"'), 'and opens its note');
+  resetSheets();
+});
+
+await check('D67: a DONE sheet is read-only; Reopen for owner, not for sales', async () => {
+  for (const role of ['owner', 'sales']) {
+    await asFull(role);
+    resetSheets();
+    const out = await renderRoute('#/inspection/I1003');
+    const fields = [...out.matchAll(/<(input|select|textarea|button)[^>]*data-(ifield|iseg|irot)="[^"]*"[^>]*>/g)].map((m) => m[0]);
+    assert.ok(fields.length > 30, 'the whole sheet is drawn');
+    assert.ok(fields.every((f) => / disabled>$/.test(f)), `${role}: every control disabled`);
+    assert.ok(!out.includes('id="insp-status"') && !out.includes('data-inote='), `${role}: no save line, no + note`);
+    assert.equal(out.includes('data-sheet="insp-reopen"'), role === 'owner', `${role}: Reopen ${role === 'owner' ? 'shown' : 'hidden'}`);
+  }
+  await asFull('owner');
+});
+
+await check('D67: read-only chips — 📋 on the ticket the sheet linked, and on the work order opened from it', async () => {
+  await asFull('service');
+  const t = await renderRoute('#/ticket/S1002');
+  assert.ok(t.includes('<a class="chip insp" href="#/inspection/I1005">📋 I1005</a>'));
+  const w = await renderRoute('#/wo/W1002');
+  assert.ok(w.includes('<a class="chip insp" href="#/inspection/I1002">📋 I1002</a>'));
+  assert.ok(!(await renderRoute('#/wo/W1001')).includes('class="chip insp"'));
+  await asFull('owner');
+});
+
+await check('D67: a numbered sheet saves ONE section per SAVE, and takes back its own older save of that section', async () => {
+  const { posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' });
+  await renderRoute('#/inspection/I1005');
+  await tapSeg('sqg.blades', 'REPAIR');
+  await app.__flushSheets();
+  assert.equal(posted.length, 1);
+  assert.deepEqual(Object.keys(posted[0].payload).sort(), ['action', 'inspection', 'items']);
+  assert.equal(posted[0].serial, null);
+  const items = posted[0].payload.items;
+  assert.equal(items.find((i) => i.id === 'sqg.blades').result, 'REPAIR');
+  assert.equal(items.length, 7, 'the six the engine had + the new one — the whole section');
+  await fireOn('input', fieldTarget('comments', 'rear blade rolled'));
+  await fireOn('change', fieldTarget('comments', 'rear blade rolled', 'TEXTAREA'));
+  await app.__flushSheets();
+  assert.deepEqual(posted[1].payload, { action: 'SAVE', inspection: 'I1005', comments: 'rear blade rolled' }, 'comments alone');
+  await fireOn('input', fieldTarget('note:sqg.blades', 'rolled'));
+  await fireOn('change', fieldTarget('note:sqg.blades', 'rolled'));
+  await app.__flushSheets();
+  assert.equal(posted[2].payload.items.find((i) => i.id === 'sqg.blades').note, 'rolled');
+  assert.ok(deleted.length === 1 && /:t1$/.test(deleted[0]), 'the older items SAVE is taken back; the comments SAVE is not');
+  const saves = app.__state().pending.filter((e) => e.action === 'inspection' && e.payload.action === 'SAVE');
+  assert.deepEqual(saves.map((e) => Object.keys(e.payload).filter((k) => k !== 'action' && k !== 'inspection')).sort(), [['comments'], ['items']]);
+  assert.ok(!posted.some((p) => /\$\s?\d/.test(JSON.stringify(p)) || /"(cost|rate|price)"/.test(JSON.stringify(p))), 'no money');
+  // The pending save is drawn on the sheet — badged, never as applied.
+  const out = await renderRoute('#/inspection/I1005');
+  assert.ok(out.includes('⏳ 2 pending changes') && out.includes('saved items') && out.includes('saved comments'));
+  await leaveApi();
+});
+
+await check('D67: a NEW sheet opens at once as ⏳ NEW; each save re-issues the pending OPEN and takes the old one back', async () => {
+  const { snapshot, posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' });
+  const u = snapshot.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
+  const unitOut = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(unitOut.includes('data-form="insp-open"'));
+  await fireOn('click', fakeTarget('[data-insp-open]', { dataset: { inspOpen: 'RETURN', serial: u.serial } }));
+  await settle();
+  assert.deepEqual(posted[0], { action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'RETURN' } });
+  assert.equal(window.location.hash, `#/inspection/new/${encodeURIComponent(u.serial)}`, 'straight to the sheet');
+  let out = await renderRoute(window.location.hash);
+  assert.ok(out.includes('⏳ NEW · ') && out.includes('not numbered yet'), 'drawn as NEW');
+  assert.ok(!/I\d{4} · /.test(out.slice(out.indexOf('<div class="h">'), out.indexOf('</div>', out.indexOf('<div class="h">')))), 'no invented I-number');
+  assert.ok(/<button class="btn" type="button" disabled>Done<\/button>/.test(out), 'Done waits for the number');
+  assert.ok(out.includes('data-ifield="kind"'), 'the kind can still change — it rides on the OPEN');
+  await fireOn('input', fieldTarget('readings.hours_key', '1204'));
+  await fireOn('change', fieldTarget('readings.hours_key', '1204'));
+  await app.__flushSheets();
+  assert.equal(posted.length, 2);
+  assert.equal(posted[1].serial, u.serial);
+  assert.equal(posted[1].payload.action, 'OPEN');
+  assert.equal(posted[1].payload.kind, 'RETURN');
+  assert.equal(posted[1].payload.readings.hours_key, 1204);
+  assert.ok(!('inspection' in posted[1].payload));
+  assert.equal(deleted.length, 1, 'the first OPEN is taken back');
+  await tapSeg('ctl.key_switch', 'IN-SPEC');
+  await app.__flushSheets();
+  assert.equal(posted[2].payload.readings.hours_key, 1204, 'the fold carries everything typed so far');
+  assert.equal(posted[2].payload.items[0].id, 'ctl.key_switch');
+  const opens = app.__state().pending.filter((e) => e.action === 'inspection' && e.payload.action === 'OPEN');
+  assert.equal(opens.length, 1, 'one OPEN in the inbox, always the latest');
+  out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('⏳ Resume new sheet · Return'), 'the unit page resumes it');
+  await leaveApi();
+});
+
+await check('D67: the engine takes the OPEN mid-save (404 on the take-back) — the fresh OPEN is withdrawn and the tech told', async () => {
+  const first = { id: '2026-09-25T11:00:00.000Z:old1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
+    action: 'inspection', serial: null, payload: { action: 'OPEN', kind: 'PM' } };
+  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
+  first.serial = u.serial;
+  const { posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' }, [first], { delStatus: (id) => (id === first.id ? 404 : 200) });
+  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  await fireOn('input', fieldTarget('readings.hours_key', '50'));
+  await fireOn('change', fieldTarget('readings.hours_key', '50'));
+  await app.__flushSheets();
+  assert.equal(posted.length, 1);
+  assert.deepEqual(deleted, [first.id, `${'2026-09-25T12:00:01.000Z'}:t1`], 'old (404), then the fresh one');
+  const l = app.__sheetLocal().get(`new:${u.serial}`);
+  assert.equal(l.status, 'failed');
+  assert.ok(l.error.includes('picked this sheet up'), l.error);
+  assert.ok(l.dirty.has('readings'), 'the change is still held for the numbered sheet');
+  await leaveApi();
+});
+
+await check('D67: Done saves what is unsaved FIRST, then posts DONE with the tech', async () => {
+  const { posted } = await apiInsp({ name: 'Josh', role: 'service' });
+  await renderRoute('#/inspection/I1005');
+  await fireOn('input', fieldTarget('readings.hours_key', '412.5'));      // typed, not yet blurred
+  await submitForm({ action: 'inspection', verb: 'DONE', insp: 'I1005', key: 'I1005' }, { tech: 'Zac' });
+  assert.equal(posted.length, 2);
+  assert.equal(posted[0].payload.action, 'SAVE');
+  assert.equal(posted[0].payload.readings.hours_key, 412.5, 'the meter lands before the lock');
+  assert.deepEqual(posted[1], { action: 'inspection', serial: null, payload: { action: 'DONE', inspection: 'I1005', tech: 'Zac' } });
+  const out = await renderRoute('#/inspection/I1005');
+  assert.ok(out.includes('done (Zac)') && !out.includes('id="insp-status"'), 'a pending DONE locks the sheet');
+  assert.ok(out.includes('data-ifield="comments" maxlength="1000" placeholder="anything else — for the next tech, or for Matt" disabled'));
+  await leaveApi();
+});
+
+await check('D67: "Open work order from this inspection" posts work_order OPEN with the back-link and the flagged rows', async () => {
+  const { snapshot, posted } = await apiInsp({ name: 'Matt', role: 'owner' });
+  const i3 = snapshot.inspections.find((i) => i.id === 'I1003');
+  await renderRoute('#/inspection/I1003');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'insp-wo', id: 'I1003' } }));
+  await settle();
+  const out = view._html;
+  assert.ok(out.includes('data-inspection="I1003"'), 'the form carries the sheet');
+  assert.ok(out.includes('>from I1003: Deck curtains / wipers; Check and rotate blades as needed</textarea>'), 'the note, pre-filled');
+  assert.ok(/data-toggle="purpose"[\s\S]*?class="tg on" data-val="REPAIR"/.test(out), 'a RETURN finding is a repair');
+  await submitForm({ action: 'work_order', verb: 'OPEN', serial: i3.serial, inspection: 'I1003' }, {
+    purpose: 'REPAIR', note: 'from I1003: Check and rotate blades as needed',
+    p_mfr: ['OTHER'], p_num: ['21-422S'], p_desc: ['Squeegee blade rear'], p_qty: ['2'],
+  });
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0], { action: 'work_order', serial: i3.serial, payload: { action: 'OPEN', purpose: 'REPAIR',
+    note: 'from I1003: Check and rotate blades as needed',
+    parts: [{ manufacturer: 'OTHER', part_number: '21-422S', description: 'Squeegee blade rear', qty: 2 }], inspection: 'I1003' } });
+  const after = await renderRoute('#/inspection/I1003');
+  assert.ok(!after.includes('data-sheet="insp-wo"') && after.includes('Work order requested from this sheet'), 'no second one while it is pending');
+  await leaveApi();
+});
+
+await check('D67: undoing a NEW sheet’s OPEN discards what was typed into it', async () => {
+  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
+  const open = { id: '2026-09-25T11:00:00.000Z:o1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
+    action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'PM' } };
+  await apiInsp({ name: 'Josh', role: 'service' }, [open]);
+  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  await tapSeg('ctl.key_switch', 'IN-SPEC');
+  assert.ok(app.__sheetLocal().has(`new:${u.serial}`));
+  await fireOn('click', fakeTarget('[data-undo]', { dataset: { undo: open.id } }));
+  await settle();
+  assert.ok(!app.__sheetLocal().has(`new:${u.serial}`), 'nothing lingers to fold into a later sheet');
+  await leaveApi();
+});
+
+await check('D67: no money anywhere on a sheet, a strip or the fixture — for any role', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    const snap = await asFull(role);
+    app.__ui().showInspections = true;
+    for (const r of ['#/', ...snap.inspections.map((i) => `#/inspection/${i.id}`)]) {
+      const out = r === '#/' ? inspStripOf(await renderRoute(r)) : await renderRoute(r);
+      assert.ok(!MONEY_RE.test(out), `${role} ${r}: a dollar figure`);
+    }
+    app.__ui().showInspections = false;
+    assert.ok(!/"(cost|rate|price)"/.test(JSON.stringify(snap.inspections)) && !MONEY_RE.test(JSON.stringify(snap.inspections)));
+  }
+  await asFull('owner');
+});
+
+await check('D67: when the I-number lands, the NEW route redirects and anything unsaved moves to the numbered sheet', async () => {
+  const snap = await asFull('service');
+  resetSheets();
+  const u = snap.units.find((x) => x.inspection_draft === 'I1005');
+  app.__sheetLocal().set(`new:${u.serial}`, { edits: { comments: 'typed before the run', kind: 'CHECKOUT' }, dirty: new Set(['comments', 'kind']),
+    status: 'dirty', error: null, timer: null, notes: new Set(), chain: Promise.resolve() });
+  const out = await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('Opening I1005'));
+  assert.equal(window.location.hash, '#/inspection/I1005', 'replaced, not pushed');
+  const l = app.__sheetLocal().get('I1005');
+  assert.ok(l && l.dirty.has('comments') && !l.dirty.has('kind'), 'the comments move across; the kind was the OPEN’s alone');
+  assert.equal(l.edits.comments, 'typed before the run');
+  assert.ok(!app.__sheetLocal().has(`new:${u.serial}`));
+  assert.ok((await renderRoute('#/inspection/I1005')).includes('>typed before the run</textarea>'));
+  resetSheets();
+  await asFull('owner');
+});
+
+await check('every module app.js imports is in the service worker’s shell (an installed app must boot offline)', async () => {
+  const appSrc = fs.readFileSync(path.join(DOCS, 'app.js'), 'utf8');
+  const sw = fs.readFileSync(path.join(DOCS, 'sw.js'), 'utf8');
+  const shell = sw.slice(sw.indexOf('const SHELL'), sw.indexOf('];', sw.indexOf('const SHELL')));
+  const mods = [...appSrc.matchAll(/from '\.\/([a-z-]+\.js)'/g)].map((m) => m[1]);
+  assert.ok(mods.includes('inspections.js'), 'the scan finds the D67 module');
+  for (const m of mods) assert.ok(shell.includes(`'${m}'`), `${m} is imported but not precached in sw.js`);
 });
 
 console.log(`\n${passed} checks passed.`);

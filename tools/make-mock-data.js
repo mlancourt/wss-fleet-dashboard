@@ -1058,6 +1058,9 @@ function build({ withServiceQueue }) {
   // ------------------------------------------------- work orders (D65)
   const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units });
 
+  // ------------------------------------------------- inspections (D67)
+  const { inspections, inspection_summary } = buildInspections({ withInspections: withServiceQueue, units, work_orders });
+
   // schema 4: a count and nothing else. No cost, no book, no ask (D45).
   const totals = { units: units.length };
 
@@ -1128,6 +1131,11 @@ function build({ withServiceQueue }) {
     // D65 (schema 7, additive): internal work orders. OPEN + CLOSED <= 30d.
     work_orders,
     work_order_summary,
+    // D67 (schema 7, additive): the fleet inspection sheet. The row library
+    // ships verbatim; every DRAFT + DONE <= 90 days; VOID never ships.
+    inspections,
+    inspection_summary,
+    inspection_checklist: CHECKLIST_FIXTURE,
   };
 
   return { snapshot, ledger };
@@ -1740,7 +1748,209 @@ function downgradeToSchema2(s3, ledger) {
   delete snap.work_orders;
   delete snap.work_order_summary;
   for (const u of snap.units) { delete u.work_order; delete u.wo_parts_open; }
+  // D67 postdates it too: no library, no sheets, no summary, no unit keys. The
+  // strip reads "No inspections yet" and the Inspect button stays hidden.
+  delete snap.inspections;
+  delete snap.inspection_summary;
+  delete snap.inspection_checklist;
+  for (const u of snap.units) { delete u.inspection_draft; delete u.last_inspection; delete u.hours_as_of; }
   return snap;
+}
+
+/**
+ * D67 — the row library, TRIMMED from the vault's real one to three sections
+ * that still exercise every axis the page filters on: both scales, `shows_for`
+ * on a section (class) and on rows (class · controls · battery), and a retired
+ * row that an old sheet still carries. Labels are generic shop wording.
+ */
+const CHECKLIST_FIXTURE = {
+  version: 'mock-1.0',
+  sections: [
+    { id: 'bat', title: 'Batteries', instruction: 'WET packs: the cell grid above takes hydrometer, clarity and level per cell.',
+      rows: [
+        { id: 'bat.terminals', label: 'Battery terminals — clean tops, terminal condition', scale: 'FUNCTION' },
+        { id: 'bat.cables', label: 'Battery cables', scale: 'FUNCTION' },
+        { id: 'bat.watering', label: 'Single-point watering system', scale: 'FUNCTION', shows_for: { battery: ['WET'] } },
+        { id: 'bat.charger', label: 'Battery charger', scale: 'FUNCTION' },
+        { id: 'bat.old_gauge', label: 'Analog charge gauge', scale: 'FUNCTION', retired: '2026-09-20' },
+      ] },
+    { id: 'ctl', title: 'Check operation & condition of', instruction: 'Turn ON and test functionality.',
+      rows: [
+        { id: 'ctl.key_switch', label: 'Main power / key switch', scale: 'FUNCTION' },
+        { id: 'ctl.estop', label: 'E-stop', scale: 'FUNCTION', shows_for: { class: ['SCRUBBER'] } },
+        { id: 'ctl.drive_forward', label: 'Drive — forward', scale: 'FUNCTION' },
+        { id: 'ctl.horn', label: 'Horn', scale: 'FUNCTION', shows_for: { controls: ['RIDER', 'STAND-ON'] } },
+        { id: 'ctl.seat_switch', label: 'Seat switch', scale: 'FUNCTION', shows_for: { controls: ['RIDER'] } },
+        { id: 'ctl.main_broom_ctl', label: 'Main broom lever / switch', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'] } },
+        { id: 'ctl.side_broom_lift', label: 'Side broom lift mechanism', scale: 'FUNCTION', shows_for: { class: ['SWEEPER'], controls: ['RIDER', 'STAND-ON'] } },
+        { id: 'ctl.side_broom', label: 'Side broom condition', scale: 'WEAR', shows_for: { class: ['SWEEPER'] } },
+      ] },
+    { id: 'deck', title: 'Scrub deck & squeegee', shows_for: { class: ['SCRUBBER'] },
+      rows: [
+        { id: 'deck.curtains', label: 'Deck curtains / wipers', scale: 'WEAR' },
+        { id: 'deck.drivers', label: 'Deck brush drivers', scale: 'WEAR' },
+        { id: 'sqg.blades', label: 'Check and rotate blades as needed', scale: 'FUNCTION' },
+        { id: 'sqg.vac_hose', label: 'Squeegee vac hose', scale: 'FUNCTION' },
+      ] },
+  ],
+};
+
+/**
+ * D67 fixture sheets (Inspection spec §7):
+ *   DRAFT CHECKOUT  24V WET 4x6V walk-behind scrubber, 6 rows answered, NO hours
+ *                   yet (-> Done disabled), linked to its unit's open ticket
+ *   DRAFT PM        rider sweeper, AGM, opened 3 days ago (-> amber)
+ *   DONE RETURN     36V WET 3x12V scrubber, 2 flags, NO work order (-> the button)
+ *   DONE PM         linked to W1002 (the PM work order), so no button
+ *   DONE 100d ago   built and then dropped by the 90-day window — never emitted
+ * Every unit carries `inspection_draft` / `last_inspection` / `hours_as_of`;
+ * `hours` is null except where a DONE sheet wrote it back (it was null fleet-wide
+ * until D67 — the sheet is the only place the meter got read).
+ */
+function buildInspections({ withInspections, units, work_orders }) {
+  for (const u of units) { u.inspection_draft = null; u.last_inspection = null; u.hours = null; u.hours_as_of = null; }
+  for (const w of work_orders) w.inspection = null;
+  const WINDOW = 90;
+  const summary = (rows) => ({
+    drafts: rows.filter((r) => r.status === 'DRAFT').length,
+    done_7d: rows.filter((r) => r.status === 'DONE' && r.done >= d(-7)).length,
+    done_30d: rows.filter((r) => r.status === 'DONE' && r.done >= d(-30)).length,
+    flagged_open: rows.filter((r) => r.status === 'DONE' && r.flags && !r.work_order).length,
+    done_window_days: WINDOW,
+  });
+  if (!withInspections) return { inspections: [], inspection_summary: summary([]) };
+
+  const used = new Set();
+  const take = (fn) => {
+    const u = units.find((x) => !used.has(x.serial) && x.unit_state !== 'RETIRED' && fn(x));
+    if (u) used.add(u.serial);
+    return u;
+  };
+  const cat = (u, s) => String(u.category || '').includes(s);
+  const blankReadings = () => ({ hours_key: null, hours_traction: null, hours_scrub: null, recharge_count: null,
+    main_broom_length: null, brush1_length: null, brush2_length: null, brushes_rotated: null });
+  const cells = (n, per, sgs) => {
+    const out = [];
+    for (let b = 1; b <= n; b++) for (const c of 'ABCDEF'.slice(0, per)) {
+      const sg = sgs.shift();
+      if (sg === undefined) return out;
+      out.push({ battery: b, cell: c, sg, clarity: sg < 1.2 ? 'CLOUDY' : 'CLEAR', level: sg < 1.2 ? 'LOW' : 'FULL' });
+    }
+    return out;
+  };
+  const flagsOf = (items) => items.filter((i) => ['REPAIR', 'PROBLEM', 'REPLACE'].includes(i.result)).length;
+  const sheet = (id, u, o) => {
+    const row = {
+      id, serial: u.serial, asset_item: u.asset_item, kind: 'PM', status: 'DRAFT', opened: d(-(o.age || 0)),
+      opened_by: 'Josh', done: null, tech: null, ticket: null, work_order: null, machine_class: 'SCRUBBER',
+      controls: 'WALK-BEHIND', battery: { type: null, voltage: null, pack: null }, readings: blankReadings(),
+      cells: [], items: [], comments: null, flags: 0, age_days: null, log: [], ...o,
+    };
+    row.readings = { ...blankReadings(), ...(o.readings || {}) };
+    row.flags = flagsOf(row.items);
+    row.age_days = row.status === 'DRAFT' ? (o.age || 0) : null;
+    delete row.age;
+    return row;
+  };
+  const stamp = (daysBack, hhmm) => `${d(-daysBack)} ${hhmm} CT`;
+
+  const rows = [];
+  const checkoutUnit = take((u) => cat(u, 'Walk-Behind Scrubber') && u.unit_state === 'IN-SHOP' && u.service_ticket)
+    || take((u) => cat(u, 'Walk-Behind Scrubber') && u.unit_state === 'IN-SHOP')
+    || take((u) => cat(u, 'Scrubber'));
+  const pmUnit = take((u) => cat(u, 'Ride-On Sweeper') && ['AVAILABLE', 'IN-SHOP', 'RESERVED'].includes(u.unit_state))
+    || take((u) => cat(u, 'Sweeper'));
+  const returnUnit = take((u) => cat(u, 'Rider Scrubber') && !u.work_order && ['AVAILABLE', 'IN-SHOP'].includes(u.unit_state))
+    || take((u) => cat(u, 'Scrubber') && !u.work_order);
+  const w1002 = work_orders.find((w) => w.id === 'W1002');
+  const woUnit = w1002 ? units.find((u) => u.serial === w1002.serial) : null;
+  if (woUnit) used.add(woUnit.serial);
+  const oldUnit = take((u) => cat(u, 'Scrubber'));
+
+  // The 100-day-old sheet: minted first, which is why it has the lowest number.
+  if (oldUnit) {
+    rows.push(sheet('I1001', oldUnit, { kind: 'PM', status: 'DONE', age: 101, done: d(-100), tech: 'Zac',
+      battery: { type: 'WET', voltage: 24, pack: '2x12V' }, readings: { hours_key: 1880 } }));
+  }
+  if (woUnit) {
+    const p = deriveProfileMock(woUnit.category);
+    rows.push(sheet('I1002', woUnit, { kind: 'PM', status: 'DONE', age: 4, done: d(-3), tech: 'Zac', opened_by: 'Zac',
+      ...p, work_order: 'W1002', battery: { type: 'AGM', voltage: 24, pack: null },
+      readings: p.machine_class === 'SWEEPER'
+        ? { hours_key: 961.5, recharge_count: 212, main_broom_length: 2.5, brushes_rotated: true }
+        : { hours_key: 961.5, recharge_count: 212, brush1_length: 1.25, brush2_length: 1.25, brushes_rotated: true },
+      items: [
+        { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
+        { id: 'ctl.drive_forward', result: 'REPAIR', note: 'hesitates in forward' },
+        { id: 'bat.old_gauge', result: 'N/A', note: 'gauge removed' },
+      ],
+      log: [
+        { ts: stamp(4, '08:10'), who: 'Zac', text: 'OPEN by Zac (PM)' },
+        { ts: stamp(3, '15:42'), who: 'Zac', text: 'DONE by Zac — 961.5 h written back; 4/9 rows answered; 1 flag(s): Drive — forward' },
+        { ts: stamp(3, '16:05'), who: 'Zac', text: 'work order W1002 opened from this inspection' },
+      ] }));
+    w1002.inspection = 'I1002';
+  }
+  if (returnUnit) {
+    rows.push(sheet('I1003', returnUnit, { kind: 'RETURN', status: 'DONE', age: 1, done: d(-1), tech: 'Josh',
+      machine_class: 'SCRUBBER', controls: deriveProfileMock(returnUnit.category).controls,
+      battery: { type: 'WET', voltage: 36, pack: '3x12V' },
+      readings: { hours_key: 412.5, recharge_count: 88, brush1_length: 1.5, brush2_length: 1.5, brushes_rotated: false },
+      cells: cells(3, 6, [1.265, 1.27, 1.26, 1.265, 1.255, 1.27, 1.26, 1.265, 1.19, 1.26, 1.265, 1.27, 1.265, 1.26, 1.27, 1.265, 1.26, 1.265]),
+      items: [
+        { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
+        { id: 'bat.watering', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
+        { id: 'ctl.estop', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'REPLACE', note: 'rear curtain torn' },
+        { id: 'sqg.blades', result: 'REPAIR', note: 'rear blade rolled' },
+      ],
+      comments: 'came back dirty — recovery tank not drained',
+      log: [
+        { ts: stamp(1, '09:02'), who: 'Josh', text: 'OPEN by Josh (RETURN)' },
+        { ts: stamp(1, '10:31'), who: 'Josh', text: 'DONE by Josh — 412.5 h written back; 7/11 rows answered; 2 flag(s): Deck curtains / wipers; Check and rotate blades as needed' },
+      ] }));
+  }
+  if (pmUnit) {
+    rows.push(sheet('I1004', pmUnit, { kind: 'PM', age: 3, opened_by: 'Zac', machine_class: 'SWEEPER',
+      controls: deriveProfileMock(pmUnit.category).controls, battery: { type: 'AGM', voltage: 36, pack: null },
+      readings: { hours_key: 233 },
+      items: [{ id: 'ctl.key_switch', result: 'IN-SPEC', note: null }, { id: 'ctl.horn', result: 'PROBLEM', note: 'intermittent' }],
+      log: [{ ts: stamp(3, '13:15'), who: 'Zac', text: 'OPEN by Zac (PM)' }, { ts: stamp(3, '13:40'), who: 'Zac', text: 'Zac saved — readings, items×2; 1 flag(s)' }] }));
+  }
+  if (checkoutUnit) {
+    rows.push(sheet('I1005', checkoutUnit, { kind: 'CHECKOUT', age: 0, opened_by: 'Josh', ticket: checkoutUnit.service_ticket || null,
+      work_order: checkoutUnit.work_order || null, ...deriveProfileMock(checkoutUnit.category), machine_class: 'SCRUBBER',
+      battery: { type: 'WET', voltage: 24, pack: '4x6V' },
+      cells: cells(4, 3, [1.265, 1.26, 1.27, 1.255]),
+      items: [
+        { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
+        { id: 'bat.watering', result: 'N/A', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
+        { id: 'ctl.estop', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'WORN', note: 'ok one more rental' },
+      ],
+      log: [{ ts: stamp(0, '07:48'), who: 'Josh', text: 'OPEN by Josh (CHECKOUT)' }, { ts: stamp(0, '08:05'), who: 'Josh', text: 'Josh saved — battery, cells×4, items×6; 0 flag(s)' }] }));
+  }
+
+  // The engine's window: every DRAFT, DONE within 90 days. The old one goes here.
+  const shipped = rows.filter((r) => r.status === 'DRAFT' || (r.status === 'DONE' && r.done >= d(-WINDOW)));
+  shipped.sort((a, b) => (a.status === b.status ? 0 : a.status === 'DRAFT' ? -1 : 1) || a.opened.localeCompare(b.opened));
+  const bySerial = new Map(units.map((u) => [u.serial, u]));
+  for (const r of shipped) {
+    const u = bySerial.get(r.serial);
+    if (r.status === 'DRAFT') u.inspection_draft = r.id;
+    else if (!u.last_inspection || r.done > u.last_inspection.done) {
+      u.last_inspection = { id: r.id, kind: r.kind, done: r.done, flags: r.flags };
+      const h = r.readings.hours_key ?? r.readings.hours_traction ?? r.readings.hours_scrub;
+      if (h != null) { u.hours = h; u.hours_as_of = r.done; }
+    }
+  }
+  return { inspections: shipped, inspection_summary: summary(shipped) };
+}
+/** The engine's category → class / controls derivation, for the fixtures. */
+function deriveProfileMock(category) {
+  const c = String(category || '').toLowerCase();
+  return {
+    machine_class: c.includes('sweeper') ? 'SWEEPER' : 'SCRUBBER',
+    controls: c.includes('stand-on') || c.includes('chariot') ? 'STAND-ON' : c.includes('rider') || c.includes('ride-on') ? 'RIDER' : 'WALK-BEHIND',
+  };
 }
 
 // ------------------------------------------------------------------------ main
@@ -1774,6 +1984,9 @@ const avail = full.snapshot.units.filter((u) => u.unit_state === 'AVAILABLE');
 const claimedPickup = full.snapshot.dispatch.find((r) => r.source === 'RENTAL-RETURN' && r.status === 'SCHEDULED');
 // A unit with no open work order, for the pending OPEN (D65).
 const woOpenUnit = full.snapshot.units.find((u) => u.work_order == null && u.unit_state === 'IN-SHOP' && u !== avail[1]);
+// D67: a unit with no sheet at all for the pending OPEN; the CHECKOUT draft for the pending SAVE.
+const inspNewUnit = full.snapshot.units.find((u) => !u.inspection_draft && !u.last_inspection && u.unit_state === 'ON-RENT');
+const inspDraft = full.snapshot.inspections.find((i) => i.status === 'DRAFT' && i.kind === 'CHECKOUT');
 const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 const pending = [
   {
@@ -1882,6 +2095,24 @@ const pending = [
     actor: 'Josh', role: 'service',
     action: 'work_order', serial: null,
     payload: { action: 'LABOR', work_order: 'W1001', date: d(0), who: 'Josh', hours: 0.75, note: 'valve seat cleaned' },
+  },
+  // D67: a sheet opened on Josh's phone that the engine hasn't numbered yet —
+  // an OPEN carrying its first sections, keyed on the serial (no I-number is
+  // ever invented) — and an unapplied SAVE on a numbered DRAFT.
+  {
+    id: 'evt-mock-13',
+    ts: ago(6),
+    actor: 'Josh', role: 'service',
+    action: 'inspection', serial: inspNewUnit.serial,
+    payload: { action: 'OPEN', kind: 'RETURN', readings: { hours_key: 1204, hours_traction: null, hours_scrub: null, recharge_count: null,
+      main_broom_length: null, brush1_length: null, brush2_length: null, brushes_rotated: null } },
+  },
+  {
+    id: 'evt-mock-14',
+    ts: ago(2),
+    actor: 'Josh', role: 'service',
+    action: 'inspection', serial: null,
+    payload: { action: 'SAVE', inspection: inspDraft.id, comments: 'needs the rear curtain before it goes out' },
   },
   // A close proposal on a lead that is still OPEN on the board.
   {

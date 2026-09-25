@@ -37,6 +37,8 @@
  *
  * D65 extends the gate to `work_orders[]` for EVERY role: no money key, and no
  * figure anywhere in its text (part descriptions, labor notes, the log).
+ * D67 applies the same gate, unchanged, to `inspections[]` and the shipped
+ * row library (`inspection_checklist`).
  *
  * TICKET logs are deliberately NOT checked: they carry quote amounts, those are
  * visible to every role by design, and `service_queue[].quote.amount` has
@@ -168,6 +170,12 @@ try {
     const n = Array.isArray(wos) ? wos.length : 'no key';
     ok(!/"(cost|cost_source_inv|rate|price)"\s*:/.test(text), `${role}: no money key on any work order (${n})`);
     ok(!MONEY_RE.test(text), `${role}: no work_orders text matches /\\$\\s?\\d/`);
+    // D67: "the D65 gate applies unchanged" to the inspection sheet — nothing
+    // on it is money-shaped, and the row library is shipped to every phone.
+    const insp = JSON.stringify([doc.snapshot.inspections || [], doc.snapshot.inspection_checklist || null]);
+    const ni = Array.isArray(doc.snapshot.inspections) ? doc.snapshot.inspections.length : 'no key';
+    ok(!/"(cost|cost_source_inv|rate|price)"\s*:/.test(insp), `${role}: no money key on any inspection or library row (${ni})`);
+    ok(!MONEY_RE.test(insp), `${role}: no inspections text matches /\\$\\s?\\d/`);
   }
 } finally {
   // Put the mock back, whatever happened above. Real data does not linger in a

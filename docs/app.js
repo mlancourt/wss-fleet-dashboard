@@ -18,7 +18,7 @@
 
 import {
   fmtDate, fmtDateFull, fmtRange, todayCentral, addBusinessDays,
-  fmtInstantCentral, hoursSince, fmtMoney, isDateStr, fmtDateDow,
+  fmtInstantCentral, hoursSince, fmtMoney, isDateStr, fmtDateDow, fmtMD, addDays,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
 import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase } from './api.js';
@@ -36,6 +36,16 @@ import {
   fmtHours, hoursValid, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
 } from './workorders.js';
+import {
+  KINDS as INSP_KINDS, KIND_LABEL as INSP_KIND_LABEL, CLASSES, CLASS_LABEL, CONTROLS, CONTROLS_LABEL,
+  BATTERY_TYPES, BATTERY_LABEL, VOLTAGES, PACKS_BY_VOLTAGE, PACK_LABEL, CLARITY, CLARITY_LABEL, LEVEL, LEVEL_LABEL,
+  SCALES, RESULT_LABEL, READINGS, SECTION_KEYS, MAX_COMMENTS, MAX_ITEM_NOTE, MAX_NOTE,
+  inspectionsOf, inspById, checklistOf, forSerial, deriveProfile, defaultKind, visibleSections, profileOf,
+  cellLayout, cellKey, parseSg, sheetFrom, overlay, firstHours, doneReady, isFlag, flagCount, answeredIn,
+  flaggedLabels, sectionValue, reopenShown, voidShown, woPrefill, woButtonShown, fmtReading, resumeText, chipText,
+  stripCounts, stripGroups as inspStripGroups, draftTone, pendingOpens as inspPendingOpens, pendingOpensFor,
+  pendingForInsp, byTs, describeInspEvent,
+} from './inspections.js';
 import {
   statusOf, outMove, inMove, rentalGroups, rentalActions, dueBackTone, outDatePassed, clampToToday,
   deliveryRow, returnRow, agreementForRow, pendingForAgreement, agreementHref, agreementByRoute,
@@ -63,7 +73,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-25-d65';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-25-d67';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -154,6 +164,10 @@ const rememberMapKinds = () => {
 // D65: the Parts strip's open/closed state lives for the SESSION, not the
 // device — it opens for a job and should be folded again tomorrow morning.
 const PARTS_OPEN_KEY = 'wss.parts.open';
+const INSP_OPEN_KEY = 'wss.inspections.open';
+function storedInspOpen() {
+  try { return sessionStorage.getItem(INSP_OPEN_KEY) === '1'; } catch (_) { return false; }
+}
 function storedPartsOpen() {
   try { return sessionStorage.getItem(PARTS_OPEN_KEY) === '1'; } catch (_) { return false; }
 }
@@ -187,6 +201,7 @@ const ui = {
   completedQuery: '',    // D62: its search box
   showParts: storedPartsOpen(),   // D65: the landing Parts strip — collapsed by default, remembered per session
   showPartsDelivered: false,      // D65: Delivered (30d) inside it — always starts folded
+  showInspections: storedInspOpen(),   // D67: the landing Inspections strip — collapsed by default, per session
 };
 
 /* ---- uploads in flight (S2) --------------------------------------------
@@ -306,6 +321,11 @@ const insights = () => (state.snapshot && state.snapshot.insights) || null;
 // strip draws empty and the unit page still offers the button.
 const workOrders = () => workOrdersOf(state.snapshot);
 const woSummary = () => (state.snapshot && state.snapshot.work_order_summary) || null;
+// D67 — the inspection sheet. Absent keys (a pre-D67 snapshot) read as none.
+const inspections = () => inspectionsOf(state.snapshot);
+const inspSummary = () => (state.snapshot && state.snapshot.inspection_summary) || null;
+const checklist = () => checklistOf(state.snapshot);
+const meName = () => (state.me && state.me.name) || '';
 const hasLeads = () => !!(state.snapshot && (Array.isArray(state.snapshot.leads) || state.snapshot.leads_summary));
 // `snapshot.billing` is deliberately NOT read: the Billing view was retired at
 // v1.6 (D39). The field stays in the contract for the engine's own consumers.
@@ -385,6 +405,9 @@ const AGE_RED = 14;
  */
 const PARTS_AMBER = 3;
 const PARTS_RED = 7;
+// D67: the Inspections strip goes amber when a DRAFT sheet has sat this many
+// days (engine `age_days`). The strip exists so a half-done sheet is never lost.
+const INSPECT_AMBER = 2;
 // The readiness values the Shop List is about. NEEDS-PICKUP is deliberately not
 // one: it's an out-unit state and Dispatch owns its clock (D32/D38).
 const SHOP_READINESS = ['NEEDS-PREP', 'DOWN'];
@@ -502,7 +525,8 @@ function viewCategories() {
   // D65: the Parts strip sits directly under the utilization card, above the
   // cards — but folded, so the lights still read first (D15 intact; a work
   // list, not a totals block, like the D56 Shop List).
-  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(cards.join(''))}${raw(shopList())}`;
+  // D67: the Inspections strip sits under the Parts strip, same folded pattern.
+  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(inspectionsStrip())}${raw(cards.join(''))}${raw(shopList())}`;
 }
 
 /**
@@ -550,6 +574,95 @@ function partsStrip() {
       </button>
       ${raw(body)}
     </section>`;
+}
+
+/**
+ * The Inspections strip (D67 §5) — "📋 Inspections ▸ N drafts · M done this week".
+ *
+ * It exists so a half-done sheet is never lost, not as a report: collapsed it
+ * is one row, amber when a DRAFT has sat INSPECT_AMBER days (engine age).
+ * Expanded: Drafts (oldest first, each with Resume), then Done in the last
+ * seven days. A sheet opened on a phone but not yet numbered by the engine
+ * shows as a ⏳ NEW card keyed on its serial — never with an invented I-number.
+ */
+function inspectionsStrip() {
+  const list = inspections();
+  const weekAgo = addDays(todayCentral(), -7);
+  const opens = inspPendingOpens(state.pending);
+  const c = stripCounts(inspSummary(), list, weekAgo);
+  const g = inspStripGroups(list, weekAgo);
+  const tone = draftTone(list, INSPECT_AMBER);
+  const open = ui.showInspections;
+  const none = !list.length && !opens.length;
+  const pill = none ? 'No inspections yet'
+    : `${c.drafts} draft${c.drafts === 1 ? '' : 's'} · ${c.done7} done this week`;
+
+  const group = (title, rows, fn) => (rows.length ? html`
+    <div class="parts-g">${title} <span class="count">${rows.length}</span></div>
+    ${raw(rows.map(fn).join(''))}` : '');
+  const body = open ? html`
+    <div class="parts-body" id="insp-body">
+      ${raw(opens.map(pendingInspCard).join(''))}
+      ${raw(group('Drafts', g.drafts, inspDraftRow))}
+      ${raw(group('Done (7d)', g.done, inspDoneRow))}
+      ${!g.drafts.length && !g.done.length && !opens.length
+        ? raw(html`<div class="hold-empty">${none ? 'No inspections yet.' : 'No drafts, nothing done this week.'} Start one from a unit page — Inspect.</div>`) : ''}
+    </div>` : '';
+  return html`
+    <section class="parts insp-strip card" aria-label="Inspections">
+      <button type="button" class="parts-head" data-insp-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="insp-body">
+        <span class="parts-t">📋 Inspections ${open ? '▾' : '▸'}</span>
+        <span class="parts-n${tone ? ' ' + tone : ''}${c.drafts ? '' : ' zero'}">${pill}</span>
+        ${opens.length ? raw(html`<span class="parts-new">⏳ ${opens.length} new</span>`) : ''}
+      </button>
+      ${raw(body)}
+    </section>`;
+}
+const inspAsset = (i) => {
+  const u = unitBySerial(i.serial);
+  return i.asset_item || (u && u.asset_item) || `#${i.serial}`;
+};
+function inspDraftRow(i) {
+  const tone = typeof i.age_days === 'number' && i.age_days >= INSPECT_AMBER ? ' amber' : '';
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="#/inspection/${raw(enc(i.id))}">
+        <span class="prow-po"><strong>${i.id}</strong></span>
+        <span class="prow-part">${INSP_KIND_LABEL[i.kind] || i.kind || '—'}</span>
+        <span class="prow-desc">opened by ${i.opened_by || '—'}${i.opened ? ` · ${fmtDate(i.opened)}` : ''} — Resume ›</span>
+      </a>
+      <div class="chips">
+        <a class="chip asset" href="#/unit/${raw(enc(i.serial))}">${inspAsset(i)}</a>
+        ${typeof i.age_days === 'number' ? raw(chip(ageText(i.age_days), `age${tone}`)) : ''}
+        ${i.flags ? raw(chip(`${i.flags} ⚑`, 'warn')) : ''}
+      </div>
+    </div>`;
+}
+function inspDoneRow(i) {
+  const h = firstHours(i.readings);
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="#/inspection/${raw(enc(i.id))}">
+        <span class="prow-po"><strong>${i.id}</strong></span>
+        <span class="prow-part">${INSP_KIND_LABEL[i.kind] || i.kind || '—'}</span>
+        <span class="prow-desc">${i.tech || '—'}${i.done ? ` · ${fmtDate(i.done)}` : ''}${h != null ? ` · ${fmtReading(h)} h` : ''}</span>
+      </a>
+      <div class="chips">
+        <a class="chip asset" href="#/unit/${raw(enc(i.serial))}">${inspAsset(i)}</a>
+        ${i.flags ? raw(chip(`${i.flags} ⚑`, 'warn')) : raw(chip('no flags', 'ok'))}
+        ${i.work_order ? raw(html`<a class="chip wo" href="#/wo/${raw(enc(i.work_order))}">🔩 ${i.work_order}</a>`) : ''}
+      </div>
+    </div>`;
+}
+/** A pending OPEN: no I-number yet, so none is shown (§2). Keyed on the serial. */
+function pendingInspCard(e) {
+  const u = unitBySerial(e.serial);
+  const p = pl(e);
+  return html`
+    <div class="prow pending-card">
+      <a class="prow-main" href="#/inspection/new/${raw(enc(e.serial))}">⏳ NEW — ${(u && u.asset_item) || `#${e.serial}`} — ${INSP_KIND_LABEL[p.kind] || 'inspection'} — numbered at the next run</a>
+      <div class="kan-foot"><span class="kan-pend">by ${e.actor || 'someone'}</span></div>
+    </div>`;
 }
 
 /** One part line in the strip. The PO leads; the chips say where it is and whose it is. */
@@ -743,7 +856,9 @@ function viewUnit(serial) {
       ? raw(html`<span>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</span>`)
       : e.action === 'work_order'
         ? raw(html`<span>${describeWoEvent(e)} by ${e.actor || 'someone'}</span>`)
-        : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
+        : e.action === 'inspection'
+          ? raw(html`<span>⏳ ${describeInspEvent(e)} by ${e.actor || 'someone'}</span>`)
+          : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
     ${raw(undoControl(e))}
   </div>`;
   const pendingBlock = p.length ? html`
@@ -762,6 +877,8 @@ function viewUnit(serial) {
     <div class="detail-head">
       <div class="h">${unitName(u)}</div>
       <div class="s"><span class="unit-serial">${unitIds(u)}</span> · ${u.category || '—'}</div>
+      ${/* D67: the meter, now that a DONE sheet writes it back. */
+        typeof u.hours === 'number' ? raw(html`<div class="s hours-line">${fmtReading(u.hours)} h${u.hours_as_of ? ` · as of ${fmtMD(u.hours_as_of)}` : ''}</div>`) : ''}
       ${raw(unitChips(u, { rental: true }))}
     </div>
     ${raw(pendingBlock)}
@@ -783,7 +900,8 @@ function viewUnit(serial) {
             + (typeof u.readiness_age_days === 'number' ? ` · ${ageText(u.readiness_age_days)}` : '')
           : ''))
         : ''}
-      ${raw(kvRow('Hours', u.hours != null ? u.hours.toLocaleString('en-US') : '', 'num'))}
+      ${raw(kvRow('Hours', typeof u.hours === 'number'
+        ? `${u.hours.toLocaleString('en-US')}${u.hours_as_of ? ` · as of ${fmtDateFull(u.hours_as_of)}` : ''}` : '', 'num'))}
       ${raw(kvRow('In service', fmtDateFull(u.in_service)))}
       ${u.customer ? raw(kvRow('Customer', u.customer)) : ''}
       ${raw(kvRow('Location', u.job_site))}
@@ -829,7 +947,63 @@ function viewUnit(serial) {
     ${u.unit_state === 'ON-DEMO' ? raw(html`
       <h2>Placement</h2><div class="info">Out on demo. No agreement.</div>`) : ''}
 
-    ${raw(actionsFor(u))}`;
+    ${raw(actionsFor(u))}
+    ${raw(unitInspections(u))}`;
+}
+
+/**
+ * D67 — the unit page's Inspect control, beside Work order (§3):
+ *   a DRAFT on this serial    "📋 Resume I1001 · CHECKOUT · 3 ⚑" -> the sheet
+ *   a pending OPEN            "⏳ Resume new sheet" (yours) / "⏳ New sheet by Josh"
+ *   neither                   "📋 Inspect" -> Check-out · Return · PM
+ * One DRAFT per serial is the engine's rule; the page just never offers a
+ * second. No library in the snapshot = no new sheet (a resume still works).
+ */
+function inspectControl(u) {
+  if (u.inspection_draft) {
+    const i = inspById(inspections(), u.inspection_draft);
+    return html`<a class="btn ghost insp-chip" href="#/inspection/${raw(enc(u.inspection_draft))}">📋 ${resumeText(i, u.inspection_draft)}</a>`;
+  }
+  const opens = pendingOpensFor(state.pending, u.serial).sort(byTs);
+  if (opens.length) {
+    const last = opens[opens.length - 1];
+    const mine = opens.some((e) => e.actor === meName());
+    const kind = INSP_KIND_LABEL[pl(last).kind] || '';
+    return html`<a class="btn ghost insp-chip" href="#/inspection/new/${raw(enc(u.serial))}">⏳ ${mine ? 'Resume new sheet' : `New sheet by ${last.actor || 'someone'}`}${kind ? ` · ${kind}` : ''}</a>`;
+  }
+  if (!checklist()) return '';
+  return html`<button class="btn ghost" type="button" data-form="insp-open">📋 Inspect</button>`;
+}
+
+/** The kind picker (§3), mounted into #write-form. The default (§2) is filled in. */
+function inspPickForm(u) {
+  const def = defaultKind(u);
+  return html`
+    <div class="write insp-pick">
+      <label>Which sheet?</label>
+      <div class="actions row">
+        ${raw(INSP_KINDS.map((k) => html`<button class="btn${k === def ? '' : ' ghost'}" type="button" data-insp-open="${k}" data-serial="${u.serial}">${INSP_KIND_LABEL[k]}</button>`).join(''))}
+      </div>
+      <div class="form-note">The sheet opens now and saves as you go. The engine gives it an I-number at the next run.</div>
+    </div>`;
+}
+
+/** The unit's last five sheets (§3): "I1001 · PM · 9/26 · Josh · 412 h · 2 ⚑". */
+function unitInspections(u) {
+  const rows = forSerial(inspections(), u.serial).slice(0, 5);
+  if (!rows.length && !checklist()) return '';
+  const line = (i) => {
+    const h = firstHours(i.readings);
+    const bits = [i.id, i.kind || '—', fmtMD(i.status === 'DONE' ? i.done : i.opened) || '—',
+      (i.status === 'DONE' ? i.tech : i.opened_by) || '—'];
+    if (h != null) bits.push(`${fmtReading(h)} h`);
+    if (i.flags) bits.push(`${i.flags} ⚑`);
+    return html`<a class="irow-link" href="#/inspection/${raw(enc(i.id))}">
+      <span>${bits.join(' · ')}</span>${i.status === 'DRAFT' ? raw(chip('DRAFT', 'warn')) : ''}${CHEV}</a>`;
+  };
+  return html`
+    <h2>Inspections${rows.length ? raw(html` <span class="count">${rows.length}</span>`) : ''}</h2>
+    <div class="card dlist">${rows.length ? raw(rows.map(line).join('')) : raw('<div class="hold-empty">No inspections yet.</div>')}</div>`;
 }
 
 /**
@@ -931,6 +1105,7 @@ function actionsFor(u) {
       ${canReserve ? raw(html`<button class="btn" type="button" data-form="reserve">${u.unit_state === 'AVAILABLE' ? 'Reserve this unit' : 'Reserve for later'}</button>`) : ''}
       ${canReadiness ? raw('<button class="btn ghost" type="button" data-form="readiness">Set readiness</button>') : ''}
       ${canWo ? raw(woControl(u)) : ''}
+      ${u.unit_state !== 'RETIRED' ? raw(inspectControl(u)) : ''}
       ${canMove && u.pending_agreement == null ? raw('<button class="btn ghost" type="button" data-form="dispatch">Schedule delivery</button>') : ''}
     </div>
     ${u.pending_agreement != null ? raw(rentalDeliveryLink(u)) : ''}
@@ -975,18 +1150,22 @@ function partLinesEditor(mfr, required) {
     <div class="form-note">Up to ${MAX_LINES} lines. Part # and quantity — no prices here; cost comes off the vendor invoice.</div>`;
 }
 
-/** The OPEN sheet (§4), mounted into the unit page's #write-form. */
-function woOpenForm(u) {
+/** The OPEN sheet (§4), mounted into the unit page's #write-form — or, from a
+ *  DONE inspection (D67), into that sheet's page with `prefill` {purpose, note,
+ *  inspection}: the back-link rides in the payload, the parts are the tech's. */
+function woOpenForm(u, prefill = null) {
   const mfr = manufacturerFor(u.brand);
+  const pre = prefill || {};
   return html`
-    <form class="write" data-action="work_order" data-verb="OPEN" data-serial="${u.serial}">
+    <form class="write${prefill ? ' sheet' : ''}" data-action="work_order" data-verb="OPEN" data-serial="${u.serial}"${pre.inspection ? raw(html` data-inspection="${pre.inspection}"`) : ''}>
       <label>Purpose</label>
-      ${raw(toggle('purpose', PURPOSES.map((p) => [p, PURPOSE_LABEL[p]]), defaultPurpose(u)))}
+      ${raw(toggle('purpose', PURPOSES.map((p) => [p, PURPOSE_LABEL[p]]), pre.purpose || defaultPurpose(u)))}
       ${raw(partLinesEditor(mfr, false))}
       <label for="wo-note">Note (optional)</label>
-      <textarea id="wo-note" name="note" maxlength="200" placeholder="what it's for — rent-ready for …"></textarea>
+      <textarea id="wo-note" name="note" maxlength="200" placeholder="what it's for — rent-ready for …">${pre.note || ''}</textarea>
       ${u.service_ticket ? raw(html`<div class="info">Links to ${u.service_ticket}.</div>`) : ''}
-      <div class="actions"><button class="btn" type="submit">Submit</button></div>
+      ${pre.inspection ? raw(html`<div class="info">Links to inspection ${pre.inspection}.</div>`) : ''}
+      ${prefill ? raw(sheetButtons('Open work order')) : raw('<div class="actions"><button class="btn" type="submit">Submit</button></div>')}
       <div class="form-note">A proposal. The engine assigns the W-number — the PO you give the vendor — at the next run.</div>
     </form>`;
 }
@@ -1886,6 +2065,8 @@ function viewTicket(id) {
         ${raw(chip(t.machine_owner === 'WSS' ? 'Our machine' : "Customer's machine", t.machine_owner === 'WSS' ? 'rent' : 'out'))}
         ${t.status === 'CLOSED' ? raw(chip('CLOSED', 'ok')) : ''}
         ${u && u.work_order ? raw(html`<a class="chip wo" href="#/wo/${raw(enc(u.work_order))}">🔩 ${u.work_order}</a>`) : ''}
+        ${/* D67: read-only — the sheets the engine linked to this ticket at OPEN. */
+          raw(inspections().filter((i) => i.ticket === t.ticket).map((i) => html`<a class="chip insp" href="#/inspection/${raw(enc(i.id))}">${chipText(i)}</a>`).join(''))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
     </div>
@@ -2067,6 +2248,7 @@ function viewWorkOrder(id) {
       <div class="chips">
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">#${wo.serial}${u ? ` ${unitName(u)}` : ''}</a>
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
+        ${wo.inspection ? raw(html`<a class="chip insp" href="#/inspection/${raw(enc(wo.inspection))}">📋 ${wo.inspection}</a>`) : ''}
         ${isOpen ? '' : raw(chip('CLOSED', 'ok'))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
@@ -2230,6 +2412,570 @@ function woFooter(wo, me) {
         <textarea id="wx-note" name="note" maxlength="200" placeholder="found it in shop stock…"></textarea>
         ${raw(sheetButtons(`Cancel ${wo.id}`))}
       </form>`) : ''}`;
+}
+
+/* ============================================= the inspection sheet (D67) == */
+
+/**
+ * `#/inspection/I1001` — and `#/inspection/new/<serial>` for a sheet opened on
+ * this phone that the engine hasn't numbered yet (§2: the tech must not wait an
+ * hour to start typing). Phone-first, one long scroll (§4): header · machine ·
+ * readings · battery + cell grid · the library's sections · comments · footer.
+ *
+ * WHAT IS ON SCREEN, in layers, bottom to top:
+ *   1. the snapshot's row (the vault's truth), or for a NEW sheet the defaults
+ *      the engine will derive (class / controls from the category, the battery
+ *      from this unit's last sheet);
+ *   2. this sheet's still-pending taps, in the order they were made — badged
+ *      pending, never drawn as applied;
+ *   3. what's been typed on this page and not saved yet (`sheetLocal`).
+ *
+ * SAVING (§2, merge by section). Every change marks its section dirty and a
+ * save follows a moment later, or at once when a field loses focus — one SAVE
+ * per section, carrying ONLY that section. A newer save of the same section
+ * takes the older unapplied one back (D46), so the inbox holds one per section.
+ *
+ * A NEW SHEET HAS NO I-NUMBER, and the engine's SAVE is keyed on one. What it
+ * does accept is an OPEN that carries the first sections. So until the number
+ * lands, each save re-issues the pending OPEN with every section typed so far
+ * and takes the previous one back: one OPEN in the inbox, always the latest.
+ * Done waits for the number — the engine cannot mark a sheet done that it has
+ * not filed yet.
+ *
+ * NOT PERSISTED. `sheetLocal` is module state; a save that fails stays one tap
+ * from a retry for as long as the page is open, and the copy says so.
+ */
+const sheetLocal = new Map();
+const FLUSH_MS = 2500;
+
+function localFor(key) {
+  let l = sheetLocal.get(key);
+  if (!l) {
+    l = { edits: {}, dirty: new Set(), status: 'idle', error: null, timer: null, notes: new Set(), chain: Promise.resolve() };
+    sheetLocal.set(key, l);
+  }
+  return l;
+}
+const withEdits = (key, sheet, editable) => {
+  const l = sheetLocal.get(key);
+  return l && editable ? { ...sheet, ...l.edits } : sheet;
+};
+const inspArg = () => {
+  const m = /^#\/inspection\/(.+)$/.exec(window.location.hash || '');
+  return m ? m[1] : null;
+};
+const argForKey = (key) => (key.startsWith('new:') ? `new/${enc(key.slice(4))}` : enc(key));
+const mineOnly = (list) => list.filter((e) => e.actor === meName());
+
+/** Everything the view and the save path need, from the route's argument. */
+function sheetCtx(arg) {
+  const lib = checklist();
+  if (arg.startsWith('new/')) {
+    const serial = decodeURIComponent(arg.slice(4));
+    const key = `new:${serial}`;
+    const u = unitBySerial(serial);
+    if (u && u.inspection_draft) return { key, serial, u, redirect: u.inspection_draft };
+    const opens = pendingOpensFor(state.pending, serial).sort(byTs);
+    const mine = mineOnly(opens);
+    const openEvt = (mine.length ? mine : opens).slice(-1)[0] || null;
+    if (!openEvt) return { key, serial, u, isNew: true, missing: true };
+    const prior = forSerial(inspections(), serial).find((i) => i.battery && i.battery.type) || null;
+    let sheet = sheetFrom({
+      serial, asset_item: u && u.asset_item, kind: defaultKind(u), status: 'DRAFT', opened_by: openEvt.actor,
+      ...(u ? deriveProfile(u.category) : {}), battery: prior ? prior.battery : null,
+    });
+    sheet = overlay(sheet, pl(openEvt));
+    const editable = mine.length > 0;
+    return { key, serial, u, isNew: true, openEvt, pend: opens, lib, editable, sheet: withEdits(key, sheet, editable) };
+  }
+  const id = decodeURIComponent(arg);
+  const row = inspById(inspections(), id);
+  if (!row) return { key: id, id, missing: true };
+  const pend = pendingForInsp(state.pending, id).sort(byTs);
+  let sheet = sheetFrom(row);
+  for (const e of pend) if (pl(e).action === 'SAVE') sheet = overlay(sheet, pl(e));
+  const locked = pend.find((e) => ['DONE', 'VOID'].includes(pl(e).action)) || null;
+  const editable = row.status === 'DRAFT' && !locked;
+  return { key: id, id, row, u: unitBySerial(row.serial), serial: row.serial, pend, locked, lib, editable, sheet: withEdits(id, sheet, editable) };
+}
+
+/** The NEW sheet got its number: carry anything unsaved across to it. */
+function migrateNew(key, id) {
+  const l = sheetLocal.get(key);
+  if (!l) return;
+  sheetLocal.delete(key);
+  const into = localFor(id);
+  into.edits = { ...l.edits, ...into.edits };
+  delete into.edits.kind;                       // the kind was the OPEN's; a SAVE cannot change it
+  for (const k of l.dirty) if (SECTION_KEYS.includes(k)) into.dirty.add(k);
+  for (const n of l.notes) into.notes.add(n);
+  if (into.dirty.size) into.status = 'dirty';
+}
+
+function viewInspection(arg) {
+  const c = sheetCtx(arg);
+  if (c.redirect) {
+    migrateNew(c.key, c.redirect);
+    window.location.replace(`#/inspection/${enc(c.redirect)}`);
+    return html`<div class="loading">Opening ${c.redirect}…</div>`;
+  }
+  const back = c.u || (c.serial ? unitBySerial(c.serial) : null);
+  const crumb = back
+    ? html`<a class="crumb" href="#/unit/${raw(enc(back.serial))}">‹ ${unitName(back)}</a>`
+    : html`<a class="crumb" href="#/">‹ Fleet</a>`;
+  if (c.missing) {
+    return html`${raw(crumb)}${raw(msgBlock())}${raw(emptyState('Sheet not found.', c.isNew
+      ? 'Nothing is open on this unit — start one from the unit page (Inspect).'
+      : 'A voided sheet never ships, and a finished one leaves after 90 days.'))}`;
+  }
+
+  const { sheet, lib, editable } = c;
+  const done = sheet.status === 'DONE';
+  const dis = editable ? '' : raw(' disabled');
+  const l = sheetLocal.get(c.key) || { status: 'idle', notes: new Set() };   // reading never creates one
+  const carried = new Set(sheet.items.keys());
+  const visible = lib ? visibleSections(lib, profileOf(sheet), carried) : [];
+  const flags = done ? (sheet.flags || 0) : flagCount(sheet, visible);
+  const title = [c.id || '⏳ NEW', sheet.asset_item || `#${sheet.serial}`, sheet.kind || '—', done ? 'DONE' : 'DRAFT'].join(' · ');
+  const sub = done
+    ? `done by ${sheet.tech || '—'}${sheet.done ? ` · ${fmtMD(sheet.done)}` : ''} · opened by ${sheet.opened_by || '—'}`
+    : `opened by ${sheet.opened_by || '—'}${sheet.opened ? ` · ${fmtMD(sheet.opened)}` : ''}${typeof sheet.age_days === 'number' ? ` · ${ageText(sheet.age_days)}` : ''}`;
+  const wo = sheet.work_order;
+
+  const pendRows = (c.pend || []).map((e) => html`<div class="pend-row"><span>${describeInspEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join('');
+  const pendBlock = c.isNew ? html`
+    <div class="note"><strong>⏳ New sheet — not numbered yet</strong>
+      The engine gives it an I-number at the next run. ${editable ? 'Keep going — everything you enter rides along with it.' : `It's ${c.openEvt.actor || 'someone'}'s to fill in until then.`}
+      ${raw(pendRows)}</div>`
+    : c.pend.length ? html`<div class="note"><strong>⏳ ${c.pend.length} pending change${c.pend.length > 1 ? 's' : ''}</strong>
+      ${raw(pendRows)}<div style="margin-top:6px">Applies at the next run — the sheet shows them now, badged.</div></div>` : '';
+
+  return html`
+    ${raw(crumb)}
+    ${raw(msgBlock())}
+    <div class="detail-head insp-head">
+      <div class="h">${title}</div>
+      <div class="s">${sub}</div>
+      <div class="chips">
+        ${back ? raw(html`<a class="chip asset" href="#/unit/${raw(enc(back.serial))}">#${back.serial} ${unitName(back)}</a>`) : ''}
+        ${sheet.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(sheet.ticket))}">🔧 ${sheet.ticket}</a>`) : ''}
+        ${wo ? raw(html`<a class="chip wo" href="#/wo/${raw(enc(wo))}">🔩 ${wo}</a>`) : ''}
+        ${raw(chip(`${flags} ⚑`, flags ? 'warn' : 'ok'))}
+        ${done ? raw(chip('DONE', 'ok')) : ''}
+      </div>
+    </div>
+    ${raw(pendBlock)}
+    ${editable ? raw(html`<div class="insp-status${l.status === 'failed' ? ' is-bad' : ''}" id="insp-status" data-key="${c.key}">${raw(inspStatusHtml(c.key))}</div>`) : ''}
+
+    <div class="insp" data-insp-key="${c.key}">
+      <h2>Machine</h2>
+      <div class="card insp-card">
+        ${c.isNew ? raw(selectField('kind', 'Sheet', INSP_KINDS, INSP_KIND_LABEL, sheet.kind, dis, false)) : ''}
+        <div class="insp-2">
+          ${raw(selectField('machine_class', 'Class', CLASSES, CLASS_LABEL, sheet.machine_class, dis, false))}
+          ${raw(selectField('controls', 'Controls', CONTROLS, CONTROLS_LABEL, sheet.controls, dis, false))}
+        </div>
+        ${editable ? raw('<div class="form-note">Pre-set from the unit — change it if it\'s wrong. The rows below follow; nothing you answered is lost.</div>') : ''}
+      </div>
+
+      <h2>Readings</h2>
+      ${raw(readingsCard(sheet, dis, editable))}
+
+      <h2>Battery</h2>
+      ${raw(batteryCard(sheet, dis))}
+
+      ${lib ? raw(visible.map(({ section, rows }) => sectionCard(section, rows, sheet, l, dis, editable)).join(''))
+        : raw('<div class="alert">⚠️ The row library didn\'t come with this snapshot. Readings, battery and comments still save; the rows come back at the next run.</div>')}
+
+      <h2>Comments</h2>
+      <div class="card insp-card">
+        <textarea data-ifield="comments" maxlength="${MAX_COMMENTS}" placeholder="anything else — for the next tech, or for Matt"${dis}>${sheet.comments || ''}</textarea>
+      </div>
+    </div>
+
+    ${raw(inspFooter(c, flags))}
+
+    <h2>Log${sheet.log.length ? raw(html` <span class="count">${sheet.log.length}</span>`) : ''}</h2>
+    <div class="card notes">
+      ${sheet.log.length ? raw(sheet.log.map((n) => html`
+        <div class="nrow">
+          <div class="ntext">${n.text}</div>
+          <div class="nmeta">${n.who ? raw(html`<span class="nwho">${n.who}</span>`) : ''}${n.ts ? raw(html`<span class="nts">${n.ts}</span>`) : ''}</div>
+        </div>`).join('')) : raw('<div class="hold-empty">Nothing logged yet.</div>')}
+    </div>`;
+}
+
+function selectField(field, label, values, labels, cur, dis, blank) {
+  const opts = values.map((v) => html`<option value="${v}"${String(v) === String(cur) ? raw(' selected') : ''}>${labels[v] || v}</option>`).join('');
+  return html`<label class="ifl"><span>${label}</span>
+    <select data-ifield="${field}"${dis}>${blank || cur == null ? raw('<option value="">—</option>') : ''}${raw(opts)}</select></label>`;
+}
+
+function readingsCard(sheet, dis, editable) {
+  const r = sheet.readings;
+  const numField = (d) => html`<label class="ifl${d.hours ? ' big' : ''}"><span>${d.label}</span>
+    <input type="number" inputmode="decimal" step="any" min="0" max="${d.max}" data-ifield="readings.${d.key}" value="${r[d.key] == null ? '' : r[d.key]}"${dis}></label>`;
+  const shown = READINGS.filter((d) => !d.class || d.class === sheet.machine_class);
+  const rot = r.brushes_rotated;
+  const rb = (v, label) => html`<button type="button" class="seg-b${rot === v ? ' on' : ''}" data-irot="${String(v)}" aria-pressed="${rot === v ? 'true' : 'false'}"${dis}>${label}</button>`;
+  return html`
+    <div class="card insp-card">
+      <div class="insp-hours">${raw(shown.filter((d) => d.hours).map(numField).join(''))}</div>
+      <div class="insp-2">${raw(shown.filter((d) => !d.hours).map(numField).join(''))}</div>
+      <div class="ifl"><span>Brushes rotated</span><div class="iseg">${raw(rb(true, 'Yes'))}${raw(rb(false, 'No'))}</div></div>
+      ${editable && !doneReady(sheet) ? raw('<div class="form-note" id="insp-hours-hint">Done needs at least one hours reading — the meter is the one thing this sheet never leaves blank.</div>') : ''}
+    </div>`;
+}
+
+function batteryCard(sheet, dis) {
+  const b = sheet.battery || {};
+  const layout = cellLayout(b);
+  const packs = PACKS_BY_VOLTAGE[b.voltage] || [];
+  const clar = (v) => html`<option value="">—</option>${raw(CLARITY.map((x) => html`<option value="${x}"${x === v ? raw(' selected') : ''}>${CLARITY_LABEL[x]}</option>`).join(''))}`;
+  const lev = (v) => html`<option value="">—</option>${raw(LEVEL.map((x) => html`<option value="${x}"${x === v ? raw(' selected') : ''}>${LEVEL_LABEL[x]}</option>`).join(''))}`;
+  const grid = layout ? layout.map((g) => html`
+    <div class="cell-g">
+      <div class="cell-gh">Battery ${g.battery}</div>
+      ${raw(g.cells.map((cl) => {
+        const k = cellKey(g.battery, cl);
+        const v = sheet.cells.get(k) || {};
+        return html`<div class="cell-r">
+          <span class="cell-l">${k}</span>
+          <input type="text" inputmode="decimal" placeholder="1.___" aria-label="Cell ${k} specific gravity" data-ifield="cell:${k}:sg" value="${v.sg == null ? '' : v.sg.toFixed(3)}"${dis}>
+          <select aria-label="Cell ${k} clarity" data-ifield="cell:${k}:clarity"${dis}>${raw(clar(v.clarity))}</select>
+          <select aria-label="Cell ${k} level" data-ifield="cell:${k}:level"${dis}>${raw(lev(v.level))}</select>
+        </div>`;
+      }).join(''))}
+    </div>`).join('') : '';
+  const hint = b.type === 'WET' && !layout ? 'Pick the voltage and the pack to draw the cell grid.'
+    : b.type && b.type !== 'WET' ? 'Sealed pack — no cell readings.'
+      : !b.type ? 'Pick the battery type. Most of the fleet is wet cell.' : '';
+  return html`
+    <div class="card insp-card">
+      <div class="insp-3">
+        ${raw(selectField('battery.type', 'Type', BATTERY_TYPES, BATTERY_LABEL, b.type, dis, true))}
+        ${raw(selectField('battery.voltage', 'Voltage', VOLTAGES, { 24: '24V', 36: '36V' }, b.voltage, dis, true))}
+        ${b.type === 'WET' ? raw(selectField('battery.pack', 'Pack', packs, PACK_LABEL, b.pack, dis, true)) : ''}
+      </div>
+      ${hint ? raw(html`<div class="form-note">${hint}</div>`) : ''}
+      ${layout ? raw(html`<div class="cell-head"><span></span><span>Hydrometer</span><span>Clarity</span><span>Level</span></div>${raw(grid)}`) : ''}
+    </div>`;
+}
+
+function sectionCard(section, rows, sheet, l, dis, editable) {
+  const n = answeredIn(sheet, rows);
+  const row = (r) => {
+    const a = sheet.items.get(r.id) || {};
+    const scale = SCALES[r.scale] || SCALES.FUNCTION;
+    const flag = isFlag(a.result);
+    const noteOpen = !!(flag || a.note || l.notes.has(r.id));
+    const seg = scale.map((v) => html`<button type="button" class="seg-b${a.result === v ? ' on' : ''}${isFlag(v) ? ' f' : ''}" data-iseg="${r.id}" data-val="${v}" aria-pressed="${a.result === v ? 'true' : 'false'}"${dis}>${RESULT_LABEL[v] || v}</button>`).join('');
+    const note = noteOpen
+      ? (editable
+        ? html`<input class="inote" type="text" maxlength="${MAX_ITEM_NOTE}" data-ifield="note:${r.id}" placeholder="${flag ? "what's wrong — it goes on the work order" : 'note'}" value="${a.note || ''}">`
+        : (a.note ? html`<div class="inote-ro">${a.note}</div>` : ''))
+      : (editable ? html`<button type="button" class="inote-add" data-inote="${r.id}">+ note</button>` : '');
+    // "+ note" rides on the label line: a row per button would double the scroll.
+    return html`<div class="irow${flag ? ' flag' : ''}">
+      <div class="irow-top"><span class="irow-l">${r.label || r.id}${r.retired ? ' (retired)' : ''}</span>${noteOpen ? '' : raw(note)}</div>
+      <div class="iseg" role="group" aria-label="${r.label || r.id}">${raw(seg)}</div>
+      ${noteOpen ? raw(note) : ''}
+    </div>`;
+  };
+  return html`
+    <h2>${section.title || section.id} <span class="count">${n}/${rows.length} answered</span></h2>
+    ${section.instruction ? raw(html`<div class="form-note insp-instr">${section.instruction}</div>`) : ''}
+    <div class="card insp-rows">${raw(rows.map(row).join(''))}</div>`;
+}
+
+/**
+ * The footer (§4.7). DRAFT: Done (disabled until an hours reading exists, and
+ * until a NEW sheet has its number) · Void (owner, or the opener). DONE:
+ * read-only, Reopen (owner, or the tech within 24 h), and — flags and no work
+ * order — Open work order from this inspection.
+ */
+function inspFooter(c, flags) {
+  const r = role();
+  const me = meName();
+  const sh = c.sheet;
+  if (c.isNew) {
+    return html`<div class="actions row insp-foot"><button class="btn" type="button" disabled>Done</button></div>
+      <div class="form-note">Done unlocks once the engine numbers this sheet (next run). Keep filling it in — nothing is lost.</div>`;
+  }
+  const row = c.row;
+  const verbPending = c.pend.some((e) => ['DONE', 'VOID', 'REOPEN'].includes(pl(e).action));
+  if (sh.status === 'DRAFT') {
+    if (c.locked) return '';
+    const ready = doneReady(sh);
+    const canVoid = voidShown(row, r, me);
+    const techs = DRIVERS.map((n) => [n, n]);
+    return html`
+      <div class="actions row insp-foot">
+        <button class="btn" type="button" data-sheet="insp-done" data-id="${c.key}"${ready ? '' : raw(' disabled')}>Done</button>
+        ${canVoid ? raw(html`<button class="btn ghost danger-btn" type="button" data-sheet="insp-void" data-id="${c.key}">Void</button>`) : ''}
+      </div>
+      ${ready ? '' : raw('<div class="form-note">Done needs an hours reading.</div>')}
+      ${sheetOpen('insp-done', c.key) && ready ? raw(html`
+        <form class="write sheet" data-action="inspection" data-verb="DONE" data-insp="${c.id}" data-key="${c.key}">
+          <label>Tech</label>
+          ${raw(toggle('tech', techs, DRIVERS.includes(me) ? me : DRIVERS[0]))}
+          <div class="form-note">${fmtReading(firstHours(sh.readings))} h goes on the unit · ${flags} flag${flags === 1 ? '' : 's'}. The sheet locks at the next run.</div>
+          ${raw(sheetButtons(`Mark ${c.id} done`))}
+        </form>`) : ''}
+      ${sheetOpen('insp-void', c.key) && canVoid ? raw(voidForm(c)) : ''}`;
+  }
+  // DONE — read-only.
+  const canReopen = !verbPending && reopenShown(row, r, me);
+  const canVoid = !verbPending && voidShown(row, r, me);
+  const woPend = state.pending.some((e) => e.action === 'work_order' && pl(e).action === 'OPEN' && pl(e).inspection === c.id);
+  const u = c.u;
+  const woBtn = woButtonShown(row) && !woPend;
+  return html`
+    <div class="actions row insp-foot">
+      ${woBtn && u && !u.work_order ? raw(html`<button class="btn" type="button" data-sheet="insp-wo" data-id="${c.key}">Open work order from this inspection</button>`) : ''}
+      ${canReopen ? raw(html`<button class="btn ghost" type="button" data-sheet="insp-reopen" data-id="${c.key}">Reopen</button>`) : ''}
+      ${canVoid ? raw(html`<button class="btn ghost danger-btn" type="button" data-sheet="insp-void" data-id="${c.key}">Void</button>`) : ''}
+    </div>
+    ${woBtn && u && u.work_order ? raw(html`<div class="info">${u.work_order} is already open on this unit — <a href="#/wo/${raw(enc(u.work_order))}">add the parts there</a>.</div>`) : ''}
+    ${woPend ? raw('<div class="info">⏳ Work order requested from this sheet — the W-number comes at the next run.</div>') : ''}
+    ${sheetOpen('insp-wo', c.key) && woBtn && u && !u.work_order
+      ? raw(woOpenForm(u, { ...woPrefill(row, flaggedLabels(sh, c.lib)), inspection: c.id })) : ''}
+    ${sheetOpen('insp-reopen', c.key) && canReopen ? raw(html`
+      <form class="write sheet" data-action="inspection" data-verb="REOPEN" data-insp="${c.id}" data-key="${c.key}">
+        <label for="ir-note">Why (optional)</label>
+        <textarea id="ir-note" name="note" maxlength="${MAX_NOTE}" placeholder="missed the recovery tank…"></textarea>
+        ${raw(sheetButtons(`Reopen ${c.id}`))}
+        <div class="form-note">It goes back to DRAFT. The hours already on the unit stay until the next Done.</div>
+      </form>`) : ''}
+    ${sheetOpen('insp-void', c.key) && canVoid ? raw(voidForm(c)) : ''}`;
+}
+function voidForm(c) {
+  return html`
+    <form class="write sheet" data-action="inspection" data-verb="VOID" data-insp="${c.id}" data-key="${c.key}">
+      <label for="iv-note">Why (optional)</label>
+      <textarea id="iv-note" name="note" maxlength="${MAX_NOTE}" placeholder="wrong unit…"></textarea>
+      ${raw(sheetButtons(`Void ${c.id}`))}
+      <div class="form-note">A voided sheet never comes back, and it frees the unit for a new one.</div>
+    </form>`;
+}
+
+function inspStatusHtml(key) {
+  const l = sheetLocal.get(key);
+  const st = l ? l.status : 'idle';
+  if (st === 'saving') return '<span class="ist">Saving…</span>';
+  if (st === 'dirty') return '<span class="ist">Saving in a moment…</span>';
+  if (st === 'saved') return '<span class="ist ok">Saved ✓ — applies at the next run</span>';
+  if (st === 'failed') {
+    return html`<span class="ist bad">⚠️ Didn't save — ${l.error || 'no connection'}. Leaving this page discards it.</span>
+      <button class="btn sm" type="button" data-insp-retry="${key}">Tap to retry</button>`;
+  }
+  return '<span class="ist">Saves as you go — each change is a proposal until the next run.</span>';
+}
+/** Repaint the save line and the Done button in place — a render would take the keyboard away. */
+function paintStatus(key) {
+  const el = $('#insp-status');
+  if (el && el.dataset && el.dataset.key === key) {
+    el.innerHTML = inspStatusHtml(key);
+    const l = sheetLocal.get(key);
+    el.className = `insp-status${l && l.status === 'failed' ? ' is-bad' : ''}`;
+  }
+  const arg = inspArg();
+  if (!arg) return;
+  const c = sheetCtx(arg);
+  if (c.key !== key || !c.sheet) return;
+  const btn = document.querySelector('[data-sheet="insp-done"]');
+  if (btn) btn.disabled = !doneReady(c.sheet);
+  const hint = $('#insp-hours-hint');
+  if (hint) hint.hidden = doneReady(c.sheet);
+}
+
+/**
+ * One change to the sheet on screen. `fn(local, sheet)` writes the new section
+ * value into local.edits (whole sections — a SAVE replaces the section); the
+ * named sections go dirty and a save follows.
+ */
+function editSheet(fn, sections, { now = false, redraw = true } = {}) {
+  const arg = inspArg();
+  if (arg == null) return;
+  const c = sheetCtx(arg);
+  if (!c.editable || !c.sheet) return;
+  const l = localFor(c.key);
+  fn(l, c.sheet);
+  for (const k of sections) l.dirty.add(k);
+  l.status = 'dirty';
+  if (redraw) render(); else paintStatus(c.key);
+  if (now) flushSheet(c.key); else scheduleFlush(c.key);
+}
+function scheduleFlush(key) {
+  const l = localFor(key);
+  clearTimeout(l.timer);
+  l.timer = setTimeout(() => { flushSheet(key); }, FLUSH_MS);
+  if (l.timer && typeof l.timer === 'object' && l.timer.unref) l.timer.unref();
+}
+/** Saves run one at a time per sheet, so two quick blurs can't fold the same OPEN twice. */
+function flushSheet(key) {
+  const l = localFor(key);
+  l.chain = l.chain.then(() => doFlush(key)).catch(() => {});
+  return l.chain;
+}
+function flushAllSheets() {
+  for (const [key, l] of sheetLocal) if (l.dirty.size) flushSheet(key);
+}
+
+async function doFlush(key) {
+  const l = sheetLocal.get(key);
+  if (!l || !l.dirty.size) return;
+  clearTimeout(l.timer);
+  l.timer = null;
+  const c = sheetCtx(argForKey(key));
+  if (c.redirect) { migrateNew(key, c.redirect); await doFlush(c.redirect); return; }
+  if (!c.editable || !c.sheet) {
+    l.status = 'failed';
+    l.error = c.locked ? 'the sheet is marked done — undo that first' : 'this sheet is no longer open here — reload';
+    paintStatus(key);
+    return;
+  }
+  const secs = [...l.dirty];
+  l.dirty.clear();
+  l.status = 'saving';
+  l.error = null;
+  paintStatus(key);
+  try {
+    if (c.isNew) await foldIntoOpen(c, secs);
+    else await saveSections(c, secs);
+    l.status = l.dirty.size ? 'dirty' : 'saved';
+  } catch (err) {
+    for (const k of secs) l.dirty.add(k);
+    l.status = 'failed';
+    l.error = err && err.message ? err.message : 'no connection';
+  }
+  paintStatus(key);
+  renderHeader();
+}
+
+const sectionsIn = (e) => SECTION_KEYS.filter((k) => k in pl(e));
+
+/** A numbered sheet: one SAVE per dirty section, then take back my older unapplied save of that same section. */
+async function saveSections(c, secs) {
+  // Library order, not tap order: the battery lands before the cells it legalises.
+  for (const k of SECTION_KEYS.filter((x) => secs.includes(x))) {
+    if (!SECTION_KEYS.includes(k)) continue;
+    if (k === 'items' && !c.lib) continue;          // no library, no way to know which answers are on the sheet
+    const stored = await postEvent(ctx(), 'inspection', null, { action: 'SAVE', inspection: c.id, [k]: sectionValue(c.sheet, k, c.lib) });
+    state.pending.push(stored);
+    const older = state.pending.filter((e) => e.id !== stored.id && e.action === 'inspection' && e.actor === meName()
+      && pl(e).action === 'SAVE' && pl(e).inspection === c.id && sectionsIn(e).length === 1 && sectionsIn(e)[0] === k);
+    for (const e of older) {
+      try {
+        await deleteEvent(ctx(), e.id);
+        state.pending = state.pending.filter((x) => x.id !== e.id);
+      } catch (err) {
+        // Drained already, or no signal: the newer save lands after it either way.
+        if (err && err.status === 404) state.pending = state.pending.filter((x) => x.id !== e.id);
+      }
+    }
+  }
+}
+
+/**
+ * A NEW sheet: re-issue the pending OPEN with every section typed so far, then
+ * take back the older OPEN(s). If the engine drained the old one between the
+ * two calls (a 404 on the take-back), the sheet is being numbered right now:
+ * the fresh OPEN would only be refused, so it is taken back too and the tech
+ * is told to finish on the numbered sheet.
+ */
+async function foldIntoOpen(c, secs) {
+  const mine = mineOnly(pendingOpensFor(state.pending, c.serial)).sort(byTs);
+  const base = mine[mine.length - 1];
+  if (!base) throw new Error('this new sheet is no longer pending — reload the page');
+  const payload = { ...pl(base), action: 'OPEN' };
+  if (c.sheet.kind) payload.kind = c.sheet.kind;
+  const keys = new Set([...SECTION_KEYS.filter((k) => k in payload), ...secs.filter((k) => SECTION_KEYS.includes(k))]);
+  if (!c.lib) keys.delete('items');
+  for (const k of SECTION_KEYS) if (keys.has(k)) payload[k] = sectionValue(c.sheet, k, c.lib);
+  const stored = await postEvent(ctx(), 'inspection', c.serial, payload);
+  state.pending.push(stored);
+  let raced = false;
+  for (const e of mine) {
+    try {
+      await deleteEvent(ctx(), e.id);
+      state.pending = state.pending.filter((x) => x.id !== e.id);
+    } catch (err) {
+      if (err && err.status === 404) { raced = true; state.pending = state.pending.filter((x) => x.id !== e.id); } else throw err;
+    }
+  }
+  if (raced) {
+    try { await deleteEvent(ctx(), stored.id); } catch (_) { /* refused by the engine anyway */ }
+    state.pending = state.pending.filter((x) => x.id !== stored.id);
+    throw new Error('the engine picked this sheet up mid-save. Reload after the next publish, open the numbered sheet and re-enter your last change');
+  }
+}
+
+/** A typed field on the sheet. `committed` = the change event (blur / pick) — save now. */
+function onInspField(el, committed) {
+  const f = el.dataset.ifield;
+  const v = String(el.value == null ? '' : el.value);
+  const isSelect = String(el.tagName || '').toUpperCase() === 'SELECT';
+  if (isSelect && !committed) return;              // a select acts on change
+  const bad = (on) => { if (el.classList) el.classList[on ? 'add' : 'remove']('bad'); };
+  const soon = { redraw: false, now: committed };
+
+  if (f === 'kind') { editSheet((l) => { l.edits.kind = v || null; }, ['kind'], { now: true }); return; }
+  if (f === 'machine_class' || f === 'controls') {
+    // "Answers already given are kept" (§4.2): the page holds every answer, so
+    // flipping back brings them back. The vault gets the rows this machine sees.
+    editSheet((l, sh) => { l.edits[f] = v || null; if (!l.edits.items) l.edits.items = new Map(sh.items); }, [f, 'items'], { now: true });
+    return;
+  }
+  if (f.startsWith('battery.')) {
+    const part = f.slice(8);
+    editSheet((l, sh) => {
+      const b = { ...sh.battery };
+      if (part === 'type') { b.type = v || null; if (b.type !== 'WET') b.pack = null; }
+      if (part === 'voltage') { b.voltage = v ? Number(v) : null; if (!(PACKS_BY_VOLTAGE[b.voltage] || []).includes(b.pack)) b.pack = null; }
+      if (part === 'pack') b.pack = v || null;
+      l.edits.battery = b;
+      // Off a WET pack the engine drops the cells; the page keeps them, so a
+      // mis-tap on the type dropdown doesn't cost twelve hydrometer readings.
+      if (!l.edits.items) l.edits.items = new Map(sh.items);
+      if (!l.edits.cells) l.edits.cells = new Map(sh.cells);
+    }, ['battery', 'items', 'cells'], { now: true });
+    return;
+  }
+  if (f.startsWith('readings.')) {
+    const k = f.slice(9);
+    const d = READINGS.find((x) => x.key === k);
+    const n = v.trim() === '' ? null : Number(v);
+    if (n != null && (!isFinite(n) || n < 0 || (d && n > d.max))) { bad(true); return; }
+    bad(false);
+    editSheet((l, sh) => { l.edits.readings = { ...sh.readings, [k]: n }; }, ['readings'], soon);
+    return;
+  }
+  if (f.startsWith('cell:')) {
+    const [, k, which] = f.split(':');
+    let val = v || null;
+    if (which === 'sg') {
+      val = parseSg(v);
+      if (Number.isNaN(val)) { bad(true); return; }
+      bad(false);
+    }
+    editSheet((l, sh) => {
+      const cells = new Map(sh.cells);
+      cells.set(k, { sg: null, clarity: null, level: null, ...(cells.get(k) || {}), [which]: val });
+      l.edits.cells = cells;
+    }, ['cells'], { redraw: false, now: committed });
+    return;
+  }
+  if (f.startsWith('note:')) {
+    const id = f.slice(5);
+    editSheet((l, sh) => {
+      const items = new Map(sh.items);
+      items.set(id, { result: null, ...(items.get(id) || {}), note: v.slice(0, MAX_ITEM_NOTE) || null });
+      l.edits.items = items;
+    }, ['items'], soon);
+    return;
+  }
+  if (f === 'comments') editSheet((l) => { l.edits.comments = v.slice(0, MAX_COMMENTS) || null; }, ['comments'], soon);
 }
 
 /* ============================================================== dispatch == */
@@ -3591,6 +4337,7 @@ function render() {
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
   else if (section === 'wo') out = viewWorkOrder(decodeURIComponent(arg || ''));
+  else if (section === 'inspection') out = viewInspection(arg || '');
   else out = viewCategories();
 
   // D63: capture before the swap — a shorter view can clamp the scroll.
@@ -4000,6 +4747,64 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
+  /* ---- the inspection sheet (D67) ---- */
+  // A row's segmented control. Tapping the lit answer again clears it. A flag
+  // opens the row's note — that note is what goes on the work order.
+  const iseg = ev.target.closest('[data-iseg]');
+  if (iseg) {
+    if (iseg.disabled) return;
+    const id = iseg.dataset.iseg;
+    const val = iseg.dataset.val;
+    editSheet((l, sh) => {
+      const items = new Map(sh.items);
+      const cur = items.get(id) || { result: null, note: null };
+      const result = cur.result === val ? null : val;
+      items.set(id, { ...cur, result });
+      l.edits.items = items;
+      if (isFlag(result)) l.notes.add(id);
+    }, ['items']);
+    return;
+  }
+  const inote = ev.target.closest('[data-inote]');
+  if (inote) {
+    const arg = inspArg();
+    if (arg == null) return;
+    localFor(sheetCtx(arg).key).notes.add(inote.dataset.inote);
+    render();
+    const input = document.querySelector(`[data-ifield="note:${CSS.escape(inote.dataset.inote)}"]`);
+    if (input && input.focus) input.focus();
+    return;
+  }
+  const irot = ev.target.closest('[data-irot]');
+  if (irot) {
+    if (irot.disabled) return;
+    const want = irot.dataset.irot === 'true';
+    editSheet((l, sh) => {
+      l.edits.readings = { ...sh.readings, brushes_rotated: sh.readings.brushes_rotated === want ? null : want };
+    }, ['readings']);
+    return;
+  }
+  const iretry = ev.target.closest('[data-insp-retry]');
+  if (iretry) { flushSheet(iretry.dataset.inspRetry); return; }
+  // Check-out · Return · PM: posts the OPEN and goes straight to the sheet —
+  // it is filled in now, numbered at the next run.
+  const iopen = ev.target.closest('[data-insp-open]');
+  if (iopen) {
+    iopen.disabled = true;
+    const serial = iopen.dataset.serial;
+    try {
+      const stored = await postEvent(ctx(), 'inspection', serial, { action: 'OPEN', kind: iopen.dataset.inspOpen });
+      state.pending.push(stored);
+      sheetLocal.delete(`new:${serial}`);
+      window.location.hash = `#/inspection/new/${enc(serial)}`;
+    } catch (err) {
+      iopen.disabled = false;
+      const msg = $('#write-msg');
+      if (msg) msg.innerHTML = html`<div class="alert">⚠️ ${err.message}</div>`;
+    }
+    return;
+  }
+
   // Open one of the schema-3 sheets. `data-serial` pre-fills a run from a
   // released unit; `data-id` names the ticket or dispatch row it belongs to.
   const sheet = ev.target.closest('[data-sheet]');
@@ -4055,6 +4860,13 @@ document.addEventListener('click', async (ev) => {
   if (ev.target.closest('[data-parts-toggle]')) {
     ui.showParts = !ui.showParts;
     try { sessionStorage.setItem(PARTS_OPEN_KEY, ui.showParts ? '1' : '0'); } catch (_) { /* storage blocked */ }
+    render();
+    return;
+  }
+  // D67: the Inspections strip, same rule as Parts — remembered for the session.
+  if (ev.target.closest('[data-insp-toggle]')) {
+    ui.showInspections = !ui.showInspections;
+    try { sessionStorage.setItem(INSP_OPEN_KEY, ui.showInspections ? '1' : '0'); } catch (_) { /* storage blocked */ }
     render();
     return;
   }
@@ -4265,8 +5077,15 @@ document.addEventListener('click', async (ev) => {
   if (undo) {
     undo.disabled = true;
     const id = undo.dataset.undo;
+    const undone = state.pending.find((e) => e.id === id);
     try {
       await deleteEvent(ctx(), id);
+      // D67: taking back a NEW sheet's OPEN takes back the sheet. Nothing typed
+      // into it may linger and fold itself into a later one.
+      if (undone && undone.action === 'inspection' && pl(undone).action === 'OPEN'
+        && !mineOnly(pendingOpensFor(state.pending, undone.serial)).some((e) => e.id !== id)) {
+        sheetLocal.delete(`new:${undone.serial}`);
+      }
       // Drop it locally so the badge goes at once, then re-read /api/data so
       // what is on screen is the server's list and not our guess at it.
       state.pending = state.pending.filter((e) => e.id !== id);
@@ -4348,6 +5167,7 @@ document.addEventListener('click', async (ev) => {
     const form = kind === 'reserve' ? reserveForm(u)
       : kind === 'dispatch' ? addRunForm(runPrefillForUnit(u, currentHold(u, todayCentral())))
       : kind === 'wo-open' ? woOpenForm(u)
+      : kind === 'insp-open' ? inspPickForm(u)
       : readinessForm(u);
     $('#write-form').innerHTML = form;
     const el = $('#write-form form');
@@ -4362,6 +5182,9 @@ document.addEventListener('click', async (ev) => {
 });
 
 document.addEventListener('input', (ev) => {
+  // D67: a typed field on the inspection sheet — kept, and saved a moment later.
+  const ifield = ev.target.closest && ev.target.closest('[data-ifield]');
+  if (ifield) { onInspField(ifield, false); return; }
   // D62: typing in the Completed search redraws the list only — a full render()
   // would rebuild the input under the thumb and drop the keyboard.
   if (ev.target.id === 'completed-q') {
@@ -4403,6 +5226,9 @@ function toggleStop(key) {
  * its `.files` list with it. Read it late and it is gone.
  */
 document.addEventListener('change', async (ev) => {
+  // D67: a field on the inspection sheet was left (or a dropdown picked) — save now.
+  const ifield = ev.target.closest && ev.target.closest('[data-ifield]');
+  if (ifield) { onInspField(ifield, true); return; }
   // D52: "Back to the shop" reshapes the directions URL — the shop becomes the
   // destination and every stop moves into the waypoints.
   const back = ev.target.closest('input[data-map="back"]');
@@ -4591,7 +5417,10 @@ function woEventBody(form, fd, s, orNull) {
   const verb = form.dataset.verb;
   const wo = form.dataset.wo || null;
   if (verb === 'OPEN') {
-    return { serial: form.dataset.serial, payload: { action: 'OPEN', purpose: s('purpose'), note: orNull('note'), parts: woLines(fd) } };
+    const payload = { action: 'OPEN', purpose: s('purpose'), note: orNull('note'), parts: woLines(fd) };
+    // D67: opened from an inspection sheet — the engine links the two both ways.
+    if (form.dataset.inspection) payload.inspection = form.dataset.inspection;
+    return { serial: form.dataset.serial, payload };
   }
   if (verb === 'ADD-PARTS') return { serial: null, payload: { action: verb, work_order: wo, parts: woLines(fd) } };
   if (verb === 'PART-STATE') {
@@ -4673,6 +5502,7 @@ document.addEventListener('submit', async (ev) => {
   const fd = new FormData(form);
   const action = form.dataset.action;
   if (action === 'reserve' && updateWindowHint(form)) return;   // only end<start / past windows block; overlaps never do
+  if (action === 'inspection') { await submitInspection(form, fd, btn); return; }
 
   // A customer ticket needs a customer; a fleet one takes it from the unit.
   if (action === 'ticket_open' && fd.get('machine_owner') === 'CUSTOMER' && !String(fd.get('customer') || '').trim()) {
@@ -4745,7 +5575,50 @@ document.addEventListener('submit', async (ev) => {
   }
 });
 
+/**
+ * D67 — Done / Void / Reopen on a sheet. Done saves whatever is still unsaved
+ * FIRST (the engine applies in order, so the last section lands before the
+ * lock), and refuses to go if that save failed.
+ */
+const INSP_MSG = {
+  DONE: 'Done. The hours reach the unit at the next run.',
+  VOID: 'The sheet goes away at the next run.',
+  REOPEN: 'It goes back to DRAFT at the next run.',
+};
+async function submitInspection(form, fd, btn) {
+  const verb = form.dataset.verb;
+  const id = form.dataset.insp;
+  const key = form.dataset.key;
+  if (btn) btn.disabled = true;
+  try {
+    let payload;
+    if (verb === 'DONE') {
+      await flushSheet(key);
+      const l = sheetLocal.get(key);
+      if (l && (l.dirty.size || l.status === 'failed')) throw new Error("The last change didn't save — retry it, then Done.");
+      payload = { action: 'DONE', inspection: id, tech: String(fd.get('tech') || '') || null };
+    } else {
+      payload = { action: verb, inspection: id, note: String(fd.get('note') || '').trim() || null };
+    }
+    const stored = await postEvent(ctx(), 'inspection', null, payload);
+    state.pending.push(stored);
+    ui.form = null;
+    ui.msg = { tone: 'ok', text: INSP_MSG[verb] || 'Applies at the next run.' };
+  } catch (err) {
+    ui.msg = { tone: 'bad', text: err.message };
+    if (btn) btn.disabled = false;
+  }
+  render();
+}
+
+// D67: a sheet with unsaved changes saves on the way out — a new route, the
+// app going to the background, the tab closing. Best effort; the save line
+// says so when it could not.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushAllSheets(); });
+window.addEventListener('pagehide', flushAllSheets);
+
 window.addEventListener('hashchange', () => {
+  flushAllSheets();
   ui.form = null; ui.msg = null; pendingPick = null;
   // The sheet is about one pin and does not survive a navigation. The VIEWPORT
   // does: coming back to the map should land where you left it, not re-home.
@@ -4777,3 +5650,5 @@ refresh();
 export { render as __render, refresh as __refresh };
 export const __state = () => state;
 export const __ui = () => ui;
+export const __flushSheets = async () => { flushAllSheets(); for (const l of sheetLocal.values()) await l.chain; };
+export const __sheetLocal = () => sheetLocal;

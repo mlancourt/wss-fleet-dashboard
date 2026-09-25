@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-24T21:17:29.463Z",
+    "ts": "2026-09-25T11:27:26.766Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,13 +9,13 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "start": "2026-09-27",
-      "end": "2026-09-30"
+      "start": "2026-09-28",
+      "end": "2026-10-01"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-24T23:37:29.463Z",
+    "ts": "2026-09-25T13:47:26.766Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-25T00:05:29.463Z",
+    "ts": "2026-09-25T14:15:26.766Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-25T00:11:29.463Z",
+    "ts": "2026-09-25T14:21:26.766Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -55,13 +55,13 @@
     "payload": {
       "dispatch_id": "m-si-2201",
       "rig": "TRAILER-6000",
-      "date": "2026-09-25",
+      "date": "2026-09-26",
       "driver": "Kevin"
     }
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-25T00:14:29.463Z",
+    "ts": "2026-09-25T14:24:26.766Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-25T00:15:29.463Z",
+    "ts": "2026-09-25T14:25:26.766Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-09-24T23:52:29.463Z",
+    "ts": "2026-09-25T14:02:26.766Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-09-25T00:08:29.463Z",
+    "ts": "2026-09-25T14:18:26.766Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -121,14 +121,14 @@
     "payload": {
       "lead": "L1005",
       "stage": "DEMO-SCHEDULED",
-      "demo_date": "2026-09-26",
+      "demo_date": "2026-09-27",
       "demo_serial": "900107",
       "note": "They asked to see it run"
     }
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-09-25T00:10:29.463Z",
+    "ts": "2026-09-25T14:20:26.766Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -136,13 +136,13 @@
     "payload": {
       "agreement": "R092526A",
       "action": "OFF-RENT",
-      "date": "2026-09-24",
+      "date": "2026-09-25",
       "note": "Plant called — done with it"
     }
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-09-25T00:12:29.463Z",
+    "ts": "2026-09-25T14:22:26.766Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-09-25T00:14:29.463Z",
+    "ts": "2026-09-25T14:24:26.766Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -171,15 +171,50 @@
     "payload": {
       "action": "LABOR",
       "work_order": "W1001",
-      "date": "2026-09-24",
+      "date": "2026-09-25",
       "who": "Josh",
       "hours": 0.75,
       "note": "valve seat cleaned"
     }
   },
   {
+    "id": "evt-mock-13",
+    "ts": "2026-09-25T14:21:26.766Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "inspection",
+    "serial": "900121",
+    "payload": {
+      "action": "OPEN",
+      "kind": "RETURN",
+      "readings": {
+        "hours_key": 1204,
+        "hours_traction": null,
+        "hours_scrub": null,
+        "recharge_count": null,
+        "main_broom_length": null,
+        "brush1_length": null,
+        "brush2_length": null,
+        "brushes_rotated": null
+      }
+    }
+  },
+  {
+    "id": "evt-mock-14",
+    "ts": "2026-09-25T14:25:26.766Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "inspection",
+    "serial": null,
+    "payload": {
+      "action": "SAVE",
+      "inspection": "I1005",
+      "comments": "needs the rear curtain before it goes out"
+    }
+  },
+  {
     "id": "evt-mock-9",
-    "ts": "2026-09-25T00:13:29.463Z",
+    "ts": "2026-09-25T14:23:26.766Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",

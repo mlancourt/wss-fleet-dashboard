@@ -1169,3 +1169,84 @@ form.write .wo-line select, form.write .wo-line input { margin: 0; min-width: 0;
 .stepper { display: flex; align-items: center; gap: 8px; }
 .stepper input { flex: 1 1 auto; text-align: center; font-variant-numeric: tabular-nums; margin: 0; }
 .stepper .btn.sm { min-width: 48px; min-height: var(--tap); font-size: 20px; margin: 0; }
+
+/* ----------------------------------------------- inspection sheet (D67) ---
+   One long scroll, gloves on. Every answer is a tap target >= 44px; the only
+   typing is the meter, the hydrometer and the notes. Flag answers (Repair /
+   Problem / Replace) light amber, never red — a found problem is the sheet
+   doing its job, not an alarm. */
+.chip.insp { background: #ECFDF5; color: #065F46; text-transform: none; letter-spacing: 0; }
+.hours-line { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--slate-700); margin-top: 2px; }
+.irow-link {
+  display: flex; align-items: center; gap: 8px; padding: 12px 0; min-height: var(--tap);
+  border-bottom: 1px solid var(--slate-100); color: var(--slate-900); text-decoration: none; font-size: 14.5px;
+}
+.irow-link:last-child { border-bottom: 0; }
+.irow-link > span:first-child { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
+.insp-pick label { display: block; font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); margin: 4px 0 8px; }
+.insp-status { margin: 8px 0; padding: 8px 12px; border-radius: var(--radius-sm);
+  background: var(--slate-50); border: 1px solid var(--slate-200); font-size: 13px; color: var(--ink-2); }
+/* A save that failed pins itself above the tab bar — wherever the tech has
+   scrolled to, the retry is under the thumb. */
+.insp-status.is-bad {
+  position: fixed; left: 12px; right: 12px; z-index: 25; margin: 0;
+  bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 8px);
+  background: var(--bad-bg); border-color: #FECACA; box-shadow: var(--shadow);
+}
+.insp-status .btn.sm { margin: 6px 0 0; }
+.ist.ok { color: var(--ok); font-weight: 650; }
+.ist.bad { color: var(--bad); font-weight: 650; }
+
+.insp-card { display: grid; gap: 10px; }
+.ifl { display: grid; gap: 4px; min-width: 0; }
+.ifl > span { font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--ink-3); }
+.insp input, .insp select, .insp textarea, .cell-r input, .cell-r select {
+  width: 100%; min-width: 0; min-height: var(--tap); padding: 8px 10px; font: inherit;
+  border: 1px solid var(--slate-300); border-radius: var(--radius-sm); background: var(--white); color: var(--ink);
+}
+.insp textarea { min-height: 96px; resize: vertical; }
+.insp input:focus, .insp select:focus, .insp textarea:focus { outline: 2px solid var(--red); outline-offset: -1px; border-color: var(--red); }
+.insp input.bad { border-color: var(--bad); background: var(--bad-bg); }
+.insp :disabled { background: var(--slate-50); color: var(--slate-700); opacity: 1; }
+.ifl.big input { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; min-height: 52px; }
+.insp-hours { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.insp-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.insp-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+
+.iseg { display: flex; gap: 4px; }
+.seg-b {
+  flex: 1 1 0; min-width: 0; min-height: var(--tap); padding: 6px 4px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--slate-300); background: var(--white); color: var(--slate-800);
+  font: inherit; font-weight: 650; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.seg-b.on { background: var(--ok); border-color: var(--ok); color: var(--white); }
+.seg-b.f.on { background: var(--warn); border-color: var(--warn); }
+.seg-b.on[data-val="N/A"] { background: var(--slate-600); border-color: var(--slate-600); }
+.seg-b:disabled { cursor: default; }
+.seg-b:disabled:not(.on) { color: var(--slate-400); }
+
+.insp-instr { margin: -2px 0 8px; }
+.insp-rows { padding-top: 4px; padding-bottom: 4px; }
+.irow { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--slate-100); }
+.irow:last-child { border-bottom: 0; }
+.irow.flag { background: var(--warn-bg); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.irow-top { display: flex; align-items: flex-start; gap: 10px; }
+.irow-l { flex: 1 1 auto; font-weight: 650; font-size: 14.5px; color: var(--slate-900); }
+.inote-add {
+  flex: 0 0 auto; min-height: 32px; margin: -6px -6px 0 0; padding: 4px 8px; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 650; color: var(--red-deep);
+}
+.inote-ro { font-size: 13.5px; color: var(--ink-2); }
+
+.cell-head, .cell-r { display: grid; grid-template-columns: 34px minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; align-items: center; }
+.cell-head { font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--ink-3); }
+.cell-g { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--slate-100); }
+.cell-gh { font-size: 12.5px; font-weight: 700; color: var(--slate-700); }
+.cell-l { font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--slate-700); }
+.cell-r input { font-variant-numeric: tabular-nums; padding: 8px 6px; }
+.cell-r select { padding: 8px 4px; font-size: 13.5px; }
+.insp-foot { margin-top: 18px; }
+/* The Inspections pill is the longest words on the landing — let it drop under
+   the title on a phone rather than squeeze the title into three lines. */
+.insp-strip .parts-head { flex-wrap: wrap; row-gap: 6px; }
+.insp-strip .parts-t, .insp-strip .parts-n, .insp-strip .parts-new { white-space: nowrap; }

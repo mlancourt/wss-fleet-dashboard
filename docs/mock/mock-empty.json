@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-09-25T00:17:29.460Z",
+    "generated_at": "2026-09-25T14:27:26.762Z",
     "run_id": "mock-empty-2026-09-25",
     "fleet_totals": {
       "units": 39
@@ -68,8 +68,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 258,
-      "in_service": "2023-04-28",
+      "hours": null,
+      "in_service": "2023-04-29",
       "ask": 17050,
       "rate_card": {
         "full_day": 355,
@@ -89,9 +89,9 @@
           "held_by": "Kevin",
           "customer": "Lakeshore Beverage",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-09-30",
-          "end": "2026-09-30",
-          "created": "2026-09-22",
+          "start": "2026-10-01",
+          "end": "2026-10-01",
+          "created": "2026-09-23",
           "status": "future"
         },
         {
@@ -99,18 +99,21 @@
           "held_by": "Kevin",
           "customer": "Bluebird Logistics",
           "purpose": "trade-show loaner",
-          "start": "2026-10-02",
-          "end": "2026-10-04",
-          "created": "2026-09-22",
+          "start": "2026-10-03",
+          "end": "2026-10-05",
+          "created": "2026-09-23",
           "status": "future"
         }
       ],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-26",
+      "readiness_since": "2026-07-27",
       "readiness_age_days": 60,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900114",
@@ -123,8 +126,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1917,
-      "in_service": "2025-03-22",
+      "hours": null,
+      "in_service": "2025-03-23",
       "ask": 9150,
       "rate_card": {
         "full_day": 225,
@@ -144,18 +147,21 @@
           "held_by": "Kevin",
           "customer": "Cedar Ridge Foods",
           "purpose": "DEMO — customer site",
-          "start": "2026-09-27",
-          "end": "2026-09-27",
-          "created": "2026-09-22",
+          "start": "2026-09-28",
+          "end": "2026-09-28",
+          "created": "2026-09-23",
           "status": "future"
         }
       ],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-06-26",
+      "readiness_since": "2026-06-27",
       "readiness_age_days": 90,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900121",
@@ -168,8 +174,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1166,
-      "in_service": "2025-01-19",
+      "hours": null,
+      "in_service": "2025-01-20",
       "ask": 22050,
       "rate_card": {
         "full_day": 385,
@@ -194,9 +200,9 @@
           "held_by": "Kevin",
           "customer": "Juniper Metalworks",
           "purpose": "quote hold",
-          "start": "2026-10-06",
-          "end": "2026-10-06",
-          "created": "2026-09-22",
+          "start": "2026-10-07",
+          "end": "2026-10-07",
+          "created": "2026-09-23",
           "status": "future"
         },
         {
@@ -204,18 +210,21 @@
           "held_by": "Kevin",
           "customer": "Bluebird Logistics",
           "purpose": "trade-show loaner",
-          "start": "2026-10-14",
-          "end": "2026-10-16",
-          "created": "2026-09-22",
+          "start": "2026-10-15",
+          "end": "2026-10-17",
+          "created": "2026-09-23",
           "status": "future"
         }
       ],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-06-25",
+      "readiness_since": "2026-06-26",
       "readiness_age_days": 91,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900128",
@@ -228,8 +237,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 724,
-      "in_service": "2025-03-01",
+      "hours": null,
+      "in_service": "2025-03-02",
       "ask": 7800,
       "rate_card": {
         "full_day": 245,
@@ -251,10 +260,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-22",
+      "readiness_since": "2026-08-23",
       "readiness_age_days": 33,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900135",
@@ -267,8 +279,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 484,
-      "in_service": "2022-03-01",
+      "hours": null,
+      "in_service": "2022-03-02",
       "ask": 10150,
       "rate_card": {
         "full_day": 475,
@@ -285,10 +297,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-27",
+      "readiness_since": "2026-07-28",
       "readiness_age_days": 59,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900142",
@@ -301,8 +316,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1532,
-      "in_service": "2025-06-21",
+      "hours": null,
+      "in_service": "2025-06-22",
       "ask": 22550,
       "rate_card": {
         "full_day": 440,
@@ -319,10 +334,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-16",
+      "readiness_since": "2026-07-17",
       "readiness_age_days": 70,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900149",
@@ -335,8 +353,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 711,
-      "in_service": "2024-04-23",
+      "hours": null,
+      "in_service": "2024-04-24",
       "ask": 4450,
       "rate_card": {
         "full_day": 345,
@@ -358,10 +376,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-06-28",
+      "readiness_since": "2026-06-29",
       "readiness_age_days": 88,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900156",
@@ -374,8 +395,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1712,
-      "in_service": "2024-06-13",
+      "hours": null,
+      "in_service": "2024-06-14",
       "ask": 19550,
       "rate_card": {
         "full_day": 295,
@@ -397,10 +418,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-15",
+      "readiness_since": "2026-08-16",
       "readiness_age_days": 40,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900163",
@@ -413,8 +437,8 @@
       "unit_state": "RESERVED",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2432,
-      "in_service": "2024-04-14",
+      "hours": null,
+      "in_service": "2024-04-15",
       "ask": 18350,
       "rate_card": {
         "full_day": 170,
@@ -434,18 +458,21 @@
           "held_by": "Kevin",
           "customer": "Summit Fabrication",
           "purpose": "quote hold",
-          "start": "2026-09-23",
-          "end": "2026-09-27",
-          "created": "2026-09-21",
+          "start": "2026-09-24",
+          "end": "2026-09-28",
+          "created": "2026-09-22",
           "status": "current"
         }
       ],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-07",
+      "readiness_since": "2026-08-08",
       "readiness_age_days": 48,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900170",
@@ -458,8 +485,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2562,
-      "in_service": "2023-07-29",
+      "hours": null,
+      "in_service": "2023-07-30",
       "ask": 7400,
       "rate_card": {
         "full_day": 270,
@@ -476,10 +503,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-09-11",
+      "readiness_since": "2026-09-12",
       "readiness_age_days": 13,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900177",
@@ -492,8 +522,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2488,
-      "in_service": "2023-07-17",
+      "hours": null,
+      "in_service": "2023-07-18",
       "ask": 11850,
       "rate_card": {
         "full_day": 375,
@@ -515,10 +545,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-04",
+      "readiness_since": "2026-07-05",
       "readiness_age_days": 82,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900184",
@@ -531,8 +564,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1420,
-      "in_service": "2024-10-01",
+      "hours": null,
+      "in_service": "2024-10-02",
       "ask": 17850,
       "rate_card": {
         "full_day": 580,
@@ -554,10 +587,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-26",
+      "readiness_since": "2026-08-27",
       "readiness_age_days": 29,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900191",
@@ -570,8 +606,8 @@
       "unit_state": "IN-SHOP",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2581,
-      "in_service": "2023-06-05",
+      "hours": null,
+      "in_service": "2023-06-06",
       "ask": 25900,
       "rate_card": {
         "full_day": 360,
@@ -591,18 +627,21 @@
           "held_by": "Kevin",
           "customer": "Granite Peak Warehouse",
           "purpose": "bad dates",
-          "start": "2026-09-29",
-          "end": "2026-09-27",
-          "created": "2026-09-22",
+          "start": "2026-09-30",
+          "end": "2026-09-28",
+          "created": "2026-09-23",
           "status": "malformed"
         }
       ],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-17",
+      "readiness_since": "2026-07-18",
       "readiness_age_days": 69,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900198",
@@ -615,8 +654,8 @@
       "unit_state": "RESERVED",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1134,
-      "in_service": "2023-10-25",
+      "hours": null,
+      "in_service": "2023-10-26",
       "ask": 14850,
       "rate_card": {
         "full_day": 380,
@@ -636,18 +675,21 @@
           "held_by": "Kevin",
           "customer": "Northgate Fulfillment",
           "purpose": "replacement for down unit",
-          "start": "2026-09-15",
-          "end": "2026-09-21",
-          "created": "2026-09-13",
+          "start": "2026-09-16",
+          "end": "2026-09-22",
+          "created": "2026-09-14",
           "status": "expired"
         }
       ],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-03",
+      "readiness_since": "2026-07-04",
       "readiness_age_days": 83,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900205",
@@ -660,8 +702,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1202,
-      "in_service": "2022-10-09",
+      "hours": null,
+      "in_service": "2022-10-10",
       "ask": 8700,
       "rate_card": {
         "full_day": 300,
@@ -678,10 +720,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-01",
+      "readiness_since": "2026-08-02",
       "readiness_age_days": 54,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900212",
@@ -694,8 +739,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1267,
-      "in_service": "2022-03-15",
+      "hours": null,
+      "in_service": "2022-03-16",
       "ask": 16100,
       "rate_card": {
         "full_day": 360,
@@ -717,10 +762,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-29",
+      "readiness_since": "2026-08-30",
       "readiness_age_days": 26,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900219",
@@ -733,8 +781,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1893,
-      "in_service": "2025-06-23",
+      "hours": null,
+      "in_service": "2025-06-24",
       "ask": 9050,
       "rate_card": {
         "full_day": 550,
@@ -756,10 +804,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-11",
+      "readiness_since": "2026-07-12",
       "readiness_age_days": 75,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900226",
@@ -772,8 +823,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2327,
-      "in_service": "2021-12-09",
+      "hours": null,
+      "in_service": "2021-12-10",
       "ask": 7950,
       "rate_card": {
         "full_day": 560,
@@ -790,10 +841,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-18",
+      "readiness_since": "2026-07-19",
       "readiness_age_days": 68,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900233",
@@ -806,8 +860,8 @@
       "unit_state": "IN-SHOP",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2309,
-      "in_service": "2022-05-29",
+      "hours": null,
+      "in_service": "2022-05-30",
       "ask": 17300,
       "rate_card": {
         "full_day": 320,
@@ -824,10 +878,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-06-28",
+      "readiness_since": "2026-06-29",
       "readiness_age_days": 88,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900240",
@@ -840,8 +897,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2732,
-      "in_service": "2023-10-10",
+      "hours": null,
+      "in_service": "2023-10-11",
       "ask": 6150,
       "rate_card": {
         "full_day": 215,
@@ -863,10 +920,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-12",
+      "readiness_since": "2026-07-13",
       "readiness_age_days": 74,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900247",
@@ -879,8 +939,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 912,
-      "in_service": "2022-01-12",
+      "hours": null,
+      "in_service": "2022-01-13",
       "ask": 17650,
       "rate_card": {
         "full_day": 525,
@@ -902,10 +962,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-08",
+      "readiness_since": "2026-08-09",
       "readiness_age_days": 47,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900254",
@@ -918,8 +981,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1361,
-      "in_service": "2023-06-07",
+      "hours": null,
+      "in_service": "2023-06-08",
       "ask": 9200,
       "rate_card": {
         "full_day": 180,
@@ -941,10 +1004,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-08",
+      "readiness_since": "2026-07-09",
       "readiness_age_days": 78,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900261",
@@ -957,8 +1023,8 @@
       "unit_state": "LOANER-OUT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1009,
-      "in_service": "2022-03-11",
+      "hours": null,
+      "in_service": "2022-03-12",
       "ask": 5000,
       "rate_card": {
         "full_day": 565,
@@ -980,10 +1046,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-02",
+      "readiness_since": "2026-07-03",
       "readiness_age_days": 84,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900268",
@@ -996,8 +1065,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 231,
-      "in_service": "2022-02-11",
+      "hours": null,
+      "in_service": "2022-02-12",
       "ask": 12500,
       "rate_card": {
         "full_day": 240,
@@ -1014,10 +1083,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-09-06",
+      "readiness_since": "2026-09-07",
       "readiness_age_days": 18,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900275",
@@ -1030,8 +1102,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1198,
-      "in_service": "2022-09-02",
+      "hours": null,
+      "in_service": "2022-09-03",
       "ask": 18000,
       "rate_card": {
         "full_day": 325,
@@ -1053,10 +1125,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-09-13",
+      "readiness_since": "2026-09-14",
       "readiness_age_days": 11,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900282",
@@ -1069,8 +1144,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1665,
-      "in_service": "2023-07-08",
+      "hours": null,
+      "in_service": "2023-07-09",
       "ask": 15850,
       "rate_card": {
         "full_day": 585,
@@ -1087,10 +1162,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-09-10",
+      "readiness_since": "2026-09-11",
       "readiness_age_days": 14,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900289",
@@ -1104,7 +1182,7 @@
       "readiness": "DOWN",
       "readiness_note": "traction motor pulled",
       "hours": null,
-      "in_service": "2022-06-22",
+      "in_service": "2022-06-23",
       "ask": 25400,
       "rate_card": {
         "full_day": 355,
@@ -1121,10 +1199,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-18",
+      "readiness_since": "2026-07-19",
       "readiness_age_days": 68,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900296",
@@ -1137,8 +1218,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2317,
-      "in_service": "2021-11-09",
+      "hours": null,
+      "in_service": "2021-11-10",
       "ask": 3900,
       "rate_card": {
         "full_day": 200,
@@ -1160,10 +1241,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-02",
+      "readiness_since": "2026-08-03",
       "readiness_age_days": 53,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900303",
@@ -1176,8 +1260,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1029,
-      "in_service": "2022-09-03",
+      "hours": null,
+      "in_service": "2022-09-04",
       "ask": 8450,
       "rate_card": {
         "full_day": 205,
@@ -1199,10 +1283,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-17",
+      "readiness_since": "2026-08-18",
       "readiness_age_days": 38,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900310",
@@ -1215,8 +1302,8 @@
       "unit_state": "LOANER-OUT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 806,
-      "in_service": "2024-05-13",
+      "hours": null,
+      "in_service": "2024-05-14",
       "ask": 15800,
       "rate_card": {
         "full_day": 470,
@@ -1238,10 +1325,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-30",
+      "readiness_since": "2026-07-31",
       "readiness_age_days": 56,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900317",
@@ -1254,8 +1344,8 @@
       "unit_state": "IN-SHOP",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 1833,
-      "in_service": "2022-07-19",
+      "hours": null,
+      "in_service": "2022-07-20",
       "ask": 11400,
       "rate_card": {
         "full_day": 245,
@@ -1272,10 +1362,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-09-10",
+      "readiness_since": "2026-09-11",
       "readiness_age_days": 14,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900324",
@@ -1288,8 +1381,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 486,
-      "in_service": "2023-03-27",
+      "hours": null,
+      "in_service": "2023-03-28",
       "ask": 22500,
       "rate_card": {
         "full_day": 555,
@@ -1311,10 +1404,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-20",
+      "readiness_since": "2026-07-21",
       "readiness_age_days": 66,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900331",
@@ -1327,8 +1423,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 371,
-      "in_service": "2024-02-01",
+      "hours": null,
+      "in_service": "2024-02-02",
       "ask": 9300,
       "rate_card": {
         "full_day": 300,
@@ -1350,10 +1446,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-09-10",
+      "readiness_since": "2026-09-11",
       "readiness_age_days": 14,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900338",
@@ -1366,8 +1465,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2983,
-      "in_service": "2024-02-01",
+      "hours": null,
+      "in_service": "2024-02-02",
       "ask": 11100,
       "rate_card": {
         "full_day": 495,
@@ -1389,10 +1488,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-20",
+      "readiness_since": "2026-07-21",
       "readiness_age_days": 66,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900345",
@@ -1405,8 +1507,8 @@
       "unit_state": "RESERVED",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2889,
-      "in_service": "2022-01-04",
+      "hours": null,
+      "in_service": "2022-01-05",
       "ask": 5300,
       "rate_card": {
         "full_day": 350,
@@ -1426,9 +1528,9 @@
           "held_by": "Matt",
           "customer": "Cedar Ridge Manufacturing",
           "purpose": "quote hold",
-          "start": "2026-09-24",
-          "end": "2026-09-24",
-          "created": "2026-09-22",
+          "start": "2026-09-25",
+          "end": "2026-09-25",
+          "created": "2026-09-23",
           "status": "current"
         },
         {
@@ -1436,9 +1538,9 @@
           "held_by": "Kevin",
           "customer": "Fairmont Dairy",
           "purpose": "quote hold",
-          "start": "2026-09-28",
-          "end": "2026-09-28",
-          "created": "2026-09-22",
+          "start": "2026-09-29",
+          "end": "2026-09-29",
+          "created": "2026-09-23",
           "status": "future"
         },
         {
@@ -1446,9 +1548,9 @@
           "held_by": "Kevin",
           "customer": "Quarry Road Aggregates",
           "purpose": "DEMO — Ixonia",
-          "start": "2026-10-01",
-          "end": "2026-10-03",
-          "created": "2026-09-22",
+          "start": "2026-10-02",
+          "end": "2026-10-04",
+          "created": "2026-09-23",
           "status": "future"
         },
         {
@@ -1456,18 +1558,21 @@
           "held_by": "Kevin",
           "customer": "Evergreen Distribution",
           "purpose": "quote hold",
-          "start": "2026-10-08",
-          "end": "2026-10-08",
-          "created": "2026-09-22",
+          "start": "2026-10-09",
+          "end": "2026-10-09",
+          "created": "2026-09-23",
           "status": "future"
         }
       ],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-30",
+      "readiness_since": "2026-08-31",
       "readiness_age_days": 25,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900352",
@@ -1480,8 +1585,8 @@
       "unit_state": "AVAILABLE",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2591,
-      "in_service": "2023-06-23",
+      "hours": null,
+      "in_service": "2023-06-24",
       "ask": 16650,
       "rate_card": {
         "full_day": 495,
@@ -1498,10 +1603,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-07",
+      "readiness_since": "2026-07-08",
       "readiness_age_days": 79,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900359",
@@ -1514,8 +1622,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 2150,
-      "in_service": "2024-03-16",
+      "hours": null,
+      "in_service": "2024-03-17",
       "ask": 4350,
       "rate_card": {
         "full_day": 475,
@@ -1537,10 +1645,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-07-11",
+      "readiness_since": "2026-07-12",
       "readiness_age_days": 75,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900366",
@@ -1553,8 +1664,8 @@
       "unit_state": "ON-RENT",
       "readiness": "READY",
       "readiness_note": null,
-      "hours": 250,
-      "in_service": "2022-08-25",
+      "hours": null,
+      "in_service": "2022-08-26",
       "ask": 5750,
       "rate_card": {
         "full_day": 525,
@@ -1576,10 +1687,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-09-05",
+      "readiness_since": "2026-09-06",
       "readiness_age_days": 19,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     },
     {
       "serial": "900373",
@@ -1593,7 +1707,7 @@
       "readiness": "NEEDS-PREP",
       "readiness_note": "brush worn, swap before ship",
       "hours": null,
-      "in_service": "2022-04-12",
+      "in_service": "2022-04-13",
       "ask": 13650,
       "rate_card": {
         "full_day": 175,
@@ -1610,10 +1724,13 @@
       "reservations": [],
       "service_ticket": null,
       "pending_agreement": null,
-      "readiness_since": "2026-08-09",
+      "readiness_since": "2026-08-10",
       "readiness_age_days": 46,
       "work_order": null,
-      "wo_parts_open": 0
+      "wo_parts_open": 0,
+      "inspection_draft": null,
+      "last_inspection": null,
+      "hours_as_of": null
     }
   ],
   "agreements": [
@@ -1625,8 +1742,8 @@
       "cycle_rate": 1075,
       "cycles_billed": 12,
       "cycles_max": 1,
-      "last_invoiced_period_start": "2026-08-27",
-      "last_invoiced_period_end": "2026-09-23",
+      "last_invoiced_period_start": "2026-08-28",
+      "last_invoiced_period_end": "2026-09-24",
       "last_invoice": "R4103-12",
       "next_due": null,
       "job_site": "W229 N1433 Westwood Dr, Ixonia WI",
@@ -1639,7 +1756,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-05-18",
+      "on_rent_since": "2026-05-19",
       "days_on_rent": 129,
       "off_rent": null,
       "delivery": null
@@ -1652,10 +1769,10 @@
       "cycle_rate": 875,
       "cycles_billed": 10,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-13",
-      "last_invoiced_period_end": "2026-09-09",
+      "last_invoiced_period_start": "2026-08-14",
+      "last_invoiced_period_end": "2026-09-10",
       "last_invoice": "R4106-10",
-      "next_due": "2026-10-07",
+      "next_due": "2026-10-08",
       "job_site": "77 Logistics Ln, Beloit WI",
       "customer_po": null,
       "alerts": [],
@@ -1666,7 +1783,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-02-14",
+      "on_rent_since": "2026-02-15",
       "days_on_rent": 222,
       "off_rent": null,
       "delivery": null
@@ -1679,8 +1796,8 @@
       "cycle_rate": 2350,
       "cycles_billed": 2,
       "cycles_max": 1,
-      "last_invoiced_period_start": "2026-08-26",
-      "last_invoiced_period_end": "2026-09-22",
+      "last_invoiced_period_start": "2026-08-27",
+      "last_invoiced_period_end": "2026-09-23",
       "last_invoice": "R4109-2.1",
       "next_due": null,
       "job_site": "615 Distribution Way, Sun Prairie WI",
@@ -1695,7 +1812,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-02-04",
+      "on_rent_since": "2026-02-05",
       "days_on_rent": 232,
       "off_rent": null,
       "delivery": null
@@ -1708,8 +1825,8 @@
       "cycle_rate": 2075,
       "cycles_billed": 4,
       "cycles_max": 8,
-      "last_invoiced_period_start": "2026-08-08",
-      "last_invoiced_period_end": "2026-09-04",
+      "last_invoiced_period_start": "2026-08-09",
+      "last_invoiced_period_end": "2026-09-05",
       "last_invoice": "R4112-4",
       "next_due": null,
       "job_site": "820 Commerce Pkwy, Milwaukee WI",
@@ -1724,7 +1841,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2025-11-27",
+      "on_rent_since": "2025-11-28",
       "days_on_rent": 301,
       "off_rent": null,
       "delivery": null
@@ -1737,10 +1854,10 @@
       "cycle_rate": 1375,
       "cycles_billed": 6,
       "cycles_max": 8,
-      "last_invoiced_period_start": "2026-08-21",
-      "last_invoiced_period_end": "2026-09-17",
+      "last_invoiced_period_start": "2026-08-22",
+      "last_invoiced_period_end": "2026-09-18",
       "last_invoice": "R4115-6",
-      "next_due": "2026-10-15",
+      "next_due": "2026-10-16",
       "job_site": "2280 Corporate Cir, Watertown WI",
       "customer_po": null,
       "alerts": [],
@@ -1751,7 +1868,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2025-12-06",
+      "on_rent_since": "2025-12-07",
       "days_on_rent": 292,
       "off_rent": null,
       "delivery": null
@@ -1764,10 +1881,10 @@
       "cycle_rate": 550,
       "cycles_billed": 6,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-24",
-      "last_invoiced_period_end": "2026-09-20",
+      "last_invoiced_period_start": "2026-08-25",
+      "last_invoiced_period_end": "2026-09-21",
       "last_invoice": "519665",
-      "next_due": "2026-10-18",
+      "next_due": "2026-10-19",
       "job_site": "820 Commerce Pkwy, Oconomowoc WI",
       "customer_po": "PO-89532",
       "alerts": [],
@@ -1778,7 +1895,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-02-22",
+      "on_rent_since": "2026-02-23",
       "days_on_rent": 214,
       "off_rent": null,
       "delivery": null
@@ -1791,10 +1908,10 @@
       "cycle_rate": 2075,
       "cycles_billed": 12,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-24",
-      "last_invoiced_period_end": "2026-09-20",
+      "last_invoiced_period_start": "2026-08-25",
+      "last_invoiced_period_end": "2026-09-21",
       "last_invoice": "R4121-12",
-      "next_due": "2026-10-18",
+      "next_due": "2026-10-19",
       "job_site": "1400 Industrial Dr, Waukesha WI",
       "customer_po": "PO-10888",
       "alerts": [],
@@ -1805,7 +1922,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-04-16",
+      "on_rent_since": "2026-04-17",
       "days_on_rent": 161,
       "off_rent": null,
       "delivery": null
@@ -1818,10 +1935,10 @@
       "cycle_rate": 2025,
       "cycles_billed": 7,
       "cycles_max": 6,
-      "last_invoiced_period_start": "2026-08-08",
-      "last_invoiced_period_end": "2026-09-04",
+      "last_invoiced_period_start": "2026-08-09",
+      "last_invoiced_period_end": "2026-09-05",
       "last_invoice": "R4124-7",
-      "next_due": "2026-10-02",
+      "next_due": "2026-10-03",
       "job_site": "910 Foundry Rd, Jefferson WI",
       "customer_po": null,
       "alerts": [
@@ -1834,7 +1951,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-07-01",
+      "on_rent_since": "2026-07-02",
       "days_on_rent": 85,
       "off_rent": null,
       "delivery": null
@@ -1847,10 +1964,10 @@
       "cycle_rate": 1600,
       "cycles_billed": 1,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-13",
-      "last_invoiced_period_end": "2026-09-09",
+      "last_invoiced_period_start": "2026-08-14",
+      "last_invoiced_period_end": "2026-09-10",
       "last_invoice": "R092526A-1",
-      "next_due": "2026-10-07",
+      "next_due": "2026-10-08",
       "job_site": "2280 Corporate Cir, Milwaukee WI",
       "customer_po": null,
       "alerts": [],
@@ -1860,7 +1977,7 @@
           "name": "2026-09-25-RentalAgreement-R092526A.pdf",
           "kind": "CONTRACT",
           "bytes": 96410,
-          "added": "2026-09-21"
+          "added": "2026-09-22"
         }
       ],
       "status": "ACTIVE",
@@ -1869,7 +1986,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-04-05",
+      "on_rent_since": "2026-04-06",
       "days_on_rent": 172,
       "off_rent": null,
       "delivery": null
@@ -1882,10 +1999,10 @@
       "cycle_rate": 625,
       "cycles_billed": 3,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-22",
-      "last_invoiced_period_end": "2026-09-18",
+      "last_invoiced_period_start": "2026-08-23",
+      "last_invoiced_period_end": "2026-09-19",
       "last_invoice": "R4130-3",
-      "next_due": "2026-10-16",
+      "next_due": "2026-10-17",
       "job_site": "1400 Industrial Dr, Sun Prairie WI",
       "customer_po": "PO-63826",
       "alerts": [],
@@ -1896,7 +2013,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-06-23",
+      "on_rent_since": "2026-06-24",
       "days_on_rent": 93,
       "off_rent": null,
       "delivery": null
@@ -1938,10 +2055,10 @@
       "cycle_rate": 775,
       "cycles_billed": 11,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-09",
-      "last_invoiced_period_end": "2026-09-05",
+      "last_invoiced_period_start": "2026-08-10",
+      "last_invoiced_period_end": "2026-09-06",
       "last_invoice": "R4139-11",
-      "next_due": "2026-10-03",
+      "next_due": "2026-10-04",
       "job_site": "820 Commerce Pkwy, Watertown WI",
       "customer_po": "PO-65456",
       "alerts": [],
@@ -1952,7 +2069,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-06-17",
+      "on_rent_since": "2026-06-18",
       "days_on_rent": 99,
       "off_rent": null,
       "delivery": null
@@ -1965,10 +2082,10 @@
       "cycle_rate": 1800,
       "cycles_billed": 4,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-18",
-      "last_invoiced_period_end": "2026-09-14",
+      "last_invoiced_period_start": "2026-08-19",
+      "last_invoiced_period_end": "2026-09-15",
       "last_invoice": "R4142-4",
-      "next_due": "2026-10-12",
+      "next_due": "2026-10-13",
       "job_site": "615 Distribution Way, Watertown WI",
       "customer_po": null,
       "alerts": [],
@@ -1979,7 +2096,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-02-28",
+      "on_rent_since": "2026-03-01",
       "days_on_rent": 208,
       "off_rent": null,
       "delivery": null
@@ -1992,10 +2109,10 @@
       "cycle_rate": 1700,
       "cycles_billed": 4,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-22",
-      "last_invoiced_period_end": "2026-09-18",
+      "last_invoiced_period_start": "2026-08-23",
+      "last_invoiced_period_end": "2026-09-19",
       "last_invoice": "R4145-4",
-      "next_due": "2026-10-16",
+      "next_due": "2026-10-17",
       "job_site": "77 Logistics Ln, Waukesha WI",
       "customer_po": null,
       "alerts": [],
@@ -2006,7 +2123,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-01-08",
+      "on_rent_since": "2026-01-09",
       "days_on_rent": 259,
       "off_rent": null,
       "delivery": null
@@ -2019,8 +2136,8 @@
       "cycle_rate": 1050,
       "cycles_billed": 12,
       "cycles_max": 1,
-      "last_invoiced_period_start": "2026-08-13",
-      "last_invoiced_period_end": "2026-09-09",
+      "last_invoiced_period_start": "2026-08-14",
+      "last_invoiced_period_end": "2026-09-10",
       "last_invoice": "R4148-12",
       "next_due": null,
       "job_site": "W229 N1433 Westwood Dr, Ixonia WI",
@@ -2033,7 +2150,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-08-30",
+      "on_rent_since": "2026-08-31",
       "days_on_rent": 25,
       "off_rent": null,
       "delivery": null
@@ -2046,10 +2163,10 @@
       "cycle_rate": 1150,
       "cycles_billed": 4,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-21",
-      "last_invoiced_period_end": "2026-09-17",
+      "last_invoiced_period_start": "2026-08-22",
+      "last_invoiced_period_end": "2026-09-18",
       "last_invoice": "R4151-4",
-      "next_due": "2026-10-15",
+      "next_due": "2026-10-16",
       "job_site": "1201 Riverside Blvd, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
@@ -2060,7 +2177,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-07-14",
+      "on_rent_since": "2026-07-15",
       "days_on_rent": 72,
       "off_rent": null,
       "delivery": null
@@ -2073,10 +2190,10 @@
       "cycle_rate": 1650,
       "cycles_billed": 6,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-15",
-      "last_invoiced_period_end": "2026-09-11",
+      "last_invoiced_period_start": "2026-08-16",
+      "last_invoiced_period_end": "2026-09-12",
       "last_invoice": "R4154-6",
-      "next_due": "2026-10-09",
+      "next_due": "2026-10-10",
       "job_site": "77 Logistics Ln, Jefferson WI",
       "customer_po": "PO-53518",
       "alerts": [],
@@ -2087,7 +2204,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-04-09",
+      "on_rent_since": "2026-04-10",
       "days_on_rent": 168,
       "off_rent": null,
       "delivery": null
@@ -2100,10 +2217,10 @@
       "cycle_rate": 700,
       "cycles_billed": 5,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-27",
-      "last_invoiced_period_end": "2026-09-23",
+      "last_invoiced_period_start": "2026-08-28",
+      "last_invoiced_period_end": "2026-09-24",
       "last_invoice": "R4157-5",
-      "next_due": "2026-10-21",
+      "next_due": "2026-10-22",
       "job_site": "4400 Innovation Dr, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
@@ -2114,7 +2231,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2025-11-29",
+      "on_rent_since": "2025-11-30",
       "days_on_rent": 299,
       "off_rent": null,
       "delivery": null
@@ -2127,10 +2244,10 @@
       "cycle_rate": 1825,
       "cycles_billed": 13,
       "cycles_max": null,
-      "last_invoiced_period_start": "2026-08-26",
-      "last_invoiced_period_end": "2026-09-22",
+      "last_invoiced_period_start": "2026-08-27",
+      "last_invoiced_period_end": "2026-09-23",
       "last_invoice": "R4160-13",
-      "next_due": "2026-10-20",
+      "next_due": "2026-10-21",
       "job_site": "820 Commerce Pkwy, Jefferson WI",
       "customer_po": "PO-80706",
       "alerts": [],
@@ -2141,7 +2258,7 @@
       "out_move": "DELIVER",
       "in_date": null,
       "in_move": "PICKUP",
-      "on_rent_since": "2026-07-11",
+      "on_rent_since": "2026-07-12",
       "days_on_rent": 75,
       "off_rent": null,
       "delivery": null
@@ -2157,8 +2274,8 @@
         "held_by": "Kevin",
         "customer": "Summit Fabrication",
         "purpose": "quote hold",
-        "start": "2026-09-23",
-        "end": "2026-09-27",
+        "start": "2026-09-24",
+        "end": "2026-09-28",
         "status": "current"
       },
       {
@@ -2169,8 +2286,8 @@
         "held_by": "Matt",
         "customer": "Cedar Ridge Manufacturing",
         "purpose": "quote hold",
-        "start": "2026-09-24",
-        "end": "2026-09-24",
+        "start": "2026-09-25",
+        "end": "2026-09-25",
         "status": "current"
       },
       {
@@ -2181,8 +2298,8 @@
         "held_by": "Kevin",
         "customer": "Cedar Ridge Foods",
         "purpose": "DEMO — customer site",
-        "start": "2026-09-27",
-        "end": "2026-09-27",
+        "start": "2026-09-28",
+        "end": "2026-09-28",
         "status": "future"
       },
       {
@@ -2193,8 +2310,8 @@
         "held_by": "Kevin",
         "customer": "Fairmont Dairy",
         "purpose": "quote hold",
-        "start": "2026-09-28",
-        "end": "2026-09-28",
+        "start": "2026-09-29",
+        "end": "2026-09-29",
         "status": "future"
       },
       {
@@ -2205,8 +2322,8 @@
         "held_by": "Kevin",
         "customer": "Granite Peak Warehouse",
         "purpose": "bad dates",
-        "start": "2026-09-29",
-        "end": "2026-09-27",
+        "start": "2026-09-30",
+        "end": "2026-09-28",
         "status": "malformed"
       },
       {
@@ -2217,8 +2334,8 @@
         "held_by": "Kevin",
         "customer": "Lakeshore Beverage",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-09-30",
-        "end": "2026-09-30",
+        "start": "2026-10-01",
+        "end": "2026-10-01",
         "status": "future"
       },
       {
@@ -2229,8 +2346,8 @@
         "held_by": "Kevin",
         "customer": "Quarry Road Aggregates",
         "purpose": "DEMO — Ixonia",
-        "start": "2026-10-01",
-        "end": "2026-10-03",
+        "start": "2026-10-02",
+        "end": "2026-10-04",
         "status": "future"
       },
       {
@@ -2241,8 +2358,8 @@
         "held_by": "Kevin",
         "customer": "Bluebird Logistics",
         "purpose": "trade-show loaner",
-        "start": "2026-10-02",
-        "end": "2026-10-04",
+        "start": "2026-10-03",
+        "end": "2026-10-05",
         "status": "future"
       },
       {
@@ -2253,8 +2370,8 @@
         "held_by": "Kevin",
         "customer": "Juniper Metalworks",
         "purpose": "quote hold",
-        "start": "2026-10-06",
-        "end": "2026-10-06",
+        "start": "2026-10-07",
+        "end": "2026-10-07",
         "status": "future"
       },
       {
@@ -2265,8 +2382,8 @@
         "held_by": "Kevin",
         "customer": "Evergreen Distribution",
         "purpose": "quote hold",
-        "start": "2026-10-08",
-        "end": "2026-10-08",
+        "start": "2026-10-09",
+        "end": "2026-10-09",
         "status": "future"
       },
       {
@@ -2277,8 +2394,8 @@
         "held_by": "Kevin",
         "customer": "Bluebird Logistics",
         "purpose": "trade-show loaner",
-        "start": "2026-10-14",
-        "end": "2026-10-16",
+        "start": "2026-10-15",
+        "end": "2026-10-17",
         "status": "future"
       }
     ],
@@ -2291,8 +2408,8 @@
         "held_by": "Kevin",
         "customer": "Northgate Fulfillment",
         "purpose": "replacement for down unit",
-        "start": "2026-09-15",
-        "end": "2026-09-21"
+        "start": "2026-09-16",
+        "end": "2026-09-22"
       }
     ]
   },
@@ -2325,35 +2442,35 @@
         "customer": "Maplewood Schools",
         "serial": "900128",
         "amount": 875,
-        "due": "2026-09-25"
+        "due": "2026-09-26"
       },
       {
         "agreement": 4115,
         "customer": "Fairmont Dairy",
         "serial": "900177",
         "amount": 1375,
-        "due": "2026-09-26"
+        "due": "2026-09-27"
       },
       {
         "agreement": 4118,
         "customer": "Fairmont Dairy",
         "serial": "900184",
         "amount": 550,
-        "due": "2026-09-27"
+        "due": "2026-09-28"
       },
       {
         "agreement": 4121,
         "customer": "Fairmont Dairy",
         "serial": "900212",
         "amount": 2075,
-        "due": "2026-09-28"
+        "due": "2026-09-29"
       },
       {
         "agreement": 4124,
         "customer": "Dorsey Plastics",
         "serial": "900219",
         "amount": 2025,
-        "due": "2026-09-29"
+        "due": "2026-09-30"
       }
     ],
     "created_last_run": [
@@ -2362,24 +2479,24 @@
         "agreement": "R092526A",
         "customer": "Oakhill Casting",
         "amount": 1600,
-        "period_start": "2026-09-09",
-        "period_end": "2026-09-24"
+        "period_start": "2026-09-10",
+        "period_end": "2026-09-25"
       },
       {
         "invoice": "R4130-4",
         "agreement": 4130,
         "customer": "Quarry Road Aggregates",
         "amount": 625,
-        "period_start": "2026-09-18",
-        "period_end": "2026-09-24"
+        "period_start": "2026-09-19",
+        "period_end": "2026-09-25"
       },
       {
         "invoice": "R4139-12",
         "agreement": 4139,
         "customer": "Kestrel Print",
         "amount": 775,
-        "period_start": "2026-09-05",
-        "period_end": "2026-09-24"
+        "period_start": "2026-09-06",
+        "period_end": "2026-09-25"
       }
     ]
   },
@@ -2542,5 +2659,169 @@
     "parts_in_transit": 0,
     "delivered_30d": 0,
     "closed_window_days": 30
+  },
+  "inspections": [],
+  "inspection_summary": {
+    "drafts": 0,
+    "done_7d": 0,
+    "done_30d": 0,
+    "flagged_open": 0,
+    "done_window_days": 90
+  },
+  "inspection_checklist": {
+    "version": "mock-1.0",
+    "sections": [
+      {
+        "id": "bat",
+        "title": "Batteries",
+        "instruction": "WET packs: the cell grid above takes hydrometer, clarity and level per cell.",
+        "rows": [
+          {
+            "id": "bat.terminals",
+            "label": "Battery terminals — clean tops, terminal condition",
+            "scale": "FUNCTION"
+          },
+          {
+            "id": "bat.cables",
+            "label": "Battery cables",
+            "scale": "FUNCTION"
+          },
+          {
+            "id": "bat.watering",
+            "label": "Single-point watering system",
+            "scale": "FUNCTION",
+            "shows_for": {
+              "battery": [
+                "WET"
+              ]
+            }
+          },
+          {
+            "id": "bat.charger",
+            "label": "Battery charger",
+            "scale": "FUNCTION"
+          },
+          {
+            "id": "bat.old_gauge",
+            "label": "Analog charge gauge",
+            "scale": "FUNCTION",
+            "retired": "2026-09-20"
+          }
+        ]
+      },
+      {
+        "id": "ctl",
+        "title": "Check operation & condition of",
+        "instruction": "Turn ON and test functionality.",
+        "rows": [
+          {
+            "id": "ctl.key_switch",
+            "label": "Main power / key switch",
+            "scale": "FUNCTION"
+          },
+          {
+            "id": "ctl.estop",
+            "label": "E-stop",
+            "scale": "FUNCTION",
+            "shows_for": {
+              "class": [
+                "SCRUBBER"
+              ]
+            }
+          },
+          {
+            "id": "ctl.drive_forward",
+            "label": "Drive — forward",
+            "scale": "FUNCTION"
+          },
+          {
+            "id": "ctl.horn",
+            "label": "Horn",
+            "scale": "FUNCTION",
+            "shows_for": {
+              "controls": [
+                "RIDER",
+                "STAND-ON"
+              ]
+            }
+          },
+          {
+            "id": "ctl.seat_switch",
+            "label": "Seat switch",
+            "scale": "FUNCTION",
+            "shows_for": {
+              "controls": [
+                "RIDER"
+              ]
+            }
+          },
+          {
+            "id": "ctl.main_broom_ctl",
+            "label": "Main broom lever / switch",
+            "scale": "FUNCTION",
+            "shows_for": {
+              "class": [
+                "SWEEPER"
+              ]
+            }
+          },
+          {
+            "id": "ctl.side_broom_lift",
+            "label": "Side broom lift mechanism",
+            "scale": "FUNCTION",
+            "shows_for": {
+              "class": [
+                "SWEEPER"
+              ],
+              "controls": [
+                "RIDER",
+                "STAND-ON"
+              ]
+            }
+          },
+          {
+            "id": "ctl.side_broom",
+            "label": "Side broom condition",
+            "scale": "WEAR",
+            "shows_for": {
+              "class": [
+                "SWEEPER"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "deck",
+        "title": "Scrub deck & squeegee",
+        "shows_for": {
+          "class": [
+            "SCRUBBER"
+          ]
+        },
+        "rows": [
+          {
+            "id": "deck.curtains",
+            "label": "Deck curtains / wipers",
+            "scale": "WEAR"
+          },
+          {
+            "id": "deck.drivers",
+            "label": "Deck brush drivers",
+            "scale": "WEAR"
+          },
+          {
+            "id": "sqg.blades",
+            "label": "Check and rotate blades as needed",
+            "scale": "FUNCTION"
+          },
+          {
+            "id": "sqg.vac_hose",
+            "label": "Squeegee vac hose",
+            "scale": "FUNCTION"
+          }
+        ]
+      }
+    ]
   }
 }

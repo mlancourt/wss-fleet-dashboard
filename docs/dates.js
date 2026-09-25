@@ -20,6 +20,13 @@ export function fmtDate(s) {
   return m ? `${MON[+m[2] - 1]} ${+m[3]}` : String(s);
 }
 
+/** "2026-09-26" -> "9/26" — the hour meter's "as of" (D67). String surgery, like the rest. */
+export function fmtMD(s) {
+  if (!s) return '';
+  const m = DATE_RE.exec(s);
+  return m ? `${+m[2]}/${+m[3]}` : String(s);
+}
+
 /** "2026-09-14" -> "Sep 14, 2026". Unknown shapes pass through verbatim. */
 export function fmtDateFull(s) {
   if (!s) return '';
