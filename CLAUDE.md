@@ -69,6 +69,7 @@ If real data ever looks wrong, **report it — never "fix" data**. The vault win
 5. **Writes are proposals, not truth.** Every write is a *pending event* until the engine applies it (nightly-ish). The UI must say so — never render a submitted write as if it already happened, except clearly badged "pending."
 6. **Money never moves from here.** No invoice creation, no billing actions in the UI. Billing data is display-only.
 7. **All timestamps you generate are UTC ISO-8601.** All business dates in the snapshot are date-only strings (`YYYY-MM-DD`) in Central time — **render them verbatim as text. NEVER `new Date("YYYY-MM-DD")`** — JS parses date-only strings as UTC midnight and Central-time users see yesterday. This bug is disqualifying.
+8. **End every worktree session with `git branch --no-merged main` — it must print nothing.** A worktree commits on its own branch; if the session ends before the merge, `main` never sees the fix and nothing in `npm test` or `git status` will tell you. (2026-09-25 audit: the `.segbar .seg` fix sat unmerged on a pruned worktree while the bug was live.)
 
 ## Repo layout
 

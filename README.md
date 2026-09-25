@@ -4,75 +4,9 @@ Employee-facing operations board for **Wisconsin Scrub & Sweep**: rental fleet,
 active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
-**v3.0 (D53)** — **map facelift.** The regenerated `wi-map.svg` is a modern
-light-grey map with blue water, white interstates on grey casing and tiered city
-labels — and **`style.css` no longer overrides its colours**: the asset's own
-fallbacks *are* the design. Pins moved off the brand-red family (purple ·
-orange · blue · green · teal), became **teardrops with a readable ID chip** at
-the default zoom, and the hollow "city precision" marker is **retired** —
-precision is a sentence in the tap sheet now. The box is sized to the opening
-view's shape, so there is no dead band under the state.
-
-**v2.9 (schema 7, D52)** — a **Map** view on the Dispatch tab. `geo`
-(`{lat,lng,precision,in_wi}` or `null`) on units, tickets, leads and dispatch
-rows, plus `meta.geo` (shop, projected bounds, opening viewport). **The page
-never geocodes and never loads a map tile** — the engine geocodes once into the
-vault, and the pins are drawn on the vendored `docs/wi-map.svg`, whose
-projection constants live on its own root. Pins by kind, solid = street address
-and hollow = city only, stacked when they share an address, with an "off the
-map" list for everything that has no usable one. **Navigate** and **Plan a run**
-build Google Maps directions URLs from coordinates — links, not assets, and
-nothing is ever written.
-
-**v2.8 (schema 6 / S2)** — **upload from the phone.** 📷 Photo and 📎 File on
-ticket and lead detail, any role: the file goes to `POST /api/doc` (bytes only,
-no id — the Worker hashes them), then a `doc_attach` event carries the id. Photos
-are resized client-side to 1600 px at JPEG q0.7 with EXIF applied; **PDFs pass
-through untouched**. A failed send is one tap from a retry off the blob still in
-memory — **no queue, no background sync, nothing persisted**, and the copy says
-so. The record binding rides in `docmeta`, so a lost event is never a lost
-document.
-
-**v2.7 (schema 6)** — **document attachments, read path.** `service_queue[]`,
-`leads[]` and `agreements[]` each gain `docs[]` (`{id, name, kind, bytes,
-added}`); ticket and lead detail render a **Documents** group above the Notes
-timeline and a tap opens the file in a new tab straight from the Worker. Five
-new Worker endpoints back it — see "Documents" below. **A doc id IS the content:
-the first 16 hex of `sha256(bytes)`**, verified on every write. Docs are never
-stripped and never role-gated. Uploading from a phone is S2 and is not built.
-
-**v2.4 / v2.5** — `service_queue[].log[]` and `leads[].log[]` (the ticket/lead
-body as `{ts, who, text}`, last 30, oldest first) render as a **Notes** timeline
-in ticket and lead detail, this session's unapplied notes closing it. `ts` is a
-display string the engine already formatted for Central — rendered verbatim,
-never `Date`-parsed. Lead logs are **money-free by contract** (v2.5): the engine
-writes `value set` / `value updated` and its builder refuses to publish a row
-carrying a figure, so nothing is stripped and a tech keeps their own lead notes.
-`npm run money-gate` holds that promise to account.
-
-**v2.2 (schema 5)** — a **Leads** tab: pipeline board, sales scoreboard and
-90-day insights, plus `lead_open` / `lead_update` / `lead_close`. Lead money is
-stripped **at the Worker** for a `service` token — see "The money gate" below;
-it is not a CSS rule and must never become one.
-
-**D47** — ninth service stage **`NEEDS-QUOTE`**, between CONTACTED and
-WAITING-ON-CUSTOMER: the tech has diagnosed it and Matt owes the customer a
-number. WSS-owned tickets never take it (nobody quotes us to us), so the Fleet
-chip still shows six columns while Customer and All show nine.
-
-**v1.9 (schema 4, D45)** — `acquisition_cost` and `book` no longer ship in the
-snapshot and are shown nowhere on the site; `ask` stays. `meta.fleet_totals` is
-a unit count only, and the engine publishes `meta.utilization` (percentages and
-an exclusion count — **never amounts**). The utilization card reads those when
-present and falls back to computing them from `units[]` on a schema-3 snapshot.
-
-**v1.6 (schema 3)** — the Billing tab is retired: its recurring-revenue block
-moved to the top of Rentals and its nav slot became **Dispatch**. The Service
-tab is real (a nine-stage kanban since D47, ticket detail, `+ New ticket`). Six
-new write actions brought the total to nine, schema 5 took it to twelve,
-`doc_attach` (schema 6) to thirteen, `rental_update` (D64) to fourteen,
-`work_order` (D65) to fifteen and `inspection` (D67) to sixteen.
-`snapshot.billing` still arrives and is deliberately never rendered.
+**What has shipped, version by version, lives in `CLAUDE.md`** (the contract
+log — v3.7.1 / D67 as of Sep 25, 2026) and `BUILD-NOTES.md` (Claude Code's build
+diary). This file is the runbook: how to run, test, deploy and not break it.
 
 **This repo is the presentation + transport layer only.** The vault + run engine
 (owned elsewhere) is the source of truth. It publishes a snapshot to the Worker
@@ -87,25 +21,10 @@ the hard rules — read it before changing anything here.
 
 ## Status
 
-| Milestone | State | Exit criteria |
-|---|---|---|
-| **M0 — shell on mock** | ✅ done | every view renders both mock variants, zero console errors |
-| **M1 — Worker** | ✅ done | full publish → read → event → ack loop green locally, curl-scripted below |
-| **M2 — deploy real** | ✅ done | Matt opens his tokened URL on his phone and sees the real fleet |
-| **M3 — domain + PWA** | ✅ live (Sep 2, 2026) | `fleet.wisconsinscrubandsweep.com` installs as an app |
-| **v1.6 — Service + Dispatch** | ✅ built on mock (Sep 3, 2026) | all nine actions round-trip locally; see `BUILD-NOTES.md` |
-| **v2.2 — Leads (schema 5)** | ✅ built (Sep 4, 2026) | three lead actions round-trip; the §6 money gate proven by curl; see `BUILD-NOTES.md` |
-| **D47 — NEEDS-QUOTE stage** | ✅ built (Sep 4, 2026) | a customer ticket moves to NEEDS-QUOTE end to end; Fleet still six columns |
-| **v2.4 — Notes timeline** | ✅ built (Sep 4, 2026) | real `log[]` rows render on ticket + lead detail |
-| **v2.5 — lead logs money-free** | ✅ built (Sep 4, 2026) | service strip reversed; `npm run money-gate` green on the real snapshot |
-| **v2.7 — documents S1 (schema 6)** | ✅ built (Sep 8, 2026) | a real PDF round-trips through `npm run m1`; the hash check refuses a mismatched id |
-| **v2.8 — documents S2 (upload)** | ✅ built (Sep 8, 2026) | a phone-shaped upload + `doc_attach` round-trips through `npm run m1`; the resize is asserted in `npm test` |
-| **v2.9 — Map view (D52)** | ✅ built (Sep 9, 2026) | `#/dispatch/map` draws the state with pins; route builder opens a multi-stop Google Maps link; projection asserted against the real county polygons |
-| **v3.0 — Map facelift (D53)** | ✅ built (Sep 9, 2026) | modern palette from the asset, no red pins, ID chips readable at the default zoom, no hollow markers |
-| **v3.4 — Completed history (D62 · D62b)** | ✅ built (Sep 24, 2026) | COMPLETE column is this week only; a maroon **Completed** row in the Service Pipeline widget opens a searchable list of the 90-day window |
-| M4 — write spike | ⬜ | Kevin reserves a unit from his phone, end to end |
-
-Do them in order. **Do not start M2 before M1's curl loop is in this README.**
+**Live** at `fleet.wisconsinscrubandsweep.com` since Sep 2, 2026 (M0–M3 done; the
+crew writes from their phones daily). Sixteen write actions, schema 7. Every
+increment since is a `D<n>` row in `CLAUDE.md`'s version log; the milestone
+table that used to live here stopped being useful once shipping became weekly.
 
 ---
 
@@ -164,7 +83,7 @@ whenever you re-run — that's expected.
 npm test
 ```
 
-Eight suites, ~155 checks. `selftest-render.mjs` boots the **real** `app.js` in
+Fourteen suites, ~440 checks (`npm test` prints each). `selftest-render.mjs` boots the **real** `app.js` in
 a stub DOM and renders every route against all three mock variants as all three
 roles, failing on a thrown view, a leaked `undefined`, or a date-only string
 that got `Date`-parsed. `selftest-service.mjs` pins the schema-3 rules: stage
@@ -516,6 +435,10 @@ plain CNAME from any host. Do not "simplify" this.
 
 ## Things that will bite you
 
+- **Claude Code worktrees commit on their own branch.** If the session ends
+  before the merge, the fix is invisible to `git status` on `main`. End every
+  worktree session with `git branch --no-merged main`; it must print nothing.
+  (Sep 25, 2026: the `.segbar .seg` fix sat unmerged on a pruned worktree.)
 - **Date-only strings.** Never `new Date("YYYY-MM-DD")`. Use `docs/dates.js`.
 - **KV is eventually consistent (~60s across edges).** A write may not be visible
   from another PoP immediately. This is fine here — the engine applies events on
@@ -819,7 +742,7 @@ To revoke someone: remove them from the map and re-post it.
 ## Ask Matt before you
 
 change money display formats · change category names or order · add any write
-action beyond the nine now defined · add any map or navigation integration ·
+action beyond the sixteen now defined · add any map or navigation integration ·
 add push/notifications (out of scope — the run cadence is the refresh) · need a
 new DNS record or a paid plan · change repo visibility.
 

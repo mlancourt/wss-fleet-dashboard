@@ -320,8 +320,6 @@ export function precisionNote(precision, legend) {
 /** The kind a stack draws as: the first of KINDS present, so the order is the priority. */
 export const stackKind = (s) => KINDS.find((k) => s.kinds.includes(k)) || 'rental';
 
-/** Filter rows to the kinds currently switched on. */
-export const byKinds = (rows, on) => arr(rows).filter((r) => on instanceof Set ? on.has(r.kind) : true);
 
 /** Off-map rows grouped for the list, in KINDS order. -> [{kind, label, rows}] */
 export function groupOff(rows) {

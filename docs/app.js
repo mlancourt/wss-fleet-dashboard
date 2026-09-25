@@ -73,7 +73,12 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-25-d67d';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-25-d67e';   // shown on gate screens so a phone report pins the build
+// The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
+// pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
+// 'v2.1' that nobody bumped since D46.
+{ const bv = typeof document !== 'undefined' && typeof document.getElementById === 'function' && document.getElementById('brand-ver');
+  if (bv) { bv.textContent = BUILD.replace(/^\d{4}-\d{2}-\d{2}-/, ''); bv.hidden = false; } }
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 

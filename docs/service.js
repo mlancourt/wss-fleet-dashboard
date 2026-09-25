@@ -240,9 +240,6 @@ export function dispatchFor(dispatch, ticketId) {
 
 export const dispatchById = (dispatch, id) => (dispatch || []).find((r) => r.id === id) || null;
 
-/** Does this unit have a live truck move? (unit page + kanban 🚚 glyph) */
-export const dispatchForSerial = (dispatch, serial) =>
-  (dispatch || []).filter((r) => serial != null && String(r.serial) === String(serial));
 
 /** Dated rows by date ascending, undated after. Ties broken by id so the order is stable. */
 export function sortOpen(rows) {
