@@ -3093,7 +3093,9 @@ await check('D67: a NEW sheet opens at once as ⏳ NEW; each save re-issues the 
   let out = await renderRoute(window.location.hash);
   assert.ok(out.includes('⏳ NEW · ') && out.includes('not numbered yet'), 'drawn as NEW');
   assert.ok(!/I\d{4} · /.test(out.slice(out.indexOf('<div class="h">'), out.indexOf('</div>', out.indexOf('<div class="h">')))), 'no invented I-number');
-  assert.ok(/<button class="btn" type="button" disabled>Done<\/button>/.test(out), 'Done waits for the number');
+  const newKey = `new:${u.serial}`;
+  assert.ok(out.includes(`data-sheet="insp-done" data-id="${newKey}" disabled>Done<`), 'no hours yet: Done disabled');
+  assert.ok(!out.includes('Done unlocks once the engine numbers'), 'the old "wait for the number" copy is gone');
   assert.ok(out.includes('data-ifield="kind"'), 'the kind can still change — it rides on the OPEN');
   await fireOn('input', fieldTarget('readings.hours_key', '1204'));
   await fireOn('change', fieldTarget('readings.hours_key', '1204'));
@@ -3113,6 +3115,70 @@ await check('D67: a NEW sheet opens at once as ⏳ NEW; each save re-issues the 
   assert.equal(opens.length, 1, 'one OPEN in the inbox, always the latest');
   out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
   assert.ok(out.includes('⏳ Resume new sheet · Return'), 'the unit page resumes it');
+  out = await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes(`data-sheet="insp-done" data-id="${newKey}">Done<`), 'D67c: an hours reading on a ⏳ NEW sheet enables Done');
+  await leaveApi();
+});
+
+await check('D67c: Done on a ⏳ NEW sheet saves first (the OPEN fold), then posts DONE keyed on the serial; the sheet locks', async () => {
+  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
+  const open = { id: '2026-09-25T11:00:00.000Z:o1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
+    action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'RETURN' } };
+  const { posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' }, [open]);
+  const key = `new:${u.serial}`;
+  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  await fireOn('input', fieldTarget('readings.hours_key', '412.5'));    // typed, not yet blurred
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'insp-done', id: key } }));
+  await settle();
+  assert.ok(view._html.includes(`data-serial="${u.serial}"`) && view._html.includes('>Mark it done<'), 'the Done sheet carries the serial');
+  await submitForm({ action: 'inspection', verb: 'DONE', key, serial: u.serial }, { tech: 'Josh' });
+  assert.equal(posted.length, 2);
+  assert.equal(posted[0].payload.action, 'OPEN', 'flush first: the OPEN is re-issued with the meter');
+  assert.equal(posted[0].payload.readings.hours_key, 412.5);
+  assert.deepEqual(deleted, [open.id], 'and the older OPEN taken back');
+  assert.deepEqual(posted[1], { action: 'inspection', serial: u.serial, payload: { action: 'DONE', tech: 'Josh' } },
+    'DONE keyed on the serial — no invented inspection key');
+  const out = await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('done (Josh) — by Josh'), 'the pending Done badges on this sheet, by serial');
+  assert.ok(out.includes('Marked done — the engine files it'), 'says what happens next');
+  assert.ok(!out.includes('data-sheet="insp-done"') && !out.includes('id="insp-status"'), 'locked: no Done, no saving');
+  assert.ok(/data-ifield="comments"[^>]* disabled>/.test(out), 'every field read-only');
+  // A tap after Done must not fold: it would re-issue the OPEN AFTER the Done.
+  await tapSeg('ctl.key_switch', 'IN-SPEC');
+  await app.__flushSheets();
+  assert.equal(posted.length, 2, 'nothing more goes out');
+  app.__ui().showInspections = true;
+  assert.ok(inspStripOf(await renderRoute('#/')).includes('— done, numbered at the next run'), 'the strip card says done');
+  app.__ui().showInspections = false;
+  const unitOut = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(unitOut.includes('⏳ done (Josh) by Josh'), 'the unit page lists it (keyed on the serial)');
+  await leaveApi();
+});
+
+await check('D67c: undoing a NEW sheet’s OPEN also takes back my Done sent against its serial', async () => {
+  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
+  const open = { id: '2026-09-25T11:00:00.000Z:o1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
+    action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'PM', readings: { hours_key: 9 } } };
+  const done = { id: '2026-09-25T11:01:00.000Z:d1', ts: '2026-09-25T11:01:00.000Z', actor: 'Josh', role: 'service',
+    action: 'inspection', serial: u.serial, payload: { action: 'DONE', tech: 'Josh' } };
+  const { deleted } = await apiInsp({ name: 'Josh', role: 'service' }, [open, done]);
+  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  await fireOn('click', fakeTarget('[data-undo]', { dataset: { undo: open.id } }));
+  await settle();
+  assert.deepEqual(deleted, [open.id, done.id], 'the Done would find no DRAFT — it goes too');
+  await leaveApi();
+});
+
+await check('D67c: a numbered DRAFT shows a Done still pending against its serial, and locks', async () => {
+  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const d = snap0.inspections.find((i) => i.id === 'I1005');
+  const done = { id: '2026-09-25T11:01:00.000Z:d1', ts: '2026-09-25T11:01:00.000Z', actor: 'Josh', role: 'service',
+    action: 'inspection', serial: d.serial, payload: { action: 'DONE', tech: 'Josh' } };
+  await apiInsp({ name: 'Josh', role: 'service' }, [done]);
+  const out = await renderRoute('#/inspection/I1005');
+  assert.ok(out.includes('done (Josh) — by Josh') && !out.includes('id="insp-status"') && !out.includes('data-sheet="insp-done"'));
   await leaveApi();
 });
 

@@ -414,6 +414,12 @@ export const pendingOpens = (pending) => arr(pending).filter((e) => isInsp(e) &&
 export const pendingOpensFor = (pending, serial) => (serial == null ? [] : pendingOpens(pending)
   .filter((e) => e.serial != null && String(e.serial) === String(serial)));
 /** Every other verb badges its sheet by payload.inspection; a pre-id SAVE by its serial. */
+/**
+ * SAVE / DONE / VOID sent before the I-number existed: no `inspection` key, the
+ * top-level serial instead — the engine resolves them to that serial's one DRAFT.
+ */
+export const pendingBySerial = (pending, serial) => (serial == null ? [] : arr(pending).filter((e) => isInsp(e)
+  && pl(e).action !== 'OPEN' && !pl(e).inspection && e.serial != null && String(e.serial) === String(serial)));
 export const pendingForInsp = (pending, id) => (!id ? [] : arr(pending).filter((e) => isInsp(e) && pl(e).action !== 'OPEN' && pl(e).inspection === id));
 /** Oldest first — the order the engine will apply them in. */
 export const byTs = (a, b) => String(a.ts || a.id || '').localeCompare(String(b.ts || b.id || ''));

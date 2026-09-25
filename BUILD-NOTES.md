@@ -2105,3 +2105,34 @@ The engine now resolves SAVE / DONE / VOID with no `inspection` to the serial's
 one DRAFT (the fallback asked for in the D67 report). That makes Done possible
 on a ⏳ NEW sheet — but it needs the Worker to accept DONE (and VOID) keyed on
 the serial, which this brief didn't ask for. The OPEN-fold keeps working as is.
+
+---
+
+# D67c — Done / Void keyed on the serial before the I-number (2026-09-25)
+
+The engine resolves an `inspection` SAVE / DONE / VOID with no `inspection`
+key to the serial's one DRAFT. The Worker now accepts DONE and VOID that way
+too: exactly one of `payload.inspection` / top-level `serial` for SAVE, DONE and
+VOID (both → 400, neither → 400); REOPEN still needs `inspection` and refuses a
+serial.
+
+Site: on a ⏳ NEW sheet, Done is enabled once an hours field has a value. It
+flushes first (the OPEN is re-issued with every section, the older one taken
+back), then posts `{serial, payload: {action: DONE, tech}}`. The "Done waits for
+the number" copy is gone.
+
+## Floor calls
+
+1. **A NEW sheet locks the moment a serial-keyed Done (or Void) is pending.**
+   Any later change would re-issue the OPEN with a timestamp *after* the Done,
+   and the engine applies events in order, so the Done would hit no DRAFT. Undo
+   the Done to keep editing.
+2. **Undoing a NEW sheet's OPEN also takes back my serial-keyed Done / Void /
+   Save for that serial.** Without the OPEN those would find no DRAFT and be
+   refused.
+3. **A numbered DRAFT also shows (and locks on) anything still pending against
+   its serial** — for the run where the OPEN was applied but a later Done came
+   in after it.
+4. **No Void button on a NEW sheet.** Its Undo already discards the whole sheet
+   without a trip through the engine. The Worker accepts a serial-keyed VOID for
+   anyone who needs it.

@@ -44,7 +44,7 @@ import {
   cellLayout, cellKey, parseSg, sheetFrom, overlay, firstHours, doneReady, isFlag, flagCount, answeredIn,
   flaggedLabels, sectionValue, reopenShown, voidShown, woPrefill, woButtonShown, fmtReading, resumeText, chipText,
   stripCounts, stripGroups as inspStripGroups, draftTone, pendingOpens as inspPendingOpens, pendingOpensFor,
-  pendingForInsp, byTs, describeInspEvent,
+  pendingForInsp, pendingBySerial, byTs, describeInspEvent,
 } from './inspections.js';
 import {
   statusOf, outMove, inMove, rentalGroups, rentalActions, dueBackTone, outDatePassed, clampToToday,
@@ -73,7 +73,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-25-d67b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-25-d67c';   // shown on gate screens so a phone report pins the build
 const TOKEN_KEY = 'wss_fleet_token';
 const STALE_HOURS = 36;
 
@@ -660,7 +660,8 @@ function pendingInspCard(e) {
   const p = pl(e);
   return html`
     <div class="prow pending-card">
-      <a class="prow-main" href="#/inspection/new/${raw(enc(e.serial))}">⏳ NEW — ${(u && u.asset_item) || `#${e.serial}`} — ${INSP_KIND_LABEL[p.kind] || 'inspection'} — numbered at the next run</a>
+      <a class="prow-main" href="#/inspection/new/${raw(enc(e.serial))}">⏳ NEW — ${(u && u.asset_item) || `#${e.serial}`} — ${INSP_KIND_LABEL[p.kind] || 'inspection'} — ${
+        pendingBySerial(state.pending, e.serial).some((x) => pl(x).action === 'DONE') ? 'done, ' : ''}numbered at the next run</a>
       <div class="kan-foot"><span class="kan-pend">by ${e.actor || 'someone'}</span></div>
     </div>`;
 }
@@ -2485,13 +2486,21 @@ function sheetCtx(arg) {
       ...(u ? deriveProfile(u.category) : {}), battery: prior ? prior.battery : null,
     });
     sheet = overlay(sheet, pl(openEvt));
-    const editable = mine.length > 0;
-    return { key, serial, u, isNew: true, openEvt, pend: opens, lib, editable, sheet: withEdits(key, sheet, editable) };
+    // D67c: Done / Void may go out keyed on the serial before the number lands.
+    // Once one is pending the sheet locks — a later fold would re-issue the OPEN
+    // AFTER it, and the engine applies in order.
+    const bySerial = pendingBySerial(state.pending, serial).sort(byTs);
+    const locked = bySerial.find((e) => ['DONE', 'VOID'].includes(pl(e).action)) || null;
+    const editable = mine.length > 0 && !locked;
+    return { key, serial, u, isNew: true, openEvt, pend: opens.concat(bySerial).sort(byTs), locked, lib, editable,
+      sheet: withEdits(key, sheet, mine.length > 0) };
   }
   const id = decodeURIComponent(arg);
   const row = inspById(inspections(), id);
   if (!row) return { key: id, id, missing: true };
-  const pend = pendingForInsp(state.pending, id).sort(byTs);
+  // A DRAFT also owns anything still pending against its serial from before it was numbered.
+  const pend = pendingForInsp(state.pending, id)
+    .concat(row.status === 'DRAFT' ? pendingBySerial(state.pending, row.serial) : []).sort(byTs);
   let sheet = sheetFrom(row);
   for (const e of pend) if (pl(e).action === 'SAVE') sheet = overlay(sheet, pl(e));
   const locked = pend.find((e) => ['DONE', 'VOID'].includes(pl(e).action)) || null;
@@ -2545,7 +2554,9 @@ function viewInspection(arg) {
   const pendRows = (c.pend || []).map((e) => html`<div class="pend-row"><span>${describeInspEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join('');
   const pendBlock = c.isNew ? html`
     <div class="note"><strong>⏳ New sheet — not numbered yet</strong>
-      The engine gives it an I-number at the next run. ${editable ? 'Keep going — everything you enter rides along with it.' : `It's ${c.openEvt.actor || 'someone'}'s to fill in until then.`}
+      The engine gives it an I-number at the next run. ${c.locked
+        ? (pl(c.locked).action === 'DONE' ? 'Marked done — the engine files it and marks it done in the same run.' : 'Voided — it goes away at the next run.')
+        : editable ? 'Keep going — everything you enter rides along with it, and Done works now.' : `It's ${c.openEvt.actor || 'someone'}'s to fill in until then.`}
       ${raw(pendRows)}</div>`
     : c.pend.length ? html`<div class="note"><strong>⏳ ${c.pend.length} pending change${c.pend.length > 1 ? 's' : ''}</strong>
       ${raw(pendRows)}<div style="margin-top:6px">Applies at the next run — the sheet shows them now, badged.</div></div>` : '';
@@ -2703,8 +2714,16 @@ function inspFooter(c, flags) {
   const me = meName();
   const sh = c.sheet;
   if (c.isNew) {
-    return html`<div class="actions row insp-foot"><button class="btn" type="button" disabled>Done</button></div>
-      <div class="form-note">Done unlocks once the engine numbers this sheet (next run). Keep filling it in — nothing is lost.</div>`;
+    // D67c: Done goes out keyed on the serial; the engine files the OPEN first
+    // (it was sent first), then marks that serial's DRAFT done.
+    if (c.locked || !c.editable) return '';
+    const ready = doneReady(sh);
+    return html`
+      <div class="actions row insp-foot">
+        <button class="btn" type="button" data-sheet="insp-done" data-id="${c.key}"${ready ? '' : raw(' disabled')}>Done</button>
+      </div>
+      ${ready ? '' : raw('<div class="form-note">Done needs an hours reading.</div>')}
+      ${sheetOpen('insp-done', c.key) && ready ? raw(inspDoneForm(c, sh, flags, { serial: c.serial })) : ''}`;
   }
   const row = c.row;
   const verbPending = c.pend.some((e) => ['DONE', 'VOID', 'REOPEN'].includes(pl(e).action));
@@ -2712,20 +2731,13 @@ function inspFooter(c, flags) {
     if (c.locked) return '';
     const ready = doneReady(sh);
     const canVoid = voidShown(row, r, me);
-    const techs = DRIVERS.map((n) => [n, n]);
     return html`
       <div class="actions row insp-foot">
         <button class="btn" type="button" data-sheet="insp-done" data-id="${c.key}"${ready ? '' : raw(' disabled')}>Done</button>
         ${canVoid ? raw(html`<button class="btn ghost danger-btn" type="button" data-sheet="insp-void" data-id="${c.key}">Void</button>`) : ''}
       </div>
       ${ready ? '' : raw('<div class="form-note">Done needs an hours reading.</div>')}
-      ${sheetOpen('insp-done', c.key) && ready ? raw(html`
-        <form class="write sheet" data-action="inspection" data-verb="DONE" data-insp="${c.id}" data-key="${c.key}">
-          <label>Tech</label>
-          ${raw(toggle('tech', techs, DRIVERS.includes(me) ? me : DRIVERS[0]))}
-          <div class="form-note">${fmtReading(firstHours(sh.readings))} h goes on the unit · ${flags} flag${flags === 1 ? '' : 's'}. The sheet locks at the next run.</div>
-          ${raw(sheetButtons(`Mark ${c.id} done`))}
-        </form>`) : ''}
+      ${sheetOpen('insp-done', c.key) && ready ? raw(inspDoneForm(c, sh, flags)) : ''}
       ${sheetOpen('insp-void', c.key) && canVoid ? raw(voidForm(c)) : ''}`;
   }
   // DONE — read-only.
@@ -2752,6 +2764,18 @@ function inspFooter(c, flags) {
         <div class="form-note">It goes back to DRAFT. The hours already on the unit stay until the next Done.</div>
       </form>`) : ''}
     ${sheetOpen('insp-void', c.key) && canVoid ? raw(voidForm(c)) : ''}`;
+}
+/** Done asks for the tech. A NEW sheet's Done carries the serial instead of an I-number (D67c). */
+function inspDoneForm(c, sh, flags, { serial = null } = {}) {
+  const me = meName();
+  return html`
+    <form class="write sheet" data-action="inspection" data-verb="DONE" data-key="${c.key}"${serial
+      ? raw(html` data-serial="${serial}"`) : raw(html` data-insp="${c.id}"`)}>
+      <label>Tech</label>
+      ${raw(toggle('tech', DRIVERS.map((n) => [n, n]), DRIVERS.includes(me) ? me : DRIVERS[0]))}
+      <div class="form-note">${fmtReading(firstHours(sh.readings))} h goes on the unit · ${flags} flag${flags === 1 ? '' : 's'}. The sheet locks at the next run${serial ? ', and gets its I-number in the same run' : ''}.</div>
+      ${raw(sheetButtons(serial ? 'Mark it done' : `Mark ${c.id} done`))}
+    </form>`;
 }
 function voidForm(c) {
   return html`
@@ -5090,6 +5114,11 @@ document.addEventListener('click', async (ev) => {
       if (undone && undone.action === 'inspection' && pl(undone).action === 'OPEN'
         && !mineOnly(pendingOpensFor(state.pending, undone.serial)).some((e) => e.id !== id)) {
         sheetLocal.delete(`new:${undone.serial}`);
+        // A Done / Void / Save sent against that serial would now find no DRAFT —
+        // take mine back with it rather than leave it to be refused by the engine.
+        for (const e of mineOnly(pendingBySerial(state.pending, undone.serial))) {
+          try { await deleteEvent(ctx(), e.id); } catch (_) { /* drained or offline — the engine refuses it harmlessly */ }
+        }
       }
       // Drop it locally so the badge goes at once, then re-read /api/data so
       // what is on screen is the server's list and not our guess at it.
@@ -5601,11 +5630,15 @@ async function submitInspection(form, fd, btn) {
       await flushSheet(key);
       const l = sheetLocal.get(key);
       if (l && (l.dirty.size || l.status === 'failed')) throw new Error("The last change didn't save — retry it, then Done.");
-      payload = { action: 'DONE', inspection: id, tech: String(fd.get('tech') || '') || null };
+      payload = { action: 'DONE', tech: String(fd.get('tech') || '') || null };
     } else {
-      payload = { action: verb, inspection: id, note: String(fd.get('note') || '').trim() || null };
+      payload = { action: verb, note: String(fd.get('note') || '').trim() || null };
     }
-    const stored = await postEvent(ctx(), 'inspection', null, payload);
+    // Keyed on the I-number, or — a sheet not numbered yet (D67c) — on the
+    // serial, which the engine resolves to that serial's one DRAFT. Never both.
+    const serial = form.dataset.serial || null;
+    if (!serial) payload.inspection = id;
+    const stored = await postEvent(ctx(), 'inspection', serial, payload);
     state.pending.push(stored);
     ui.form = null;
     ui.msg = { tone: 'ok', text: INSP_MSG[verb] || 'Applies at the next run.' };

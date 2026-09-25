@@ -11,7 +11,7 @@ import {
   profileOf, cellLayout, parseSg, sheetFrom, overlay, firstHours, doneReady, flagCount, answeredIn, flaggedLabels,
   sectionValue, ctNow, minutesBetween, doneStamp, reopenShown, voidShown, woPrefill, woButtonShown, fmtReading,
   resumeText, chipText, stripCounts, stripGroups, draftTone, pendingOpens, pendingOpensFor, pendingForInsp, byTs,
-  describeInspEvent, SCALES, FLAG_RESULTS,
+  describeInspEvent, SCALES, FLAG_RESULTS, pendingBySerial,
 } from '../docs/inspections.js';
 
 let passed = 0;
@@ -252,6 +252,9 @@ check('pending: OPEN keyed on the serial (no invented id); the rest on payload.i
   assert.deepEqual(pendingOpensFor(P1, 900100).map((e) => e.id), ['b'], 'serial compared as text');
   assert.deepEqual(pendingForInsp(P1, 'I1001').map((e) => e.id), ['a', 'c'], 'a work order is not an inspection event');
   assert.deepEqual([...P1].sort(byTs).map((e) => e.id), ['a', 'b', 'c', 'd']);
+  const bySerial = [...P1, { id: 'e', action: 'inspection', serial: '900100', payload: { action: 'DONE', tech: 'Josh' } }];
+  assert.deepEqual(pendingBySerial(bySerial, 900100).map((e) => e.id), ['e'], 'D67c: a serial-keyed DONE — not the OPEN, not the work order');
+  assert.deepEqual(pendingBySerial(bySerial, '1'), []);
   assert.equal(describeInspEvent(P1[0]), 'new PM sheet');
   assert.equal(describeInspEvent(P1[1]), 'saved comments');
   assert.equal(describeInspEvent(P1[2]), 'done (Josh)');
