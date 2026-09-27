@@ -1058,9 +1058,6 @@ function build({ withServiceQueue }) {
   // ------------------------------------------------- work orders (D65)
   const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units });
 
-  // ------------------------------------------------- inspections (D67)
-  const { inspections, inspection_summary } = buildInspections({ withInspections: withServiceQueue, units, work_orders });
-
   // schema 4: a count and nothing else. No cost, no book, no ask (D45).
   const totals = { units: units.length };
 
@@ -1129,39 +1126,47 @@ function build({ withServiceQueue }) {
     scoreboard,
     insights,
     // D65 (schema 7, additive): internal work orders. OPEN + CLOSED <= 30d.
+    // D69: each carries its inspection sheet as an `inspection` object.
     work_orders,
     work_order_summary,
-    // D67 (schema 7, additive): the fleet inspection sheet. The row library
-    // ships verbatim; every DRAFT + DONE <= 90 days; VOID never ships.
-    inspections,
-    inspection_summary,
+    // D67: the row library ships verbatim — the phone renders the sheet from
+    // it. D69 retired `inspections[]` / `inspection_summary`: never emitted.
     inspection_checklist: CHECKLIST_FIXTURE,
   };
 
   return { snapshot, ledger };
 }
 
-/* --------------------------------------------------- work orders (D65)
- * Hand-built, like the leads: spec §7 names the exact cases.
- *   W1001  OPEN, RENT-READY, four lines — REQUESTED (1d) · ORDERED · IN-TRANSIT
+/* --------------------------------------------- work orders (D65 · D69)
+ * Hand-built, like the leads: the specs name the exact cases.
+ *   W1001  OPEN, RETURN, 3 days old, sheet PENDING (-> the strip's inspection
+ *          amber), half filled — WET 24V 4x6V, some rows answered, NO hours yet
+ *          (-> Done disabled). Four lines — REQUESTED · ORDERED · IN-TRANSIT
  *          with a UPS number · a SHOP-STOCK line (D68: born DELIVERED, no PO
  *          trail) — and 2.5 h of labor
- *   W1002  OPEN, PM, labor only (no parts at all — legal)
- *   W1003  OPEN, REPAIR, a REQUESTED line 8 days old (-> red) + an LTL freight
- *          line whose carrier the engine could not detect (tracking, no link);
- *          linked to the unit's open WSS ticket
- *   W1004  CLOSED 5 days ago — DELIVERED lines inside the 30-day window + one
- *          CANCELLED line + a SHOP-STOCK line (the strip's Delivered (30d) chip)
+ *   W1002  OPEN, PM, sheet DONE yesterday with 2 flags; one REQUESTED line whose
+ *          description is a flagged row's label (the `+ part` round trip)
+ *   W1003  OPEN, REPAIR, sheet SKIPPED with a reason; a REQUESTED line 8 days
+ *          old (-> red) + an LTL freight line whose carrier the engine could not
+ *          detect (tracking, no link); linked to the unit's open WSS ticket
+ *   W1004  CLOSED CHECKOUT 5 days ago, sheet DONE — DELIVERED lines inside the
+ *          30-day window + one CANCELLED line + a SHOP-STOCK line
  *   W1005  CLOSED 40 days ago — NOT EMITTED. The window is the engine's; its
  *          absence here is the test.
+ * D69: every row carries `inspection` as an OBJECT (never null, never an
+ * I-number). Every unit carries `work_order`, `wo_parts_open`, `wo_inspection`
+ * and `last_inspection` (null when none) + `hours` / `hours_as_of` (written by a
+ * DONE sheet, null fleet-wide otherwise), as the engine emits them.
  * NO money key anywhere: no cost, no cost_source_inv, no rate. The vault holds
  * those (D66) and the builder never emits them — nor does this file.
- * Every unit carries `work_order` + `wo_parts_open` (null / 0 when none), as
- * the engine emits them.
  */
 function buildWorkOrders({ withWorkOrders, units }) {
-  for (const u of units) { u.work_order = null; u.wo_parts_open = 0; }
-  const empty = { open: 0, parts_requested: 0, parts_ordered: 0, parts_in_transit: 0, delivered_30d: 0, closed_window_days: 30 };
+  for (const u of units) {
+    u.work_order = null; u.wo_parts_open = 0; u.wo_inspection = null; u.last_inspection = null;
+    u.hours = null; u.hours_as_of = null;
+  }
+  const empty = { open: 0, inspections_pending: 0, inspections_done_7d: 0, parts_requested: 0, parts_ordered: 0,
+    parts_in_transit: 0, delivered_30d: 0, closed_window_days: 30 };
   if (!withWorkOrders) return { work_orders: [], work_order_summary: empty };
 
   const used = new Set();
@@ -1170,7 +1175,9 @@ function buildWorkOrders({ withWorkOrders, units }) {
     if (u) used.add(u.serial);
     return u;
   };
-  const prepUnit = take((u) => u.unit_state === 'IN-SHOP' && u.readiness === 'NEEDS-PREP' && !u.service_ticket);
+  const prepUnit = take((u) => u.unit_state === 'IN-SHOP' && u.readiness === 'NEEDS-PREP' && !u.service_ticket
+    && String(u.category || '').includes('Scrubber'))
+    || take((u) => u.unit_state === 'IN-SHOP' && u.readiness === 'NEEDS-PREP' && !u.service_ticket);
   const pmUnit = take((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY' && !u.service_ticket);
   const ticketUnit = take((u) => u.service_ticket && u.unit_state === 'IN-SHOP');
   const closedUnit = take((u) => u.unit_state === 'ON-RENT');
@@ -1184,17 +1191,49 @@ function buildWorkOrders({ withWorkOrders, units }) {
     const b = String(u.brand || '').toUpperCase().replace(/\s+/g, '-');
     return ['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN'].includes(b) ? b : 'OTHER';
   };
+  const blankReadings = () => ({ hours_key: null, hours_traction: null, hours_scrub: null,
+    main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null });
+  const cells = (n, per, sgs) => {
+    const out = [];
+    for (let b = 1; b <= n; b++) for (const c of 'ABCDEF'.slice(0, per)) {
+      const sg = sgs.shift();
+      if (sg === undefined) return out;
+      out.push({ battery: b, cell: c, sg, clarity: sg < 1.2 ? 'CLOUDY' : 'CLEAR', level: sg < 1.2 ? 'LOW' : 'FULL' });
+    }
+    return out;
+  };
+  const FLAGS = ['REPAIR', 'PROBLEM', 'REPLACE'];
+  /** The `inspection:` block — the engine's snapshot_block(), born PENDING from the unit's category. */
+  const sheet = (u, o = {}) => {
+    const b = {
+      status: 'PENDING', skipped_reason: null, done: null, tech: null, ...deriveProfileMock(u.category),
+      battery: { type: null, voltage: null, pack: null }, cells: [], items: [], comments: null, flags: 0, ...o,
+    };
+    b.readings = { ...blankReadings(), ...(o.readings || {}) };
+    b.flags = b.items.filter((i) => FLAGS.includes(i.result)).length;
+    return b;
+  };
   const wo = (id, u, o) => {
     const row = {
       id, serial: u.serial, asset_item: u.asset_item, ticket: null, status: 'OPEN', purpose: 'REPAIR',
       opened: d(-o.age), opened_by: 'Josh', closed: null, age_days: o.age, note: null,
-      parts: [], labor: [], parts_open: 0, hours_total: 0, log: [], ...o,
+      parts: [], labor: [], inspection: sheet(u), parts_open: 0, hours_total: 0, log: [], ...o,
     };
     delete row.age;
     if (row.status === 'CLOSED') row.age_days = null;
     row.parts_open = row.parts.filter((p) => p.state !== 'DELIVERED' && p.state !== 'CANCELLED').length;
     row.hours_total = row.labor.reduce((n, l) => n + l.hours, 0);
-    if (row.status === 'OPEN') { u.work_order = id; u.wo_parts_open = row.parts_open; }
+    if (row.status === 'OPEN') {
+      u.work_order = id; u.wo_parts_open = row.parts_open; u.wo_inspection = row.inspection.status;
+    }
+    const ins = row.inspection;
+    if (ins.status === 'DONE') {
+      if (!u.last_inspection || ins.done > u.last_inspection.done) {
+        u.last_inspection = { work_order: id, purpose: row.purpose, done: ins.done, flags: ins.flags, tech: ins.tech };
+        const h = ins.readings.hours_key ?? ins.readings.hours_traction ?? ins.readings.hours_scrub;
+        if (h != null) { u.hours = h; u.hours_as_of = ins.done; }
+      }
+    }
     return row;
   };
 
@@ -1202,7 +1241,16 @@ function buildWorkOrders({ withWorkOrders, units }) {
   if (prepUnit) {
     const m = mfr(prepUnit);
     out.push(wo('W1001', prepUnit, {
-      age: 1, purpose: 'RENT-READY', note: 'rent-ready for Acme Foods',
+      age: 3, purpose: 'RETURN', note: 'back from Acme Foods',
+      inspection: sheet(prepUnit, {
+        machine_class: 'SCRUBBER', battery: { type: 'WET', voltage: 24, pack: '4x6V' },
+        cells: cells(4, 3, [1.265, 1.26, 1.27, 1.255]),
+        items: [
+          { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
+          { id: 'bat.watering', result: 'N/A', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
+          { id: 'ctl.estop', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'WORN', note: 'ok one more rental' },
+        ],
+      }),
       parts: [
         line(1, { manufacturer: m, part_number: '150-4500', description: 'Solution valve 24V', qty: 1 }),
         line(2, { manufacturer: m, part_number: '21-422S', description: 'Squeegee blade rear', qty: 2,
@@ -1218,23 +1266,45 @@ function buildWorkOrders({ withWorkOrders, units }) {
         { date: d(0), who: 'Zac', hours: 1, note: 'squeegee assembly off' },
       ],
       log: logOf([
-        [ts(-1, '09:12'), 'Josh', 'Opened — 3 parts requested'],
-        [ts(-1, '14:40'), 'Matt', 'Lines 2, 3 ordered — RPS SO-448121'],
+        [ts(-3, '09:12'), 'Josh', 'opened by Josh (RETURN) — 1 part line(s), inspection pending'],
+        [ts(-3, '09:40'), 'Josh', 'Josh saved the inspection sheet — battery, cells×4, items×6; 0 flag(s)'],
+        [ts(-1, '14:40'), 'Matt', 'Matt ORDERED #2 — RPS SO-448121 — PO W1001'],
         [ts(0, '08:05'), null, 'Line 3 in transit — UPS'],
         [ts(0, '09:40'), 'Zac', 'Zac pulled #4 264-4086 ×1 (Filter) from shop stock'],
       ]),
     }));
   }
   if (pmUnit) {
+    const p = deriveProfileMock(pmUnit.category);
     out.push(wo('W1002', pmUnit, {
       age: 2, purpose: 'PM', opened_by: 'Zac',
-      labor: [{ date: d(-2), who: 'Zac', hours: 1, note: '250-hour PM, no parts' }],
-      log: logOf([[ts(-2, '10:30'), 'Zac', 'Opened — labor only']]),
+      inspection: sheet(pmUnit, {
+        status: 'DONE', done: d(-1), tech: 'Zac', battery: { type: 'AGM', voltage: 24, pack: null },
+        readings: p.machine_class === 'SWEEPER'
+          ? { hours_key: 961.5, main_broom_pct: 45, brushes_rotated: true }
+          : { hours_key: 961.5, brush1_pct: 55, brush2_pct: 50, brushes_rotated: true },
+        items: [
+          { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
+          { id: 'ctl.drive_forward', result: 'REPAIR', note: 'hesitates in forward' },
+          { id: 'bat.charger', result: 'PROBLEM', note: "won't finish a cycle" },
+          { id: 'bat.old_gauge', result: 'N/A', note: 'gauge removed' },
+        ],
+        comments: '250-hour PM',
+      }),
+      parts: [line(1, { manufacturer: 'OTHER', part_number: 'CHG-2436', description: 'Battery charger', qty: 1 })],
+      labor: [{ date: d(-1), who: 'Zac', hours: 1, note: '250-hour PM + the sheet' }],
+      log: logOf([
+        [ts(-2, '10:30'), 'Zac', 'opened by Zac (PM) — 0 part line(s), inspection pending'],
+        [ts(-1, '15:42'), 'Zac', 'inspection DONE by Zac — 961.5 h written to the unit; 5/9 rows answered; 2 flag(s): Battery charger; Drive — forward'],
+        [ts(-1, '15:50'), 'Zac', 'Zac added #1 OTHER CHG-2436 ×1 (Battery charger)'],
+      ]),
     }));
   }
   if (ticketUnit) {
     out.push(wo('W1003', ticketUnit, {
       age: 8, purpose: 'REPAIR', ticket: ticketUnit.service_ticket, opened_by: 'Josh',
+      inspection: sheet(ticketUnit, { status: 'SKIPPED', skipped_reason: 'drive motor only — inspected on the return sheet last week',
+        done: d(-8), tech: 'Josh' }),
       parts: [
         line(1, { manufacturer: 'OTHER', part_number: 'DRV-2210', description: 'Drive motor brushes (set)', qty: 1 }),
         line(2, { manufacturer: 'KODIAK', part_number: 'K-88-114', description: 'Battery 6V 415Ah', qty: 6,
@@ -1242,12 +1312,28 @@ function buildWorkOrders({ withWorkOrders, units }) {
           tracking: 'LTL PRO 48213377', carrier: null }),
       ],
       labor: [],
-      log: logOf([[ts(-8, '15:02'), 'Josh', `Opened — linked to ${ticketUnit.service_ticket}`]]),
+      log: logOf([
+        [ts(-8, '15:02'), 'Josh', `opened by Josh (REPAIR) — linked to ${ticketUnit.service_ticket}`],
+        [ts(-8, '15:04'), 'Josh', 'inspection SKIPPED by Josh: drive motor only — inspected on the return sheet last week'],
+      ]),
     }));
   }
   if (closedUnit) {
     out.push(wo('W1004', closedUnit, {
-      age: 12, status: 'CLOSED', purpose: 'RENT-READY', closed: d(-5), opened_by: 'Matt',
+      age: 12, status: 'CLOSED', purpose: 'CHECKOUT', closed: d(-5), opened_by: 'Matt',
+      inspection: sheet(closedUnit, {
+        status: 'DONE', done: d(-6), tech: 'Josh', machine_class: 'SCRUBBER',
+        battery: { type: 'WET', voltage: 36, pack: '3x12V' },
+        readings: { hours_key: 412.5, brush1_pct: 60, brush2_pct: 60, brushes_rotated: false },
+        cells: cells(3, 6, [1.265, 1.27, 1.26, 1.265, 1.255, 1.27, 1.26, 1.265, 1.19, 1.26, 1.265, 1.27, 1.265, 1.26, 1.27, 1.265, 1.26, 1.265]),
+        items: [
+          { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
+          { id: 'bat.watering', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
+          { id: 'ctl.estop', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'REPLACE', note: 'rear curtain torn' },
+          { id: 'sqg.blades', result: 'REPAIR', note: 'rear blade rolled' },
+        ],
+        comments: 'pump swapped, curtain and blade done before it went out',
+      }),
       parts: [
         line(1, { manufacturer: mfr(closedUnit), part_number: '18-3302', description: 'Solution pump', qty: 1,
           state: 'DELIVERED', ordered: d(-11), vendor: 'RPS', vendor_ref: 'SO-447702',
@@ -1259,9 +1345,10 @@ function buildWorkOrders({ withWorkOrders, units }) {
       ],
       labor: [{ date: d(-7), who: 'Josh', hours: 2, note: 'pump swap + test run' }],
       log: logOf([
-        [ts(-12, '11:20'), 'Matt', 'Opened — 2 parts requested'],
+        [ts(-12, '11:20'), 'Matt', 'opened by Matt (CHECKOUT) — 2 part line(s), inspection pending'],
         [ts(-11, '09:00'), 'Matt', 'Line 1 ordered — RPS SO-447702; line 2 cancelled, found in shop stock'],
-        [ts(-5, '16:10'), 'Matt', 'Closed'],
+        [ts(-6, '16:30'), 'Josh', 'inspection DONE by Josh — 412.5 h written to the unit; 7/11 rows answered; 2 flag(s)'],
+        [ts(-5, '16:10'), 'Matt', 'CLOSED by Matt'],
       ]),
     }));
   }
@@ -1273,6 +1360,8 @@ function buildWorkOrders({ withWorkOrders, units }) {
     work_orders: out,
     work_order_summary: {
       open: out.filter((w) => w.status === 'OPEN').length,
+      inspections_pending: out.filter((w) => w.status === 'OPEN' && w.inspection.status === 'PENDING').length,
+      inspections_done_7d: out.filter((w) => w.inspection.status === 'DONE' && w.inspection.done >= d(-7)).length,
       parts_requested: cnt('REQUESTED'),
       parts_ordered: cnt('ORDERED'),
       parts_in_transit: cnt('IN-TRANSIT'),
@@ -1754,12 +1843,10 @@ function downgradeToSchema2(s3, ledger) {
   delete snap.work_orders;
   delete snap.work_order_summary;
   for (const u of snap.units) { delete u.work_order; delete u.wo_parts_open; }
-  // D67 postdates it too: no library, no sheets, no summary, no unit keys. The
-  // strip reads "No inspections yet" and the Inspect button stays hidden.
-  delete snap.inspections;
-  delete snap.inspection_summary;
+  // D67 / D69 postdate it too: no library, no unit keys. The work-order page
+  // draws the sheet's readings / battery / comments without the rows.
   delete snap.inspection_checklist;
-  for (const u of snap.units) { delete u.inspection_draft; delete u.last_inspection; delete u.hours_as_of; }
+  for (const u of snap.units) { delete u.wo_inspection; delete u.last_inspection; delete u.hours_as_of; }
   return snap;
 }
 
@@ -1801,155 +1888,6 @@ const CHECKLIST_FIXTURE = {
   ],
 };
 
-/**
- * D67 fixture sheets (Inspection spec §7):
- *   DRAFT CHECKOUT  24V WET 4x6V walk-behind scrubber, 6 rows answered, NO hours
- *                   yet (-> Done disabled), linked to its unit's open ticket
- *   DRAFT PM        rider sweeper, AGM, opened 3 days ago (-> amber)
- *   DONE RETURN     36V WET 3x12V scrubber, 2 flags, NO work order (-> the button)
- *   DONE PM         linked to W1002 (the PM work order), so no button
- *   DONE 100d ago   built and then dropped by the 90-day window — never emitted
- * Every unit carries `inspection_draft` / `last_inspection` / `hours_as_of`;
- * `hours` is null except where a DONE sheet wrote it back (it was null fleet-wide
- * until D67 — the sheet is the only place the meter got read).
- */
-function buildInspections({ withInspections, units, work_orders }) {
-  for (const u of units) { u.inspection_draft = null; u.last_inspection = null; u.hours = null; u.hours_as_of = null; }
-  for (const w of work_orders) w.inspection = null;
-  const WINDOW = 90;
-  const summary = (rows) => ({
-    drafts: rows.filter((r) => r.status === 'DRAFT').length,
-    done_7d: rows.filter((r) => r.status === 'DONE' && r.done >= d(-7)).length,
-    done_30d: rows.filter((r) => r.status === 'DONE' && r.done >= d(-30)).length,
-    flagged_open: rows.filter((r) => r.status === 'DONE' && r.flags && !r.work_order).length,
-    done_window_days: WINDOW,
-  });
-  if (!withInspections) return { inspections: [], inspection_summary: summary([]) };
-
-  const used = new Set();
-  const take = (fn) => {
-    const u = units.find((x) => !used.has(x.serial) && x.unit_state !== 'RETIRED' && fn(x));
-    if (u) used.add(u.serial);
-    return u;
-  };
-  const cat = (u, s) => String(u.category || '').includes(s);
-  const blankReadings = () => ({ hours_key: null, hours_traction: null, hours_scrub: null,
-    main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null });
-  const cells = (n, per, sgs) => {
-    const out = [];
-    for (let b = 1; b <= n; b++) for (const c of 'ABCDEF'.slice(0, per)) {
-      const sg = sgs.shift();
-      if (sg === undefined) return out;
-      out.push({ battery: b, cell: c, sg, clarity: sg < 1.2 ? 'CLOUDY' : 'CLEAR', level: sg < 1.2 ? 'LOW' : 'FULL' });
-    }
-    return out;
-  };
-  const flagsOf = (items) => items.filter((i) => ['REPAIR', 'PROBLEM', 'REPLACE'].includes(i.result)).length;
-  const sheet = (id, u, o) => {
-    const row = {
-      id, serial: u.serial, asset_item: u.asset_item, kind: 'PM', status: 'DRAFT', opened: d(-(o.age || 0)),
-      opened_by: 'Josh', done: null, tech: null, ticket: null, work_order: null, machine_class: 'SCRUBBER',
-      body_style: 'WALK-BEHIND', battery: { type: null, voltage: null, pack: null }, readings: blankReadings(),
-      cells: [], items: [], comments: null, flags: 0, age_days: null, log: [], ...o,
-    };
-    row.readings = { ...blankReadings(), ...(o.readings || {}) };
-    row.flags = flagsOf(row.items);
-    row.age_days = row.status === 'DRAFT' ? (o.age || 0) : null;
-    delete row.age;
-    return row;
-  };
-  const stamp = (daysBack, hhmm) => `${d(-daysBack)} ${hhmm} CT`;
-
-  const rows = [];
-  const checkoutUnit = take((u) => cat(u, 'Walk-Behind Scrubber') && u.unit_state === 'IN-SHOP' && u.service_ticket)
-    || take((u) => cat(u, 'Walk-Behind Scrubber') && u.unit_state === 'IN-SHOP')
-    || take((u) => cat(u, 'Scrubber'));
-  const pmUnit = take((u) => cat(u, 'Ride-On Sweeper') && ['AVAILABLE', 'IN-SHOP', 'RESERVED'].includes(u.unit_state))
-    || take((u) => cat(u, 'Sweeper'));
-  const returnUnit = take((u) => cat(u, 'Rider Scrubber') && !u.work_order && ['AVAILABLE', 'IN-SHOP'].includes(u.unit_state))
-    || take((u) => cat(u, 'Scrubber') && !u.work_order);
-  const w1002 = work_orders.find((w) => w.id === 'W1002');
-  const woUnit = w1002 ? units.find((u) => u.serial === w1002.serial) : null;
-  if (woUnit) used.add(woUnit.serial);
-  const oldUnit = take((u) => cat(u, 'Scrubber'));
-
-  // The 100-day-old sheet: minted first, which is why it has the lowest number.
-  if (oldUnit) {
-    rows.push(sheet('I1001', oldUnit, { kind: 'PM', status: 'DONE', age: 101, done: d(-100), tech: 'Zac',
-      battery: { type: 'WET', voltage: 24, pack: '2x12V' }, readings: { hours_key: 1880 } }));
-  }
-  if (woUnit) {
-    const p = deriveProfileMock(woUnit.category);
-    rows.push(sheet('I1002', woUnit, { kind: 'PM', status: 'DONE', age: 4, done: d(-3), tech: 'Zac', opened_by: 'Zac',
-      ...p, work_order: 'W1002', battery: { type: 'AGM', voltage: 24, pack: null },
-      readings: p.machine_class === 'SWEEPER'
-        ? { hours_key: 961.5, main_broom_pct: 45, brushes_rotated: true }
-        : { hours_key: 961.5, brush1_pct: 55, brush2_pct: 50, brushes_rotated: true },
-      items: [
-        { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
-        { id: 'ctl.drive_forward', result: 'REPAIR', note: 'hesitates in forward' },
-        { id: 'bat.old_gauge', result: 'N/A', note: 'gauge removed' },
-      ],
-      log: [
-        { ts: stamp(4, '08:10'), who: 'Zac', text: 'OPEN by Zac (PM)' },
-        { ts: stamp(3, '15:42'), who: 'Zac', text: 'DONE by Zac — 961.5 h written back; 4/9 rows answered; 1 flag(s): Drive — forward' },
-        { ts: stamp(3, '16:05'), who: 'Zac', text: 'work order W1002 opened from this inspection' },
-      ] }));
-    w1002.inspection = 'I1002';
-  }
-  if (returnUnit) {
-    rows.push(sheet('I1003', returnUnit, { kind: 'RETURN', status: 'DONE', age: 1, done: d(-1), tech: 'Josh',
-      machine_class: 'SCRUBBER', body_style: deriveProfileMock(returnUnit.category).body_style,
-      battery: { type: 'WET', voltage: 36, pack: '3x12V' },
-      readings: { hours_key: 412.5, brush1_pct: 60, brush2_pct: 60, brushes_rotated: false },
-      cells: cells(3, 6, [1.265, 1.27, 1.26, 1.265, 1.255, 1.27, 1.26, 1.265, 1.19, 1.26, 1.265, 1.27, 1.265, 1.26, 1.27, 1.265, 1.26, 1.265]),
-      items: [
-        { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
-        { id: 'bat.watering', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
-        { id: 'ctl.estop', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'REPLACE', note: 'rear curtain torn' },
-        { id: 'sqg.blades', result: 'REPAIR', note: 'rear blade rolled' },
-      ],
-      comments: 'came back dirty — recovery tank not drained',
-      log: [
-        { ts: stamp(1, '09:02'), who: 'Josh', text: 'OPEN by Josh (RETURN)' },
-        { ts: stamp(1, '10:31'), who: 'Josh', text: 'DONE by Josh — 412.5 h written back; 7/11 rows answered; 2 flag(s): Deck curtains / wipers; Check and rotate blades as needed' },
-      ] }));
-  }
-  if (pmUnit) {
-    rows.push(sheet('I1004', pmUnit, { kind: 'PM', age: 3, opened_by: 'Zac', machine_class: 'SWEEPER',
-      body_style: deriveProfileMock(pmUnit.category).body_style, battery: { type: 'AGM', voltage: 36, pack: null },
-      readings: { hours_key: 233 },
-      items: [{ id: 'ctl.key_switch', result: 'IN-SPEC', note: null }, { id: 'ctl.horn', result: 'PROBLEM', note: 'intermittent' }],
-      log: [{ ts: stamp(3, '13:15'), who: 'Zac', text: 'OPEN by Zac (PM)' }, { ts: stamp(3, '13:40'), who: 'Zac', text: 'Zac saved — readings, items×2; 1 flag(s)' }] }));
-  }
-  if (checkoutUnit) {
-    rows.push(sheet('I1005', checkoutUnit, { kind: 'CHECKOUT', age: 0, opened_by: 'Josh', ticket: checkoutUnit.service_ticket || null,
-      work_order: checkoutUnit.work_order || null, ...deriveProfileMock(checkoutUnit.category), machine_class: 'SCRUBBER',
-      battery: { type: 'WET', voltage: 24, pack: '4x6V' },
-      cells: cells(4, 3, [1.265, 1.26, 1.27, 1.255]),
-      items: [
-        { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
-        { id: 'bat.watering', result: 'N/A', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
-        { id: 'ctl.estop', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'WORN', note: 'ok one more rental' },
-      ],
-      log: [{ ts: stamp(0, '07:48'), who: 'Josh', text: 'OPEN by Josh (CHECKOUT)' }, { ts: stamp(0, '08:05'), who: 'Josh', text: 'Josh saved — battery, cells×4, items×6; 0 flag(s)' }] }));
-  }
-
-  // The engine's window: every DRAFT, DONE within 90 days. The old one goes here.
-  const shipped = rows.filter((r) => r.status === 'DRAFT' || (r.status === 'DONE' && r.done >= d(-WINDOW)));
-  shipped.sort((a, b) => (a.status === b.status ? 0 : a.status === 'DRAFT' ? -1 : 1) || a.opened.localeCompare(b.opened));
-  const bySerial = new Map(units.map((u) => [u.serial, u]));
-  for (const r of shipped) {
-    const u = bySerial.get(r.serial);
-    if (r.status === 'DRAFT') u.inspection_draft = r.id;
-    else if (!u.last_inspection || r.done > u.last_inspection.done) {
-      u.last_inspection = { id: r.id, kind: r.kind, done: r.done, flags: r.flags };
-      const h = r.readings.hours_key ?? r.readings.hours_traction ?? r.readings.hours_scrub;
-      if (h != null) { u.hours = h; u.hours_as_of = r.done; }
-    }
-  }
-  return { inspections: shipped, inspection_summary: summary(shipped) };
-}
 /** The engine's category → class / body_style derivation, for the fixtures. */
 function deriveProfileMock(category) {
   const c = String(category || '').toLowerCase();
@@ -1990,9 +1928,6 @@ const avail = full.snapshot.units.filter((u) => u.unit_state === 'AVAILABLE');
 const claimedPickup = full.snapshot.dispatch.find((r) => r.source === 'RENTAL-RETURN' && r.status === 'SCHEDULED');
 // A unit with no open work order, for the pending OPEN (D65).
 const woOpenUnit = full.snapshot.units.find((u) => u.work_order == null && u.unit_state === 'IN-SHOP' && u !== avail[1]);
-// D67: a unit with no sheet at all for the pending OPEN; the CHECKOUT draft for the pending SAVE.
-const inspNewUnit = full.snapshot.units.find((u) => !u.inspection_draft && !u.last_inspection && u.unit_state === 'ON-RENT');
-const inspDraft = full.snapshot.inspections.find((i) => i.status === 'DRAFT' && i.kind === 'CHECKOUT');
 const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 const pending = [
   {
@@ -2102,23 +2037,24 @@ const pending = [
     action: 'work_order', serial: null,
     payload: { action: 'LABOR', work_order: 'W1001', date: d(0), who: 'Josh', hours: 0.75, note: 'valve seat cleaned' },
   },
-  // D67: a sheet opened on Josh's phone that the engine hasn't numbered yet —
-  // an OPEN carrying its first sections, keyed on the serial (no I-number is
-  // ever invented) — and an unapplied SAVE on a numbered DRAFT.
+  // D69: the sheet on that NEW work order, typed before the W-number exists —
+  // keyed on the serial (no W-number is ever invented); the engine resolves it
+  // to the serial's one OPEN work order, which the OPEN above creates first.
+  // And an unapplied SAVE on W1001's PENDING sheet, by W-number.
   {
     id: 'evt-mock-13',
-    ts: ago(6),
+    ts: ago(4),
     actor: 'Josh', role: 'service',
-    action: 'inspection', serial: inspNewUnit.serial,
-    payload: { action: 'OPEN', kind: 'RETURN', readings: { hours_key: 1204, hours_traction: null, hours_scrub: null,
+    action: 'work_order', serial: woOpenUnit.serial,
+    payload: { action: 'INSPECT', step: 'SAVE', readings: { hours_key: 1204, hours_traction: null, hours_scrub: null,
       main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null } },
   },
   {
     id: 'evt-mock-14',
     ts: ago(2),
     actor: 'Josh', role: 'service',
-    action: 'inspection', serial: null,
-    payload: { action: 'SAVE', inspection: inspDraft.id, comments: 'needs the rear curtain before it goes out' },
+    action: 'work_order', serial: null,
+    payload: { action: 'INSPECT', step: 'SAVE', work_order: 'W1001', comments: 'needs the rear curtain before it goes out' },
   },
   // A close proposal on a lead that is still OPEN on the board.
   {

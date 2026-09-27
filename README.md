@@ -5,7 +5,7 @@ active agreements, the service queue, and a Dispatch board of truck moves.
 Phone-first, four users (Matt, Kevin, Josh, Zac).
 
 **What has shipped, version by version, lives in `CLAUDE.md`** (the contract
-log — v3.7.1 / D67 as of Sep 25, 2026) and `BUILD-NOTES.md` (Claude Code's build
+log — v3.9 / D69 as of Sep 27, 2026) and `BUILD-NOTES.md` (Claude Code's build
 diary). This file is the runbook: how to run, test, deploy and not break it.
 
 **This repo is the presentation + transport layer only.** The vault + run engine
@@ -363,7 +363,7 @@ package.json            scripts; wrangler is the sole dev dependency
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
-  app.js                routing, views, write forms, the sixteen write actions
+  app.js                routing, views, write forms, the fifteen write actions
   api.js                data source + writes + doc upload (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
   holds.js              hold-list logic (pure)
@@ -374,8 +374,8 @@ docs/                   GitHub Pages root — the app shell
   attachments.js        docs[] rows + upload logic (kinds, names, pending rows) — schema 6 (pure)
   map.js                projection, pins, stacking, viewport, precision lines, directions URLs (pure)
   rentals.js            rental lifecycle (D64): Pending / On rent / Off-rent groups, button matrix, due-back tone (pure)
-  workorders.js         internal work orders (D65): Parts strip groups + tone, line-button matrix, carrier links, pending keys (pure)
-  inspections.js        the inspection sheet (D67): shows_for filter, cell layout, SAVE merge + wire shapes, Reopen/Void gates, strip (pure)
+  workorders.js         internal work orders (D65/D69): Work orders strip counts + tone, close gate, line-button matrix, carrier links, pending keys incl. serial-keyed (pure)
+  inspections.js        the inspection sheet (D67 machinery; D69 it is the `inspection` block on a work order): shows_for filter, cell layout, SAVE merge + wire shapes, legacy block, Reopen gate (pure)
   wi-map.svg            VENDORED Wisconsin map — vault-generated, never hand-edited
   style.css             WSS maroon, phone-first at 390x844
   manifest.webmanifest  PWA manifest — start_url "./" (see the token trap below)
@@ -611,9 +611,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `dispatch_cancel` | **owner** | optional | `dispatch_id` |
 | `doc_attach` | any | not used | `record`, `doc_id`, `kind`, `name` — **schema 6 / S2.** The one action the Worker checks state for: 400 if `docmeta:<doc_id>` is not in the store, because an attach with no bytes behind it is a dangling pointer into *our* KV. |
 | `rental_update` | owner, sales | not used | `agreement` (opaque — int or string, kept in its type), `action` OUT·OFF-RENT·IN, `date` (optional `YYYY-MM-DD`), `note` (optional, ≤ 200) — **D64.** Whether the agreement may make that move today is the engine's call. |
-| `work_order` | any (per verb below) | **OPEN only** — required there, refused on the other five | `action` OPEN·ADD-PARTS·PART-STATE·LABOR·CLOSE·CANCEL — **D65.** OPEN: `purpose` RENT-READY·REPAIR·PM·OTHER, `note` ≤ 200, `parts` 0–10. ADD-PARTS: `work_order` (`^W\d{4}$`), `parts` 1–10. A part line is exactly `{manufacturer, part_number ≤ 40, description ≤ 80, qty 1–99}`. PART-STATE: `work_order`, `line`, `state` ORDERED (**owner**) · IN-TRANSIT · DELIVERED · CANCELLED (service/owner), optional `date`, `vendor`, `vendor_ref`, `tracking`, `note`. LABOR: `work_order`, `who` (driver enum), `hours` 0.25–12 in quarter steps, optional `date`, `note`. CLOSE (**owner**) / CANCEL: `work_order`, `note`. Unknown keys → 400. Forward-only states, one OPEN per serial and the close guard are the engine's. |
-
-| `inspection` | any (REOPEN / VOID refereed by the engine) | **OPEN** — required; **SAVE / DONE / VOID** — the serial *or* `inspection`, exactly one (D67c: the engine resolves a serial to its one DRAFT); refused on REOPEN | `action` OPEN·SAVE·DONE·REOPEN·VOID — **D67.** OPEN: `kind` CHECKOUT·RETURN·PM (optional) and may carry any SAVE section — the engine merges them into the new sheet, which is how a sheet typed before its I-number reaches the vault. SAVE: `inspection` (`^I\d{4}$`) + at least one section — `machine_class` SWEEPER·SCRUBBER, `body_style` WALK-BEHIND·RIDER·STAND-ON (v1.2; was `controls` — now refused), `battery` `{type WET·AGM·LITHIUM, voltage 24·36, pack}` (pack only on WET, matching the voltage), `readings` (the seven keys; hour meters 0–99999, `main_broom_pct` / `brush1_pct` / `brush2_pct` whole numbers 0–100, `brushes_rotated` bool), `cells` ≤ 18 `{battery 1–6, cell A–F, sg 1.000–1.400, clarity, level}`, `items` ≤ 120 `{id, result, note ≤ 120}` (result in either scale; no row twice), `comments` ≤ 1000. A section present replaces it, absent is untouched. DONE: `inspection`, `tech` (driver enum). REOPEN / VOID: `inspection`, `note` ≤ 200. Unknown keys → 400. **Row ids and which scale a row takes are the engine's** — the library lives in the vault, never here. `work_order` OPEN also takes an optional `inspection` back-link. |
+| `work_order` | any (per verb below) | **OPEN** — required. **Every other verb** — the serial *or* `work_order`, exactly one (D69: the engine resolves a serial to its one OPEN work order; both / neither → 400) | `action` OPEN·ADD-PARTS·PART-STATE·LABOR·CLOSE·CANCEL·INSPECT — **D65 / D68 / D69.** OPEN: `purpose` CHECKOUT·RETURN·PM·REPAIR·OTHER (+ RENT-READY, mapped by the engine; optional), `note` ≤ 200, `parts` 0–10, optional `inspection` = an **object** of sheet sections (a first SAVE; a string → 400). ADD-PARTS: `parts` 1–10. A part line is exactly `{manufacturer, part_number ≤ 40, description ≤ 80, qty 1–99, source?}` (D68 `source` VENDOR·SHOP-STOCK·WARRANTY). PART-STATE: `line`, `state` ORDERED (**owner**) · IN-TRANSIT · DELIVERED · CANCELLED (service/owner) — or `source: SHOP-STOCK` (service/owner, lands DELIVERED, no vendor keys) — optional `date`, `vendor`, `vendor_ref`, `tracking`, `note`. LABOR: `who` (driver enum), `hours` 0.25–12 in quarter steps, optional `date`, `note`. CLOSE (**owner**): `note`, optional `ready` (a real boolean — the close is the ready call). CANCEL: `note`. **INSPECT** (D69): `step` SAVE·DONE·SKIP·REOPEN. SAVE: at least one section — `machine_class` SWEEPER·SCRUBBER, `body_style` WALK-BEHIND·RIDER·STAND-ON, `battery` `{type WET·AGM·LITHIUM, voltage 24·36, pack}` (pack only on WET, matching the voltage), `readings` (the seven keys; hour meters 0–99999, `*_pct` whole numbers 0–100, `brushes_rotated` bool), `cells` ≤ 18 `{battery 1–6, cell A–F, sg 1.000–1.400, clarity, level}`, `items` ≤ 120 `{id, result, note ≤ 120}`, `comments` ≤ 1000 — present replaces, absent untouched. DONE: `tech` (driver enum) + any section. SKIP: `reason` ≤ 120, required, and **no section key** (400 by name). REOPEN: `note`. Unknown keys → 400. Forward-only states, one OPEN per serial, the close gate (lines settled + sheet DONE/SKIPPED), row ids and REOPEN's who-and-when are the engine's. The D67 `inspection` action is **retired** — "unknown action", 400. |
 
 **No money from a phone (D65).** A `cost`, `rate` or `price` key — any case, at
 any depth, in **any** action's payload — is refused with a 400 that names the key,
@@ -742,7 +740,7 @@ To revoke someone: remove them from the map and re-post it.
 ## Ask Matt before you
 
 change money display formats · change category names or order · add any write
-action beyond the sixteen now defined · add any map or navigation integration ·
+action beyond the fifteen now defined · add any map or navigation integration ·
 add push/notifications (out of scope — the run cadence is the refresh) · need a
 new DNS record or a paid plan · change repo visibility.
 

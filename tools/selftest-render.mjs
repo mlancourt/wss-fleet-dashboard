@@ -151,11 +151,11 @@ async function allRoutes(variant, role) {
     ...(snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`),
     ...(snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`),
     ...snap.units.filter((u) => u.work_order).map((u) => `#/unit/${encodeURIComponent(u.serial)}`),
-    // D67: every sheet, every unit that carries one, and every ⏳ NEW sheet.
-    ...(snap.inspections || []).map((i) => `#/inspection/${encodeURIComponent(i.id)}`),
-    ...snap.units.filter((u) => u.inspection_draft || u.last_inspection).map((u) => `#/unit/${encodeURIComponent(u.serial)}`),
-    ...app.__state().pending.filter((e) => e.action === 'inspection' && e.serial).map((e) => `#/inspection/new/${encodeURIComponent(e.serial)}`),
-    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999', '#/wo/W9999', '#/inspection/I9999', '#/inspection/new/nope',
+    // D69: every unit with a last inspection, and every ⏳ NEW work order (the sheet is waiting on it).
+    ...snap.units.filter((u) => u.last_inspection).map((u) => `#/unit/${encodeURIComponent(u.serial)}`),
+    ...app.__state().pending.filter((e) => e.action === 'work_order' && e.payload && e.payload.action === 'OPEN' && e.serial)
+      .map((e) => `#/wo/new/${encodeURIComponent(e.serial)}`),
+    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999', '#/wo/W9999', '#/wo/new/nope',
   ];
   for (const hash of ROUTES.concat(extra)) out.push([hash, await renderRoute(hash)]);
   return out;
@@ -600,8 +600,9 @@ async function undoableIds(role) {
     .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
     .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
     .concat((snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`))
-    // D67: a SAVE on a numbered sheet only shows on that sheet.
-    .concat((snap.inspections || []).map((i) => `#/inspection/${encodeURIComponent(i.id)}`));
+    // D69: a sheet change on a ⏳ NEW work order only shows on that page.
+    .concat(app.__state().pending.filter((e) => e.action === 'work_order' && e.payload && e.payload.action === 'OPEN' && e.serial)
+      .map((e) => `#/wo/new/${encodeURIComponent(e.serial)}`));
   for (const r of routes) {
     const out = await renderRoute(r);
     for (const [, id] of out.matchAll(/data-sheet="undo" data-id="([^"]+)"/g)) seen.add(id);
@@ -2537,7 +2538,7 @@ const partsStripOf = (out) => {
 };
 const setParts = (open) => { app.__ui().showParts = open; app.__ui().showPartsDelivered = open; };
 
-await check('D65: the Parts strip sits under the utilization card, above the cards, folded, with the engine pill', async () => {
+await check('D65/D69: the Work orders strip sits under the utilization card, above the cards, folded, with the engine pill', async () => {
   const snap = await asFull('owner');
   setParts(false);
   const out = await renderRoute('#/');
@@ -2548,23 +2549,29 @@ await check('D65: the Parts strip sits under the utilization card, above the car
   const s = snap.work_order_summary;
   const n = s.parts_requested + s.parts_ordered + s.parts_in_transit;
   const st = partsStripOf(out);
-  assert.ok(st.includes('🔩 Parts ▸'), 'reads 🔩 Parts ▸');
-  assert.ok(st.includes(`>${n} open<`), `pill = requested + ordered + in transit (${n})`);
+  assert.ok(st.includes('🔧 Work orders ▸'), 'reads 🔧 Work orders ▸');
+  assert.ok(st.includes(`>${s.open} open · ${s.inspections_pending} inspection pending · ${n} parts open<`),
+    `pill = open · inspections pending · requested + ordered + in transit (${n})`);
+  assert.ok(!out.includes('📋 Inspections'), 'the D67 strip is gone');
   assert.ok(!st.includes('id="parts-body"'), 'collapsed by default');
   assert.ok(/parts-n red/.test(st), 'a REQUESTED line on an 8-day-old work order is red');
 });
 
-await check('D65: expanded — part lines grouped Ordered · In transit · Requested, Delivered folded inside, PO leads', async () => {
+await check('D65/D69: expanded — open work orders with their 📋 chip, then part lines Ordered · In transit · Requested, Delivered folded', async () => {
   const snap = await asFull('owner');
   app.__ui().showParts = true; app.__ui().showPartsDelivered = false;
   const st = partsStripOf(await renderRoute('#/'));
+  const w = st.indexOf('>Open <');
   const o = st.indexOf('>Ordered <'); const t = st.indexOf('>In transit <'); const r = st.indexOf('>Requested <');
-  assert.ok(o > 0 && t > o && r > t, 'Ordered, then In transit, then Requested');
+  assert.ok(w > 0 && o > w && t > o && r > t, 'Open work orders, then Ordered, In transit, Requested');
+  assert.ok(st.includes('>📋 pending</span>') && /chip insp amber">📋 pending/.test(st), 'W1001: pending, amber (3 days)');
+  assert.ok(st.includes('>📋 ✓ 2 ⚑</span>'), 'W1002: done, two flags');
+  assert.ok(st.includes('>📋 skipped</span>'), 'W1003: skipped');
   assert.ok(st.includes('Delivered (30d)') && !st.includes('delivered '), 'Delivered is folded');
   const rows = [...st.matchAll(/<div class="prow">/g)].length;
-  const lines = snap.work_orders.filter((w) => w.status === 'OPEN')
-    .flatMap((w) => w.parts).filter((p) => ['REQUESTED', 'ORDERED', 'IN-TRANSIT'].includes(p.state)).length;
-  assert.equal(rows, lines, 'one row per open PART LINE, not per work order');
+  const open = snap.work_orders.filter((w) => w.status === 'OPEN');
+  const lines = open.flatMap((w) => w.parts).filter((p) => ['REQUESTED', 'ORDERED', 'IN-TRANSIT'].includes(p.state)).length;
+  assert.equal(rows, open.length + lines, 'one row per open work order, then one per open PART LINE');
   assert.ok(st.includes('PO <strong>W1001</strong>') && st.includes('href="#/wo/W1001"'), 'W-number labelled PO, tap → #/wo/');
   assert.ok(st.includes('href="https://www.ups.com/track?tracknum=1Z999AA10123456784"'), 'UPS → a carrier link');
   assert.ok(st.includes('<span class="chip track">LTL PRO 48213377</span>'), 'unknown carrier → plain text, no link');
@@ -2596,24 +2603,25 @@ await check('D65: empty strip on the legacy fixture (no work_orders key) and on 
     await app.__refresh();
     app.__ui().showParts = true;
     const st = partsStripOf(await renderRoute('#/'));
-    assert.ok(st.includes('>0 open<') && st.includes('parts-n zero'), `${v}: 0 open, quiet`);
+    assert.ok(st.includes('>0 open · 0 parts open<') && st.includes('parts-n zero'), `${v}: 0 open, quiet`);
     assert.ok(!st.includes('class="prow"'), `${v}: no rows`);
-    assert.ok(st.includes('Nothing on order.'), `${v}: says so`);
+    assert.ok(st.includes('No open work orders.'), `${v}: says so`);
   }
   setParts(false);
   await asFull('owner');
 });
 
-await check('D65: unit page — the chip when a work order is open, "Open work order" when not, any role', async () => {
+await check('D65/D69: unit page — the chip when a work order is open, "Work order" when not, any role; no Inspect', async () => {
   for (const role of ['owner', 'service', 'sales']) {
     const snap = await asFull(role);
     const u = snap.units.find((x) => x.work_order === 'W1001');
     const wo = snap.work_orders.find((w) => w.id === 'W1001');
     const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
-    assert.ok(out.includes(`href="#/wo/W1001">🔩 W1001 · ${wo.parts_open} parts open · ${wo.hours_total} h<`), `${role}: the chip`);
+    assert.ok(out.includes(`href="#/wo/W1001">🔧 W1001 · RETURN · 📋 pending · ${wo.parts_open} parts open · ${wo.hours_total} h<`), `${role}: the chip`);
     assert.ok(!out.includes('data-form="wo-open"'), `${role}: no second work order on the serial`);
+    assert.ok(!out.includes('Inspect') && !out.includes('<h2>Inspections'), `${role}: the D67 Inspect button and list are gone`);
     const plain = snap.units.find((x) => !x.work_order && x.unit_state !== 'RETIRED');
-    assert.ok((await renderRoute(`#/unit/${encodeURIComponent(plain.serial)}`)).includes('data-form="wo-open">Open work order<'), `${role}: the button`);
+    assert.ok((await renderRoute(`#/unit/${encodeURIComponent(plain.serial)}`)).includes('data-form="wo-open">Work order<'), `${role}: the button`);
   }
   await asFull('owner');
 });
@@ -2648,31 +2656,35 @@ await check('D65: OPEN posts {serial, OPEN, purpose, parts} and draws a syntheti
     const mod = await import('../docs/workorders.js');
     return { purpose: mod.defaultPurpose(u), mfr: mod.manufacturerFor(u.brand) };
   })();
-  assert.equal(sheet.purpose, u.readiness === 'NEEDS-PREP' ? 'RENT-READY' : 'REPAIR');
+  assert.equal(sheet.purpose, u.readiness === 'NEEDS-PREP' ? 'RETURN' : sheet.purpose);
   // A line with a description but no part # never leaves the phone.
-  let msg = await submitWo({ verb: 'OPEN', serial: u.serial },
-    { purpose: 'RENT-READY', note: '', p_mfr: ['OTHER'], p_num: [''], p_desc: ['valve'], p_qty: ['1'] }, true);
+  const msg = await submitWo({ verb: 'OPEN', serial: u.serial },
+    { purpose: 'RETURN', note: '', p_mfr: ['OTHER'], p_num: [''], p_desc: ['valve'], p_qty: ['1'] }, true);
   assert.equal(posted.length, 0);
   assert.ok(msg.includes('part number'), 'it says why');
-  msg = await submitWo({ verb: 'OPEN', serial: u.serial }, {
-    purpose: 'RENT-READY', note: 'rent-ready for Acme Foods',
+  await submitWo({ verb: 'OPEN', serial: u.serial }, {
+    purpose: 'RETURN', note: 'rent-ready for Acme Foods',
     p_mfr: ['FACTORY-CAT', 'FACTORY-CAT', 'FACTORY-CAT'], p_num: ['150-4500', '21-422S', ''],
     p_desc: ['Solution valve 24V', 'Squeegee blade rear', ''], p_qty: ['1', '2', '1'],
   }, true);
   assert.equal(posted.length, 1);
-  assert.deepEqual(posted[0], { action: 'work_order', serial: u.serial, payload: { action: 'OPEN', purpose: 'RENT-READY', note: 'rent-ready for Acme Foods',
+  assert.deepEqual(posted[0], { action: 'work_order', serial: u.serial, payload: { action: 'OPEN', purpose: 'RETURN', note: 'rent-ready for Acme Foods',
     parts: [
       { manufacturer: 'FACTORY-CAT', part_number: '150-4500', description: 'Solution valve 24V', qty: 1 },
       { manufacturer: 'FACTORY-CAT', part_number: '21-422S', description: 'Squeegee blade rear', qty: 2 },
     ] } }, 'the blank third row is not a line');
   assert.ok(!JSON.stringify(posted[0]).match(/cost|rate|price/i), 'no money key is ever built');
-  assert.ok(msg.includes('W-number'), 'the confirmation says the engine numbers it');
+  assert.equal(window.location.hash, `#/wo/new/${encodeURIComponent(u.serial)}`, 'D69: straight to the new work order — the sheet is waiting');
+  const newOut = await renderRoute(window.location.hash);
+  assert.ok(newOut.includes('PO <span>⏳ NEW</span>') && newOut.includes('not numbered yet'), 'drawn as NEW — never an invented W-number');
+  assert.ok(newOut.includes('📋 Inspection ▾') && newOut.includes('data-ifield="readings.hours_key"'), 'the sheet, open and waiting');
   const unitOut = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
-  assert.ok(unitOut.includes('⏳ New work order — applies at the next run'), 'the unit page waits');
+  assert.ok(unitOut.includes(`href="#/wo/new/${encodeURIComponent(u.serial)}">⏳ New work order — sheet waiting<`), 'the unit page links to it');
   assert.ok(!unitOut.includes('data-form="wo-open"'), 'and offers no second OPEN');
   app.__ui().showParts = true;
   const st = partsStripOf(await renderRoute('#/'));
-  assert.ok(st.includes(`⏳ NEW — ${u.asset_item} — 2 parts — applies at the next run`), 'the synthetic card, keyed on the serial');
+  assert.ok(st.includes(`⏳ NEW — ${u.asset_item} — Return — 2 parts — 📋 sheet waiting · numbered at the next run`), 'the synthetic card, keyed on the serial');
+  assert.ok(st.includes(`href="#/wo/new/${encodeURIComponent(u.serial)}"`), 'and it opens the new work order');
   assert.ok(st.includes('⏳ 1 new'), 'the folded header says so too');
   assert.ok(st.includes('>Undo<'), 'Josh can take it back (D46)');
   setParts(false);
@@ -2696,7 +2708,7 @@ await check('D65: #/wo/W1001 — PO big, per-role line buttons, Close disabled w
     if (role === 'owner') {
       assert.ok(ordered && transit && delivered, 'owner: Mark ordered + In transit + Delivered');
       assert.ok(/data-sheet="wo-close" data-id="W1001" disabled/.test(out), 'Close is disabled while a line is open');
-      assert.ok(out.includes('Every line has to be delivered or cancelled'), 'and says why');
+      assert.ok(out.includes("Can't close yet — 3 part lines still open") && out.includes('inspection is still pending'), 'and says why — both');
     } else if (role === 'service') {
       assert.ok(!ordered, 'service is never offered Mark ordered');
       assert.ok(transit && delivered, 'service moves boxes: In transit + Delivered');
@@ -2706,10 +2718,11 @@ await check('D65: #/wo/W1001 — PO big, per-role line buttons, Close disabled w
       assert.ok(!out.includes('data-sheet="wo-close"'), 'no Close for sales');
     }
   }
-  // A labor-only work order has nothing open: the owner may close it.
-  await asFull('owner');
+  // D69: a labor-only work order with its sheet DONE has nothing holding it: the owner may close it.
+  const snap = await asFull('owner');
+  snap.work_orders.find((w) => w.id === 'W1002').parts = [];
   const pm = await renderRoute('#/wo/W1002');
-  assert.ok(/data-sheet="wo-close" data-id="W1002">/.test(pm), 'labor-only → Close enabled');
+  assert.ok(/data-sheet="wo-close" data-id="W1002">/.test(pm), 'labor-only + sheet DONE → Close enabled');
   assert.ok(pm.includes('No parts on this work order'), 'labor only, said plainly');
   const closed = await renderRoute('#/wo/W1004');
   assert.ok(!closed.includes('data-sheet="wo-') && closed.includes('CLOSED'), 'a closed one offers nothing');
@@ -2915,11 +2928,15 @@ await check('D68: money gate on the new fixtures — no money key or figure on a
   await asFull('owner');
 });
 
-await check('D65: ticket detail carries a read-only 🔩 chip when its unit has a work order', async () => {
+await check('D69: ticket detail carries a read-only 🔧 W · 📋 chip for the work orders on it', async () => {
   const snap = await asFull('service');
   const w = snap.work_orders.find((x) => x.ticket);
-  const out = await renderRoute(`#/ticket/${w.ticket}`);
-  assert.ok(out.includes(`<a class="chip wo" href="#/wo/${w.id}">🔩 ${w.id}</a>`));
+  let out = await renderRoute(`#/ticket/${w.ticket}`);
+  assert.ok(out.includes(`<a class="chip wo" href="#/wo/${w.id}">🔧 ${w.id} · 📋 skipped</a>`), 'W1003 skipped its sheet');
+  w.inspection = { ...w.inspection, status: 'DONE', flags: 2, skipped_reason: null };
+  out = await renderRoute(`#/ticket/${w.ticket}`);
+  assert.ok(out.includes(`<a class="chip wo" href="#/wo/${w.id}">🔧 ${w.id} · 📋 2 ⚑</a>`), 'a DONE sheet: 📋 2 ⚑ (was 📋 I1001)');
+  assert.ok(!out.includes('#/inspection/'), 'no I-number link anywhere');
   const plain = snap.service_queue.find((t) => !t.serial || !(snap.units.find((u) => u.serial === t.serial) || {}).work_order);
   assert.ok(!(await renderRoute(`#/ticket/${plain.ticket}`)).includes('class="chip wo"'));
   await asFull('owner');
@@ -2934,13 +2951,9 @@ await check('D65: the mock itself carries no money key on any work order, and W1
   assert.ok(snap.work_orders.every((w) => w.status !== 'CLOSED' || w.age_days === null), 'age_days is null once CLOSED');
 });
 
-/* ----------------------------------------------- D67: the inspection sheet */
+/* ------------------------------- D69: the inspection sheet ON the work order */
 
-const inspStripOf = (out) => {
-  const i = out.indexOf('<section class="parts insp-strip');
-  return i < 0 ? '' : out.slice(i, out.indexOf('</section>', i) + 10);
-};
-const resetSheets = () => { app.__sheetLocal().clear(); app.__ui().form = null; };
+const resetSheets = () => { app.__sheetLocal().clear(); app.__ui().form = null; app.__ui().sheetCard.clear(); };
 const fieldTarget = (ifield, value, tag = 'INPUT') => {
   const node = { dataset: { ifield }, value, tagName: tag, classList: { add() {}, remove() {} } };
   node.closest = (q) => (q === '[data-ifield]' ? node : null);
@@ -2948,22 +2961,28 @@ const fieldTarget = (ifield, value, tag = 'INPUT') => {
 };
 const tapSeg = (id, val) => fireOn('click', fakeTarget('[data-iseg]', { dataset: { iseg: id, val } }));
 const { fmtMD: FMT_MD } = await import('../docs/dates.js');
-const INSP = await import('../docs/inspections.js');
+/** The 📋 card on a rendered work-order page. */
+const sheetCardOf = (out) => {
+  const i = out.indexOf('<section class="sheet-card');
+  return i < 0 ? '' : out.slice(i, out.indexOf('</section>', i) + 10);
+};
 
 /** A fake Worker for the sheet's saves: POSTs are stored and echoed; DELETE answers delStatus(id). */
-async function apiInsp(me, extraPending = [], { delStatus = () => 200 } = {}) {
+async function apiInsp(me, extraPending = [], { delStatus = () => 200, mutate = null } = {}) {
   const snapshot = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  if (mutate) mutate(snapshot);
   const posted = [];
   const deleted = [];
   let n = 0;
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
-    if (u.endsWith('/api/data')) return { ok: true, status: 200, json: async () => ({ me, snapshot, pending: extraPending.slice() }) };
+    // A DELETE takes an event out of the inbox, as the Worker does — so a re-read after an undo is honest.
+    if (u.endsWith('/api/data')) return { ok: true, status: 200, json: async () => ({ me, snapshot, pending: extraPending.filter((e) => !deleted.includes(e.id)) }) };
     if (u.endsWith('/api/event') && init.method === 'POST') {
       const body = JSON.parse(init.body);
       posted.push(body);
       n++;
-      const ts = `2026-09-25T12:00:${String(n).padStart(2, '0')}.000Z`;
+      const ts = `2026-09-27T12:00:${String(n).padStart(2, '0')}.000Z`;
       const stored = { id: `${ts}:t${n}`, ts, actor: me.name, role: me.role, ...body };
       return { ok: true, status: 201, json: async () => stored };
     }
@@ -2991,9 +3010,13 @@ async function leaveApi() {
   resetSheets();
   await asFull('owner');
 }
-/** Submit any form.write the way the page does. */
-async function submitForm(dataset, fields) {
-  const form = { dataset, querySelector: (q) => (q === 'button[type=submit]' ? { disabled: false } : null) };
+/** Submit any form.write the way the page does. `checks` answers querySelector('[name=x]') with {checked}. */
+async function submitForm(dataset, fields, checks = {}) {
+  const form = { dataset, querySelector: (q) => {
+    if (q === 'button[type=submit]') return { disabled: false };
+    const m = /^\[name=(\w+)\]$/.exec(q);
+    return m && m[1] in checks ? { checked: checks[m[1]] } : null;
+  } };
   form.closest = (q) => (q === 'form.write' ? form : null);
   const SavedFD = globalThis.FormData;
   globalThis.FormData = class {
@@ -3004,464 +3027,437 @@ async function submitForm(dataset, fields) {
   finally { globalThis.FormData = SavedFD; }
   await settle();
 }
+/** A pending event, as the Worker stores it. */
+const evt = (id, ts, actor, role, serial, payload) => ({ id, ts, actor, role, action: 'work_order', serial, payload });
+const newUnitOf = (snap) => snap.units.find((x) => !x.work_order && x.unit_state === 'IN-SHOP')
+  || snap.units.find((x) => !x.work_order && x.unit_state !== 'RETIRED');
 
-await check('D67: a pre-D67 snapshot — "No inspections yet", no Inspect button, the route says not found', async () => {
-  window.location.href = 'http://localhost:8787/?mock=legacy&role=owner';
-  window.location.search = '?mock=legacy&role=owner';
-  await app.__refresh();
-  const st = inspStripOf(await renderRoute('#/'));
-  assert.ok(st.includes('>No inspections yet<'), 'the strip says so');
-  const u = app.__state().snapshot.units.find((x) => x.unit_state !== 'RETIRED');
-  const unit = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
-  assert.ok(!unit.includes('data-form="insp-open"') && !unit.includes('<h2>Inspections'), 'no library → no button, no list');
-  assert.ok((await renderRoute('#/inspection/I1005')).includes('Sheet not found.'));
+await check('D69: no 📋 Inspections strip on any fixture; the old sheet route lands on the board', async () => {
+  for (const v of ['full', 'empty', 'legacy']) {
+    window.location.href = `http://localhost:8787/?mock=${v}&role=owner`;
+    window.location.search = `?mock=${v}&role=owner`;
+    await app.__refresh();
+    const out = await renderRoute('#/');
+    assert.ok(!out.includes('📋 Inspections') && !out.includes('insp-strip') && !out.includes('data-insp-toggle'), `${v}: no D67 strip`);
+    const snap = app.__state().snapshot;
+    assert.ok(!('inspections' in snap) && !('inspection_summary' in snap), `${v}: the retired keys are not in the mock`);
+    assert.ok(snap.units.every((u) => !('inspection_draft' in u)), `${v}: no unit carries inspection_draft`);
+  }
   await asFull('owner');
+  await renderRoute('#/inspection/I1001');
+  assert.equal(window.location.hash, '#/', '#/inspection/<I> redirects to the board');
 });
 
-await check('D67: the strip sits under the Parts strip, above the cards — folded, engine counts, amber at 2 days', async () => {
+await check('D69: the strip goes amber from a sheet PENDING ≥ 2 days even with no stale part, and not at 1 day', async () => {
   const snap = await asFull('owner');
-  app.__ui().showInspections = false;
   app.__ui().showParts = false;
-  const out = await renderRoute('#/');
-  const parts = out.indexOf('<section class="parts card');
-  const insp = out.indexOf('<section class="parts insp-strip');
-  assert.ok(parts >= 0 && insp > parts && out.indexOf('cat-card') > insp, 'Parts → Inspections → category cards');
-  const st = inspStripOf(out);
-  const s = snap.inspection_summary;
-  assert.ok(st.includes('📋 Inspections ▸'));
-  assert.ok(st.includes(`>${s.drafts} drafts · ${s.done_7d} done this week<`), 'the engine summary');
-  assert.ok(/parts-n amber/.test(st), 'a 3-day-old DRAFT turns it amber');
-  assert.ok(!st.includes('id="insp-body"'), 'collapsed by default');
-  await fireOn('click', fakeTarget('[data-insp-toggle]', {}));
-  await settle();
-  assert.equal(sessionStorage.getItem('wss.inspections.open'), '1', 'remembered for the session');
-  const open = inspStripOf(view._html);
-  const d4 = open.indexOf('>I1004<'); const d5 = open.indexOf('>I1005<'); const done = open.indexOf('Done (7d)');
-  assert.ok(d4 > 0 && d5 > d4 && done > d5, 'Drafts oldest first, then Done (7d)');
-  assert.ok(open.includes('href="#/inspection/I1004"') && open.includes('Resume ›'));
-  assert.ok(open.includes('href="#/wo/W1002">🔩 W1002<'), 'a Done row carries its work order');
-  assert.ok(!open.includes('I1001'), 'the 100-day-old sheet never shipped');
-  app.__ui().showInspections = false;
-  sessionStorage.removeItem('wss.inspections.open');
-});
-
-await check('D67: amber only from a DRAFT two days old; the empty fixture reads "No inspections yet"', async () => {
-  const snap = await asFull('owner');
-  assert.equal(INSP.draftTone(snap.inspections, 2), 'amber');
-  assert.equal(INSP.draftTone(snap.inspections.map((i) => ({ ...i, age_days: i.status === 'DRAFT' ? 1 : null })), 2), '');
-  window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
-  window.location.search = '?mock=empty&role=owner';
-  await app.__refresh();
-  assert.ok(inspStripOf(await renderRoute('#/')).includes('>No inspections yet<'));
+  // Take every REQUESTED line out so only the sheet can tone it.
+  for (const w of snap.work_orders) w.parts = w.parts.filter((p) => p.state !== 'REQUESTED');
+  let st = partsStripOf(await renderRoute('#/'));
+  assert.ok(/parts-n amber/.test(st), 'W1001 PENDING for 3 days → amber');
+  snap.work_orders.find((w) => w.id === 'W1001').age_days = 1;
+  st = partsStripOf(await renderRoute('#/'));
+  assert.ok(!/parts-n (amber|red)/.test(st), 'one day PENDING — quiet');
   await asFull('owner');
 });
 
-await check('D67: unit page — Resume on a DRAFT, the picker otherwise (default per §2), hours in the header, last 5', async () => {
+await check('D69: unit page — Last inspection line (tap → the WO), the hours header, no Inspect; a pre-D69 unit has neither', async () => {
   for (const role of ['owner', 'service', 'sales']) {
     const snap = await asFull(role);
-    const du = snap.units.find((u) => u.inspection_draft === 'I1005');
-    const d = snap.inspections.find((i) => i.id === 'I1005');
-    const out = await renderRoute(`#/unit/${encodeURIComponent(du.serial)}`);
-    assert.ok(out.includes(`href="#/inspection/I1005">📋 ${INSP.resumeText(d)}<`), `${role}: Resume`);
-    assert.ok(!out.includes('data-form="insp-open"'), `${role}: never a second DRAFT`);
-    const hu = snap.units.find((u) => u.last_inspection && u.last_inspection.id === 'I1003');
-    const hout = await renderRoute(`#/unit/${encodeURIComponent(hu.serial)}`);
-    assert.ok(hout.includes(`<div class="s hours-line">412.5 h · as of ${FMT_MD(hu.hours_as_of)}</div>`), `${role}: the meter in the header`);
-    assert.ok(hout.includes('data-form="insp-open">📋 Inspect<'), `${role}: the Inspect button`);
-    assert.ok(hout.includes(`I1003 · RETURN · ${FMT_MD(hu.last_inspection.done)} · Josh · 412.5 h · 2 ⚑`), `${role}: the list row`);
+    const u = snap.units.find((x) => x.last_inspection && x.last_inspection.work_order === 'W1002');
+    const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+    assert.ok(out.includes(`<div class="s hours-line">961.5 h · as of ${FMT_MD(u.hours_as_of)}</div>`), `${role}: the meter in the header`);
+    assert.ok(out.includes(`href="#/wo/W1002">`) && out.includes(`Last inspection</span> PM · ${FMT_MD(u.last_inspection.done)} · Zac · 961.5 h · 2 ⚑ · W1002`), `${role}: the line`);
+    const closed = snap.units.find((x) => x.last_inspection && x.last_inspection.work_order === 'W1004');
+    const cout = await renderRoute(`#/unit/${encodeURIComponent(closed.serial)}`);
+    assert.ok(cout.includes(`Last inspection</span> Check-out · ${FMT_MD(closed.last_inspection.done)} · Josh · 412.5 h · 2 ⚑ · W1004`), `${role}: a closed CHECKOUT`);
+    assert.ok(!cout.includes('Inspect<'), `${role}: no Inspect button`);
   }
   const snap = await asFull('service');
-  const bare = snap.units.find((u) => !u.hours && !u.inspection_draft && u.unit_state !== 'RETIRED');
-  assert.ok(!(await renderRoute(`#/unit/${encodeURIComponent(bare.serial)}`)).includes('hours-line'), 'no meter, no line');
+  const bare = snap.units.find((u) => !u.last_inspection && !u.hours && u.unit_state !== 'RETIRED');
+  const out = await renderRoute(`#/unit/${encodeURIComponent(bare.serial)}`);
+  assert.ok(!out.includes('hours-line') && !out.includes('Last inspection'), 'no meter, no line');
   await asFull('owner');
 });
 
-await check('D67: the sheet renders FROM the checklist — sections in library order, filtered for the machine', async () => {
+await check('D69: the OPEN sheet — purpose picker Check-out · Return · PM · Repair · Other, defaulted from readiness', async () => {
+  const snap = await asFull('service');
+  const want = { 'NEEDS-PREP': 'RETURN', DOWN: 'REPAIR', READY: 'CHECKOUT' };
+  const cases = [
+    snap.units.find((u) => !u.work_order && u.unit_state === 'IN-SHOP' && u.readiness === 'NEEDS-PREP'),
+    snap.units.find((u) => !u.work_order && u.unit_state === 'IN-SHOP' && u.readiness === 'DOWN'),
+    snap.units.find((u) => !u.work_order && u.unit_state === 'AVAILABLE' && u.readiness === 'READY'),
+    snap.units.find((u) => !u.work_order && u.unit_state === 'ON-RENT'),
+  ].filter(Boolean);
+  assert.ok(cases.length >= 3, 'the fixture has the cases');
+  for (const u of cases) {
+    await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+    const mount = { innerHTML: '' };
+    nodes['#write-form'] = mount;
+    try { await fireOn('click', fakeTarget('[data-form]', { dataset: { form: 'wo-open' } })); } finally { delete nodes['#write-form']; }
+    const sheet = mount.innerHTML;
+    const labels = [...sheet.matchAll(/data-toggle="purpose"|class="tg[^"]*" data-val="([A-Z-]+)"/g)].map((m) => m[1]).filter(Boolean);
+    assert.deepEqual(labels.slice(0, 5), ['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER'], 'the five, in order');
+    const def = u.unit_state === 'ON-RENT' ? 'REPAIR' : want[u.readiness];
+    assert.ok(new RegExp(`class="tg on" data-val="${def}"`).test(sheet), `${u.readiness}/${u.unit_state} → ${def}`);
+    assert.equal(sheet.includes('out on rent'), u.unit_state === 'ON-RENT', 'the wrong-unit guard shows on an ON-RENT unit only');
+    assert.ok(!sheet.includes('RENT-READY'), 'RENT-READY is not offered');
+  }
+  await asFull('owner');
+});
+
+await check('D69: #/wo — PENDING sheet expanded, DONE and SKIPPED folded with their pill; a tap unfolds', async () => {
+  await asFull('owner');
+  resetSheets();
+  const p = sheetCardOf(await renderRoute('#/wo/W1001'));
+  assert.ok(p.includes('📋 Inspection ▾') && p.includes('>PENDING</span>') && p.includes('data-ifield="readings.hours_key"'), 'W1001: open, PENDING');
+  const out1 = await renderRoute('#/wo/W1001');
+  const card = out1.indexOf('<section class="sheet-card'); const head = out1.indexOf('po-big'); const parts = out1.indexOf('<h2>Parts');
+  assert.ok(head < card && card < parts, 'between the header and Parts');
+  const d = sheetCardOf(await renderRoute('#/wo/W1002'));
+  assert.ok(d.includes('📋 Inspection ▸') && !d.includes('data-ifield='), 'W1002: folded');
+  assert.ok(/DONE · Zac · \d+\/\d+ · 2 ⚑/.test(d), 'the DONE pill: tech · date · flags');
+  const sk = sheetCardOf(await renderRoute('#/wo/W1003'));
+  assert.ok(sk.includes('SKIPPED · Josh: drive motor only'), 'the SKIPPED pill carries the reason');
+  await renderRoute('#/wo/W1002');
+  await fireOn('click', fakeTarget('[data-sheet-card]', { dataset: { sheetCard: 'W1002' } }));
+  await settle();
+  const open = sheetCardOf(view._html);
+  assert.ok(open.includes('📋 Inspection ▾') && open.includes('data-iseg="ctl.drive_forward"'), 'a tap unfolds it, read-only');
+  assert.ok([...open.matchAll(/data-(ifield|iseg)="[^"]*"[^>]*>/g)].every((m) => / disabled>$/.test(m[0])), 'every control disabled');
+  resetSheets();
+});
+
+await check('D69: the sheet renders FROM the checklist on the work order — library order, filtered for the machine', async () => {
   const snap = await asFull('service');
   resetSheets();
-  const out = await renderRoute('#/inspection/I1005');
+  const out = await renderRoute('#/wo/W1001');
   const lib = snap.inspection_checklist.sections;
-  const titles = lib.map((s) => s.title).filter((t) => out.includes(`<h2>${t.replace(/&/g, '&amp;')} <span class="count">`));
+  const titles = lib.map((s) => s.title).filter((t) => out.includes(`<h3>${t.replace(/&/g, '&amp;')} <span class="count">`));
   assert.deepEqual(titles, ['Batteries', 'Check operation & condition of', 'Scrub deck & squeegee'], 'library order, scrubber sees the deck');
   assert.ok(out.includes('data-iseg="ctl.estop"') && !out.includes('data-iseg="ctl.main_broom_ctl"'), 'class filter');
   assert.ok(!out.includes('data-iseg="ctl.horn"'), 'walk-behind: no horn');
   assert.ok(out.includes('data-iseg="bat.watering"'), 'WET: the watering row');
   assert.ok(!out.includes('data-iseg="bat.old_gauge"'), 'a retired row stays off a sheet that never answered it');
   assert.ok(out.includes('data-ifield="readings.brush1_pct"') && !out.includes('readings.main_broom_pct'), 'readings follow the class');
-  // v1.2: % life left — whole numbers, the number pad, a % on the field; no recharge counter; "Body style".
   assert.ok(/<input type="number" inputmode="numeric" pattern="\[0-9\]\*" step="1" min="0" max="100" data-ifield="readings.brush1_pct"/.test(out), 'a numeric-keypad percent field');
-  assert.ok(out.includes('<span>Brush 1 life left</span>') && out.includes('<span class="pct-suf" aria-hidden="true">%</span>'), 'labelled, with a % suffix');
-  assert.ok(!out.includes('recharge') && !out.includes('_length'), 'no recharge counter, no lengths');
-  assert.ok(out.includes('<span>Body style</span>') && out.includes('data-ifield="body_style"') && !out.includes('data-ifield="controls"'), 'the dropdown is Body style');
+  assert.ok(out.includes('<span>Body style</span>') && !out.includes('data-ifield="kind"'), 'no kind dropdown — purpose is the work order\'s');
   assert.ok(out.includes('<span class="count">3/4 answered</span>'), 'Batteries: 3 of 4');
-  // The WEAR scale on a WEAR row, FUNCTION on a FUNCTION row — from the library, never hard-coded.
   assert.ok(/data-iseg="deck.curtains" data-val="REPLACE"/.test(out) && !/data-iseg="deck.curtains" data-val="REPAIR"/.test(out));
-  assert.ok(/data-iseg="ctl.estop" data-val="PROBLEM"/.test(out) && /data-iseg="ctl.estop" data-val="N\/A"/.test(out));
   // A DONE sheet that carries the retired row still draws it.
-  assert.ok((await renderRoute('#/inspection/I1002')).includes('Analog charge gauge (retired)'));
+  app.__ui().sheetCard.set('W1002', true);
+  assert.ok((await renderRoute('#/wo/W1002')).includes('Analog charge gauge (retired)'));
+  resetSheets();
 });
 
-await check('D67: switching body style to RIDER adds the rider rows and keeps every answer', async () => {
+await check('D69: switching body style keeps every answer; the WET cell grid follows voltage and pack', async () => {
   await asFull('service');
   resetSheets();
-  await renderRoute('#/inspection/I1005');
+  await renderRoute('#/wo/W1001');
   await tapSeg('ctl.key_switch', 'REPAIR');
   await fireOn('change', fieldTarget('body_style', 'RIDER', 'SELECT'));
   await settle();
   let out = view._html;
-  assert.ok(out.includes('data-iseg="ctl.horn"') && out.includes('data-iseg="ctl.seat_switch"'), 'the rider rows appear');
-  assert.ok(out.includes('data-iseg="ctl.key_switch" data-val="REPAIR" aria-pressed="true"'), 'the answer typed before the switch is kept');
-  assert.ok(out.includes('data-iseg="deck.curtains" data-val="WORN" aria-pressed="true"'), 'and the engine’s answers too');
-  await tapSeg('ctl.horn', 'PROBLEM');
-  await fireOn('change', fieldTarget('body_style', 'WALK-BEHIND', 'SELECT'));
-  await fireOn('change', fieldTarget('body_style', 'RIDER', 'SELECT'));
-  await settle();
-  out = view._html;
-  assert.ok(out.includes('data-iseg="ctl.horn" data-val="PROBLEM" aria-pressed="true"'), 'flip away and back: the horn answer survives');
-  await fireOn('change', fieldTarget('machine_class', 'SWEEPER', 'SELECT'));
-  await settle();
-  assert.ok(!view._html.includes('data-iseg="deck.curtains"') && view._html.includes('data-iseg="ctl.side_broom_lift"'), 'a sweeper: no deck, the broom rows');
+  assert.ok(out.includes('data-iseg="ctl.horn"') && out.includes('data-iseg="ctl.key_switch" data-val="REPAIR" aria-pressed="true"'));
+  assert.ok(out.includes('data-iseg="deck.curtains" data-val="WORN" aria-pressed="true"'), 'the engine’s answers too');
   resetSheets();
-});
-
-await check('D67: the WET cell grid follows voltage and pack; AGM hides it', async () => {
-  await asFull('service');
-  resetSheets();
-  let out = await renderRoute('#/inspection/I1005');
+  out = await renderRoute('#/wo/W1001');
   const rows = (o) => [...o.matchAll(/class="cell-r"/g)].length;
   const groups = (o) => [...o.matchAll(/class="cell-gh">Battery \d/g)].length;
   assert.equal(rows(out), 12, '24V: 12 cells');
-  assert.equal(groups(out), 4, '4 × 6V: four batteries of A–C');
-  assert.ok(out.includes('data-ifield="cell:4C:sg"') && !out.includes('cell:1D:sg'));
+  assert.equal(groups(out), 4, '4 × 6V');
   await fireOn('change', fieldTarget('battery.pack', '2x12V', 'SELECT'));
   await settle();
-  out = view._html;
-  assert.equal(rows(out), 12, 'still 12 cells');
-  assert.equal(groups(out), 2, '2 × 12V: two batteries of A–F');
-  assert.ok(out.includes('data-ifield="cell:2F:sg"'));
-  await fireOn('change', fieldTarget('battery.voltage', '36', 'SELECT'));
-  await settle();
-  out = view._html;
-  assert.equal(rows(out), 0, 'a 24V pack does not fit 36V — no grid until the pack is picked');
-  assert.ok(out.includes('Pick the voltage and the pack'));
-  await fireOn('change', fieldTarget('battery.pack', '6x6V', 'SELECT'));
-  await settle();
-  assert.equal(rows(view._html), 18, '36V: 18 cells');
-  assert.equal(groups(view._html), 6);
+  assert.equal(groups(view._html), 2, '2 × 12V');
   await fireOn('change', fieldTarget('battery.type', 'AGM', 'SELECT'));
   await settle();
-  out = view._html;
-  assert.equal(rows(out), 0, 'AGM: no grid');
-  assert.ok(out.includes('Sealed pack') && !out.includes('data-ifield="battery.pack"'), 'and no pack dropdown');
-  assert.ok(!out.includes('data-iseg="bat.watering"'), 'the WET-only row goes too');
+  assert.equal(rows(view._html), 0, 'AGM: no grid');
   resetSheets();
 });
 
-await check('D67: Done is disabled until an hours field has a value (the engine’s one rule)', async () => {
-  await asFull('service');
+await check('D69: Done is disabled until an hours field has a value; No inspection is always offered on a PENDING sheet', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    await asFull(role);
+    resetSheets();
+    let out = await renderRoute('#/wo/W1001');
+    assert.ok(/data-sheet="insp-done" data-id="W1001" disabled>Done</.test(out), `${role}: no hours: disabled`);
+    assert.ok(out.includes('data-sheet="insp-skip" data-id="W1001">No inspection<'), `${role}: No inspection`);
+    await fireOn('input', fieldTarget('readings.hours_traction', '88.5'));
+    out = await renderRoute('#/wo/W1001');
+    assert.ok(/data-sheet="insp-done" data-id="W1001">Done</.test(out), `${role}: traction hours count`);
+  }
   resetSheets();
-  let out = await renderRoute('#/inspection/I1005');
-  assert.ok(/data-sheet="insp-done" data-id="I1005" disabled>Done</.test(out), 'no hours: disabled');
-  assert.ok(out.includes('Done needs an hours reading'));
-  await fireOn('input', fieldTarget('readings.hours_traction', '88.5'));
-  out = await renderRoute('#/inspection/I1005');
-  assert.ok(/data-sheet="insp-done" data-id="I1005">Done</.test(out), 'traction hours count');
-  await fireOn('input', fieldTarget('readings.hours_traction', ''));
-  out = await renderRoute('#/inspection/I1005');
-  assert.ok(/data-sheet="insp-done" data-id="I1005" disabled>Done</.test(out), 'cleared again: disabled again');
-  resetSheets();
-});
-
-await check('D67: flagged rows tint; the WO button only on DONE + flags + no work order', async () => {
   await asFull('owner');
-  resetSheets();
-  const i3 = await renderRoute('#/inspection/I1003');
-  assert.equal([...i3.matchAll(/class="irow flag"/g)].length, 2, 'two flags, two tinted rows');
-  assert.ok(i3.includes('data-sheet="insp-wo"') && i3.includes('Open work order from this inspection'));
-  assert.ok(!(await renderRoute('#/inspection/I1002')).includes('data-sheet="insp-wo"'), 'I1002 already has W1002');
-  assert.ok(!(await renderRoute('#/inspection/I1005')).includes('data-sheet="insp-wo"'), 'not on a DRAFT');
-  await renderRoute('#/inspection/I1005');
-  await tapSeg('sqg.blades', 'REPAIR');
-  assert.ok(/class="irow flag">\s*<div class="irow-top"><span class="irow-l">Check and rotate blades/.test(view._html), 'a fresh flag tints at once');
-  assert.ok(view._html.includes('data-ifield="note:sqg.blades"'), 'and opens its note');
-  resetSheets();
 });
 
-await check('D67: a DONE sheet is read-only; Reopen for owner, not for sales', async () => {
+await check('D69: No inspection needs a reason — a blank one never leaves the phone; a real one posts SKIP by W-number', async () => {
+  const { posted } = await apiInsp({ name: 'Zac', role: 'service' });
+  await renderRoute('#/wo/W1001');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'insp-skip', id: 'W1001' } }));
+  await settle();
+  assert.ok(view._html.includes('Why no inspection?') && view._html.includes('name="reason" maxlength="120" required'), 'the one-line reason');
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'SKIP', key: 'W1001', wo: 'W1001' }, { reason: '   ' });
+  assert.equal(posted.length, 0, 'blank → refused before the POST');
+  assert.ok(view._html.includes('Say why there is no inspection'), 'and says so');
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'SKIP', key: 'W1001', wo: 'W1001' }, { reason: 'gasket only — inspected last week' });
+  assert.deepEqual(posted[0], { action: 'work_order', serial: null, payload: { action: 'INSPECT', step: 'SKIP', work_order: 'W1001', reason: 'gasket only — inspected last week' } });
+  const out = await renderRoute('#/wo/W1001');
+  assert.ok(out.includes('⏳ NO INSPECTION — at the next run') && out.includes('no inspection — gasket only'), 'pending, badged');
+  assert.ok(!out.includes('id="insp-status"') && !out.includes('data-sheet="insp-done"'), 'the sheet locks');
+  await leaveApi();
+});
+
+await check('D69: flagged rows tint and grow + part — it opens + Add parts with the row label as the description', async () => {
+  const { posted } = await apiInsp({ name: 'Zac', role: 'service' });
+  app.__ui().sheetCard.set('W1002', true);
+  let out = await renderRoute('#/wo/W1002');
+  assert.equal([...sheetCardOf(out).matchAll(/class="irow flag"/g)].length, 2, 'two flags, two tinted rows');
+  assert.ok(out.includes('data-sheet="wo-add" data-id="W1002" data-desc="Battery charger">+ part<'), '+ part on a flagged row');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'wo-add', id: 'W1002', desc: 'Battery charger' } }));
+  await settle();
+  out = view._html;
+  assert.ok(out.includes('For the flagged row: <strong>Battery charger</strong>'));
+  assert.ok(out.includes('aria-label="Description" value="Battery charger"'), 'the description is prefilled');
+  await submitForm({ action: 'work_order', verb: 'ADD-PARTS', wo: 'W1002' }, { p_mfr: ['OTHER'], p_num: ['CHG-2436'], p_desc: ['Battery charger'], p_qty: ['1'], p_src: ['VENDOR'] });
+  assert.deepEqual(posted[0].payload, { action: 'ADD-PARTS', work_order: 'W1002', parts: [{ manufacturer: 'OTHER', part_number: 'CHG-2436', description: 'Battery charger', qty: 1 }] });
+  // A fresh flag on the PENDING sheet grows one at once.
+  await renderRoute('#/wo/W1001');
+  await tapSeg('sqg.blades', 'REPAIR');
+  assert.ok(view._html.includes('data-desc="Check and rotate blades as needed">+ part<'), 'a fresh flag grows + part');
+  await leaveApi();
+});
+
+await check('D69: Close — disabled with the reason (lines vs sheet); the sheet has ☑ Mark READY, on by default, hidden when out', async () => {
+  let snap = await asFull('owner');
+  let out = await renderRoute('#/wo/W1002');
+  assert.ok(/data-sheet="wo-close" data-id="W1002" disabled/.test(out), 'a REQUESTED line holds W1002');
+  assert.ok(out.includes('<div class="form-note close-why">Can\'t close yet — 1 part line still open — deliver or cancel it.</div>'), 'the line, not the sheet');
+  snap.work_orders.find((w) => w.id === 'W1002').parts[0].state = 'DELIVERED';
+  out = await renderRoute('#/wo/W1002');
+  assert.ok(/data-sheet="wo-close" data-id="W1002">/.test(out) && !out.includes("Can't close yet"), 'settled + DONE → enabled');
+  const w1 = snap.work_orders.find((w) => w.id === 'W1001');
+  w1.parts = w1.parts.map((p) => ({ ...p, state: 'DELIVERED' }));
+  out = await renderRoute('#/wo/W1001');
+  assert.ok(out.includes('<div class="form-note close-why">Can\'t close yet — the inspection is still pending — Done it, or No inspection with a reason.</div>'), 'the sheet, not the lines');
+  // The close sheet.
+  await renderRoute('#/wo/W1002');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'wo-close', id: 'W1002' } }));
+  await settle();
+  assert.ok(/<input type="checkbox" name="ready" value="1" checked>\s*Mark READY/.test(view._html), 'Mark READY, checked');
+  // The same work order on a unit that is out: no box.
+  snap = app.__state().snapshot;
+  const u2 = snap.units.find((u) => u.serial === snap.work_orders.find((w) => w.id === 'W1002').serial);
+  u2.unit_state = 'ON-RENT';
+  app.__ui().form = { kind: 'wo-close', id: 'W1002', arg: null };
+  out = await renderRoute('#/wo/W1002');
+  assert.ok(!out.includes('name="ready"') && out.includes('its readiness is left alone'), 'ON-RENT: hidden, and it says why');
+  app.__ui().form = null;
+  await asFull('owner');
+});
+
+await check('D69: CLOSE posts {ready} from the box — true, false, or absent when the box is not drawn', async () => {
+  const { posted } = await apiInsp({ name: 'Matt', role: 'owner' });
+  await submitForm({ action: 'work_order', verb: 'CLOSE', wo: 'W1002' }, { note: '' }, { ready: true });
+  await submitForm({ action: 'work_order', verb: 'CLOSE', wo: 'W1002' }, { note: 'leave it in prep' }, { ready: false });
+  await submitForm({ action: 'work_order', verb: 'CLOSE', wo: 'W1002' }, { note: '' });
+  assert.deepEqual(posted.map((p) => p.payload), [
+    { action: 'CLOSE', work_order: 'W1002', note: null, ready: true },
+    { action: 'CLOSE', work_order: 'W1002', note: 'leave it in prep', ready: false },
+    { action: 'CLOSE', work_order: 'W1002', note: null },
+  ]);
+  assert.ok((await renderRoute('#/wo/W1002')).includes('close (readiness left alone)'), 'the pending row says so');
+  await leaveApi();
+});
+
+await check('D69: Reopen on a settled sheet — owner yes, sales no; never on a CLOSED work order', async () => {
   for (const role of ['owner', 'sales']) {
     await asFull(role);
     resetSheets();
-    const out = await renderRoute('#/inspection/I1003');
-    const fields = [...out.matchAll(/<(input|select|textarea|button)[^>]*data-(ifield|iseg|irot)="[^"]*"[^>]*>/g)].map((m) => m[0]);
-    assert.ok(fields.length > 30, 'the whole sheet is drawn');
-    assert.ok(fields.every((f) => / disabled>$/.test(f)), `${role}: every control disabled`);
-    assert.ok(!out.includes('id="insp-status"') && !out.includes('data-inote='), `${role}: no save line, no + note`);
-    assert.equal(out.includes('data-sheet="insp-reopen"'), role === 'owner', `${role}: Reopen ${role === 'owner' ? 'shown' : 'hidden'}`);
+    assert.equal((await renderRoute('#/wo/W1002')).includes('data-sheet="insp-reopen"'), role === 'owner', `${role}: DONE`);
+    assert.equal((await renderRoute('#/wo/W1003')).includes('data-sheet="insp-reopen"'), role === 'owner', `${role}: SKIPPED`);
+    assert.ok(!(await renderRoute('#/wo/W1004')).includes('data-sheet="insp-reopen"'), `${role}: closed`);
   }
+  const { posted } = await apiInsp({ name: 'Matt', role: 'owner' });
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'REOPEN', key: 'W1002', wo: 'W1002' }, { note: 'missed the recovery tank' });
+  assert.deepEqual(posted[0].payload, { action: 'INSPECT', step: 'REOPEN', work_order: 'W1002', note: 'missed the recovery tank' });
+  assert.ok(!(await renderRoute('#/wo/W1002')).includes('data-sheet="insp-reopen"'), 'pending — no second tap');
+  await leaveApi();
+});
+
+await check('D69: a legacy row — inspection a string or null — renders a PENDING-shaped sheet, no crash', async () => {
+  for (const legacy of ['I1001', null]) {
+    const snap = await asFull('owner');
+    resetSheets();
+    const w = snap.work_orders.find((x) => x.id === 'W1002');
+    w.inspection = legacy;
+    const out = await renderRoute('#/wo/W1002');
+    assert.ok(!/undefined|NaN|\[object Object\]|Invalid Date/.test(out), `${legacy}: no placeholder leaked`);
+    const card = sheetCardOf(out);
+    assert.ok(card.includes('>PENDING</span>') && card.includes('📋 Inspection ▾'), `${legacy}: PENDING, open`);
+    assert.ok(card.includes('data-ifield="machine_class"'), `${legacy}: the sheet, derived from the unit`);
+    assert.ok(!card.includes('I1001'), `${legacy}: the I-number is not drawn as the sheet`);
+    assert.ok(/data-sheet="wo-close" data-id="W1002" disabled/.test(out), `${legacy}: a PENDING sheet holds Close`);
+    app.__ui().showParts = true;
+    assert.ok(partsStripOf(await renderRoute('#/')).includes('>📋 pending</span>'), `${legacy}: the strip chip`);
+    const u = snap.units.find((x) => x.serial === w.serial);
+    assert.ok((await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`)).includes('📋 pending'), `${legacy}: the unit chip`);
+    app.__ui().showParts = false;
+  }
+  resetSheets();
   await asFull('owner');
 });
 
-await check('D67: read-only chips — 📋 on the ticket the sheet linked, and on the work order opened from it', async () => {
-  await asFull('service');
-  const t = await renderRoute('#/ticket/S1002');
-  assert.ok(t.includes('<a class="chip insp" href="#/inspection/I1005">📋 I1005</a>'));
-  const w = await renderRoute('#/wo/W1002');
-  assert.ok(w.includes('<a class="chip insp" href="#/inspection/I1002">📋 I1002</a>'));
-  assert.ok(!(await renderRoute('#/wo/W1001')).includes('class="chip insp"'));
-  await asFull('owner');
-});
-
-await check('D67: a numbered sheet saves ONE section per SAVE, and takes back its own older save of that section', async () => {
+await check('D69: a numbered sheet saves ONE section per INSPECT SAVE keyed on the W-number, and takes back its own older save', async () => {
   const { posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' });
-  await renderRoute('#/inspection/I1005');
+  await renderRoute('#/wo/W1001');
   await tapSeg('sqg.blades', 'REPAIR');
   await app.__flushSheets();
   assert.equal(posted.length, 1);
-  assert.deepEqual(Object.keys(posted[0].payload).sort(), ['action', 'inspection', 'items']);
+  assert.equal(posted[0].action, 'work_order');
   assert.equal(posted[0].serial, null);
-  const items = posted[0].payload.items;
-  assert.equal(items.find((i) => i.id === 'sqg.blades').result, 'REPAIR');
-  assert.equal(items.length, 7, 'the six the engine had + the new one — the whole section');
-  await fireOn('input', fieldTarget('comments', 'rear blade rolled'));
+  assert.deepEqual(Object.keys(posted[0].payload).sort(), ['action', 'items', 'step', 'work_order']);
+  assert.equal(posted[0].payload.step, 'SAVE');
+  assert.equal(posted[0].payload.items.length, 7, 'the six the engine had + the new one — the whole section');
   await fireOn('change', fieldTarget('comments', 'rear blade rolled', 'TEXTAREA'));
   await app.__flushSheets();
-  assert.deepEqual(posted[1].payload, { action: 'SAVE', inspection: 'I1005', comments: 'rear blade rolled' }, 'comments alone');
-  await fireOn('input', fieldTarget('note:sqg.blades', 'rolled'));
+  assert.deepEqual(posted[1].payload, { action: 'INSPECT', step: 'SAVE', work_order: 'W1001', comments: 'rear blade rolled' }, 'comments alone');
   await fireOn('change', fieldTarget('note:sqg.blades', 'rolled'));
   await app.__flushSheets();
   assert.equal(posted[2].payload.items.find((i) => i.id === 'sqg.blades').note, 'rolled');
   assert.ok(deleted.length === 1 && /:t1$/.test(deleted[0]), 'the older items SAVE is taken back; the comments SAVE is not');
-  const saves = app.__state().pending.filter((e) => e.action === 'inspection' && e.payload.action === 'SAVE');
-  assert.deepEqual(saves.map((e) => Object.keys(e.payload).filter((k) => k !== 'action' && k !== 'inspection')).sort(), [['comments'], ['items']]);
-  assert.ok(!posted.some((p) => /\$\s?\d/.test(JSON.stringify(p)) || /"(cost|rate|price)"/.test(JSON.stringify(p))), 'no money');
-  // v1.2: a body-style flip goes out as `body_style` — never `controls` — and a percent goes out whole.
   await fireOn('change', fieldTarget('body_style', 'RIDER', 'SELECT'));
-  await fireOn('input', fieldTarget('readings.brush1_pct', '62.6'));
   await fireOn('change', fieldTarget('readings.brush1_pct', '62.6'));
   await app.__flushSheets();
-  const bs = posted.find((p) => 'body_style' in p.payload);
-  assert.deepEqual(bs && bs.payload, { action: 'SAVE', inspection: 'I1005', body_style: 'RIDER' });
-  assert.ok(!posted.some((p) => 'controls' in p.payload), 'never `controls`');
-  const rd = posted.filter((p) => 'readings' in p.payload).pop().payload.readings;
-  assert.equal(rd.brush1_pct, 63);
-  assert.ok(!('recharge_count' in rd) && !('brush1_length' in rd));
-  await fireOn('input', fieldTarget('readings.brush2_pct', '140'));
-  assert.equal(app.__sheetLocal().get('I1005').edits.readings.brush2_pct, null, '140% is refused on the phone');
-  // The pending save is drawn on the sheet — badged, never as applied.
-  const out = await renderRoute('#/inspection/I1005');
-  assert.ok(out.includes('saved items') && out.includes('saved comments') && out.includes('saved body_style'));
+  assert.deepEqual(posted.find((p) => 'body_style' in p.payload).payload, { action: 'INSPECT', step: 'SAVE', work_order: 'W1001', body_style: 'RIDER' });
+  assert.equal(posted.filter((p) => 'readings' in p.payload).pop().payload.readings.brush1_pct, 63, 'a percent goes out whole');
+  assert.ok(!posted.some((p) => /"(cost|rate|price)"/.test(JSON.stringify(p))), 'no money key');
+  // The mock's own pending SAVE on W1001 (by W-number) belongs to this page too.
+  const out = await renderRoute('#/wo/W1001');
+  assert.ok(out.includes('sheet saved — items') && out.includes('sheet saved — comments'), 'pending saves badge on the sheet');
   await leaveApi();
 });
 
-await check('D67: a NEW sheet opens at once as ⏳ NEW; each save re-issues the pending OPEN and takes the old one back', async () => {
-  const { snapshot, posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' });
-  const u = snapshot.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
-  const unitOut = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
-  assert.ok(unitOut.includes('data-form="insp-open"'));
-  await fireOn('click', fakeTarget('[data-insp-open]', { dataset: { inspOpen: 'RETURN', serial: u.serial } }));
-  await settle();
-  assert.deepEqual(posted[0], { action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'RETURN' } });
-  assert.equal(window.location.hash, `#/inspection/new/${encodeURIComponent(u.serial)}`, 'straight to the sheet');
-  let out = await renderRoute(window.location.hash);
-  assert.ok(out.includes('⏳ NEW · ') && out.includes('not numbered yet'), 'drawn as NEW');
-  assert.ok(!/I\d{4} · /.test(out.slice(out.indexOf('<div class="h">'), out.indexOf('</div>', out.indexOf('<div class="h">')))), 'no invented I-number');
-  const newKey = `new:${u.serial}`;
-  assert.ok(out.includes(`data-sheet="insp-done" data-id="${newKey}" disabled>Done<`), 'no hours yet: Done disabled');
-  assert.ok(!out.includes('Done unlocks once the engine numbers'), 'the old "wait for the number" copy is gone');
-  assert.ok(out.includes('data-ifield="kind"'), 'the kind can still change — it rides on the OPEN');
-  await fireOn('input', fieldTarget('readings.hours_key', '1204'));
-  await fireOn('change', fieldTarget('readings.hours_key', '1204'));
-  await app.__flushSheets();
-  assert.equal(posted.length, 2);
-  assert.equal(posted[1].serial, u.serial);
-  assert.equal(posted[1].payload.action, 'OPEN');
-  assert.equal(posted[1].payload.kind, 'RETURN');
-  assert.equal(posted[1].payload.readings.hours_key, 1204);
-  assert.ok(!('inspection' in posted[1].payload));
-  assert.equal(deleted.length, 1, 'the first OPEN is taken back');
-  await tapSeg('ctl.key_switch', 'IN-SPEC');
-  await app.__flushSheets();
-  assert.equal(posted[2].payload.readings.hours_key, 1204, 'the fold carries everything typed so far');
-  assert.equal(posted[2].payload.items[0].id, 'ctl.key_switch');
-  const opens = app.__state().pending.filter((e) => e.action === 'inspection' && e.payload.action === 'OPEN');
-  assert.equal(opens.length, 1, 'one OPEN in the inbox, always the latest');
-  out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
-  assert.ok(out.includes('⏳ Resume new sheet · Return'), 'the unit page resumes it');
-  out = await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
-  assert.ok(out.includes(`data-sheet="insp-done" data-id="${newKey}">Done<`), 'D67c: an hours reading on a ⏳ NEW sheet enables Done');
-  await leaveApi();
-});
-
-await check('D67c: Done on a ⏳ NEW sheet saves first (the OPEN fold), then posts DONE keyed on the serial; the sheet locks', async () => {
-  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
-  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
-  const open = { id: '2026-09-25T11:00:00.000Z:o1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
-    action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'RETURN' } };
-  const { posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' }, [open]);
-  const key = `new:${u.serial}`;
-  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
-  await fireOn('input', fieldTarget('readings.hours_key', '412.5'));    // typed, not yet blurred
-  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'insp-done', id: key } }));
-  await settle();
-  assert.ok(view._html.includes(`data-serial="${u.serial}"`) && view._html.includes('>Mark it done<'), 'the Done sheet carries the serial');
-  await submitForm({ action: 'inspection', verb: 'DONE', key, serial: u.serial }, { tech: 'Josh' });
-  assert.equal(posted.length, 2);
-  assert.equal(posted[0].payload.action, 'OPEN', 'flush first: the OPEN is re-issued with the meter');
-  assert.equal(posted[0].payload.readings.hours_key, 412.5);
-  assert.deepEqual(deleted, [open.id], 'and the older OPEN taken back');
-  assert.deepEqual(posted[1], { action: 'inspection', serial: u.serial, payload: { action: 'DONE', tech: 'Josh' } },
-    'DONE keyed on the serial — no invented inspection key');
-  const out = await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
-  assert.ok(out.includes('done (Josh) — by Josh'), 'the pending Done badges on this sheet, by serial');
-  assert.ok(out.includes('Marked done — the engine files it'), 'says what happens next');
-  assert.ok(!out.includes('data-sheet="insp-done"') && !out.includes('id="insp-status"'), 'locked: no Done, no saving');
-  assert.ok(/data-ifield="comments"[^>]* disabled>/.test(out), 'every field read-only');
-  // A tap after Done must not fold: it would re-issue the OPEN AFTER the Done.
-  await tapSeg('ctl.key_switch', 'IN-SPEC');
-  await app.__flushSheets();
-  assert.equal(posted.length, 2, 'nothing more goes out');
-  app.__ui().showInspections = true;
-  assert.ok(inspStripOf(await renderRoute('#/')).includes('— done, numbered at the next run'), 'the strip card says done');
-  app.__ui().showInspections = false;
-  const unitOut = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
-  assert.ok(unitOut.includes('⏳ done (Josh) by Josh'), 'the unit page lists it (keyed on the serial)');
-  await leaveApi();
-});
-
-await check('D67c: undoing a NEW sheet’s OPEN also takes back my Done sent against its serial', async () => {
-  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
-  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
-  const open = { id: '2026-09-25T11:00:00.000Z:o1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
-    action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'PM', readings: { hours_key: 9 } } };
-  const done = { id: '2026-09-25T11:01:00.000Z:d1', ts: '2026-09-25T11:01:00.000Z', actor: 'Josh', role: 'service',
-    action: 'inspection', serial: u.serial, payload: { action: 'DONE', tech: 'Josh' } };
-  const { deleted } = await apiInsp({ name: 'Josh', role: 'service' }, [open, done]);
-  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
-  await fireOn('click', fakeTarget('[data-undo]', { dataset: { undo: open.id } }));
-  await settle();
-  assert.deepEqual(deleted, [open.id, done.id], 'the Done would find no DRAFT — it goes too');
-  await leaveApi();
-});
-
-await check('D67c: a numbered DRAFT shows a Done still pending against its serial, and locks', async () => {
-  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
-  const d = snap0.inspections.find((i) => i.id === 'I1005');
-  const done = { id: '2026-09-25T11:01:00.000Z:d1', ts: '2026-09-25T11:01:00.000Z', actor: 'Josh', role: 'service',
-    action: 'inspection', serial: d.serial, payload: { action: 'DONE', tech: 'Josh' } };
-  await apiInsp({ name: 'Josh', role: 'service' }, [done]);
-  const out = await renderRoute('#/inspection/I1005');
-  assert.ok(out.includes('done (Josh) — by Josh') && !out.includes('id="insp-status"') && !out.includes('data-sheet="insp-done"'));
-  await leaveApi();
-});
-
-await check('D67: the engine takes the OPEN mid-save (404 on the take-back) — the fresh OPEN is withdrawn and the tech told', async () => {
-  const first = { id: '2026-09-25T11:00:00.000Z:old1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
-    action: 'inspection', serial: null, payload: { action: 'OPEN', kind: 'PM' } };
-  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
-  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
-  first.serial = u.serial;
-  const { posted, deleted } = await apiInsp({ name: 'Josh', role: 'service' }, [first], { delStatus: (id) => (id === first.id ? 404 : 200) });
-  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
-  await fireOn('input', fieldTarget('readings.hours_key', '50'));
-  await fireOn('change', fieldTarget('readings.hours_key', '50'));
-  await app.__flushSheets();
-  assert.equal(posted.length, 1);
-  assert.deepEqual(deleted, [first.id, `${'2026-09-25T12:00:01.000Z'}:t1`], 'old (404), then the fresh one');
-  const l = app.__sheetLocal().get(`new:${u.serial}`);
-  assert.equal(l.status, 'failed');
-  assert.ok(l.error.includes('picked this sheet up'), l.error);
-  assert.ok(l.dirty.has('readings'), 'the change is still held for the numbered sheet');
-  await leaveApi();
-});
-
-await check('D67: Done saves what is unsaved FIRST, then posts DONE with the tech', async () => {
+await check('D69: Done saves what is unsaved FIRST, then posts INSPECT DONE with the tech; the sheet locks', async () => {
   const { posted } = await apiInsp({ name: 'Josh', role: 'service' });
-  await renderRoute('#/inspection/I1005');
+  await renderRoute('#/wo/W1001');
   await fireOn('input', fieldTarget('readings.hours_key', '412.5'));      // typed, not yet blurred
-  await submitForm({ action: 'inspection', verb: 'DONE', insp: 'I1005', key: 'I1005' }, { tech: 'Zac' });
-  assert.equal(posted.length, 2);
-  assert.equal(posted[0].payload.action, 'SAVE');
-  assert.equal(posted[0].payload.readings.hours_key, 412.5, 'the meter lands before the lock');
-  assert.deepEqual(posted[1], { action: 'inspection', serial: null, payload: { action: 'DONE', inspection: 'I1005', tech: 'Zac' } });
-  const out = await renderRoute('#/inspection/I1005');
-  assert.ok(out.includes('done (Zac)') && !out.includes('id="insp-status"'), 'a pending DONE locks the sheet');
-  assert.ok(out.includes('data-ifield="comments" maxlength="1000" placeholder="anything else — for the next tech, or for Matt" disabled'));
-  await leaveApi();
-});
-
-await check('D67: "Open work order from this inspection" posts work_order OPEN with the back-link and the flagged rows', async () => {
-  const { snapshot, posted } = await apiInsp({ name: 'Matt', role: 'owner' });
-  const i3 = snapshot.inspections.find((i) => i.id === 'I1003');
-  await renderRoute('#/inspection/I1003');
-  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'insp-wo', id: 'I1003' } }));
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'insp-done', id: 'W1001' } }));
   await settle();
-  const out = view._html;
-  assert.ok(out.includes('data-inspection="I1003"'), 'the form carries the sheet');
-  assert.ok(out.includes('>from I1003: Deck curtains / wipers; Check and rotate blades as needed</textarea>'), 'the note, pre-filled');
-  assert.ok(/data-toggle="purpose"[\s\S]*?class="tg on" data-val="REPAIR"/.test(out), 'a RETURN finding is a repair');
-  await submitForm({ action: 'work_order', verb: 'OPEN', serial: i3.serial, inspection: 'I1003' }, {
-    purpose: 'REPAIR', note: 'from I1003: Check and rotate blades as needed',
-    p_mfr: ['OTHER'], p_num: ['21-422S'], p_desc: ['Squeegee blade rear'], p_qty: ['2'],
-  });
-  assert.equal(posted.length, 1);
-  assert.deepEqual(posted[0], { action: 'work_order', serial: i3.serial, payload: { action: 'OPEN', purpose: 'REPAIR',
-    note: 'from I1003: Check and rotate blades as needed',
-    parts: [{ manufacturer: 'OTHER', part_number: '21-422S', description: 'Squeegee blade rear', qty: 2 }], inspection: 'I1003' } });
-  const after = await renderRoute('#/inspection/I1003');
-  assert.ok(!after.includes('data-sheet="insp-wo"') && after.includes('Work order requested from this sheet'), 'no second one while it is pending');
+  assert.ok(view._html.includes('412.5 h goes on the unit') && view._html.includes('>Mark the sheet done<'));
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'DONE', key: 'W1001', wo: 'W1001' }, { tech: 'Zac' });
+  assert.equal(posted.length, 2);
+  assert.equal(posted[0].payload.step, 'SAVE');
+  assert.equal(posted[0].payload.readings.hours_key, 412.5, 'the meter lands before the lock');
+  assert.deepEqual(posted[1], { action: 'work_order', serial: null, payload: { action: 'INSPECT', step: 'DONE', work_order: 'W1001', tech: 'Zac' } });
+  const out = await renderRoute('#/wo/W1001');
+  assert.ok(out.includes('⏳ DONE — at the next run') && out.includes('sheet done (Zac)'), 'pending, badged');
+  assert.ok(!out.includes('id="insp-status"') && /data-ifield="comments"[^>]* disabled>/.test(out), 'locked');
+  await tapSeg('ctl.key_switch', 'IN-SPEC');
+  await app.__flushSheets();
+  assert.equal(posted.length, 2, 'nothing more goes out after Done');
   await leaveApi();
 });
 
-await check('D67: undoing a NEW sheet’s OPEN discards what was typed into it', async () => {
+await check('D69: a NEW work order — the sheet saves keyed on the serial (no W-number), Done works, then it locks', async () => {
   const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
-  const u = snap0.units.find((x) => !x.inspection_draft && x.unit_state === 'ON-RENT');
-  const open = { id: '2026-09-25T11:00:00.000Z:o1', ts: '2026-09-25T11:00:00.000Z', actor: 'Josh', role: 'service',
-    action: 'inspection', serial: u.serial, payload: { action: 'OPEN', kind: 'PM' } };
-  await apiInsp({ name: 'Josh', role: 'service' }, [open]);
-  await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
+  const u = newUnitOf(snap0);
+  const open = evt('2026-09-27T11:00:00.000Z:o1', '2026-09-27T11:00:00.000Z', 'Zac', 'service', u.serial, { action: 'OPEN', purpose: 'RETURN', note: null, parts: [] });
+  const { posted, deleted } = await apiInsp({ name: 'Zac', role: 'service' }, [open]);
+  const key = `new:${u.serial}`;
+  let out = await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('PO <span>⏳ NEW</span>') && out.includes('Fill the sheet in now'), 'the page, not numbered');
+  assert.ok(out.includes(`data-sheet="insp-done" data-id="${key}" disabled>Done<`), 'no hours: disabled');
+  await fireOn('change', fieldTarget('readings.hours_key', '41'));
+  await app.__flushSheets();
+  assert.deepEqual(posted[0], { action: 'work_order', serial: u.serial, payload: { action: 'INSPECT', step: 'SAVE', readings:
+    { hours_key: 41, hours_traction: null, hours_scrub: null, main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null } } },
+    'keyed on the serial — no invented work_order key');
+  await fireOn('change', fieldTarget('readings.hours_key', '42'));
+  await app.__flushSheets();
+  assert.deepEqual(deleted, [posted.length && `2026-09-27T12:00:01.000Z:t1`], 'the older readings save is taken back');
+  out = await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes(`data-sheet="insp-done" data-id="${key}">Done<`), 'hours → Done');
+  // + Add parts and + Log hours work before the number, keyed on the serial too.
+  assert.ok(out.includes(`data-sheet="wo-add" data-id="${key}"`) && out.includes(`data-sheet="wo-labor" data-id="${key}"`));
+  await submitForm({ action: 'work_order', verb: 'LABOR', serial: u.serial }, { date: '2026-09-27', who: 'Zac', hours: '1.5', note: '' });
+  assert.deepEqual(posted[2], { action: 'work_order', serial: u.serial, payload: { action: 'LABOR', date: '2026-09-27', who: 'Zac', hours: 1.5, note: null } });
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'DONE', key, serial: u.serial }, { tech: 'Zac' });
+  assert.deepEqual(posted[3], { action: 'work_order', serial: u.serial, payload: { action: 'INSPECT', step: 'DONE', tech: 'Zac' } });
+  out = await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('⏳ DONE — at the next run') && !out.includes('id="insp-status"'), 'locked');
+  assert.ok(!out.includes('data-sheet="wo-close"'), 'Close waits for the number');
+  await leaveApi();
+});
+
+await check('D69: someone else\'s NEW work order is read-only here; undoing mine takes back everything keyed on its serial', async () => {
+  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const u = newUnitOf(snap0);
+  const open = evt('2026-09-27T11:00:00.000Z:o1', '2026-09-27T11:00:00.000Z', 'Zac', 'service', u.serial, { action: 'OPEN', purpose: 'PM', parts: [] });
+  const save = evt('2026-09-27T11:01:00.000Z:s1', '2026-09-27T11:01:00.000Z', 'Zac', 'service', u.serial, { action: 'INSPECT', step: 'SAVE', readings: { hours_key: 9 } });
+  const done = evt('2026-09-27T11:02:00.000Z:d1', '2026-09-27T11:02:00.000Z', 'Zac', 'service', u.serial, { action: 'INSPECT', step: 'DONE', tech: 'Zac' });
+  await apiInsp({ name: 'Josh', role: 'service' }, [open, save]);
+  let out = await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('to fill in until then') && out.includes('Zac') && !out.includes('id="insp-status"'), 'Josh: read-only');
+  assert.ok(out.includes('value="9"'), 'but Zac\'s pending save shows');
+  const { deleted } = await apiInsp({ name: 'Zac', role: 'service' }, [open, save, done]);
+  await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);
   await tapSeg('ctl.key_switch', 'IN-SPEC');
-  assert.ok(app.__sheetLocal().has(`new:${u.serial}`));
   await fireOn('click', fakeTarget('[data-undo]', { dataset: { undo: open.id } }));
   await settle();
-  assert.ok(!app.__sheetLocal().has(`new:${u.serial}`), 'nothing lingers to fold into a later sheet');
+  assert.deepEqual(deleted, [open.id, save.id, done.id], 'the OPEN, then my save and Done against its serial');
+  assert.ok(!app.__sheetLocal().has(`new:${u.serial}`), 'nothing typed lingers to land on a later work order');
+  out = await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('Work order not found.'), 'gone');
   await leaveApi();
 });
 
-await check('D67: no money KEY on a sheet or the library — and a tech\'s "$40 blade" note is honest data, drawn as typed', async () => {
-  for (const role of ['owner', 'service', 'sales']) {
-    const snap = await asFull(role);
-    app.__ui().showInspections = true;
-    for (const r of ['#/', ...snap.inspections.map((i) => `#/inspection/${i.id}`)]) {
-      const out = r === '#/' ? inspStripOf(await renderRoute(r)) : await renderRoute(r);
-      assert.ok(!MONEY_RE.test(out), `${role} ${r}: a dollar figure`);
-    }
-    app.__ui().showInspections = false;
-    assert.ok(!/"(cost|cost_source_inv|rate|price|amount)"\s*:/i.test(JSON.stringify([snap.inspections, snap.inspection_checklist])), `${role}: no money key`);
-  }
-  // Red-pen #1: the gate is on KEYS. A figure a tech types is theirs to type.
+await check('D69: when the W-number lands, the NEW route redirects and anything unsaved moves to the numbered work order', async () => {
+  const snap = await asFull('service');
   resetSheets();
-  await renderRoute('#/inspection/I1005');
-  await tapSeg('sqg.blades', 'REPAIR');
-  await fireOn('input', fieldTarget('note:sqg.blades', '$40 blade from RPS'));
-  assert.ok((await renderRoute('#/inspection/I1005')).includes('value="$40 blade from RPS"'));
+  const u = snap.units.find((x) => x.work_order === 'W1001');
+  app.__sheetLocal().set(`new:${u.serial}`, { edits: { comments: 'typed before the run' }, dirty: new Set(['comments']),
+    status: 'dirty', error: null, timer: null, notes: new Set(), chain: Promise.resolve() });
+  const out = await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('Opening W1001'));
+  assert.equal(window.location.hash, '#/wo/W1001', 'replaced, not pushed');
+  const l = app.__sheetLocal().get('W1001');
+  assert.ok(l && l.dirty.has('comments') && l.edits.comments === 'typed before the run');
+  assert.ok(!app.__sheetLocal().has(`new:${u.serial}`));
+  assert.ok((await renderRoute('#/wo/W1001')).includes('>typed before the run</textarea>'));
   resetSheets();
   await asFull('owner');
 });
 
-await check('D67: when the I-number lands, the NEW route redirects and anything unsaved moves to the numbered sheet', async () => {
-  const snap = await asFull('service');
+await check('D69: the mock\'s pending serial-keyed SAVE badges on the ⏳ NEW work order it belongs to', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
+  window.location.search = '?mock=full&role=service&pending=1';
+  await app.__refresh();
+  const snap = app.__state().snapshot;
+  const opens = app.__state().pending.filter((e) => e.action === 'work_order' && e.payload.action === 'OPEN');
+  assert.equal(opens.length, 1);
+  const out = await renderRoute(`#/wo/new/${encodeURIComponent(opens[0].serial)}`);
+  assert.ok(out.includes('sheet saved — readings') && out.includes('value="1204"'), 'the hours typed before the number');
+  assert.ok(!/undefined|NaN|\[object Object\]/.test(out));
+  assert.ok(snap.work_orders.every((w) => w.inspection && typeof w.inspection === 'object'), 'every fixture row carries an object');
+  await asFull('owner');
+});
+
+await check('D69: no money KEY on a sheet or the library — and a tech\'s "$40 blade" note is honest data, drawn as typed', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    const snap = await asFull(role);
+    for (const w of snap.work_orders) {
+      app.__ui().sheetCard.set(w.id, true);
+      assert.ok(!MONEY_RE.test(await renderRoute(`#/wo/${w.id}`)), `${role} ${w.id}: a dollar figure`);
+    }
+    app.__ui().sheetCard.clear();
+    assert.ok(!/"(cost|cost_source_inv|rate|price|amount)"\s*:/i.test(JSON.stringify([snap.work_orders.map((w) => w.inspection), snap.inspection_checklist])), `${role}: no money key`);
+  }
+  // Red-pen #1: the gate is on KEYS. A figure a tech types is theirs to type.
   resetSheets();
-  const u = snap.units.find((x) => x.inspection_draft === 'I1005');
-  app.__sheetLocal().set(`new:${u.serial}`, { edits: { comments: 'typed before the run', kind: 'CHECKOUT' }, dirty: new Set(['comments', 'kind']),
-    status: 'dirty', error: null, timer: null, notes: new Set(), chain: Promise.resolve() });
-  const out = await renderRoute(`#/inspection/new/${encodeURIComponent(u.serial)}`);
-  assert.ok(out.includes('Opening I1005'));
-  assert.equal(window.location.hash, '#/inspection/I1005', 'replaced, not pushed');
-  const l = app.__sheetLocal().get('I1005');
-  assert.ok(l && l.dirty.has('comments') && !l.dirty.has('kind'), 'the comments move across; the kind was the OPEN’s alone');
-  assert.equal(l.edits.comments, 'typed before the run');
-  assert.ok(!app.__sheetLocal().has(`new:${u.serial}`));
-  assert.ok((await renderRoute('#/inspection/I1005')).includes('>typed before the run</textarea>'));
+  await renderRoute('#/wo/W1001');
+  await tapSeg('sqg.blades', 'REPAIR');
+  await fireOn('input', fieldTarget('note:sqg.blades', '$40 blade from RPS'));
+  assert.ok((await renderRoute('#/wo/W1001')).includes('value="$40 blade from RPS"'));
   resetSheets();
   await asFull('owner');
 });
@@ -3471,7 +3467,7 @@ await check('every module app.js imports is in the service worker’s shell (an 
   const sw = fs.readFileSync(path.join(DOCS, 'sw.js'), 'utf8');
   const shell = sw.slice(sw.indexOf('const SHELL'), sw.indexOf('];', sw.indexOf('const SHELL')));
   const mods = [...appSrc.matchAll(/from '\.\/([a-z-]+\.js)'/g)].map((m) => m[1]);
-  assert.ok(mods.includes('inspections.js'), 'the scan finds the D67 module');
+  assert.ok(mods.includes('inspections.js'), 'the scan finds the D67 / D69 sheet module');
   for (const m of mods) assert.ok(shell.includes(`'${m}'`), `${m} is imported but not precached in sw.js`);
 });
 

@@ -1,4 +1,10 @@
-/* The fleet inspection sheet (D67) — check-out / return / PM, pure.
+/* The fleet inspection sheet (D67; D69 moved it onto the work order), pure.
+ *
+ * D69 (2026-09-27): no I-numbers. The sheet is the `inspection` block on a
+ * `work_orders[]` row — one per work order, born PENDING, then DONE or SKIPPED
+ * (a reason somebody owns). It is driven by `work_order` INSPECT {step}, and
+ * the work order cannot close while it is PENDING. The row library, the cell
+ * grid and the merge-by-section SAVE are D67's, unchanged.
  *
  * Four paper sheets became ONE row library in the vault, shipped verbatim as
  * `inspection_checklist`. This file never names a row: every row, label, scale
@@ -18,8 +24,7 @@
  * NO MONEY. Nothing on a sheet is money-shaped, and nothing here derives one.
  */
 
-export const KINDS = ['CHECKOUT', 'RETURN', 'PM'];
-export const KIND_LABEL = { CHECKOUT: 'Check-out', RETURN: 'Return', PM: 'PM' };
+export const STATUSES = ['PENDING', 'DONE', 'SKIPPED'];
 export const CLASSES = ['SCRUBBER', 'SWEEPER'];
 export const CLASS_LABEL = { SCRUBBER: 'Scrubber', SWEEPER: 'Sweeper' };
 // D67 v1.2 (Matt's red-pen): "body style" — the word the guys use. Was `controls`.
@@ -56,8 +61,8 @@ export const READINGS = [
 export const READING_KEYS = [...READINGS.map((r) => r.key), 'brushes_rotated'];
 export const PCT_KEYS = new Set(READINGS.filter((r) => r.pct).map((r) => r.key));
 export const SECTION_KEYS = ['machine_class', 'body_style', 'battery', 'readings', 'cells', 'items', 'comments'];
-export const INSP_ID_RE = /^I\d{4}$/;
 export const MAX_COMMENTS = 1000;
+export const MAX_REASON = 120;
 export const MAX_ITEM_NOTE = 120;
 export const MAX_NOTE = 200;
 export const REOPEN_TECH_HOURS = 24;
@@ -69,9 +74,6 @@ const arr = (v) => (Array.isArray(v) ? v.filter(Boolean) : []);
 
 /* ------------------------------------------------------------ the snapshot */
 
-/** `inspections[]`, or [] on a pre-D67 snapshot (the key is simply absent). */
-export const inspectionsOf = (snap) => arr(snap && snap.inspections);
-export const inspById = (list, id) => arr(list).find((i) => i.id === id) || null;
 /** The library's sections, or null when none shipped (absent key, or the engine's "no sheet" `sections: []`). */
 export function checklistOf(snap) {
   const c = snap && snap.inspection_checklist;
@@ -85,12 +87,19 @@ export function rowIndex(sections) {
   return m;
 }
 
-/** A serial's sheets, newest first: DRAFTs by opened, DONE by done; the I-number breaks ties. */
-export function forSerial(list, serial) {
-  const when = (i) => (i.status === 'DONE' ? i.done : i.opened) || '';
-  return arr(list).filter((i) => serial != null && String(i.serial) === String(serial))
-    .sort((a, b) => when(b).localeCompare(when(a)) || String(b.id).localeCompare(String(a.id)));
+/**
+ * A work order's sheet, as the snapshot ships it (D69: an object, always
+ * present). A pre-D69 row — `inspection` a string I-number or null — reads as
+ * a blank PENDING sheet (§1.2 legacy tolerance): never a crash, never
+ * "[object Object]", never an I-number drawn as if it were the sheet.
+ */
+export function blockOf(wo) {
+  const b = wo && wo.inspection;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return { status: 'PENDING', legacy: b == null ? null : String(b) };
+  return { ...b, status: STATUSES.includes(b.status) ? b.status : 'PENDING' };
 }
+export const statusOf = (wo) => blockOf(wo).status;
+export const isSettled = (wo) => { const st = statusOf(wo); return st === 'DONE' || st === 'SKIPPED'; };
 
 /* ------------------------------------------------------------ the machine */
 
@@ -101,13 +110,6 @@ export function deriveProfile(category) {
   const body_style = c.includes('stand-on') || c.includes('chariot') ? 'STAND-ON'
     : c.includes('rider') || c.includes('ride-on') ? 'RIDER' : 'WALK-BEHIND';
   return { machine_class, body_style };
-}
-
-/** The picker's default (§2): coming back off rent → RETURN; in prep → CHECKOUT; else PM. */
-export function defaultKind(unit) {
-  if (unit && unit.unit_state === 'ON-RENT') return 'RETURN';
-  if (unit && unit.readiness === 'NEEDS-PREP') return 'CHECKOUT';
-  return 'PM';
 }
 
 const fits = (sf, p) => {
@@ -175,19 +177,23 @@ const cellMap = (cells) => new Map(arr(cells).map((c) => [cellKey(c.battery, c.c
 
 /**
  * A sheet as the page works with it: `items` and `cells` are Maps (row id →
- * answer, "1A" → cell), everything else as the snapshot ships it.
+ * answer, "1A" → cell), everything else as the snapshot ships it. Built from a
+ * work order's `inspection` block (D69); `defaults` fill what a blank block
+ * lacks (a NEW work order's class / body style / battery, derived like the
+ * engine derives them).
  */
-export function sheetFrom(row) {
-  const r = row || {};
+export function sheetFrom(block, defaults = {}) {
+  const r = block || {};
+  const pick = (k) => (r[k] != null ? r[k] : defaults[k] != null ? defaults[k] : null);
+  const bat = r.battery && r.battery.type ? r.battery : (defaults.battery || r.battery || {});
   return {
-    id: r.id || null, serial: r.serial == null ? null : String(r.serial), asset_item: r.asset_item || null,
-    kind: r.kind || null, status: r.status || 'DRAFT', opened: r.opened || null, opened_by: r.opened_by || null,
-    done: r.done || null, tech: r.tech || null, ticket: r.ticket || null, work_order: r.work_order || null,
-    machine_class: r.machine_class || null, body_style: r.body_style || null,
-    battery: { type: null, voltage: null, pack: null, ...(r.battery || {}) },
+    status: STATUSES.includes(r.status) ? r.status : 'PENDING', skipped_reason: r.skipped_reason || null,
+    done: r.done || null, tech: r.tech || null,
+    machine_class: pick('machine_class'), body_style: pick('body_style'),
+    battery: { type: null, voltage: null, pack: null, ...bat },
     readings: { ...blankReadings(), ...(r.readings || {}) },
     cells: cellMap(r.cells), items: itemMap(r.items), comments: r.comments == null ? null : r.comments,
-    flags: num(r.flags), age_days: num(r.age_days), log: arr(r.log),
+    flags: num(r.flags),
   };
 }
 
@@ -200,7 +206,6 @@ export function sheetFrom(row) {
 export function overlay(sheet, payload) {
   const p = payload || {};
   const s = { ...sheet };
-  if ('kind' in p && p.kind) s.kind = p.kind;
   if ('machine_class' in p) s.machine_class = p.machine_class;
   if ('body_style' in p) s.body_style = p.body_style;
   if ('battery' in p) {
@@ -236,7 +241,7 @@ export function flagCount(sheet, visible) {
   return n;
 }
 export const answeredIn = (sheet, rows) => arr(rows).filter((r) => { const a = sheet.items.get(r.id); return !!(a && a.result); }).length;
-/** The flagged rows' labels, library order — the work order's note. */
+/** The flagged rows' labels, library order. */
 export function flaggedLabels(sheet, sections) {
   const out = [];
   for (const s of arr(sections)) for (const r of arr(s.rows)) {
@@ -323,46 +328,31 @@ export function minutesBetween(a, b) {
   const t = (m) => Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
   return (t(m2) - t(m1)) / 60000;
 }
-/** When the sheet went DONE, from the engine's log ("DONE by Josh — …"). The latest one; null if the log doesn't say. */
-export function doneStamp(insp) {
-  const rows = arr(insp && insp.log);
+/**
+ * When the sheet went DONE or SKIPPED, from the work order's log — the engine
+ * writes "inspection DONE by Zac — …" / "inspection SKIPPED by Zac: …". The
+ * latest one; null if the log doesn't say.
+ */
+export function settledStamp(log) {
+  const rows = arr(log);
   for (let i = rows.length - 1; i >= 0; i--) {
-    if (/^DONE\b/.test(String(rows[i].text || '')) && STAMP_RE.test(String(rows[i].ts || ''))) return rows[i].ts;
+    if (/^inspection (DONE|SKIPPED)\b/i.test(String(rows[i].text || '')) && STAMP_RE.test(String(rows[i].ts || ''))) return rows[i].ts;
   }
   return null;
 }
 /**
- * Reopen (§2): owner any time; the TECH who signed it within 24 h of DONE (the
- * fat-finger window). Mirrors the engine so nobody is offered a button it will
- * refuse — the engine still decides. No DONE stamp in the log → owner only.
+ * Reopen (D69 §2): owner any time; the tech who signed (DONE) or skipped it,
+ * within 24 h — the fat-finger window. Mirrors the engine so nobody is offered
+ * a button it will refuse; the engine still decides. No stamp in the log →
+ * owner only.
  */
-export function reopenShown(insp, role, meName, now = ctNow()) {
-  if (!insp || insp.status !== 'DONE') return false;
+export function reopenShown(block, log, role, meName, now = ctNow()) {
+  if (!block || (block.status !== 'DONE' && block.status !== 'SKIPPED')) return false;
   if (role === 'owner') return true;
-  if (!meName || insp.tech !== meName) return false;
-  const mins = minutesBetween(doneStamp(insp), now);
+  if (!meName || block.tech !== meName) return false;
+  const mins = minutesBetween(settledStamp(log), now);
   return mins != null && mins >= 0 && mins <= REOPEN_TECH_HOURS * 60;
 }
-/** Void: owner, or whoever opened it while it is still a DRAFT. */
-export function voidShown(insp, role, meName) {
-  if (!insp || insp.status === 'VOID') return false;
-  if (role === 'owner') return true;
-  return insp.status === 'DRAFT' && !!meName && insp.opened_by === meName;
-}
-
-/**
- * "Open work order from this inspection" (§4.7): a PM or a return found a
- * repair; a check-out found what stands between the machine and rent-ready.
- * The note leads with the sheet's number (the engine prefixes it too) and is
- * cut to the Worker's 200 characters.
- */
-export function woPrefill(insp, labels) {
-  const purpose = insp && insp.kind === 'CHECKOUT' ? 'RENT-READY' : 'REPAIR';
-  let note = `from ${insp.id}: ${arr(labels).join('; ')}`;
-  if (note.length > MAX_NOTE) note = `${note.slice(0, MAX_NOTE - 1)}…`;
-  return { purpose, note };
-}
-export const woButtonShown = (insp) => !!insp && insp.status === 'DONE' && (num(insp.flags) || 0) > 0 && !insp.work_order;
 
 /* ----------------------------------------------------------- summaries */
 
@@ -371,70 +361,29 @@ export const fmtReading = (v) => {
   const n = num(v);
   return n == null ? '' : String(Math.round(n * 10) / 10);
 };
-const flagsText = (n) => (n ? ` · ${n} ⚑` : '');
-/** "Resume I1001 · CHECKOUT · 3 ⚑" — the unit page's button when a DRAFT exists. */
-export const resumeText = (insp, id) => `Resume ${(insp && insp.id) || id}${insp && insp.kind ? ` · ${insp.kind}` : ''}${flagsText(insp && num(insp.flags))}`;
-/** "📋 I1001 · 2 ⚑" — the read-only chip on a ticket / work order. */
-export const chipText = (insp) => `📋 ${insp.id}${flagsText(num(insp.flags))}`;
-
 /**
- * The strip's two numbers — the engine's summary when it ships one; counted
- * from the rows otherwise (a DONE is "this week" when `done` is within 7 days
- * of `today`, by date-only string compare).
+ * The 📋 chip on a work order (strip rows, ticket detail, the unit's WO chip):
+ *   PENDING → "pending" (amber) · DONE → "✓ 2 ⚑" / "✓" · SKIPPED → "skipped"
  */
-export function stripCounts(summary, list, weekAgo) {
-  if (summary && typeof summary === 'object' && num(summary.drafts) != null && num(summary.done_7d) != null) {
-    return { drafts: summary.drafts, done7: summary.done_7d };
-  }
-  const rows = arr(list);
-  return {
-    drafts: rows.filter((i) => i.status === 'DRAFT').length,
-    done7: rows.filter((i) => i.status === 'DONE' && i.done && i.done >= weekAgo).length,
-  };
+export function chipText(block) {
+  const b = block || {};
+  if (b.status === 'DONE') return `✓${num(b.flags) ? ` ${b.flags} ⚑` : ''}`;
+  if (b.status === 'SKIPPED') return 'skipped';
+  return 'pending';
 }
-/** Drafts, oldest first (the one about to be lost leads), then Done within the week, newest first. */
-export function stripGroups(list, weekAgo) {
-  const rows = arr(list);
-  return {
-    drafts: rows.filter((i) => i.status === 'DRAFT')
-      .sort((a, b) => (num(b.age_days) ?? -1) - (num(a.age_days) ?? -1) || String(a.id).localeCompare(String(b.id))),
-    done: rows.filter((i) => i.status === 'DONE' && i.done && i.done >= weekAgo)
-      .sort((a, b) => b.done.localeCompare(a.done) || String(b.id).localeCompare(String(a.id))),
-  };
-}
-/** Amber when any DRAFT has sat `amber` days or more (engine `age_days`). */
-export const draftTone = (list, amber) => (arr(list).some((i) => i.status === 'DRAFT' && num(i.age_days) != null && i.age_days >= amber) ? 'amber' : '');
+export const chipTone = (block) => (block && block.status === 'DONE' ? ((num(block.flags) || 0) ? 'warn' : 'ok')
+  : block && block.status === 'SKIPPED' ? '' : 'amber');
 
-/* --------------------------------------------------------------- pending */
-
-const pl = (e) => (e && e.payload) || {};
-const isInsp = (e) => !!e && e.action === 'inspection';
-/** OPENs have no I-number yet — keyed on the top-level serial (§2). */
-export const pendingOpens = (pending) => arr(pending).filter((e) => isInsp(e) && pl(e).action === 'OPEN');
-export const pendingOpensFor = (pending, serial) => (serial == null ? [] : pendingOpens(pending)
-  .filter((e) => e.serial != null && String(e.serial) === String(serial)));
-/** Every other verb badges its sheet by payload.inspection; a pre-id SAVE by its serial. */
-/**
- * SAVE / DONE / VOID sent before the I-number existed: no `inspection` key, the
- * top-level serial instead — the engine resolves them to that serial's one DRAFT.
- */
-export const pendingBySerial = (pending, serial) => (serial == null ? [] : arr(pending).filter((e) => isInsp(e)
-  && pl(e).action !== 'OPEN' && !pl(e).inspection && e.serial != null && String(e.serial) === String(serial)));
-export const pendingForInsp = (pending, id) => (!id ? [] : arr(pending).filter((e) => isInsp(e) && pl(e).action !== 'OPEN' && pl(e).inspection === id));
-/** Oldest first — the order the engine will apply them in. */
-export const byTs = (a, b) => String(a.ts || a.id || '').localeCompare(String(b.ts || b.id || ''));
-
-/** One line of English for a pending inspection tap. */
-export function describeInspEvent(e) {
-  const p = pl(e);
-  const secs = SECTION_KEYS.filter((k) => k in p);
+/** One line of English for a pending INSPECT tap. */
+export function describeStep(p) {
+  const q = p || {};
+  const secs = SECTION_KEYS.filter((k) => k in q);
   const what = secs.length ? secs.map((k) => (k === 'machine_class' ? 'machine' : k)).join(', ') : '';
-  switch (p.action) {
-    case 'OPEN': return `new ${KIND_LABEL[p.kind] || 'inspection'} sheet${what ? ` — ${what}` : ''}`;
-    case 'SAVE': return `saved ${what || 'the sheet'}`;
-    case 'DONE': return `done${p.tech ? ` (${p.tech})` : ''}`;
-    case 'REOPEN': return 'reopen';
-    case 'VOID': return 'void the sheet';
-    default: return 'inspection change';
+  switch (q.step) {
+    case 'SAVE': return `sheet saved — ${what || 'the sheet'}`;
+    case 'DONE': return `sheet done${q.tech ? ` (${q.tech})` : ''}`;
+    case 'SKIP': return `no inspection — ${q.reason || ''}`;
+    case 'REOPEN': return 'sheet reopened';
+    default: return 'sheet change';
   }
 }

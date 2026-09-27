@@ -37,9 +37,12 @@
  *
  * D65 extends the gate to `work_orders[]` for EVERY role: no money key, and no
  * figure anywhere in its text (part descriptions, labor notes, the log).
- * D67 checks `inspections[]` and the shipped row library by KEY only (no
+ * D67 checks the inspection sheet and the shipped row library by KEY only (no
  * cost / rate / price / amount at any depth). Not by text: a tech's note
  * saying "$40 blade" is honest data about the machine, not a money leak.
+ * D69 moved the sheet onto the work order (`work_orders[].inspection`), so the
+ * work-order TEXT scan runs over every key but that block, and the block gets
+ * the key-only check — re-asserted, not relaxed.
  *
  * TICKET logs are deliberately NOT checked: they carry quote amounts, those are
  * visible to every role by design, and `service_queue[].quote.amount` has
@@ -178,18 +181,19 @@ try {
    * real file, for every role, key AND text. A pre-D65 snapshot has no
    * work_orders at all, which passes vacuously and says so. */
   for (const [role, doc] of [['owner', owner], ['sales', sales], ['service', svc]]) {
-    const wos = doc.snapshot.work_orders;
-    const text = JSON.stringify(wos || []);
-    const n = Array.isArray(wos) ? wos.length : 'no key';
-    ok(!/"(cost|cost_source_inv|rate|price)"\s*:/.test(text), `${role}: no money key on any work order (${n})`);
-    ok(!MONEY_RE.test(text), `${role}: no work_orders text matches /\\$\\s?\\d/`);
-    // D67: nothing on an inspection sheet or the shipped row library is
-    // money-SHAPED — checked by KEY, at any depth. Deliberately not a text
-    // scan: a tech writing "$40 blade" in a row note or the comments is honest
-    // data about the machine, not a leak of our money (red-pen #1, 9/25).
-    const ni = Array.isArray(doc.snapshot.inspections) ? doc.snapshot.inspections.length : 'no key';
-    const found = moneyKeys([doc.snapshot.inspections || [], doc.snapshot.inspection_checklist || null]);
-    ok(found.length === 0, `${role}: no cost / rate / price / amount key on any inspection or library row (${ni})`);
+    const wos = Array.isArray(doc.snapshot.work_orders) ? doc.snapshot.work_orders : [];
+    const n = Array.isArray(doc.snapshot.work_orders) ? wos.length : 'no key';
+    const all = JSON.stringify(wos);
+    ok(!/"(cost|cost_source_inv|rate|price)"\s*:/.test(all), `${role}: no money key on any work order (${n})`);
+    const text = JSON.stringify(wos.map(({ inspection, ...rest }) => rest));
+    ok(!MONEY_RE.test(text), `${role}: no work_orders text (sheet aside) matches /\\$\\s?\\d/`);
+    // D67 / D69: nothing on an inspection sheet (the `inspection` block on each
+    // work order) or the shipped row library is money-SHAPED — checked by KEY,
+    // at any depth. Deliberately not a text scan: a tech writing "$40 blade" in
+    // a row note or the comments is honest data about the machine, not a leak
+    // of our money (red-pen #1, 9/25).
+    const found = moneyKeys([wos.map((w) => w.inspection), doc.snapshot.inspection_checklist || null]);
+    ok(found.length === 0, `${role}: no cost / rate / price / amount key on any sheet or library row (${n})`);
     for (const f of found) console.log(`         ${f}`);
   }
 } finally {

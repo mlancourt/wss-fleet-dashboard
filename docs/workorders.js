@@ -1,4 +1,10 @@
-/* Internal work orders (D65) — parts + labor on a fleet unit, pure.
+/* Internal work orders (D65) — inspection + parts + labor on a fleet unit, pure.
+ *
+ * D69 (2026-09-27): one record per touch. The inspection sheet is a section of
+ * the work order (inspections.js holds its machinery); `purpose` absorbed the
+ * D67 sheet kinds; Close needs the sheet DONE or SKIPPED as well as every line
+ * settled, and the close IS the ready call (CLOSE {ready}). Any verb but OPEN
+ * may go out keyed on the serial before the W-number exists.
  *
  * The W-number IS the vendor PO: Matt reads "PO W1001" to the vendor, it prints
  * on the packing slip, and the techs match the box to the job by it. So this
@@ -17,8 +23,13 @@
  * vault from the vendor invoice (D66). tools/selftest-workorders.mjs asserts it.
  */
 
-export const PURPOSES = ['RENT-READY', 'REPAIR', 'PM', 'OTHER'];
-export const PURPOSE_LABEL = { 'RENT-READY': 'Rent-ready', REPAIR: 'Repair', PM: 'PM', OTHER: 'Other' };
+import { blockOf, isSettled, chipText as sheetChip, describeStep } from './inspections.js';
+
+/** D69: the D67 sheet kinds folded into `purpose`. RENT-READY is a pre-D69 row (the engine maps it to CHECKOUT). */
+export const PURPOSES = ['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER'];
+export const PURPOSE_LABEL = {
+  CHECKOUT: 'Check-out', RETURN: 'Return', PM: 'PM', REPAIR: 'Repair', OTHER: 'Other', 'RENT-READY': 'Rent-ready',
+};
 export const MANUFACTURERS = ['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'OTHER'];
 export const MANUFACTURER_LABEL = {
   'FACTORY-CAT': 'Factory Cat', KODIAK: 'Kodiak', TENNANT: 'Tennant', 'IPC-EAGLE': 'IPC Eagle',
@@ -157,18 +168,32 @@ export const fmtHours = (h) => {
 export const hoursValid = (h) => typeof h === 'number' && isFinite(h)
   && h >= HOURS_MIN && h <= HOURS_MAX && Math.round(h * 4) === h * 4;
 
-/** "W1001 · 2 parts open · 3.5 h" — the unit page's chip. Engine counts only. */
+/** "W1003 · RETURN · 📋 pending · 2 parts open · 1.5 h" — the unit page's chip (D69 §3). Engine counts only. */
 export function woChipText(wo, unit) {
   const id = (wo && wo.id) || (unit && unit.work_order) || '';
   const open = num(wo ? wo.parts_open : unit && unit.wo_parts_open) ?? 0;
   const hours = num(wo && wo.hours_total);
-  const bits = [id, `${open} part${open === 1 ? '' : 's'} open`];
+  const bits = [id];
+  if (wo && wo.purpose) bits.push(wo.purpose);
+  const st = wo ? blockOf(wo) : unit && unit.wo_inspection ? { status: unit.wo_inspection } : null;
+  if (st) bits.push(`📋 ${sheetChip(st)}`);
+  bits.push(`${open} part${open === 1 ? '' : 's'} open`);
   if (hours != null) bits.push(`${fmtHours(hours)} h`);
   return bits.join(' · ');
 }
 
-/** OPEN sheet default (§4): a unit in prep is being made rent-ready; anything else is a repair. */
-export const defaultPurpose = (unit) => (unit && unit.readiness === 'NEEDS-PREP' ? 'RENT-READY' : 'REPAIR');
+/**
+ * OPEN sheet default (D69 §2 — the engine's default_purpose, mirrored): it just
+ * came back → RETURN · down, or out on rent → REPAIR · ready → CHECKOUT (the
+ * pre-rental sheet) · anything else → PM. A default the picker shows, never a rule.
+ */
+export function defaultPurpose(unit) {
+  const r = unit && unit.readiness;
+  if (r === 'NEEDS-PREP') return 'RETURN';
+  if (r === 'DOWN' || (unit && unit.unit_state === 'ON-RENT')) return 'REPAIR';
+  if (r === 'READY') return 'CHECKOUT';
+  return 'PM';
+}
 
 /** The unit's brand, as the manufacturer enum. Unknown makes are OTHER. */
 export function manufacturerFor(brand) {
@@ -213,9 +238,24 @@ export function partActions(wo, part, role, meName) {
   return [];
 }
 
-/** Close: owner's, and only once every line is DELIVERED or CANCELLED (the engine guards it too). */
+/** Close: owner's — once every line is DELIVERED or CANCELLED AND the sheet is DONE or SKIPPED (D69; the engine guards both). */
 export const closeShown = (wo, role) => !!wo && wo.status !== 'CLOSED' && role === 'owner';
-export const closeEnabled = (wo) => !!wo && wo.status !== 'CLOSED' && openLinesOf(wo).length === 0;
+/**
+ * What is holding Close, in the words the disabled button shows — null when
+ * nothing is. Both can hold it at once; the sentence names both.
+ */
+export function closeBlocker(wo) {
+  if (!wo || wo.status === 'CLOSED') return null;
+  const n = openLinesOf(wo).length;
+  const lines = n ? `${n} part line${n === 1 ? '' : 's'} still open — deliver or cancel ${n === 1 ? 'it' : 'them'}` : '';
+  const sheet = isSettled(wo) ? '' : 'the inspection is still pending — Done it, or No inspection with a reason';
+  if (!lines && !sheet) return null;
+  return [lines, sheet].filter(Boolean).join('; and ');
+}
+export const closeEnabled = (wo) => !!wo && wo.status !== 'CLOSED' && closeBlocker(wo) == null;
+/** ☑ Mark READY (D69 §4.5) is offered only on a unit at home — the engine never touches an out unit's readiness. */
+const HOME = new Set(['AVAILABLE', 'RESERVED', 'IN-SHOP']);
+export const readyOffered = (unit) => !!unit && HOME.has(unit.unit_state);
 /** Cancel the whole order: owner, or whoever opened it while nothing has left REQUESTED. */
 export function cancelShown(wo, role, meName) {
   if (!wo || wo.status === 'CLOSED') return false;
@@ -223,10 +263,41 @@ export function cancelShown(wo, role, meName) {
   return !!meName && wo.opened_by === meName && partsOf(wo).every((p) => p.state === 'REQUESTED');
 }
 
+/* ---- the strip's headline (D69 §5) ----
+ * "🔧 Work orders ▸ 2 open · 1 inspection pending · 3 parts open". The engine's
+ * summary when it ships one; counted from the rows otherwise. */
+export function stripCounts(summary, list) {
+  const rows = (Array.isArray(list) ? list : []).filter(Boolean);
+  const s = summary && typeof summary === 'object' ? summary : {};
+  const open = num(s.open) ?? rows.filter((w) => w.status === 'OPEN').length;
+  const pending = num(s.inspections_pending) ?? rows.filter((w) => w.status === 'OPEN' && blockOf(w).status === 'PENDING').length;
+  return { open, pending, parts: openPartCount(summary, rows) };
+}
+/**
+ * The strip's tone (D69 §5): the D65 parts rule (a REQUESTED line on an old
+ * work order — amber / red), OR amber when an OPEN work order's sheet has sat
+ * PENDING `inspectAmber` days or more (engine `age_days`). Red only ever comes
+ * from parts.
+ */
+export function stripTone(summary, list, { partsAmber, partsRed, inspectAmber }) {
+  const parts = requestedTone(list, partsAmber, partsRed);
+  if (parts === 'red') return 'red';
+  const s = summary && typeof summary === 'object' ? summary : {};
+  const anyPending = num(s.inspections_pending) == null || s.inspections_pending > 0;
+  const stale = anyPending && (Array.isArray(list) ? list : []).some((w) => w && w.status === 'OPEN'
+    && blockOf(w).status === 'PENDING' && num(w.age_days) != null && w.age_days >= inspectAmber);
+  return stale ? 'amber' : parts;
+}
+/** The OPEN work orders the strip lists (D69 §5), oldest first; the W-number breaks ties. */
+export const openWorkOrders = (list) => (Array.isArray(list) ? list : []).filter((w) => w && w.status === 'OPEN')
+  .sort((a, b) => ((num(b.age_days) ?? -1) - (num(a.age_days) ?? -1)) || String(a.id).localeCompare(String(b.id)));
+
 /* ---- pending (§2) ----
  * OPEN has no W-number until the engine runs, so it is keyed on the top-level
- * serial and drawn as a synthetic ⏳ NEW card — never with an invented id. Every
- * other verb carries payload.work_order and badges that record. */
+ * serial and drawn as a synthetic ⏳ NEW card — never with an invented id.
+ * Every other verb carries payload.work_order — or, sent before the number
+ * existed (D69 serial fallback), no work_order and the top-level serial, which
+ * the engine resolves to that serial's one OPEN work order. */
 const pl = (e) => (e && e.payload) || {};
 const isWo = (e) => !!e && e.action === 'work_order';
 export const pendingOpens = (pending) => (Array.isArray(pending) ? pending.filter((e) => isWo(e) && pl(e).action === 'OPEN') : []);
@@ -234,6 +305,12 @@ export const pendingOpenFor = (pending, serial) => (serial == null ? [] : pendin
   .filter((e) => e.serial != null && String(e.serial) === String(serial)));
 export const pendingForWo = (pending, id) => (!id || !Array.isArray(pending) ? []
   : pending.filter((e) => isWo(e) && pl(e).action !== 'OPEN' && pl(e).work_order === id));
+/** Non-OPEN taps sent keyed on the serial (no W-number yet) — they belong to that serial's OPEN work order. */
+export const pendingBySerial = (pending, serial) => (serial == null || !Array.isArray(pending) ? []
+  : pending.filter((e) => isWo(e) && pl(e).action !== 'OPEN' && !pl(e).work_order
+    && e.serial != null && String(e.serial) === String(serial)));
+/** Oldest first — the order the engine will apply them in. */
+export const byTs = (a, b) => String(a.ts || a.id || '').localeCompare(String(b.ts || b.id || ''));
 
 /** Where a pending PART-STATE sends its line: "from stock" for a D68 pull, else the state. */
 export const pendingLineLabel = (p) => (p && p.source === 'SHOP-STOCK' ? 'from stock'
@@ -245,15 +322,16 @@ export function describeWoEvent(e) {
   const n = Array.isArray(p.parts) ? p.parts.length : 0;
   const parts = `${n} part${n === 1 ? '' : 's'}`;
   switch (p.action) {
-    case 'OPEN': return `new work order — ${n ? parts : 'labor only'}`;
+    case 'OPEN': return `new ${p.purpose ? `${PURPOSE_LABEL[p.purpose] || p.purpose} ` : ''}work order${n ? ` — ${parts}` : ''}`;
     case 'ADD-PARTS': {
       const stock = Array.isArray(p.parts) ? p.parts.filter((x) => x && x.source === 'SHOP-STOCK').length : 0;
       return `${parts} added${stock ? ` (${stock} from stock)` : ''}`;
     }
     case 'PART-STATE': return `line ${p.line} → ${pendingLineLabel(p)}`;
     case 'LABOR': return `${fmtHours(p.hours)} h logged for ${p.who || 'someone'}`;
-    case 'CLOSE': return 'close';
+    case 'CLOSE': return p.ready === false ? 'close (readiness left alone)' : 'close';
     case 'CANCEL': return 'cancel the work order';
+    case 'INSPECT': return describeStep(p);
     default: return 'work order change';
   }
 }

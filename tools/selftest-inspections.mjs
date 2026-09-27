@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * selftest-inspections.mjs — the D67 inspection-sheet rules in docs/inspections.js.
+ * selftest-inspections.mjs — the inspection-sheet rules in docs/inspections.js
+ * (D67 machinery; D69: the sheet is the `inspection` block on a work order).
  * Pure: no DOM, no network. Dates and clocks are pinned strings, never "now".
  * The library here is a local fixture: the module never names a row, and this
  * test proves the filtering works from whatever the snapshot carries.
  */
 import assert from 'node:assert/strict';
 import {
-  inspectionsOf, inspById, checklistOf, rowIndex, forSerial, deriveProfile, defaultKind, rowShows, visibleSections,
+  checklistOf, rowIndex, deriveProfile, rowShows, visibleSections, blockOf, statusOf, isSettled,
   profileOf, cellLayout, parseSg, sheetFrom, overlay, firstHours, doneReady, flagCount, answeredIn, flaggedLabels,
-  sectionValue, ctNow, minutesBetween, doneStamp, reopenShown, voidShown, woPrefill, woButtonShown, fmtReading,
-  resumeText, chipText, stripCounts, stripGroups, draftTone, pendingOpens, pendingOpensFor, pendingForInsp, byTs,
-  describeInspEvent, SCALES, FLAG_RESULTS, pendingBySerial,
+  sectionValue, ctNow, minutesBetween, settledStamp, reopenShown, fmtReading, chipText, chipTone, describeStep,
+  SCALES, FLAG_RESULTS,
 } from '../docs/inspections.js';
 
 let passed = 0;
@@ -39,26 +39,39 @@ const LIB = [
 const ids = (vis) => vis.flatMap((s) => s.rows.map((r) => r.id));
 const P = (machine_class, body_style, battery_type) => ({ machine_class, body_style, battery_type });
 
-check('a pre-D67 snapshot has no sheets and no library — empty, never a throw', () => {
-  assert.deepEqual(inspectionsOf({}), []);
-  assert.deepEqual(inspectionsOf(null), []);
+check('a pre-D67 snapshot has no library — null, never a throw', () => {
   assert.equal(checklistOf({}), null);
+  assert.equal(checklistOf(null), null);
   assert.equal(checklistOf({ inspection_checklist: { version: null, sections: [] } }), null, 'the engine’s "no sheet" shape is no library');
   assert.equal(checklistOf({ inspection_checklist: { version: '1', sections: LIB } }).length, 3);
-  assert.equal(inspById([{ id: 'I1001' }], 'I1001').id, 'I1001');
-  assert.equal(inspById([], 'I1001'), null);
   assert.equal(rowIndex(LIB).get('bat.old').retired, '2026-09-20', 'the index keeps retired rows — old sheets carry them');
 });
 
-check('derivation from the category mirrors the engine; the picker default follows §2', () => {
+check('D69: the block on a work order — an object; a legacy string / null reads as a blank PENDING sheet', () => {
+  assert.equal(blockOf({ inspection: { status: 'DONE', flags: 2 } }).status, 'DONE');
+  assert.equal(blockOf({ inspection: { status: 'WEIRD' } }).status, 'PENDING', 'an unknown status is PENDING');
+  assert.deepEqual(blockOf({ inspection: 'I1001' }), { status: 'PENDING', legacy: 'I1001' });
+  assert.deepEqual(blockOf({ inspection: null }), { status: 'PENDING', legacy: null });
+  assert.deepEqual(blockOf({}), { status: 'PENDING', legacy: null });
+  assert.equal(statusOf({ inspection: { status: 'SKIPPED' } }), 'SKIPPED');
+  assert.ok(isSettled({ inspection: { status: 'DONE' } }) && isSettled({ inspection: { status: 'SKIPPED' } }));
+  assert.ok(!isSettled({ inspection: { status: 'PENDING' } }) && !isSettled({ inspection: 'I1001' }));
+  const legacy = sheetFrom(blockOf({ inspection: 'I1001' }), { machine_class: 'SWEEPER', body_style: 'RIDER', battery: { type: 'AGM', voltage: 36 } });
+  assert.equal(legacy.status, 'PENDING');
+  assert.equal(legacy.machine_class, 'SWEEPER', 'derived defaults fill a blank sheet');
+  assert.equal(legacy.battery.type, 'AGM');
+  assert.equal(legacy.items.size, 0);
+  assert.ok(!JSON.stringify({ ...legacy, items: [], cells: [] }).includes('I1001'), 'the I-number is never drawn as the sheet');
+  const real = sheetFrom({ status: 'PENDING', machine_class: 'SCRUBBER', battery: { type: null } }, { machine_class: 'SWEEPER' });
+  assert.equal(real.machine_class, 'SCRUBBER', 'the vault\'s value beats a default');
+});
+
+check('derivation from the category mirrors the engine', () => {
   assert.deepEqual(deriveProfile('Ride-On Sweeper'), { machine_class: 'SWEEPER', body_style: 'RIDER' });
   assert.deepEqual(deriveProfile('Walk-Behind Sweeper'), { machine_class: 'SWEEPER', body_style: 'WALK-BEHIND' });
   assert.deepEqual(deriveProfile('Chariot (Stand-on) Scrubber'), { machine_class: 'SCRUBBER', body_style: 'STAND-ON' });
   assert.deepEqual(deriveProfile('Mid-Size Rider Scrubber'), { machine_class: 'SCRUBBER', body_style: 'RIDER' });
   assert.deepEqual(deriveProfile(null), { machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND' });
-  assert.equal(defaultKind({ unit_state: 'ON-RENT', readiness: 'NEEDS-PREP' }), 'RETURN', 'coming back off rent wins');
-  assert.equal(defaultKind({ unit_state: 'IN-SHOP', readiness: 'NEEDS-PREP' }), 'CHECKOUT');
-  assert.equal(defaultKind({ unit_state: 'AVAILABLE', readiness: 'READY' }), 'PM');
 });
 
 check('shows_for filters by class · body_style · battery, on the section and the row; absent = everyone', () => {
@@ -110,16 +123,16 @@ check('the hydrometer: 1.265 and 1265 both read 1.265; out of 1.000–1.400 is r
 });
 
 const ROW = {
-  id: 'I1001', serial: '900100', kind: 'CHECKOUT', status: 'DRAFT', machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND',
+  status: 'PENDING', machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND',
   battery: { type: 'WET', voltage: 24, pack: '4x6V' }, readings: { hours_key: null, brush1_pct: 60 },
   cells: [{ battery: 1, cell: 'A', sg: 1.265, clarity: 'CLEAR', level: 'FULL' }],
   items: [{ id: 'ctl.key', result: 'IN-SPEC', note: null }, { id: 'sqg.blades', result: 'REPAIR', note: 'rolled' }],
-  comments: 'x', flags: 1, age_days: 0, log: [],
+  comments: 'x', flags: 1,
 };
 
 check('overlay = the engine’s SAVE merge: a present section replaces, an absent one is untouched', () => {
   const s = sheetFrom(ROW);
-  const t = overlay(s, { action: 'SAVE', inspection: 'I1001', readings: { hours_key: 412.5 } });
+  const t = overlay(s, { action: 'INSPECT', step: 'SAVE', work_order: 'W1001', readings: { hours_key: 412.5 } });
   assert.equal(t.readings.hours_key, 412.5);
   assert.equal(t.readings.brush1_pct, null, 'readings is ONE section — replaced whole');
   assert.equal(t.items.size, 2, 'items untouched');
@@ -181,94 +194,46 @@ check('Central wall clock from Intl parts; minutes between two engine stamps', (
   assert.equal(minutesBetween('2026-09-24', '2026-09-25 10:31'), null, 'a date-only stamp is not a clock');
 });
 
-const DONE = { ...ROW, status: 'DONE', done: '2026-09-24', tech: 'Josh', opened_by: 'Zac', flags: 2, work_order: null,
-  log: [{ ts: '2026-09-24 09:02 CT', who: 'Zac', text: 'OPEN by Zac (CHECKOUT)' }, { ts: '2026-09-24 10:31 CT', who: 'Josh', text: 'DONE by Josh — 412.5 h written back' }] };
+const DONE = { ...ROW, status: 'DONE', done: '2026-09-24', tech: 'Josh', flags: 2 };
+const LOG = [
+  { ts: '2026-09-24 09:02 CT', who: 'Zac', text: 'opened by Zac (RETURN) — 0 part line(s), inspection pending' },
+  { ts: '2026-09-24 10:31 CT', who: 'Josh', text: 'inspection DONE by Josh — 412.5 h written to 900100' },
+  { ts: '2026-09-24 11:00 CT', who: 'Josh', text: 'Josh logged 1.5 h' },
+];
 
-check('Reopen: owner any time; the tech who signed it within 24 h of DONE; nobody else', () => {
-  assert.equal(doneStamp(DONE), '2026-09-24 10:31 CT');
-  assert.equal(reopenShown(DONE, 'owner', 'Matt', '2026-10-30 08:00'), true);
-  assert.equal(reopenShown(DONE, 'service', 'Josh', '2026-09-25 10:31'), true, 'exactly 24 h');
-  assert.equal(reopenShown(DONE, 'service', 'Josh', '2026-09-25 10:32'), false, 'a minute past');
-  assert.equal(reopenShown(DONE, 'service', 'Zac', '2026-09-24 11:00'), false, 'the opener is not the tech');
-  assert.equal(reopenShown(DONE, 'sales', 'Kevin', '2026-09-24 11:00'), false, 'sales: no');
-  assert.equal(reopenShown({ ...DONE, log: [] }, 'service', 'Josh', '2026-09-24 11:00'), false, 'no DONE stamp → owner only');
-  assert.equal(reopenShown(ROW, 'owner', 'Matt'), false, 'a DRAFT does not reopen');
+check('Reopen (D69): owner any time; the tech who signed or skipped it, within 24 h; nobody else', () => {
+  assert.equal(settledStamp(LOG), '2026-09-24 10:31 CT', 'the latest DONE / SKIPPED bullet, not the last bullet');
+  assert.equal(settledStamp([{ ts: '2026-09-24 08:00 CT', text: 'inspection SKIPPED by Zac: gasket only' }]), '2026-09-24 08:00 CT');
+  assert.equal(reopenShown(DONE, LOG, 'owner', 'Matt', '2026-10-30 08:00'), true);
+  assert.equal(reopenShown(DONE, LOG, 'service', 'Josh', '2026-09-25 10:31'), true, 'exactly 24 h');
+  assert.equal(reopenShown(DONE, LOG, 'service', 'Josh', '2026-09-25 10:32'), false, 'a minute past');
+  assert.equal(reopenShown(DONE, LOG, 'service', 'Zac', '2026-09-24 11:00'), false, 'the opener is not the tech');
+  assert.equal(reopenShown(DONE, LOG, 'sales', 'Kevin', '2026-09-24 11:00'), false, 'sales: no');
+  assert.equal(reopenShown(DONE, [], 'service', 'Josh', '2026-09-24 11:00'), false, 'no stamp → owner only');
+  const skipped = { ...ROW, status: 'SKIPPED', tech: 'Zac', skipped_reason: 'gasket only' };
+  assert.equal(reopenShown(skipped, [{ ts: '2026-09-24 08:00 CT', text: 'inspection SKIPPED by Zac: gasket only' }], 'service', 'Zac', '2026-09-24 09:00'), true, 'the skipper, same window');
+  assert.equal(reopenShown(ROW, LOG, 'owner', 'Matt'), false, 'a PENDING sheet does not reopen');
 });
 
-check('Void: owner, or the opener while DRAFT', () => {
-  assert.equal(voidShown({ ...ROW, opened_by: 'Josh' }, 'service', 'Josh'), true);
-  assert.equal(voidShown({ ...ROW, opened_by: 'Josh' }, 'service', 'Zac'), false);
-  assert.equal(voidShown({ ...DONE, opened_by: 'Josh' }, 'service', 'Josh'), false, 'the opener loses it at DONE');
-  assert.equal(voidShown(DONE, 'owner', 'Matt'), true);
-  assert.equal(voidShown({ ...ROW, status: 'VOID' }, 'owner', 'Matt'), false);
-});
-
-check('the work order from a sheet: only DONE + flags + no work order; purpose by kind; note ≤ 200', () => {
-  assert.equal(woButtonShown(DONE), true);
-  assert.equal(woButtonShown({ ...DONE, work_order: 'W1005' }), false);
-  assert.equal(woButtonShown({ ...DONE, flags: 0 }), false);
-  assert.equal(woButtonShown(ROW), false, 'not on a DRAFT');
-  assert.deepEqual(woPrefill(DONE, ['Blades']), { purpose: 'RENT-READY', note: 'from I1001: Blades' });
-  assert.equal(woPrefill({ ...DONE, kind: 'PM' }, ['Blades']).purpose, 'REPAIR');
-  assert.equal(woPrefill({ ...DONE, kind: 'RETURN' }, ['Blades']).purpose, 'REPAIR');
-  const long = woPrefill(DONE, Array.from({ length: 30 }, (_, i) => `Row number ${i}`)).note;
-  assert.ok(long.length <= 200 && long.endsWith('…') && long.startsWith('from I1001: '));
-});
-
-check('labels: an hour meter, the Resume button, the chip', () => {
+check('labels: an hour meter; the 📋 chip — pending (amber) / ✓ n ⚑ / skipped', () => {
   assert.equal(fmtReading(412.5), '412.5');
   assert.equal(fmtReading(412), '412');
   assert.equal(fmtReading(null), '');
-  assert.equal(resumeText({ id: 'I1001', kind: 'CHECKOUT', flags: 3 }), 'Resume I1001 · CHECKOUT · 3 ⚑');
-  assert.equal(resumeText(null, 'I1009'), 'Resume I1009', 'a draft the list lost still resumes by id');
-  assert.equal(chipText({ id: 'I1001', flags: 2 }), '📋 I1001 · 2 ⚑');
-  assert.equal(chipText({ id: 'I1001', flags: 0 }), '📋 I1001');
+  assert.equal(chipText({ status: 'PENDING' }), 'pending');
+  assert.equal(chipText({ status: 'DONE', flags: 2 }), '✓ 2 ⚑');
+  assert.equal(chipText({ status: 'DONE', flags: 0 }), '✓');
+  assert.equal(chipText({ status: 'SKIPPED' }), 'skipped');
+  assert.equal(chipTone({ status: 'PENDING' }), 'amber');
+  assert.equal(chipTone({ status: 'DONE', flags: 2 }), 'warn');
+  assert.equal(chipTone({ status: 'DONE', flags: 0 }), 'ok');
 });
 
-check('the strip: the engine summary wins; drafts oldest first; done within the week newest first; amber at 2 days', () => {
-  const list = [
-    { id: 'I1004', status: 'DRAFT', age_days: 3 }, { id: 'I1005', status: 'DRAFT', age_days: 0 },
-    { id: 'I1002', status: 'DONE', done: '2026-09-22' }, { id: 'I1003', status: 'DONE', done: '2026-09-24' },
-    { id: 'I1000', status: 'DONE', done: '2026-09-10' },
-  ];
-  assert.deepEqual(stripCounts({ drafts: 9, done_7d: 8 }, list, '2026-09-18'), { drafts: 9, done7: 8 });
-  assert.deepEqual(stripCounts(null, list, '2026-09-18'), { drafts: 2, done7: 2 });
-  const g = stripGroups(list, '2026-09-18');
-  assert.deepEqual(g.drafts.map((i) => i.id), ['I1004', 'I1005']);
-  assert.deepEqual(g.done.map((i) => i.id), ['I1003', 'I1002']);
-  assert.equal(draftTone(list, 2), 'amber');
-  assert.equal(draftTone([{ status: 'DRAFT', age_days: 1 }], 2), '');
-  assert.equal(draftTone([{ status: 'DONE', age_days: 9 }], 2), '', 'only drafts age');
-});
-
-check('pending: OPEN keyed on the serial (no invented id); the rest on payload.inspection', () => {
-  const P1 = [
-    { id: 'b', ts: '2026-09-25T12:02:00Z', action: 'inspection', serial: '900100', payload: { action: 'OPEN', kind: 'PM' } },
-    { id: 'a', ts: '2026-09-25T12:01:00Z', action: 'inspection', serial: null, payload: { action: 'SAVE', inspection: 'I1001', comments: 'x' } },
-    { id: 'c', ts: '2026-09-25T12:03:00Z', action: 'inspection', serial: null, payload: { action: 'DONE', inspection: 'I1001', tech: 'Josh' } },
-    { id: 'd', ts: '2026-09-25T12:04:00Z', action: 'work_order', serial: '900100', payload: { action: 'OPEN', inspection: 'I1001' } },
-  ];
-  assert.deepEqual(pendingOpens(P1).map((e) => e.id), ['b']);
-  assert.deepEqual(pendingOpensFor(P1, 900100).map((e) => e.id), ['b'], 'serial compared as text');
-  assert.deepEqual(pendingForInsp(P1, 'I1001').map((e) => e.id), ['a', 'c'], 'a work order is not an inspection event');
-  assert.deepEqual([...P1].sort(byTs).map((e) => e.id), ['a', 'b', 'c', 'd']);
-  const bySerial = [...P1, { id: 'e', action: 'inspection', serial: '900100', payload: { action: 'DONE', tech: 'Josh' } }];
-  assert.deepEqual(pendingBySerial(bySerial, 900100).map((e) => e.id), ['e'], 'D67c: a serial-keyed DONE — not the OPEN, not the work order');
-  assert.deepEqual(pendingBySerial(bySerial, '1'), []);
-  assert.equal(describeInspEvent(P1[0]), 'new PM sheet');
-  assert.equal(describeInspEvent(P1[1]), 'saved comments');
-  assert.equal(describeInspEvent(P1[2]), 'done (Josh)');
-  assert.equal(describeInspEvent({ payload: { action: 'OPEN', kind: 'RETURN', readings: {}, items: [] } }), 'new Return sheet — readings, items');
-});
-
-check('forSerial: newest first — DONE by done, DRAFT by opened', () => {
-  const list = [
-    { id: 'I1001', serial: '9', status: 'DONE', done: '2026-09-01', opened: '2026-08-30' },
-    { id: 'I1003', serial: '9', status: 'DRAFT', opened: '2026-09-20' },
-    { id: 'I1002', serial: '9', status: 'DONE', done: '2026-09-10', opened: '2026-09-09' },
-    { id: 'I1004', serial: '8', status: 'DRAFT', opened: '2026-09-25' },
-  ];
-  assert.deepEqual(forSerial(list, 9).map((i) => i.id), ['I1003', 'I1002', 'I1001']);
+check('an INSPECT tap in English', () => {
+  assert.equal(describeStep({ step: 'SAVE', readings: {}, items: [] }), 'sheet saved — readings, items');
+  assert.equal(describeStep({ step: 'SAVE', machine_class: 'SWEEPER' }), 'sheet saved — machine');
+  assert.equal(describeStep({ step: 'DONE', tech: 'Zac' }), 'sheet done (Zac)');
+  assert.equal(describeStep({ step: 'SKIP', reason: 'gasket only' }), 'no inspection — gasket only');
+  assert.equal(describeStep({ step: 'REOPEN' }), 'sheet reopened');
 });
 
 console.log(`${passed} checks passed.`);

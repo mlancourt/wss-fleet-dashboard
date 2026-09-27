@@ -34,18 +34,17 @@ import {
   MAX_LINES, HOURS_MIN, HOURS_MAX, HOURS_STEP,
   workOrdersOf, woById, laborOf, isOpenLine, stripGroups, openPartCount, requestedTone, lineTone, trackingUrl,
   fmtHours, hoursValid, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
-  closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
-  isStockLine, sourceOf, pendingLineLabel,
+  closeShown, closeEnabled, closeBlocker, readyOffered, cancelShown, pendingOpens, pendingOpenFor, pendingForWo,
+  pendingBySerial as woPendingBySerial, byTs, describeWoEvent, stripCounts as woStripCounts, stripTone as woStripTone,
+  openWorkOrders, isStockLine, sourceOf, pendingLineLabel,
 } from './workorders.js';
 import {
-  KINDS as INSP_KINDS, KIND_LABEL as INSP_KIND_LABEL, CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
+  CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
   BATTERY_TYPES, BATTERY_LABEL, VOLTAGES, PACKS_BY_VOLTAGE, PACK_LABEL, CLARITY, CLARITY_LABEL, LEVEL, LEVEL_LABEL,
-  SCALES, RESULT_LABEL, READINGS, SECTION_KEYS, MAX_COMMENTS, MAX_ITEM_NOTE, MAX_NOTE,
-  inspectionsOf, inspById, checklistOf, forSerial, deriveProfile, defaultKind, visibleSections, profileOf,
+  SCALES, RESULT_LABEL, READINGS, SECTION_KEYS, MAX_COMMENTS, MAX_ITEM_NOTE, MAX_NOTE, MAX_REASON,
+  checklistOf, blockOf, deriveProfile, visibleSections, profileOf,
   cellLayout, cellKey, parseSg, sheetFrom, overlay, firstHours, doneReady, isFlag, flagCount, answeredIn,
-  flaggedLabels, sectionValue, reopenShown, voidShown, woPrefill, woButtonShown, fmtReading, resumeText, chipText,
-  stripCounts, stripGroups as inspStripGroups, draftTone, pendingOpens as inspPendingOpens, pendingOpensFor,
-  pendingForInsp, pendingBySerial, byTs, describeInspEvent,
+  sectionValue, reopenShown, fmtReading, chipText as sheetChipText, chipTone as sheetChipTone,
 } from './inspections.js';
 import {
   statusOf, outMove, inMove, rentalGroups, rentalActions, dueBackTone, outDatePassed, clampToToday,
@@ -74,7 +73,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-25-d68';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-27-d69';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -170,10 +169,6 @@ const rememberMapKinds = () => {
 // D65: the Parts strip's open/closed state lives for the SESSION, not the
 // device — it opens for a job and should be folded again tomorrow morning.
 const PARTS_OPEN_KEY = 'wss.parts.open';
-const INSP_OPEN_KEY = 'wss.inspections.open';
-function storedInspOpen() {
-  try { return sessionStorage.getItem(INSP_OPEN_KEY) === '1'; } catch (_) { return false; }
-}
 function storedPartsOpen() {
   try { return sessionStorage.getItem(PARTS_OPEN_KEY) === '1'; } catch (_) { return false; }
 }
@@ -207,7 +202,9 @@ const ui = {
   completedQuery: '',    // D62: its search box
   showParts: storedPartsOpen(),   // D65: the landing Parts strip — collapsed by default, remembered per session
   showPartsDelivered: false,      // D65: Delivered (30d) inside it — always starts folded
-  showInspections: storedInspOpen(),   // D67: the landing Inspections strip — collapsed by default, per session
+  // D69: the 📋 sheet card on a work order — expanded while PENDING, folded once
+  // DONE / SKIPPED. A tap flips it for this page view; key → true (open) / false.
+  sheetCard: new Map(),
 };
 
 /* ---- uploads in flight (S2) --------------------------------------------
@@ -327,9 +324,8 @@ const insights = () => (state.snapshot && state.snapshot.insights) || null;
 // strip draws empty and the unit page still offers the button.
 const workOrders = () => workOrdersOf(state.snapshot);
 const woSummary = () => (state.snapshot && state.snapshot.work_order_summary) || null;
-// D67 — the inspection sheet. Absent keys (a pre-D67 snapshot) read as none.
-const inspections = () => inspectionsOf(state.snapshot);
-const inspSummary = () => (state.snapshot && state.snapshot.inspection_summary) || null;
+// D67 — the sheet's row library. Absent (a pre-D67 snapshot) reads as none.
+// D69: the sheets themselves live on work_orders[].inspection.
 const checklist = () => checklistOf(state.snapshot);
 const meName = () => (state.me && state.me.name) || '';
 const hasLeads = () => !!(state.snapshot && (Array.isArray(state.snapshot.leads) || state.snapshot.leads_summary));
@@ -411,8 +407,9 @@ const AGE_RED = 14;
  */
 const PARTS_AMBER = 3;
 const PARTS_RED = 7;
-// D67: the Inspections strip goes amber when a DRAFT sheet has sat this many
-// days (engine `age_days`). The strip exists so a half-done sheet is never lost.
+// D67 / D69: the Work orders strip goes amber when an OPEN work order's sheet
+// has sat PENDING this many days (engine `age_days`), so a half-done sheet is
+// never lost. Matt retunes it here, beside the parts numbers.
 const INSPECT_AMBER = 2;
 // The readiness values the Shop List is about. NEEDS-PICKUP is deliberately not
 // one: it's an out-unit state and Dispatch owns its clock (D32/D38).
@@ -531,18 +528,20 @@ function viewCategories() {
   // D65: the Parts strip sits directly under the utilization card, above the
   // cards — but folded, so the lights still read first (D15 intact; a work
   // list, not a totals block, like the D56 Shop List).
-  // D67: the Inspections strip sits under the Parts strip, same folded pattern.
-  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(inspectionsStrip())}${raw(cards.join(''))}${raw(shopList())}`;
+  // D69: the D67 Inspections strip retired into it — one Work orders strip.
+  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(cards.join(''))}${raw(shopList())}`;
 }
 
 /**
- * The Parts strip (D65 §3) — "what job does this box go to".
+ * The Work orders strip (D65 §3, D69 §5) — "what job does this box go to", and
+ * which sheet is still waiting.
  *
- * Collapsed it is one row: 🔩 Parts ▸ N open, where N is every line still
- * REQUESTED, ORDERED or IN-TRANSIT (the engine's summary), toned amber/red when
- * a REQUESTED line has sat unordered on an old work order. Expanded, the rows
- * are PART LINES, not work orders, grouped Ordered · In transit · Requested,
- * with Delivered folded inside. Every row leads with the W-number labelled PO,
+ * Collapsed it is one row: 🔧 Work orders ▸ N open · M inspection pending ·
+ * K parts open (the engine's summary), toned amber/red by the D65 parts rule
+ * (a REQUESTED line on an old work order) or amber when a sheet has sat
+ * PENDING INSPECT_AMBER days. Expanded: the OPEN work orders, each with its 📋
+ * chip, then the PART LINES grouped Ordered · In transit · Requested, with
+ * Delivered folded inside. Every row leads with the W-number labelled PO,
  * because that is what is written on the packing slip in the tech's hand.
  * No money anywhere — the snapshot carries none to draw.
  */
@@ -550,125 +549,60 @@ function partsStrip() {
   const list = workOrders();
   const g = stripGroups(list);
   const opens = pendingOpens(state.pending);
-  const n = openPartCount(woSummary(), list);
-  const tone = requestedTone(list, PARTS_AMBER, PARTS_RED);
+  const c = woStripCounts(woSummary(), list);
+  const tone = woStripTone(woSummary(), list, { partsAmber: PARTS_AMBER, partsRed: PARTS_RED, inspectAmber: INSPECT_AMBER });
   const open = ui.showParts;
+  const wos = openWorkOrders(list);
 
-  const group = (title, rows) => (rows.length ? html`
+  const group = (title, rows, fn = partStripRow) => (rows.length ? html`
     <div class="parts-g">${title} <span class="count">${rows.length}</span></div>
-    ${raw(rows.map(partStripRow).join(''))}` : '');
+    ${raw(rows.map(fn).join(''))}` : '');
   const body = open ? html`
     <div class="parts-body" id="parts-body">
       ${raw(opens.map(pendingWoCard).join(''))}
+      ${raw(group('Open', wos, woStripRow))}
       ${raw(group('Ordered', g.ordered))}
       ${raw(group('In transit', g.inTransit))}
       ${raw(group('Requested', g.requested))}
-      ${!g.ordered.length && !g.inTransit.length && !g.requested.length && !opens.length
-        ? raw('<div class="hold-empty">Nothing on order. Open a work order from a unit page.</div>') : ''}
+      ${!wos.length && !g.ordered.length && !g.inTransit.length && !g.requested.length && !opens.length
+        ? raw('<div class="hold-empty">No open work orders. Open one from a unit page.</div>') : ''}
       ${g.delivered.length ? raw(html`
         <button type="button" class="parts-sub" data-parts-delivered-toggle="1" aria-expanded="${ui.showPartsDelivered ? 'true' : 'false'}">
           Delivered (30d) <span class="count">${g.delivered.length}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
         ${ui.showPartsDelivered ? raw(g.delivered.map(partStripRow).join('')) : ''}`) : ''}
     </div>` : '';
 
+  const pill = `${c.open} open${c.pending ? ` · ${c.pending} inspection${c.pending === 1 ? '' : 's'} pending` : ''} · ${c.parts} part${c.parts === 1 ? '' : 's'} open`;
   return html`
-    <section class="parts card" aria-label="Parts on order">
+    <section class="parts card" aria-label="Work orders">
       <button type="button" class="parts-head" data-parts-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="parts-body">
-        <span class="parts-t">🔩 Parts ${open ? '▾' : '▸'}</span>
-        <span class="parts-n${tone ? ' ' + tone : ''}${n ? '' : ' zero'}">${n} open</span>
+        <span class="parts-t">🔧 Work orders ${open ? '▾' : '▸'}</span>
+        <span class="parts-n${tone ? ' ' + tone : ''}${c.open || c.parts ? '' : ' zero'}">${pill}</span>
         ${opens.length ? raw(html`<span class="parts-new">⏳ ${opens.length} new</span>`) : ''}
       </button>
       ${raw(body)}
     </section>`;
 }
 
-/**
- * The Inspections strip (D67 §5) — "📋 Inspections ▸ N drafts · M done this week".
- *
- * It exists so a half-done sheet is never lost, not as a report: collapsed it
- * is one row, amber when a DRAFT has sat INSPECT_AMBER days (engine age).
- * Expanded: Drafts (oldest first, each with Resume), then Done in the last
- * seven days. A sheet opened on a phone but not yet numbered by the engine
- * shows as a ⏳ NEW card keyed on its serial — never with an invented I-number.
- */
-function inspectionsStrip() {
-  const list = inspections();
-  const weekAgo = addDays(todayCentral(), -7);
-  const opens = inspPendingOpens(state.pending);
-  const c = stripCounts(inspSummary(), list, weekAgo);
-  const g = inspStripGroups(list, weekAgo);
-  const tone = draftTone(list, INSPECT_AMBER);
-  const open = ui.showInspections;
-  const none = !list.length && !opens.length;
-  const pill = none ? 'No inspections yet'
-    : `${c.drafts} draft${c.drafts === 1 ? '' : 's'} · ${c.done7} done this week`;
-
-  const group = (title, rows, fn) => (rows.length ? html`
-    <div class="parts-g">${title} <span class="count">${rows.length}</span></div>
-    ${raw(rows.map(fn).join(''))}` : '');
-  const body = open ? html`
-    <div class="parts-body" id="insp-body">
-      ${raw(opens.map(pendingInspCard).join(''))}
-      ${raw(group('Drafts', g.drafts, inspDraftRow))}
-      ${raw(group('Done (7d)', g.done, inspDoneRow))}
-      ${!g.drafts.length && !g.done.length && !opens.length
-        ? raw(html`<div class="hold-empty">${none ? 'No inspections yet.' : 'No drafts, nothing done this week.'} Start one from a unit page — Inspect.</div>`) : ''}
-    </div>` : '';
-  return html`
-    <section class="parts insp-strip card" aria-label="Inspections">
-      <button type="button" class="parts-head" data-insp-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="insp-body">
-        <span class="parts-t">📋 Inspections ${open ? '▾' : '▸'}</span>
-        <span class="parts-n${tone ? ' ' + tone : ''}${c.drafts ? '' : ' zero'}">${pill}</span>
-        ${opens.length ? raw(html`<span class="parts-new">⏳ ${opens.length} new</span>`) : ''}
-      </button>
-      ${raw(body)}
-    </section>`;
-}
-const inspAsset = (i) => {
-  const u = unitBySerial(i.serial);
-  return i.asset_item || (u && u.asset_item) || `#${i.serial}`;
-};
-function inspDraftRow(i) {
-  const tone = typeof i.age_days === 'number' && i.age_days >= INSPECT_AMBER ? ' amber' : '';
+/** One OPEN work order in the strip (D69): PO · purpose · the 📋 chip · parts open · age. */
+function woStripRow(wo) {
+  const u = unitBySerial(wo.serial);
+  const asset = wo.asset_item || (u && u.asset_item) || `#${wo.serial}`;
+  const b = blockOf(wo);
+  const stale = b.status === 'PENDING' && typeof wo.age_days === 'number' && wo.age_days >= INSPECT_AMBER;
   return html`
     <div class="prow">
-      <a class="prow-main" href="#/inspection/${raw(enc(i.id))}">
-        <span class="prow-po"><strong>${i.id}</strong></span>
-        <span class="prow-part">${INSP_KIND_LABEL[i.kind] || i.kind || '—'}</span>
-        <span class="prow-desc">opened by ${i.opened_by || '—'}${i.opened ? ` · ${fmtDate(i.opened)}` : ''} — Resume ›</span>
+      <a class="prow-main" href="#/wo/${raw(enc(wo.id))}">
+        <span class="prow-po">PO <strong>${wo.id}</strong></span>
+        <span class="prow-part">${PURPOSE_LABEL[wo.purpose] || wo.purpose || '—'}</span>
+        <span class="prow-desc">opened by ${wo.opened_by || '—'}${wo.opened ? ` · ${fmtDate(wo.opened)}` : ''}${typeof wo.parts_open === 'number' ? ` · ${wo.parts_open} part${wo.parts_open === 1 ? '' : 's'} open` : ''}</span>
       </a>
       <div class="chips">
-        <a class="chip asset" href="#/unit/${raw(enc(i.serial))}">${inspAsset(i)}</a>
-        ${typeof i.age_days === 'number' ? raw(chip(ageText(i.age_days), `age${tone}`)) : ''}
-        ${i.flags ? raw(chip(`${i.flags} ⚑`, 'warn')) : ''}
+        <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">${asset}</a>
+        ${raw(chip(`📋 ${sheetChipText(b)}`, `insp ${stale ? 'amber' : sheetChipTone(b)}`))}
+        ${typeof wo.age_days === 'number' ? raw(chip(ageText(wo.age_days), `age${stale ? ' amber' : ''}`)) : ''}
+        ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
       </div>
-    </div>`;
-}
-function inspDoneRow(i) {
-  const h = firstHours(i.readings);
-  return html`
-    <div class="prow">
-      <a class="prow-main" href="#/inspection/${raw(enc(i.id))}">
-        <span class="prow-po"><strong>${i.id}</strong></span>
-        <span class="prow-part">${INSP_KIND_LABEL[i.kind] || i.kind || '—'}</span>
-        <span class="prow-desc">${i.tech || '—'}${i.done ? ` · ${fmtDate(i.done)}` : ''}${h != null ? ` · ${fmtReading(h)} h` : ''}</span>
-      </a>
-      <div class="chips">
-        <a class="chip asset" href="#/unit/${raw(enc(i.serial))}">${inspAsset(i)}</a>
-        ${i.flags ? raw(chip(`${i.flags} ⚑`, 'warn')) : raw(chip('no flags', 'ok'))}
-        ${i.work_order ? raw(html`<a class="chip wo" href="#/wo/${raw(enc(i.work_order))}">🔩 ${i.work_order}</a>`) : ''}
-      </div>
-    </div>`;
-}
-/** A pending OPEN: no I-number yet, so none is shown (§2). Keyed on the serial. */
-function pendingInspCard(e) {
-  const u = unitBySerial(e.serial);
-  const p = pl(e);
-  return html`
-    <div class="prow pending-card">
-      <a class="prow-main" href="#/inspection/new/${raw(enc(e.serial))}">⏳ NEW — ${(u && u.asset_item) || `#${e.serial}`} — ${INSP_KIND_LABEL[p.kind] || 'inspection'} — ${
-        pendingBySerial(state.pending, e.serial).some((x) => pl(x).action === 'DONE') ? 'done, ' : ''}numbered at the next run</a>
-      <div class="kan-foot"><span class="kan-pend">by ${e.actor || 'someone'}</span></div>
     </div>`;
 }
 
@@ -718,14 +652,14 @@ function trackingChip(part) {
     : html`<span class="chip track">${part.tracking}</span>`;
 }
 
-/** A pending OPEN: no W-number yet, so none is shown (§2). Keyed on the serial. */
+/** A pending OPEN: no W-number yet, so none is shown (§2). Keyed on the serial — and its page is too (D69). */
 function pendingWoCard(e) {
   const p = pl(e);
   const u = unitBySerial(e.serial);
   const n = Array.isArray(p.parts) ? p.parts.length : 0;
   return html`
     <div class="prow pending-card">
-      <div class="prow-main">⏳ NEW — ${(u && u.asset_item) || `#${e.serial}`} — ${n ? `${n} part${n === 1 ? '' : 's'}` : 'labor only'} — applies at the next run</div>
+      <a class="prow-main" href="#/wo/new/${raw(enc(e.serial))}">⏳ NEW — ${(u && u.asset_item) || `#${e.serial}`} — ${PURPOSE_LABEL[p.purpose] || 'work order'}${n ? ` — ${n} part${n === 1 ? '' : 's'}` : ''} — 📋 sheet waiting · numbered at the next run</a>
       <div class="kan-foot"><span class="kan-pend">by ${e.actor || 'someone'}</span></div>
       ${raw(undoControl(e))}
     </div>`;
@@ -876,9 +810,7 @@ function viewUnit(serial) {
       ? raw(html`<span>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</span>`)
       : e.action === 'work_order'
         ? raw(html`<span>${describeWoEvent(e)} by ${e.actor || 'someone'}</span>`)
-        : e.action === 'inspection'
-          ? raw(html`<span>⏳ ${describeInspEvent(e)} by ${e.actor || 'someone'}</span>`)
-          : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
+        : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
     ${raw(undoControl(e))}
   </div>`;
   const pendingBlock = p.length ? html`
@@ -897,7 +829,7 @@ function viewUnit(serial) {
     <div class="detail-head">
       <div class="h">${unitName(u)}</div>
       <div class="s"><span class="unit-serial">${unitIds(u)}</span> · ${u.category || '—'}</div>
-      ${/* D67: the meter, now that a DONE sheet writes it back. */
+      ${/* D67: the meter, now that a DONE sheet writes it back (D69: the sheet on the work order). */
         typeof u.hours === 'number' ? raw(html`<div class="s hours-line">${fmtReading(u.hours)} h${u.hours_as_of ? ` · as of ${fmtMD(u.hours_as_of)}` : ''}</div>`) : ''}
       ${raw(unitChips(u, { rental: true }))}
     </div>
@@ -967,63 +899,24 @@ function viewUnit(serial) {
     ${u.unit_state === 'ON-DEMO' ? raw(html`
       <h2>Placement</h2><div class="info">Out on demo. No agreement.</div>`) : ''}
 
-    ${raw(actionsFor(u))}
-    ${raw(unitInspections(u))}`;
+    ${raw(actionsFor(u))}`;
 }
 
 /**
- * D67 — the unit page's Inspect control, beside Work order (§3):
- *   a DRAFT on this serial    "📋 Resume I1001 · CHECKOUT · 3 ⚑" -> the sheet
- *   a pending OPEN            "⏳ Resume new sheet" (yours) / "⏳ New sheet by Josh"
- *   neither                   "📋 Inspect" -> Check-out · Return · PM
- * One DRAFT per serial is the engine's rule; the page just never offers a
- * second. No library in the snapshot = no new sheet (a resume still works).
+ * D69 §3 — "Last inspection": the newest DONE sheet on any of this unit's work
+ * orders (the engine scans every W-file, not just the 30-day window).
+ * "RETURN · 9/25 · Zac · 41 h · 2 ⚑ · W1002" — tap → the work order. The
+ * hours ride along only when they are that sheet's (hours_as_of == its done).
  */
-function inspectControl(u) {
-  if (u.inspection_draft) {
-    const i = inspById(inspections(), u.inspection_draft);
-    return html`<a class="btn ghost insp-chip" href="#/inspection/${raw(enc(u.inspection_draft))}">📋 ${resumeText(i, u.inspection_draft)}</a>`;
-  }
-  const opens = pendingOpensFor(state.pending, u.serial).sort(byTs);
-  if (opens.length) {
-    const last = opens[opens.length - 1];
-    const mine = opens.some((e) => e.actor === meName());
-    const kind = INSP_KIND_LABEL[pl(last).kind] || '';
-    return html`<a class="btn ghost insp-chip" href="#/inspection/new/${raw(enc(u.serial))}">⏳ ${mine ? 'Resume new sheet' : `New sheet by ${last.actor || 'someone'}`}${kind ? ` · ${kind}` : ''}</a>`;
-  }
-  if (!checklist()) return '';
-  return html`<button class="btn ghost" type="button" data-form="insp-open">📋 Inspect</button>`;
-}
-
-/** The kind picker (§3), mounted into #write-form. The default (§2) is filled in. */
-function inspPickForm(u) {
-  const def = defaultKind(u);
-  return html`
-    <div class="write insp-pick">
-      <label>Which sheet?</label>
-      <div class="actions row">
-        ${raw(INSP_KINDS.map((k) => html`<button class="btn${k === def ? '' : ' ghost'}" type="button" data-insp-open="${k}" data-serial="${u.serial}">${INSP_KIND_LABEL[k]}</button>`).join(''))}
-      </div>
-      <div class="form-note">The sheet opens now and saves as you go. The engine gives it an I-number at the next run.</div>
-    </div>`;
-}
-
-/** The unit's last five sheets (§3): "I1001 · PM · 9/26 · Josh · 412 h · 2 ⚑". */
-function unitInspections(u) {
-  const rows = forSerial(inspections(), u.serial).slice(0, 5);
-  if (!rows.length && !checklist()) return '';
-  const line = (i) => {
-    const h = firstHours(i.readings);
-    const bits = [i.id, i.kind || '—', fmtMD(i.status === 'DONE' ? i.done : i.opened) || '—',
-      (i.status === 'DONE' ? i.tech : i.opened_by) || '—'];
-    if (h != null) bits.push(`${fmtReading(h)} h`);
-    if (i.flags) bits.push(`${i.flags} ⚑`);
-    return html`<a class="irow-link" href="#/inspection/${raw(enc(i.id))}">
-      <span>${bits.join(' · ')}</span>${i.status === 'DRAFT' ? raw(chip('DRAFT', 'warn')) : ''}${CHEV}</a>`;
-  };
-  return html`
-    <h2>Inspections${rows.length ? raw(html` <span class="count">${rows.length}</span>`) : ''}</h2>
-    <div class="card dlist">${rows.length ? raw(rows.map(line).join('')) : raw('<div class="hold-empty">No inspections yet.</div>')}</div>`;
+function lastInspectionLine(u) {
+  const li = u.last_inspection;
+  if (!li || typeof li !== 'object' || !li.work_order) return '';
+  const bits = [PURPOSE_LABEL[li.purpose] || li.purpose || '—', fmtMD(li.done) || '—', li.tech || '—'];
+  if (typeof u.hours === 'number' && u.hours_as_of && u.hours_as_of === li.done) bits.push(`${fmtReading(u.hours)} h`);
+  if (li.flags) bits.push(`${li.flags} ⚑`);
+  bits.push(li.work_order);
+  return html`<a class="irow-link last-insp" href="#/wo/${raw(enc(li.work_order))}">
+    <span><span class="li-t">Last inspection</span> ${bits.join(' · ')}</span>${CHEV}</a>`;
 }
 
 /**
@@ -1125,40 +1018,41 @@ function actionsFor(u) {
       ${canReserve ? raw(html`<button class="btn" type="button" data-form="reserve">${u.unit_state === 'AVAILABLE' ? 'Reserve this unit' : 'Reserve for later'}</button>`) : ''}
       ${canReadiness ? raw('<button class="btn ghost" type="button" data-form="readiness">Set readiness</button>') : ''}
       ${canWo ? raw(woControl(u)) : ''}
-      ${u.unit_state !== 'RETIRED' ? raw(inspectControl(u)) : ''}
       ${canMove && u.pending_agreement == null ? raw('<button class="btn ghost" type="button" data-form="dispatch">Schedule delivery</button>') : ''}
     </div>
     ${u.pending_agreement != null ? raw(rentalDeliveryLink(u)) : ''}
+    ${raw(lastInspectionLine(u))}
     <div id="write-form"></div>
     <div id="write-msg"></div>`;
 }
 
 /**
- * D65 — the unit page's Work order control, beside Set readiness (§4):
- *   an OPEN work order    the chip "W1001 · 2 parts open · 3.5 h" -> #/wo/W1001
- *   a pending OPEN        "⏳ New work order — applies at the next run" (no id yet)
- *   neither               "Open work order"
+ * D65 / D69 — the unit page's Work order control, beside Set readiness (§3):
+ *   an OPEN work order    "W1003 · RETURN · 📋 pending · 2 parts open · 1.5 h" -> #/wo/W1003
+ *   a pending OPEN        "⏳ New work order — sheet waiting" -> #/wo/new/<serial> (no id yet)
+ *   neither               "Work order" -> the OPEN sheet with its purpose picker
  * One OPEN per serial is the engine's rule; the page just doesn't offer a second.
+ * The D67 Inspect button retired: the sheet is ON the work order now.
  */
 function woControl(u) {
   if (u.work_order) {
     const wo = woById(workOrders(), u.work_order);
-    return html`<a class="btn ghost wo-chip" href="#/wo/${raw(enc(u.work_order))}">🔩 ${woChipText(wo, u)}</a>`;
+    return html`<a class="btn ghost wo-chip" href="#/wo/${raw(enc(u.work_order))}">🔧 ${woChipText(wo, u)}</a>`;
   }
   if (pendingOpenFor(state.pending, u.serial).length) {
-    return html`<button class="btn ghost" type="button" disabled>⏳ New work order — applies at the next run</button>`;
+    return html`<a class="btn ghost wo-chip" href="#/wo/new/${raw(enc(u.serial))}">⏳ New work order — sheet waiting</a>`;
   }
-  return html`<button class="btn ghost" type="button" data-form="wo-open">Open work order</button>`;
+  return html`<button class="btn ghost" type="button" data-form="wo-open">Work order</button>`;
 }
 
 /** One part line's inputs: make · part # · description · qty. The OPEN and + Add parts sheets share it. */
-function partLineRow(mfr) {
+function partLineRow(mfr, desc = '') {
   const opt = (m) => html`<option value="${m}"${m === mfr ? raw(' selected') : ''}>${MANUFACTURER_LABEL[m]}</option>`;
   return html`
     <div class="wo-line">
       <select name="p_mfr" aria-label="Make">${raw(MANUFACTURERS.map(opt).join(''))}</select>
       <input name="p_num" maxlength="40" placeholder="Part #" autocomplete="off" aria-label="Part number">
-      <input name="p_desc" maxlength="80" placeholder="Description" autocomplete="off" aria-label="Description">
+      <input name="p_desc" maxlength="80" placeholder="Description" autocomplete="off" aria-label="Description" value="${desc}">
       <input name="p_qty" type="number" inputmode="numeric" min="1" max="99" step="1" value="1" aria-label="Quantity">
       <div class="wo-src" role="group" aria-label="Order or from stock">
         <button type="button" class="tg on" data-wo-src="VENDOR">Order</button>
@@ -1167,32 +1061,35 @@ function partLineRow(mfr) {
       <input type="hidden" name="p_src" value="VENDOR">
     </div>`;
 }
-function partLinesEditor(mfr, required) {
+function partLinesEditor(mfr, required, desc = '') {
   return html`
     <label>Parts${required ? '' : ' (optional — a labor-only work order is fine)'}</label>
-    <div class="wo-lines" data-mfr="${mfr}">${raw(partLineRow(mfr))}</div>
+    <div class="wo-lines" data-mfr="${mfr}">${raw(partLineRow(mfr, desc))}</div>
     <button class="btn sm ghost" type="button" data-wo-addline="1">+ line</button>
     <div class="form-note stock-note" data-stock-note hidden>Stock lines are delivered now — nothing to order.</div>
     <div class="form-note">Up to ${MAX_LINES} lines. Part # and quantity — no prices here; cost comes off the vendor invoice.</div>`;
 }
 
-/** The OPEN sheet (§4), mounted into the unit page's #write-form — or, from a
- *  DONE inspection (D67), into that sheet's page with `prefill` {purpose, note,
- *  inspection}: the back-link rides in the payload, the parts are the tech's. */
-function woOpenForm(u, prefill = null) {
+/**
+ * The OPEN sheet (D69 §3), mounted into the unit page's #write-form. Purpose
+ * first — Check-out · Return · PM · Repair · Other, defaulted the engine's way
+ * from the unit's readiness — then optional parts and a note. Submit goes
+ * straight to the new work order's page, where the inspection sheet is already
+ * waiting (it is born with the work order).
+ */
+function woOpenForm(u) {
   const mfr = manufacturerFor(u.brand);
-  const pre = prefill || {};
   return html`
-    <form class="write${prefill ? ' sheet' : ''}" data-action="work_order" data-verb="OPEN" data-serial="${u.serial}"${pre.inspection ? raw(html` data-inspection="${pre.inspection}"`) : ''}>
+    <form class="write" data-action="work_order" data-verb="OPEN" data-serial="${u.serial}">
       <label>Purpose</label>
-      ${raw(toggle('purpose', PURPOSES.map((p) => [p, PURPOSE_LABEL[p]]), pre.purpose || defaultPurpose(u)))}
+      ${raw(toggle('purpose', PURPOSES.map((p) => [p, PURPOSE_LABEL[p]]), defaultPurpose(u)))}
+      ${u.unit_state === 'ON-RENT' ? raw(html`<div class="hint">⚠️ ${unitName(u)} is out on rent${u.customer ? raw(html` with <strong>${u.customer}</strong>`) : ''} — right unit? A twin in the shop is the usual miss.</div>`) : ''}
       ${raw(partLinesEditor(mfr, false))}
       <label for="wo-note">Note (optional)</label>
-      <textarea id="wo-note" name="note" maxlength="200" placeholder="what it's for — rent-ready for …">${pre.note || ''}</textarea>
+      <textarea id="wo-note" name="note" maxlength="200" placeholder="what it's for — back from Acme Foods …"></textarea>
       ${u.service_ticket ? raw(html`<div class="info">Links to ${u.service_ticket}.</div>`) : ''}
-      ${pre.inspection ? raw(html`<div class="info">Links to inspection ${pre.inspection}.</div>`) : ''}
-      ${prefill ? raw(sheetButtons('Open work order')) : raw('<div class="actions"><button class="btn" type="submit">Submit</button></div>')}
-      <div class="form-note">A proposal. The engine assigns the W-number — the PO you give the vendor — at the next run.</div>
+      <div class="actions"><button class="btn" type="submit">Submit</button></div>
+      <div class="form-note">Opens with the inspection sheet — fill it in now. The engine assigns the W-number (the PO you give the vendor) at the next run.</div>
     </form>`;
 }
 
@@ -2090,9 +1987,8 @@ function viewTicket(id) {
         ${raw(chip(PRI_LABEL[t.priority] || t.priority || '—', `pri-chip pri-${t.priority || 'MEDIUM'}`))}
         ${raw(chip(t.machine_owner === 'WSS' ? 'Our machine' : "Customer's machine", t.machine_owner === 'WSS' ? 'rent' : 'out'))}
         ${t.status === 'CLOSED' ? raw(chip('CLOSED', 'ok')) : ''}
-        ${u && u.work_order ? raw(html`<a class="chip wo" href="#/wo/${raw(enc(u.work_order))}">🔩 ${u.work_order}</a>`) : ''}
-        ${/* D67: read-only — the sheets the engine linked to this ticket at OPEN. */
-          raw(inspections().filter((i) => i.ticket === t.ticket).map((i) => html`<a class="chip insp" href="#/inspection/${raw(enc(i.id))}">${chipText(i)}</a>`).join(''))}
+        ${/* D69: read-only — the work orders on this ticket (or its unit's open one), each with its sheet. */
+          raw(ticketWoChips(t, u))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
     </div>
@@ -2229,75 +2125,191 @@ function moveForm(t, which) {
     </form>`;
 }
 
+/**
+ * D69 §6 — the ticket's work-order chips: `🔧 W1003 · 📋 2 ⚑` (a DONE sheet),
+ * `· 📋 skipped`, `· 📋 pending`. The work orders the engine linked to this
+ * ticket, plus the unit's open one if it isn't among them.
+ */
+function ticketWoChips(t, u) {
+  const list = workOrders().filter((w) => w.ticket === t.ticket);
+  if (u && u.work_order && !list.some((w) => w.id === u.work_order)) {
+    list.push(woById(workOrders(), u.work_order) || { id: u.work_order, inspection: u.wo_inspection ? { status: u.wo_inspection } : null });
+  }
+  return list.map((w) => {
+    const b = blockOf(w);
+    const sh = b.status === 'DONE' ? (b.flags ? `${b.flags} ⚑` : '✓') : b.status === 'SKIPPED' ? 'skipped' : 'pending';
+    return html`<a class="chip wo" href="#/wo/${raw(enc(w.id))}">🔧 ${w.id} · 📋 ${sh}</a>`;
+  }).join('');
+}
+
 /* ========================================================= work order == */
 
 /**
- * `#/wo/W1001` (D65 §5) — same anatomy as ticket detail. The header leads with
- * "PO W1001", big, because that is the number Matt reads to the vendor and the
- * number a tech looks for on the box. Parts, then labor, then close.
+ * `#/wo/W1001` (D65 §5, D69 §4) — one record per touch. Top to bottom: the
+ * header ("PO W1001", big — the number Matt reads to the vendor and the tech
+ * looks for on the box), the 📋 inspection sheet, parts, labor, close, log.
+ *
+ * `#/wo/new/<serial>` is the same page for a work order opened on this phone
+ * that the engine hasn't numbered yet: the sheet is born with the work order,
+ * so the tech starts typing at once (D69 §2 serial fallback — every verb but
+ * OPEN may go out keyed on the serial). When the number lands the page moves
+ * to `#/wo/W…` and carries anything unsaved across.
  *
  * NO RATE, NO DOLLARS, NO COST COLUMN — the snapshot carries none, and when
  * pricing reaches a phone it comes through the owner-only gate (D66+), not here.
  */
-function viewWorkOrder(id) {
-  const wo = woById(workOrders(), id);
-  if (!wo) {
-    return html`<a class="crumb" href="#/">‹ Fleet</a>
-      ${raw(emptyState('Work order not found.', 'A closed one leaves after 30 days; a new one gets its W-number at the next run.'))}`;
+const woArg = () => {
+  const m = /^#\/wo\/(.+)$/.exec(window.location.hash || '');
+  return m ? m[1] : null;
+};
+const argForKey = (key) => (key.startsWith('new:') ? `new/${enc(key.slice(4))}` : enc(key));
+const mineOnly = (list) => list.filter((e) => e.actor === meName());
+const isInspect = (e, ...steps) => !!e && e.action === 'work_order' && pl(e).action === 'INSPECT' && (!steps.length || steps.includes(pl(e).step));
+
+/**
+ * What a sheet the engine hasn't written anything into yet starts as — the
+ * engine's own derivation (class / body style from the category) and, for the
+ * battery, the unit's last DONE sheet (the engine prefills from the unit's
+ * battery memo, which that sheet wrote). A default the tech may flip.
+ */
+function sheetDefaults(u) {
+  if (!u) return {};
+  const prior = workOrders().filter((w) => String(w.serial) === String(u.serial))
+    .map((w) => ({ w, b: blockOf(w) }))
+    .filter(({ b }) => b.status === 'DONE' && b.battery && b.battery.type)
+    .sort((x, y) => String(y.b.done || '').localeCompare(String(x.b.done || '')))[0];
+  return { ...deriveProfile(u.category), battery: prior ? prior.b.battery : null };
+}
+
+/**
+ * Everything the page and the sheet's save path need, from the route's
+ * argument. WHAT IS ON SCREEN, in layers, bottom to top:
+ *   1. the work order's `inspection` block (the vault's truth) — or, for a NEW
+ *      work order, the defaults the engine will derive;
+ *   2. the still-pending INSPECT SAVEs, in the order they were made — badged
+ *      pending, never drawn as applied;
+ *   3. what's been typed on this page and not saved yet (`sheetLocal`).
+ * A pending Done / No inspection LOCKS the sheet: a later save would land
+ * after it, and the engine refuses a save on a settled sheet.
+ */
+function woCtx(arg) {
+  const lib = checklist();
+  if (arg.startsWith('new/')) {
+    const serial = decodeURIComponent(arg.slice(4));
+    const key = `new:${serial}`;
+    const u = unitBySerial(serial);
+    if (u && u.work_order) return { key, serial, u, redirect: u.work_order };
+    const opens = pendingOpenFor(state.pending, serial).sort(byTs);
+    const mine = mineOnly(opens);
+    const openEvt = (mine.length ? mine : opens).slice(-1)[0] || null;
+    if (!openEvt) return { key, serial, u, isNew: true, missing: true };
+    const bySerial = woPendingBySerial(state.pending, serial).sort(byTs);
+    let sheet = sheetFrom(null, sheetDefaults(u));
+    for (const e of bySerial) if (isInspect(e, 'SAVE', 'DONE')) sheet = overlay(sheet, pl(e));
+    const locked = bySerial.find((e) => isInspect(e, 'DONE', 'SKIP')) || null;
+    const editable = mine.length > 0 && !locked;
+    return { key, serial, u, isNew: true, isOpen: true, openEvt, purpose: pl(openEvt).purpose || null,
+      pend: opens.concat(bySerial).sort(byTs), locked, lib, editable, log: [],
+      sheet: withEdits(key, sheet, editable) };
   }
+  const id = decodeURIComponent(arg);
+  const wo = woById(workOrders(), id);
+  if (!wo) return { key: id, id, missing: true };
   const u = unitBySerial(wo.serial);
-  const pend = pendingForWo(state.pending, wo.id);
   const isOpen = wo.status !== 'CLOSED';
+  // An OPEN work order also owns anything still pending against its serial from before it was numbered.
+  const pend = pendingForWo(state.pending, id).concat(isOpen ? woPendingBySerial(state.pending, wo.serial) : []).sort(byTs);
+  const block = blockOf(wo);
+  // A pre-D69 row (a string I-number or null) is a blank PENDING sheet — derive like a new one.
+  let sheet = sheetFrom(block, 'legacy' in block ? sheetDefaults(u) : {});
+  if (sheet.status === 'PENDING') for (const e of pend) if (isInspect(e, 'SAVE', 'DONE')) sheet = overlay(sheet, pl(e));
+  const locked = sheet.status === 'PENDING' ? pend.find((e) => isInspect(e, 'DONE', 'SKIP')) || null : null;
+  const editable = isOpen && sheet.status === 'PENDING' && !locked;
+  return { key: id, id, wo, u, serial: wo.serial, isOpen, purpose: wo.purpose, pend, locked, lib, editable,
+    log: Array.isArray(wo.log) ? wo.log.filter(Boolean) : [], sheet: withEdits(id, sheet, editable) };
+}
+
+/** The NEW work order got its number: carry anything unsaved across to it. */
+function migrateNew(key, id) {
+  const l = sheetLocal.get(key);
+  if (!l) return;
+  sheetLocal.delete(key);
+  const into = localFor(id);
+  into.edits = { ...l.edits, ...into.edits };
+  for (const k of l.dirty) if (SECTION_KEYS.includes(k)) into.dirty.add(k);
+  for (const n of l.notes) into.notes.add(n);
+  if (into.dirty.size) into.status = 'dirty';
+}
+
+function viewWorkOrder(arg) {
+  const c = woCtx(arg);
+  if (c.redirect) {
+    migrateNew(c.key, c.redirect);
+    window.location.replace(`#/wo/${enc(c.redirect)}`);
+    return html`<div class="loading">Opening ${c.redirect}…</div>`;
+  }
+  const u = c.u || (c.serial ? unitBySerial(c.serial) : null);
+  const crumb = html`<a class="crumb" href="${u ? raw(`#/unit/${enc(u.serial)}`) : '#/'}">‹ ${u ? unitName(u) : 'Fleet'}</a>`;
+  if (c.missing) {
+    return html`${raw(crumb)}${raw(emptyState('Work order not found.', c.isNew
+      ? 'Nothing is open on this unit — open one from the unit page (Work order).'
+      : 'A closed one leaves after 30 days; a new one gets its W-number at the next run.'))}`;
+  }
+  return c.isNew ? viewNewWorkOrder(c, crumb) : viewNumberedWorkOrder(c, crumb);
+}
+
+const pendRow = (e) => html`<div class="pend-row"><span>${describeWoEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`;
+
+function viewNumberedWorkOrder(c, crumb) {
+  const { wo, u, pend } = c;
+  const isOpen = c.isOpen;
   const parts = Array.isArray(wo.parts) ? wo.parts.filter(Boolean) : [];
   const labor = laborOf(wo);
-  const me = (state.me && state.me.name) || '';
+  const me = meName();
   const statusText = isOpen
     ? `OPEN${typeof wo.age_days === 'number' ? ` ${ageText(wo.age_days)}` : ''}`
     : `CLOSED${wo.closed ? ` ${fmtDate(wo.closed)}` : ''}`;
 
   const partRows = parts.map((part) => woPartRow(wo, part, pend, me)).join('');
-  const laborRows = labor.map((l) => html`
-    <div class="lrow">
-      <span class="lrow-d">${fmtDate(l.date) || '—'}</span>
-      <span class="lrow-w">${l.who || '—'}</span>
-      <span class="lrow-h">${fmtHours(l.hours)} h</span>
-      ${l.note ? raw(html`<span class="lrow-n">${l.note}</span>`) : ''}
-    </div>`).join('');
-  const log = Array.isArray(wo.log) ? wo.log.filter(Boolean).slice().reverse() : [];
+  const log = c.log.slice().reverse();
+  const sheetPend = pend.filter((e) => isInspect(e));
+  const otherPend = pend.filter((e) => !isInspect(e));
 
   return html`
-    <a class="crumb" href="${u ? raw(`#/unit/${enc(u.serial)}`) : '#/'}">‹ ${u ? unitName(u) : 'Fleet'}</a>
+    ${raw(crumb)}
     ${raw(msgBlock())}
     <div class="detail-head">
       <div class="po-big">PO <span>${wo.id}</span></div>
-      <div class="s">${wo.id} · ${wo.asset_item || `#${wo.serial}`} · ${statusText} · ${PURPOSE_LABEL[wo.purpose] || wo.purpose || '—'}</div>
+      <div class="s">${wo.id} · ${wo.asset_item || `#${wo.serial}`} · ${PURPOSE_LABEL[wo.purpose] || wo.purpose || '—'} · ${statusText}</div>
+      <div class="s">opened by ${wo.opened_by || '—'}${wo.opened ? ` ${fmtMD(wo.opened)}` : ''}</div>
       <div class="chips">
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">#${wo.serial}${u ? ` ${unitName(u)}` : ''}</a>
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
-        ${wo.inspection ? raw(html`<a class="chip insp" href="#/inspection/${raw(enc(wo.inspection))}">📋 ${wo.inspection}</a>`) : ''}
         ${isOpen ? '' : raw(chip('CLOSED', 'ok'))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
     </div>
 
-    ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
-      ${raw(pend.map((e) => html`<div class="pend-row"><span>${describeWoEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
+    ${otherPend.length ? raw(html`<div class="note"><strong>⏳ ${otherPend.length} pending change${otherPend.length > 1 ? 's' : ''}</strong>
+      ${raw(otherPend.map(pendRow).join(''))}
       <div style="margin-top:6px">Applies at the next run — the page still shows the current truth.</div></div>`) : ''}
     ${wo.note ? raw(html`<div class="note"><strong>Note</strong>${wo.note}</div>`) : ''}
+
+    ${raw(sheetCardHtml(c, sheetPend))}
 
     <h2>Parts${parts.length ? raw(html` <span class="count">${parts.length}</span>`) : ''}</h2>
     <div class="card dlist">
       ${parts.length ? raw(partRows) : raw('<div class="hold-empty">No parts on this work order — labor only.</div>')}
     </div>
-    ${isOpen ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-add" data-id="${wo.id}">+ Add parts</button></div>`) : ''}
-    ${sheetOpen('wo-add', wo.id) ? raw(woAddPartsForm(wo)) : ''}
+    ${isOpen ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-add" data-id="${c.key}">+ Add parts</button></div>`) : ''}
+    ${sheetOpen('wo-add', c.key) ? raw(woAddPartsForm(c)) : ''}
 
     <h2>Labor · ${fmtHours(wo.hours_total)} h</h2>
     <div class="card dlist">
-      ${labor.length ? raw(laborRows) : raw('<div class="hold-empty">No hours logged yet.</div>')}
+      ${labor.length ? raw(labor.map(laborRow).join('')) : raw('<div class="hold-empty">No hours logged yet.</div>')}
     </div>
-    ${isOpen ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-labor" data-id="${wo.id}">+ Log hours</button></div>`) : ''}
-    ${sheetOpen('wo-labor', wo.id) ? raw(woLaborForm(wo)) : ''}
+    ${isOpen ? raw(laborButton(c)) : ''}
+    ${sheetOpen('wo-labor', c.key) ? raw(woLaborForm(c)) : ''}
 
     <h2>Work order</h2>
     <div class="card"><dl class="kv">
@@ -2308,7 +2320,7 @@ function viewWorkOrder(id) {
       ${wo.closed ? raw(kvRow('Closed', fmtDateFull(wo.closed))) : ''}
     </dl></div>
 
-    ${raw(woFooter(wo, me))}
+    ${raw(woFooter(c, me))}
 
     <h2>Log${log.length ? raw(html` <span class="count">${log.length}</span>`) : ''}</h2>
     <div class="card notes">
@@ -2319,6 +2331,75 @@ function viewWorkOrder(id) {
         </div>`).join('')) : raw('<div class="hold-empty">Nothing logged yet.</div>')}
     </div>`;
 }
+
+/**
+ * A work order opened on this phone, not numbered yet. The sheet is live —
+ * saves, Done and No inspection go out keyed on the serial — and so are
+ * + Add parts and + Log hours. Close waits for the number (there is nothing
+ * to close until the engine has filed it); taking back the OPEN is the cancel.
+ */
+function viewNewWorkOrder(c, crumb) {
+  const u = c.u;
+  const p = pl(c.openEvt);
+  const lines = Array.isArray(p.parts) ? p.parts : [];
+  const mineOpen = c.openEvt.actor === meName();
+  const others = c.pend.filter((e) => e.id !== c.openEvt.id && !isInspect(e));
+  return html`
+    ${raw(crumb)}
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="po-big">PO <span>⏳ NEW</span></div>
+      <div class="s">${(u && u.asset_item) || `#${c.serial}`} · ${PURPOSE_LABEL[p.purpose] || p.purpose || '—'} · opened by ${c.openEvt.actor || 'someone'}</div>
+      <div class="chips">
+        ${u ? raw(html`<a class="chip asset" href="#/unit/${raw(enc(u.serial))}">#${u.serial} ${unitName(u)}</a>`) : ''}
+        ${raw(chip(`⏳ ${c.pend.length} pending`, 'pending'))}
+      </div>
+    </div>
+    <div class="note"><strong>⏳ New work order — not numbered yet</strong>
+      The engine gives it a W-number (the PO) at the next run. ${mineOpen
+        ? 'Fill the sheet in now — every save rides along keyed on the unit, and Done works now.'
+        : `It's ${c.openEvt.actor || 'someone'}'s to fill in until then.`}
+      ${raw(html`<div class="pend-row"><span>${describeWoEvent(c.openEvt)} — by ${c.openEvt.actor || 'someone'}</span>${raw(undoControl(c.openEvt))}</div>`)}
+      ${raw(others.map(pendRow).join(''))}
+    </div>
+    ${p.note ? raw(html`<div class="note"><strong>Note</strong>${p.note}</div>`) : ''}
+
+    ${raw(sheetCardHtml(c, c.pend.filter((e) => isInspect(e))))}
+
+    <h2>Parts${lines.length ? raw(html` <span class="count">${lines.length}</span>`) : ''}</h2>
+    <div class="card dlist">
+      ${lines.length ? raw(lines.map((l, i) => html`
+        <div class="drow wo-part">
+          <div class="drow-top">
+            <span class="drow-what"><span class="wo-ln">${i + 1}</span> <span class="unit-serial">${l.part_number || '—'}</span> × ${l.qty ?? 1}</span>
+            ${raw(chip(l.source === 'SHOP-STOCK' ? 'stock' : 'requested', 'pending'))}
+          </div>
+          <div class="drow-meta">${l.description || ''}${l.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[l.manufacturer] || l.manufacturer}`) : ''}</div>
+        </div>`).join('')) : raw('<div class="hold-empty">No parts yet.</div>')}
+    </div>
+    ${c.editable ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-add" data-id="${c.key}">+ Add parts</button></div>`) : ''}
+    ${sheetOpen('wo-add', c.key) ? raw(woAddPartsForm(c)) : ''}
+
+    <h2>Labor</h2>
+    ${mineOpen ? raw(laborButton(c)) : ''}
+    ${sheetOpen('wo-labor', c.key) ? raw(woLaborForm(c)) : ''}`;
+}
+
+const laborRow = (l) => html`
+    <div class="lrow">
+      <span class="lrow-d">${fmtDate(l.date) || '—'}</span>
+      <span class="lrow-w">${l.who || '—'}</span>
+      <span class="lrow-h">${fmtHours(l.hours)} h</span>
+      ${l.note ? raw(html`<span class="lrow-n">${l.note}</span>`) : ''}
+    </div>`;
+/** "+ Log hours" — on a RETURN / CHECKOUT / PM the sheet is most of the job, so it says so (D69 §4.4). */
+function laborButton(c) {
+  const nudge = ['RETURN', 'CHECKOUT', 'PM'].includes(c.purpose);
+  return html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-labor" data-id="${c.key}">+ Log hours</button></div>
+    ${nudge ? raw('<div class="form-note">Inspection time counts — log it here.</div>') : ''}`;
+}
+/** A work-order form's key: the W-number, or — not numbered yet — the serial (D69: exactly one). */
+const woKeyAttr = (c) => (c.isNew ? html`data-serial="${c.serial}"` : html`data-wo="${c.id}"`);
 
 /** One part line on the work-order page, with the buttons its state + your role get. */
 function woPartRow(wo, part, pend, me) {
@@ -2388,22 +2469,26 @@ function woPartStateForm(wo, part, st) {
     </form>`;
 }
 
-function woAddPartsForm(wo) {
-  const u = unitBySerial(wo.serial);
-  const first = Array.isArray(wo.parts) && wo.parts[0] ? wo.parts[0].manufacturer : null;
+
+function woAddPartsForm(c) {
+  const u = c.u;
+  const wo = c.wo;
+  const first = wo && Array.isArray(wo.parts) && wo.parts[0] ? wo.parts[0].manufacturer : null;
+  const desc = ui.form && ui.form.arg && ui.form.arg.desc ? ui.form.arg.desc : '';
   return html`
-    <form class="write sheet" data-action="work_order" data-verb="ADD-PARTS" data-wo="${wo.id}">
-      ${raw(partLinesEditor(first || manufacturerFor(u && u.brand), true))}
+    <form class="write sheet" data-action="work_order" data-verb="ADD-PARTS" ${raw(woKeyAttr(c))}>
+      ${desc ? raw(html`<div class="confirm-line">For the flagged row: <strong>${desc}</strong></div>`) : ''}
+      ${raw(partLinesEditor(first || manufacturerFor(u && u.brand), true, desc))}
       ${raw(sheetButtons('Add the parts'))}
       <div class="form-note">A proposal — the lines appear at the next run: Order lines REQUESTED, Stock lines already delivered.</div>
     </form>`;
 }
 
-function woLaborForm(wo) {
+function woLaborForm(c) {
   const today = todayCentral();
   const me = state.me && DRIVERS.includes(state.me.name) ? state.me.name : DRIVERS[0];
   return html`
-    <form class="write sheet" data-action="work_order" data-verb="LABOR" data-wo="${wo.id}">
+    <form class="write sheet" data-action="work_order" data-verb="LABOR" ${raw(woKeyAttr(c))}>
       <label for="wl-date">Day</label>
       <input id="wl-date" name="date" type="date" value="${today}" max="${today}" required>
       <label>Who</label>
@@ -2421,60 +2506,63 @@ function woLaborForm(wo) {
     </form>`;
 }
 
-/** Close (owner, every line settled) and Cancel (owner, or the opener before anything is ordered). */
-function woFooter(wo, me) {
+
+/**
+ * Close (owner) and Cancel (owner, or the opener before anything is ordered).
+ * D69: Close needs every line settled AND the sheet DONE or SKIPPED — the
+ * disabled state says which is holding it — and the close IS the ready call:
+ * ☑ Mark READY, on by default, offered only on a unit at home.
+ */
+function woFooter(c, me) {
+  const wo = c.wo;
   const r = role();
   const showClose = closeShown(wo, r);
   const showCancel = cancelShown(wo, r, me);
   if (!showClose && !showCancel) return '';
-  const canClose = closeEnabled(wo);
+  const blocker = closeBlocker(wo);
+  const canClose = !blocker;
+  const offerReady = readyOffered(c.u);
+  const readiness = c.u && c.u.readiness;
   return html`
     <div class="actions row">
       ${showClose ? raw(html`<button class="btn" type="button" data-sheet="wo-close" data-id="${wo.id}"${canClose ? '' : raw(' disabled')}>Close work order</button>`) : ''}
       ${showCancel ? raw(html`<button class="btn ghost" type="button" data-sheet="wo-cancel" data-id="${wo.id}">Cancel work order</button>`) : ''}
     </div>
-    ${showClose && !canClose ? raw('<div class="form-note">Every line has to be delivered or cancelled before it closes.</div>') : ''}
+    ${showClose && blocker ? raw(html`<div class="form-note close-why">Can't close yet — ${blocker}.</div>`) : ''}
     ${sheetOpen('wo-close', wo.id) && canClose ? raw(html`
       <form class="write sheet" data-action="work_order" data-verb="CLOSE" data-wo="${wo.id}">
+        <div class="confirm-line">Close <strong>${wo.id}</strong>${c.u ? ` on ${unitName(c.u)}` : ''}?</div>
+        ${offerReady ? raw(html`<label class="check"><input type="checkbox" name="ready" value="1" checked>
+          Mark READY${readiness && readiness !== 'READY' ? ` (now ${READY_LABEL[readiness] || readiness})` : ''}</label>`) : ''}
         <label for="wc-note">Note (optional)</label>
         <textarea id="wc-note" name="note" maxlength="200"></textarea>
         ${raw(sheetButtons(`Close ${wo.id}`))}
+        ${offerReady ? '' : raw('<div class="form-note">The unit is out — its readiness is left alone.</div>')}
       </form>`) : ''}
     ${sheetOpen('wo-cancel', wo.id) ? raw(html`
       <form class="write sheet" data-action="work_order" data-verb="CANCEL" data-wo="${wo.id}">
         <label for="wx-note">Why (optional)</label>
         <textarea id="wx-note" name="note" maxlength="200" placeholder="found it in shop stock…"></textarea>
         ${raw(sheetButtons(`Cancel ${wo.id}`))}
+        <div class="form-note">An un-done inspection sheet goes with it.</div>
       </form>`) : ''}`;
 }
 
-/* ============================================= the inspection sheet (D67) == */
+/* ================================== the inspection sheet, on the WO (D69) == */
 
 /**
- * `#/inspection/I1001` — and `#/inspection/new/<serial>` for a sheet opened on
- * this phone that the engine hasn't numbered yet (§2: the tech must not wait an
- * hour to start typing). Phone-first, one long scroll (§4): header · machine ·
- * readings · battery + cell grid · the library's sections · comments · footer.
+ * The 📋 Inspection card — the D67 sheet verbatim, now a section of the work
+ * order (one per work order, born PENDING). Expanded while PENDING, folded
+ * once DONE / SKIPPED (a tap flips it). Footer: Done (asks the tech; disabled
+ * until an hours field has a value; saves what's unsaved first) · No
+ * inspection (a one-line reason, required). DONE / SKIPPED → read-only +
+ * Reopen (owner, or the tech within 24 h).
  *
- * WHAT IS ON SCREEN, in layers, bottom to top:
- *   1. the snapshot's row (the vault's truth), or for a NEW sheet the defaults
- *      the engine will derive (class / body style from the category, the battery
- *      from this unit's last sheet);
- *   2. this sheet's still-pending taps, in the order they were made — badged
- *      pending, never drawn as applied;
- *   3. what's been typed on this page and not saved yet (`sheetLocal`).
- *
- * SAVING (§2, merge by section). Every change marks its section dirty and a
- * save follows a moment later, or at once when a field loses focus — one SAVE
- * per section, carrying ONLY that section. A newer save of the same section
- * takes the older unapplied one back (D46), so the inbox holds one per section.
- *
- * A NEW SHEET HAS NO I-NUMBER, and the engine's SAVE is keyed on one. What it
- * does accept is an OPEN that carries the first sections. So until the number
- * lands, each save re-issues the pending OPEN with every section typed so far
- * and takes the previous one back: one OPEN in the inbox, always the latest.
- * Done waits for the number — the engine cannot mark a sheet done that it has
- * not filed yet.
+ * SAVING (D67 §2, merge by section). Every change marks its section dirty and
+ * a save follows a moment later, or at once when a field loses focus — one
+ * INSPECT SAVE per section, carrying ONLY that section, keyed on the W-number
+ * or (not numbered yet) the serial. A newer save of the same section takes
+ * the older unapplied one back (D46), so the inbox holds one per section.
  *
  * NOT PERSISTED. `sheetLocal` is module state; a save that fails stays one tap
  * from a retry for as long as the page is open, and the copy says so.
@@ -2494,127 +2582,36 @@ const withEdits = (key, sheet, editable) => {
   const l = sheetLocal.get(key);
   return l && editable ? { ...sheet, ...l.edits } : sheet;
 };
-const inspArg = () => {
-  const m = /^#\/inspection\/(.+)$/.exec(window.location.hash || '');
-  return m ? m[1] : null;
-};
-const argForKey = (key) => (key.startsWith('new:') ? `new/${enc(key.slice(4))}` : enc(key));
-const mineOnly = (list) => list.filter((e) => e.actor === meName());
+const sheetExpanded = (c) => (ui.sheetCard.has(c.key) ? ui.sheetCard.get(c.key) : c.sheet.status === 'PENDING');
 
-/** Everything the view and the save path need, from the route's argument. */
-function sheetCtx(arg) {
-  const lib = checklist();
-  if (arg.startsWith('new/')) {
-    const serial = decodeURIComponent(arg.slice(4));
-    const key = `new:${serial}`;
-    const u = unitBySerial(serial);
-    if (u && u.inspection_draft) return { key, serial, u, redirect: u.inspection_draft };
-    const opens = pendingOpensFor(state.pending, serial).sort(byTs);
-    const mine = mineOnly(opens);
-    const openEvt = (mine.length ? mine : opens).slice(-1)[0] || null;
-    if (!openEvt) return { key, serial, u, isNew: true, missing: true };
-    const prior = forSerial(inspections(), serial).find((i) => i.battery && i.battery.type) || null;
-    let sheet = sheetFrom({
-      serial, asset_item: u && u.asset_item, kind: defaultKind(u), status: 'DRAFT', opened_by: openEvt.actor,
-      ...(u ? deriveProfile(u.category) : {}), battery: prior ? prior.battery : null,
-    });
-    sheet = overlay(sheet, pl(openEvt));
-    // D67c: Done / Void may go out keyed on the serial before the number lands.
-    // Once one is pending the sheet locks — a later fold would re-issue the OPEN
-    // AFTER it, and the engine applies in order.
-    const bySerial = pendingBySerial(state.pending, serial).sort(byTs);
-    const locked = bySerial.find((e) => ['DONE', 'VOID'].includes(pl(e).action)) || null;
-    const editable = mine.length > 0 && !locked;
-    return { key, serial, u, isNew: true, openEvt, pend: opens.concat(bySerial).sort(byTs), locked, lib, editable,
-      sheet: withEdits(key, sheet, mine.length > 0) };
+function sheetPillHtml(c, flags) {
+  const sh = c.sheet;
+  if (sh.status === 'DONE') {
+    return chip(`DONE · ${sh.tech || '—'}${sh.done ? ` · ${fmtMD(sh.done)}` : ''}${flags ? ` · ${flags} ⚑` : ''}`, flags ? 'warn' : 'ok');
   }
-  const id = decodeURIComponent(arg);
-  const row = inspById(inspections(), id);
-  if (!row) return { key: id, id, missing: true };
-  // A DRAFT also owns anything still pending against its serial from before it was numbered.
-  const pend = pendingForInsp(state.pending, id)
-    .concat(row.status === 'DRAFT' ? pendingBySerial(state.pending, row.serial) : []).sort(byTs);
-  let sheet = sheetFrom(row);
-  for (const e of pend) if (pl(e).action === 'SAVE') sheet = overlay(sheet, pl(e));
-  const locked = pend.find((e) => ['DONE', 'VOID'].includes(pl(e).action)) || null;
-  const editable = row.status === 'DRAFT' && !locked;
-  return { key: id, id, row, u: unitBySerial(row.serial), serial: row.serial, pend, locked, lib, editable, sheet: withEdits(id, sheet, editable) };
+  if (sh.status === 'SKIPPED') return chip(`SKIPPED · ${sh.tech || '—'}: ${sh.skipped_reason || '—'}`, 'skip');
+  if (c.locked) return chip(isInspect(c.locked, 'DONE') ? '⏳ DONE — at the next run' : '⏳ NO INSPECTION — at the next run', 'pending');
+  return chip('PENDING', 'amber');
 }
 
-/** The NEW sheet got its number: carry anything unsaved across to it. */
-function migrateNew(key, id) {
-  const l = sheetLocal.get(key);
-  if (!l) return;
-  sheetLocal.delete(key);
-  const into = localFor(id);
-  into.edits = { ...l.edits, ...into.edits };
-  delete into.edits.kind;                       // the kind was the OPEN's; a SAVE cannot change it
-  for (const k of l.dirty) if (SECTION_KEYS.includes(k)) into.dirty.add(k);
-  for (const n of l.notes) into.notes.add(n);
-  if (into.dirty.size) into.status = 'dirty';
-}
-
-function viewInspection(arg) {
-  const c = sheetCtx(arg);
-  if (c.redirect) {
-    migrateNew(c.key, c.redirect);
-    window.location.replace(`#/inspection/${enc(c.redirect)}`);
-    return html`<div class="loading">Opening ${c.redirect}…</div>`;
-  }
-  const back = c.u || (c.serial ? unitBySerial(c.serial) : null);
-  const crumb = back
-    ? html`<a class="crumb" href="#/unit/${raw(enc(back.serial))}">‹ ${unitName(back)}</a>`
-    : html`<a class="crumb" href="#/">‹ Fleet</a>`;
-  if (c.missing) {
-    return html`${raw(crumb)}${raw(msgBlock())}${raw(emptyState('Sheet not found.', c.isNew
-      ? 'Nothing is open on this unit — start one from the unit page (Inspect).'
-      : 'A voided sheet never ships, and a finished one leaves after 90 days.'))}`;
-  }
-
+function sheetCardHtml(c, sheetPend) {
   const { sheet, lib, editable } = c;
-  const done = sheet.status === 'DONE';
+  const settled = sheet.status === 'DONE' || sheet.status === 'SKIPPED';
+  const open = sheetExpanded(c);
   const dis = editable ? '' : raw(' disabled');
   const l = sheetLocal.get(c.key) || { status: 'idle', notes: new Set() };   // reading never creates one
   const carried = new Set(sheet.items.keys());
   const visible = lib ? visibleSections(lib, profileOf(sheet), carried) : [];
-  const flags = done ? (sheet.flags || 0) : flagCount(sheet, visible);
-  const title = [c.id || '⏳ NEW', sheet.asset_item || `#${sheet.serial}`, sheet.kind || '—', done ? 'DONE' : 'DRAFT'].join(' · ');
-  const sub = done
-    ? `done by ${sheet.tech || '—'}${sheet.done ? ` · ${fmtMD(sheet.done)}` : ''} · opened by ${sheet.opened_by || '—'}`
-    : `opened by ${sheet.opened_by || '—'}${sheet.opened ? ` · ${fmtMD(sheet.opened)}` : ''}${typeof sheet.age_days === 'number' ? ` · ${ageText(sheet.age_days)}` : ''}`;
-  const wo = sheet.work_order;
+  const flags = settled && sheet.flags != null ? sheet.flags : flagCount(sheet, visible);
+  const pend = sheetPend.length ? html`<div class="note"><strong>⏳ ${sheetPend.length} sheet change${sheetPend.length > 1 ? 's' : ''} pending</strong>
+      ${raw(sheetPend.map(pendRow).join(''))}<div style="margin-top:6px">Applies at the next run — the sheet shows them now, badged.</div></div>` : '';
 
-  const pendRows = (c.pend || []).map((e) => html`<div class="pend-row"><span>${describeInspEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join('');
-  const pendBlock = c.isNew ? html`
-    <div class="note"><strong>⏳ New sheet — not numbered yet</strong>
-      The engine gives it an I-number at the next run. ${c.locked
-        ? (pl(c.locked).action === 'DONE' ? 'Marked done — the engine files it and marks it done in the same run.' : 'Voided — it goes away at the next run.')
-        : editable ? 'Keep going — everything you enter rides along with it, and Done works now.' : `It's ${c.openEvt.actor || 'someone'}'s to fill in until then.`}
-      ${raw(pendRows)}</div>`
-    : c.pend.length ? html`<div class="note"><strong>⏳ ${c.pend.length} pending change${c.pend.length > 1 ? 's' : ''}</strong>
-      ${raw(pendRows)}<div style="margin-top:6px">Applies at the next run — the sheet shows them now, badged.</div></div>` : '';
-
-  return html`
-    ${raw(crumb)}
-    ${raw(msgBlock())}
-    <div class="detail-head insp-head">
-      <div class="h">${title}</div>
-      <div class="s">${sub}</div>
-      <div class="chips">
-        ${back ? raw(html`<a class="chip asset" href="#/unit/${raw(enc(back.serial))}">#${back.serial} ${unitName(back)}</a>`) : ''}
-        ${sheet.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(sheet.ticket))}">🔧 ${sheet.ticket}</a>`) : ''}
-        ${wo ? raw(html`<a class="chip wo" href="#/wo/${raw(enc(wo))}">🔩 ${wo}</a>`) : ''}
-        ${raw(chip(`${flags} ⚑`, flags ? 'warn' : 'ok'))}
-        ${done ? raw(chip('DONE', 'ok')) : ''}
-      </div>
-    </div>
-    ${raw(pendBlock)}
+  const body = !open ? '' : sheet.status === 'SKIPPED' ? html`
+      <div class="note"><strong>No inspection</strong>${sheet.skipped_reason || '—'} — ${sheet.tech || '—'}${sheet.done ? `, ${fmtMD(sheet.done)}` : ''}</div>` : html`
     ${editable ? raw(html`<div class="insp-status${l.status === 'failed' ? ' is-bad' : ''}" id="insp-status" data-key="${c.key}">${raw(inspStatusHtml(c.key))}</div>`) : ''}
-
     <div class="insp" data-insp-key="${c.key}">
-      <h2>Machine</h2>
+      <h3>Machine</h3>
       <div class="card insp-card">
-        ${c.isNew ? raw(selectField('kind', 'Sheet', INSP_KINDS, INSP_KIND_LABEL, sheet.kind, dis, false)) : ''}
         <div class="insp-2">
           ${raw(selectField('machine_class', 'Class', CLASSES, CLASS_LABEL, sheet.machine_class, dis, false))}
           ${raw(selectField('body_style', 'Body style', BODY_STYLES, BODY_STYLE_LABEL, sheet.body_style, dis, false))}
@@ -2622,31 +2619,121 @@ function viewInspection(arg) {
         ${editable ? raw('<div class="form-note">Pre-set from the unit — change it if it\'s wrong. The rows below follow; nothing you answered is lost.</div>') : ''}
       </div>
 
-      <h2>Readings</h2>
+      <h3>Readings</h3>
       ${raw(readingsCard(sheet, dis, editable))}
 
-      <h2>Battery</h2>
+      <h3>Battery</h3>
       ${raw(batteryCard(sheet, dis))}
 
-      ${lib ? raw(visible.map(({ section, rows }) => sectionCard(section, rows, sheet, l, dis, editable)).join(''))
+      ${lib ? raw(visible.map(({ section, rows }) => sectionCard(section, rows, sheet, l, dis, editable, c)).join(''))
         : raw('<div class="alert">⚠️ The row library didn\'t come with this snapshot. Readings, battery and comments still save; the rows come back at the next run.</div>')}
 
-      <h2>Comments</h2>
+      <h3>Comments</h3>
       <div class="card insp-card">
         <textarea data-ifield="comments" maxlength="${MAX_COMMENTS}" placeholder="anything else — for the next tech, or for Matt"${dis}>${sheet.comments || ''}</textarea>
       </div>
-    </div>
-
-    ${raw(inspFooter(c, flags))}
-
-    <h2>Log${sheet.log.length ? raw(html` <span class="count">${sheet.log.length}</span>`) : ''}</h2>
-    <div class="card notes">
-      ${sheet.log.length ? raw(sheet.log.map((n) => html`
-        <div class="nrow">
-          <div class="ntext">${n.text}</div>
-          <div class="nmeta">${n.who ? raw(html`<span class="nwho">${n.who}</span>`) : ''}${n.ts ? raw(html`<span class="nts">${n.ts}</span>`) : ''}</div>
-        </div>`).join('')) : raw('<div class="hold-empty">Nothing logged yet.</div>')}
     </div>`;
+
+  return html`
+    <section class="sheet-card${open ? ' open' : ''}${sheet.status === 'PENDING' && !c.locked ? ' pending' : ''}" aria-label="Inspection">
+      <button type="button" class="sheet-head" data-sheet-card="${c.key}" aria-expanded="${open ? 'true' : 'false'}">
+        <span class="sheet-t">📋 Inspection ${open ? '▾' : '▸'}</span>
+        ${raw(sheetPillHtml(c, flags))}
+        ${settled || c.locked ? '' : raw(chip(`${flags} ⚑`, flags ? 'warn' : 'ok'))}
+      </button>
+      ${raw(pend)}
+      ${raw(body)}
+      ${raw(sheetFooter(c, flags))}
+    </section>`;
+}
+
+function sectionCard(section, rows, sheet, l, dis, editable, c) {
+  const n = answeredIn(sheet, rows);
+  const canPart = !!c && (c.isOpen || c.isNew) && (!c.isNew || c.editable);
+  const row = (r) => {
+    const a = sheet.items.get(r.id) || {};
+    const scale = SCALES[r.scale] || SCALES.FUNCTION;
+    const flag = isFlag(a.result);
+    const noteOpen = !!(flag || a.note || l.notes.has(r.id));
+    const seg = scale.map((v) => html`<button type="button" class="seg-b${a.result === v ? ' on' : ''}${isFlag(v) ? ' f' : ''}" data-iseg="${r.id}" data-val="${v}" aria-pressed="${a.result === v ? 'true' : 'false'}"${dis}>${RESULT_LABEL[v] || v}</button>`).join('');
+    const note = noteOpen
+      ? (editable
+        ? html`<input class="inote" type="text" maxlength="${MAX_ITEM_NOTE}" data-ifield="note:${r.id}" placeholder="${flag ? "what's wrong — Matt reads it to quote" : 'note'}" value="${a.note || ''}">`
+        : (a.note ? html`<div class="inote-ro">${a.note}</div>` : ''))
+      : (editable ? html`<button type="button" class="inote-add" data-inote="${r.id}">+ note</button>` : '');
+    // D69: a flagged row grows "+ part" — the part goes on THIS work order.
+    const part = flag && canPart
+      ? html`<button type="button" class="inote-add ipart" data-sheet="wo-add" data-id="${c.key}" data-desc="${String(r.label || r.id).slice(0, 80)}">+ part</button>` : '';
+    // "+ note" rides on the label line: a row per button would double the scroll.
+    return html`<div class="irow${flag ? ' flag' : ''}">
+      <div class="irow-top"><span class="irow-l">${r.label || r.id}${r.retired ? ' (retired)' : ''}</span>${noteOpen ? '' : raw(note)}${raw(part)}</div>
+      <div class="iseg" role="group" aria-label="${r.label || r.id}">${raw(seg)}</div>
+      ${noteOpen ? raw(note) : ''}
+    </div>`;
+  };
+  return html`
+    <h3>${section.title || section.id} <span class="count">${n}/${rows.length} answered</span></h3>
+    ${section.instruction ? raw(html`<div class="form-note insp-instr">${section.instruction}</div>`) : ''}
+    <div class="card insp-rows">${raw(rows.map(row).join(''))}</div>`;
+}
+
+/**
+ * The card's footer. PENDING: Done (disabled until an hours reading exists) ·
+ * No inspection — any role, on an OPEN work order (a NEW one: the opener's).
+ * DONE / SKIPPED: Reopen (owner, or the tech within 24 h). A pending Done / No
+ * inspection shows nothing — undo it from the pending list.
+ */
+function sheetFooter(c, flags) {
+  const sh = c.sheet;
+  if (sh.status === 'PENDING') {
+    if (!c.editable) return '';
+    const ready = doneReady(sh);
+    return html`
+      <div class="actions row insp-foot">
+        <button class="btn" type="button" data-sheet="insp-done" data-id="${c.key}"${ready ? '' : raw(' disabled')}>Done</button>
+        <button class="btn ghost" type="button" data-sheet="insp-skip" data-id="${c.key}">No inspection</button>
+      </div>
+      ${ready ? '' : raw('<div class="form-note" id="insp-done-hint">Done needs an hours reading — the meter is the one thing this sheet never leaves blank.</div>')}
+      ${sheetOpen('insp-done', c.key) && ready ? raw(inspDoneForm(c, flags)) : ''}
+      ${sheetOpen('insp-skip', c.key) ? raw(inspSkipForm(c)) : ''}`;
+  }
+  if (!c.isOpen || c.isNew) return '';
+  const verbPending = c.pend.some((e) => isInspect(e, 'REOPEN'));
+  if (verbPending) return '';
+  const canReopen = reopenShown(sh, c.log, role(), meName());
+  if (!canReopen) return '';
+  return html`
+    <div class="actions row insp-foot">
+      <button class="btn ghost" type="button" data-sheet="insp-reopen" data-id="${c.key}">Reopen</button>
+    </div>
+    ${sheetOpen('insp-reopen', c.key) ? raw(html`
+      <form class="write sheet" data-action="work_order" data-verb="INSPECT" data-step="REOPEN" data-key="${c.key}" ${raw(woKeyAttr(c))}>
+        <label for="ir-note">Why (optional)</label>
+        <textarea id="ir-note" name="note" maxlength="${MAX_NOTE}" placeholder="missed the recovery tank…"></textarea>
+        ${raw(sheetButtons('Reopen the sheet'))}
+        <div class="form-note">It goes back to PENDING — and the work order can't close until it's settled again. Hours already on the unit stay.</div>
+      </form>`) : ''}`;
+}
+/** Done asks for the tech. It goes out keyed on the W-number, or (not numbered yet) the serial. */
+function inspDoneForm(c, flags) {
+  const me = meName();
+  return html`
+    <form class="write sheet" data-action="work_order" data-verb="INSPECT" data-step="DONE" data-key="${c.key}" ${raw(woKeyAttr(c))}>
+      <label>Tech</label>
+      ${raw(toggle('tech', DRIVERS.map((n) => [n, n]), DRIVERS.includes(me) ? me : DRIVERS[0]))}
+      <div class="form-note">${fmtReading(firstHours(c.sheet.readings))} h goes on the unit · ${flags} flag${flags === 1 ? '' : 's'}. The sheet locks at the next run${c.isNew ? ', and the work order gets its number in the same run' : ''}.</div>
+      ${raw(sheetButtons('Mark the sheet done'))}
+    </form>`;
+}
+/** No inspection — a reason somebody owns (D69). Required, one line. */
+function inspSkipForm(c) {
+  return html`
+    <form class="write sheet" data-action="work_order" data-verb="INSPECT" data-step="SKIP" data-key="${c.key}" ${raw(woKeyAttr(c))}>
+      <label for="is-reason">Why no inspection?</label>
+      <input id="is-reason" name="reason" maxlength="${MAX_REASON}" required autocomplete="off" placeholder="gasket only — inspected on last week's return sheet">
+      ${raw(sheetButtons('No inspection'))}
+      <div class="form-note">Anything typed on the sheet stays on the page, not in the vault. Reopen brings the sheet back.</div>
+    </form>`;
 }
 
 function selectField(field, label, values, labels, cur, dis, blank) {
@@ -2710,115 +2797,6 @@ function batteryCard(sheet, dis) {
     </div>`;
 }
 
-function sectionCard(section, rows, sheet, l, dis, editable) {
-  const n = answeredIn(sheet, rows);
-  const row = (r) => {
-    const a = sheet.items.get(r.id) || {};
-    const scale = SCALES[r.scale] || SCALES.FUNCTION;
-    const flag = isFlag(a.result);
-    const noteOpen = !!(flag || a.note || l.notes.has(r.id));
-    const seg = scale.map((v) => html`<button type="button" class="seg-b${a.result === v ? ' on' : ''}${isFlag(v) ? ' f' : ''}" data-iseg="${r.id}" data-val="${v}" aria-pressed="${a.result === v ? 'true' : 'false'}"${dis}>${RESULT_LABEL[v] || v}</button>`).join('');
-    const note = noteOpen
-      ? (editable
-        ? html`<input class="inote" type="text" maxlength="${MAX_ITEM_NOTE}" data-ifield="note:${r.id}" placeholder="${flag ? "what's wrong — it goes on the work order" : 'note'}" value="${a.note || ''}">`
-        : (a.note ? html`<div class="inote-ro">${a.note}</div>` : ''))
-      : (editable ? html`<button type="button" class="inote-add" data-inote="${r.id}">+ note</button>` : '');
-    // "+ note" rides on the label line: a row per button would double the scroll.
-    return html`<div class="irow${flag ? ' flag' : ''}">
-      <div class="irow-top"><span class="irow-l">${r.label || r.id}${r.retired ? ' (retired)' : ''}</span>${noteOpen ? '' : raw(note)}</div>
-      <div class="iseg" role="group" aria-label="${r.label || r.id}">${raw(seg)}</div>
-      ${noteOpen ? raw(note) : ''}
-    </div>`;
-  };
-  return html`
-    <h2>${section.title || section.id} <span class="count">${n}/${rows.length} answered</span></h2>
-    ${section.instruction ? raw(html`<div class="form-note insp-instr">${section.instruction}</div>`) : ''}
-    <div class="card insp-rows">${raw(rows.map(row).join(''))}</div>`;
-}
-
-/**
- * The footer (§4.7). DRAFT: Done (disabled until an hours reading exists, and
- * until a NEW sheet has its number) · Void (owner, or the opener). DONE:
- * read-only, Reopen (owner, or the tech within 24 h), and — flags and no work
- * order — Open work order from this inspection.
- */
-function inspFooter(c, flags) {
-  const r = role();
-  const me = meName();
-  const sh = c.sheet;
-  if (c.isNew) {
-    // D67c: Done goes out keyed on the serial; the engine files the OPEN first
-    // (it was sent first), then marks that serial's DRAFT done.
-    if (c.locked || !c.editable) return '';
-    const ready = doneReady(sh);
-    return html`
-      <div class="actions row insp-foot">
-        <button class="btn" type="button" data-sheet="insp-done" data-id="${c.key}"${ready ? '' : raw(' disabled')}>Done</button>
-      </div>
-      ${ready ? '' : raw('<div class="form-note">Done needs an hours reading.</div>')}
-      ${sheetOpen('insp-done', c.key) && ready ? raw(inspDoneForm(c, sh, flags, { serial: c.serial })) : ''}`;
-  }
-  const row = c.row;
-  const verbPending = c.pend.some((e) => ['DONE', 'VOID', 'REOPEN'].includes(pl(e).action));
-  if (sh.status === 'DRAFT') {
-    if (c.locked) return '';
-    const ready = doneReady(sh);
-    const canVoid = voidShown(row, r, me);
-    return html`
-      <div class="actions row insp-foot">
-        <button class="btn" type="button" data-sheet="insp-done" data-id="${c.key}"${ready ? '' : raw(' disabled')}>Done</button>
-        ${canVoid ? raw(html`<button class="btn ghost danger-btn" type="button" data-sheet="insp-void" data-id="${c.key}">Void</button>`) : ''}
-      </div>
-      ${ready ? '' : raw('<div class="form-note">Done needs an hours reading.</div>')}
-      ${sheetOpen('insp-done', c.key) && ready ? raw(inspDoneForm(c, sh, flags)) : ''}
-      ${sheetOpen('insp-void', c.key) && canVoid ? raw(voidForm(c)) : ''}`;
-  }
-  // DONE — read-only.
-  const canReopen = !verbPending && reopenShown(row, r, me);
-  const canVoid = !verbPending && voidShown(row, r, me);
-  const woPend = state.pending.some((e) => e.action === 'work_order' && pl(e).action === 'OPEN' && pl(e).inspection === c.id);
-  const u = c.u;
-  const woBtn = woButtonShown(row) && !woPend;
-  return html`
-    <div class="actions row insp-foot">
-      ${woBtn && u && !u.work_order ? raw(html`<button class="btn" type="button" data-sheet="insp-wo" data-id="${c.key}">Open work order from this inspection</button>`) : ''}
-      ${canReopen ? raw(html`<button class="btn ghost" type="button" data-sheet="insp-reopen" data-id="${c.key}">Reopen</button>`) : ''}
-      ${canVoid ? raw(html`<button class="btn ghost danger-btn" type="button" data-sheet="insp-void" data-id="${c.key}">Void</button>`) : ''}
-    </div>
-    ${woBtn && u && u.work_order ? raw(html`<div class="info">${u.work_order} is already open on this unit — <a href="#/wo/${raw(enc(u.work_order))}">add the parts there</a>.</div>`) : ''}
-    ${woPend ? raw('<div class="info">⏳ Work order requested from this sheet — the W-number comes at the next run.</div>') : ''}
-    ${sheetOpen('insp-wo', c.key) && woBtn && u && !u.work_order
-      ? raw(woOpenForm(u, { ...woPrefill(row, flaggedLabels(sh, c.lib)), inspection: c.id })) : ''}
-    ${sheetOpen('insp-reopen', c.key) && canReopen ? raw(html`
-      <form class="write sheet" data-action="inspection" data-verb="REOPEN" data-insp="${c.id}" data-key="${c.key}">
-        <label for="ir-note">Why (optional)</label>
-        <textarea id="ir-note" name="note" maxlength="${MAX_NOTE}" placeholder="missed the recovery tank…"></textarea>
-        ${raw(sheetButtons(`Reopen ${c.id}`))}
-        <div class="form-note">It goes back to DRAFT. The hours already on the unit stay until the next Done.</div>
-      </form>`) : ''}
-    ${sheetOpen('insp-void', c.key) && canVoid ? raw(voidForm(c)) : ''}`;
-}
-/** Done asks for the tech. A NEW sheet's Done carries the serial instead of an I-number (D67c). */
-function inspDoneForm(c, sh, flags, { serial = null } = {}) {
-  const me = meName();
-  return html`
-    <form class="write sheet" data-action="inspection" data-verb="DONE" data-key="${c.key}"${serial
-      ? raw(html` data-serial="${serial}"`) : raw(html` data-insp="${c.id}"`)}>
-      <label>Tech</label>
-      ${raw(toggle('tech', DRIVERS.map((n) => [n, n]), DRIVERS.includes(me) ? me : DRIVERS[0]))}
-      <div class="form-note">${fmtReading(firstHours(sh.readings))} h goes on the unit · ${flags} flag${flags === 1 ? '' : 's'}. The sheet locks at the next run${serial ? ', and gets its I-number in the same run' : ''}.</div>
-      ${raw(sheetButtons(serial ? 'Mark it done' : `Mark ${c.id} done`))}
-    </form>`;
-}
-function voidForm(c) {
-  return html`
-    <form class="write sheet" data-action="inspection" data-verb="VOID" data-insp="${c.id}" data-key="${c.key}">
-      <label for="iv-note">Why (optional)</label>
-      <textarea id="iv-note" name="note" maxlength="${MAX_NOTE}" placeholder="wrong unit…"></textarea>
-      ${raw(sheetButtons(`Void ${c.id}`))}
-      <div class="form-note">A voided sheet never comes back, and it frees the unit for a new one.</div>
-    </form>`;
-}
 
 function inspStatusHtml(key) {
   const l = sheetLocal.get(key);
@@ -2840,13 +2818,13 @@ function paintStatus(key) {
     const l = sheetLocal.get(key);
     el.className = `insp-status${l && l.status === 'failed' ? ' is-bad' : ''}`;
   }
-  const arg = inspArg();
+  const arg = woArg();
   if (!arg) return;
-  const c = sheetCtx(arg);
+  const c = woCtx(arg);
   if (c.key !== key || !c.sheet) return;
   const btn = document.querySelector('[data-sheet="insp-done"]');
   if (btn) btn.disabled = !doneReady(c.sheet);
-  const hint = $('#insp-hours-hint');
+  const hint = $('#insp-done-hint');
   if (hint) hint.hidden = doneReady(c.sheet);
 }
 
@@ -2856,9 +2834,9 @@ function paintStatus(key) {
  * named sections go dirty and a save follows.
  */
 function editSheet(fn, sections, { now = false, redraw = true } = {}) {
-  const arg = inspArg();
+  const arg = woArg();
   if (arg == null) return;
-  const c = sheetCtx(arg);
+  const c = woCtx(arg);
   if (!c.editable || !c.sheet) return;
   const l = localFor(c.key);
   fn(l, c.sheet);
@@ -2873,7 +2851,7 @@ function scheduleFlush(key) {
   l.timer = setTimeout(() => { flushSheet(key); }, FLUSH_MS);
   if (l.timer && typeof l.timer === 'object' && l.timer.unref) l.timer.unref();
 }
-/** Saves run one at a time per sheet, so two quick blurs can't fold the same OPEN twice. */
+/** Saves run one at a time per sheet, so two quick blurs can't race the take-back. */
 function flushSheet(key) {
   const l = localFor(key);
   l.chain = l.chain.then(() => doFlush(key)).catch(() => {});
@@ -2888,7 +2866,7 @@ async function doFlush(key) {
   if (!l || !l.dirty.size) return;
   clearTimeout(l.timer);
   l.timer = null;
-  const c = sheetCtx(argForKey(key));
+  const c = woCtx(argForKey(key));
   if (c.redirect) { migrateNew(key, c.redirect); await doFlush(c.redirect); return; }
   if (!c.editable || !c.sheet) {
     l.status = 'failed';
@@ -2902,8 +2880,7 @@ async function doFlush(key) {
   l.error = null;
   paintStatus(key);
   try {
-    if (c.isNew) await foldIntoOpen(c, secs);
-    else await saveSections(c, secs);
+    await saveSections(c, secs);
     l.status = l.dirty.size ? 'dirty' : 'saved';
   } catch (err) {
     for (const k of secs) l.dirty.add(k);
@@ -2915,17 +2892,22 @@ async function doFlush(key) {
 }
 
 const sectionsIn = (e) => SECTION_KEYS.filter((k) => k in pl(e));
+/** Is this pending tap a save of THIS work order's sheet — by W-number, or by its serial before it had one? */
+const savesThis = (c, e) => isInspect(e, 'SAVE') && (c.isNew || pl(e).work_order === c.id || (!pl(e).work_order
+  && e.serial != null && String(e.serial) === String(c.serial)));
 
-/** A numbered sheet: one SAVE per dirty section, then take back my older unapplied save of that same section. */
+/** One INSPECT SAVE per dirty section, then take back my older unapplied save of that same section. */
 async function saveSections(c, secs) {
   // Library order, not tap order: the battery lands before the cells it legalises.
   for (const k of SECTION_KEYS.filter((x) => secs.includes(x))) {
-    if (!SECTION_KEYS.includes(k)) continue;
     if (k === 'items' && !c.lib) continue;          // no library, no way to know which answers are on the sheet
-    const stored = await postEvent(ctx(), 'inspection', null, { action: 'SAVE', inspection: c.id, [k]: sectionValue(c.sheet, k, c.lib) });
+    const key = c.isNew ? {} : { work_order: c.id };
+    const stored = await postEvent(ctx(), 'work_order', c.isNew ? c.serial : null,
+      { action: 'INSPECT', step: 'SAVE', ...key, [k]: sectionValue(c.sheet, k, c.lib) });
     state.pending.push(stored);
-    const older = state.pending.filter((e) => e.id !== stored.id && e.action === 'inspection' && e.actor === meName()
-      && pl(e).action === 'SAVE' && pl(e).inspection === c.id && sectionsIn(e).length === 1 && sectionsIn(e)[0] === k);
+    const older = state.pending.filter((e) => e.id !== stored.id && e.actor === meName() && savesThis(c, e)
+      && (!c.isNew || (e.serial != null && String(e.serial) === String(c.serial) && !pl(e).work_order))
+      && sectionsIn(e).length === 1 && sectionsIn(e)[0] === k);
     for (const e of older) {
       try {
         await deleteEvent(ctx(), e.id);
@@ -2938,40 +2920,6 @@ async function saveSections(c, secs) {
   }
 }
 
-/**
- * A NEW sheet: re-issue the pending OPEN with every section typed so far, then
- * take back the older OPEN(s). If the engine drained the old one between the
- * two calls (a 404 on the take-back), the sheet is being numbered right now:
- * the fresh OPEN would only be refused, so it is taken back too and the tech
- * is told to finish on the numbered sheet.
- */
-async function foldIntoOpen(c, secs) {
-  const mine = mineOnly(pendingOpensFor(state.pending, c.serial)).sort(byTs);
-  const base = mine[mine.length - 1];
-  if (!base) throw new Error('this new sheet is no longer pending — reload the page');
-  const payload = { ...pl(base), action: 'OPEN' };
-  if (c.sheet.kind) payload.kind = c.sheet.kind;
-  const keys = new Set([...SECTION_KEYS.filter((k) => k in payload), ...secs.filter((k) => SECTION_KEYS.includes(k))]);
-  if (!c.lib) keys.delete('items');
-  for (const k of SECTION_KEYS) if (keys.has(k)) payload[k] = sectionValue(c.sheet, k, c.lib);
-  const stored = await postEvent(ctx(), 'inspection', c.serial, payload);
-  state.pending.push(stored);
-  let raced = false;
-  for (const e of mine) {
-    try {
-      await deleteEvent(ctx(), e.id);
-      state.pending = state.pending.filter((x) => x.id !== e.id);
-    } catch (err) {
-      if (err && err.status === 404) { raced = true; state.pending = state.pending.filter((x) => x.id !== e.id); } else throw err;
-    }
-  }
-  if (raced) {
-    try { await deleteEvent(ctx(), stored.id); } catch (_) { /* refused by the engine anyway */ }
-    state.pending = state.pending.filter((x) => x.id !== stored.id);
-    throw new Error('the engine picked this sheet up mid-save. Reload after the next publish, open the numbered sheet and re-enter your last change');
-  }
-}
-
 /** A typed field on the sheet. `committed` = the change event (blur / pick) — save now. */
 function onInspField(el, committed) {
   const f = el.dataset.ifield;
@@ -2981,7 +2929,6 @@ function onInspField(el, committed) {
   const bad = (on) => { if (el.classList) el.classList[on ? 'add' : 'remove']('bad'); };
   const soon = { redraw: false, now: committed };
 
-  if (f === 'kind') { editSheet((l) => { l.edits.kind = v || null; }, ['kind'], { now: true }); return; }
   if (f === 'machine_class' || f === 'body_style') {
     // "Answers already given are kept" (§4.2): the page holds every answer, so
     // flipping back brings them back. The vault gets the rows this machine sees.
@@ -3039,6 +2986,7 @@ function onInspField(el, committed) {
   }
   if (f === 'comments') editSheet((l) => { l.edits.comments = v.slice(0, MAX_COMMENTS) || null; }, ['comments'], soon);
 }
+
 
 /* ============================================================== dispatch == */
 
@@ -4398,8 +4346,9 @@ function render() {
   else if (section === 'lead') out = viewLead(decodeURIComponent(arg || ''));
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
-  else if (section === 'wo') out = viewWorkOrder(decodeURIComponent(arg || ''));
-  else if (section === 'inspection') out = viewInspection(arg || '');
+  else if (section === 'wo') out = viewWorkOrder(arg || '');
+  // D69: the D67 sheet route retired with the I-numbers. Old links land on the board.
+  else if (section === 'inspection') { window.location.replace('#/'); return; }
   else out = viewCategories();
 
   // D63: capture before the swap — a shorter view can clamp the scroll.
@@ -4809,7 +4758,17 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  /* ---- the inspection sheet (D67) ---- */
+  /* ---- the inspection sheet, on the work order (D67 · D69) ---- */
+  // The 📋 card folds and unfolds; a PENDING sheet starts open, a settled one folded.
+  const scard = ev.target.closest('[data-sheet-card]');
+  if (scard) {
+    const arg = woArg();
+    if (arg == null) return;
+    const c = woCtx(arg);
+    if (c.sheet) ui.sheetCard.set(c.key, !sheetExpanded(c));
+    render();
+    return;
+  }
   // A row's segmented control. Tapping the lit answer again clears it. A flag
   // opens the row's note — that note is what goes on the work order.
   const iseg = ev.target.closest('[data-iseg]');
@@ -4829,9 +4788,9 @@ document.addEventListener('click', async (ev) => {
   }
   const inote = ev.target.closest('[data-inote]');
   if (inote) {
-    const arg = inspArg();
+    const arg = woArg();
     if (arg == null) return;
-    localFor(sheetCtx(arg).key).notes.add(inote.dataset.inote);
+    localFor(woCtx(arg).key).notes.add(inote.dataset.inote);
     render();
     const input = document.querySelector(`[data-ifield="note:${CSS.escape(inote.dataset.inote)}"]`);
     if (input && input.focus) input.focus();
@@ -4848,33 +4807,18 @@ document.addEventListener('click', async (ev) => {
   }
   const iretry = ev.target.closest('[data-insp-retry]');
   if (iretry) { flushSheet(iretry.dataset.inspRetry); return; }
-  // Check-out · Return · PM: posts the OPEN and goes straight to the sheet —
-  // it is filled in now, numbered at the next run.
-  const iopen = ev.target.closest('[data-insp-open]');
-  if (iopen) {
-    iopen.disabled = true;
-    const serial = iopen.dataset.serial;
-    try {
-      const stored = await postEvent(ctx(), 'inspection', serial, { action: 'OPEN', kind: iopen.dataset.inspOpen });
-      state.pending.push(stored);
-      sheetLocal.delete(`new:${serial}`);
-      window.location.hash = `#/inspection/new/${enc(serial)}`;
-    } catch (err) {
-      iopen.disabled = false;
-      const msg = $('#write-msg');
-      if (msg) msg.innerHTML = html`<div class="alert">⚠️ ${err.message}</div>`;
-    }
-    return;
-  }
-
   // Open one of the schema-3 sheets. `data-serial` pre-fills a run from a
   // released unit; `data-id` names the ticket or dispatch row it belongs to.
   const sheet = ev.target.closest('[data-sheet]');
   if (sheet) {
     const kind = sheet.dataset.sheet;
     const id = sheet.dataset.id || null;
-    if (sheetOpen(kind, id)) { closeSheet(); return; }
-    ui.form = { kind, id, arg: null };
+    // D69: "+ part" on a flagged row opens + Add parts with the row's label as
+    // the description. The same button again closes it; another row's reopens it.
+    const desc = sheet.dataset.desc || null;
+    const curDesc = ui.form && ui.form.arg && ui.form.arg.desc ? ui.form.arg.desc : null;
+    if (sheetOpen(kind, id) && desc === curDesc) { closeSheet(); return; }
+    ui.form = { kind, id, arg: desc ? { desc } : null };
     if (kind === 'add-run' && sheet.dataset.serial) {
       const u = unitBySerial(sheet.dataset.serial);
       const hold = u && sheet.dataset.hold
@@ -4883,6 +4827,11 @@ document.addEventListener('click', async (ev) => {
     }
     ui.msg = null;
     render();
+    // Opened from the sheet, the parts form draws down in Parts — take the thumb there.
+    if (desc) {
+      const f = document.querySelector('form[data-verb="ADD-PARTS"]');
+      if (f && f.scrollIntoView) f.scrollIntoView({ block: 'center' });
+    }
     return;
   }
   if (ev.target.closest('[data-sheet-close]')) { pendingPick = null; closeSheet(); return; }
@@ -4922,13 +4871,6 @@ document.addEventListener('click', async (ev) => {
   if (ev.target.closest('[data-parts-toggle]')) {
     ui.showParts = !ui.showParts;
     try { sessionStorage.setItem(PARTS_OPEN_KEY, ui.showParts ? '1' : '0'); } catch (_) { /* storage blocked */ }
-    render();
-    return;
-  }
-  // D67: the Inspections strip, same rule as Parts — remembered for the session.
-  if (ev.target.closest('[data-insp-toggle]')) {
-    ui.showInspections = !ui.showInspections;
-    try { sessionStorage.setItem(INSP_OPEN_KEY, ui.showInspections ? '1' : '0'); } catch (_) { /* storage blocked */ }
     render();
     return;
   }
@@ -5154,15 +5096,20 @@ document.addEventListener('click', async (ev) => {
     const undone = state.pending.find((e) => e.id === id);
     try {
       await deleteEvent(ctx(), id);
-      // D67: taking back a NEW sheet's OPEN takes back the sheet. Nothing typed
-      // into it may linger and fold itself into a later one.
-      if (undone && undone.action === 'inspection' && pl(undone).action === 'OPEN'
-        && !mineOnly(pendingOpensFor(state.pending, undone.serial)).some((e) => e.id !== id)) {
+      // D67c / D69: taking back a NEW work order's OPEN takes back the whole
+      // work order. Nothing typed into its sheet may linger, and the saves /
+      // parts / hours / Done sent against its serial would now find no OPEN
+      // work order — take mine back with it rather than leave them to be
+      // refused by the engine (or, worse, land on a later one).
+      if (undone && undone.action === 'work_order' && pl(undone).action === 'OPEN'
+        && !mineOnly(pendingOpenFor(state.pending, undone.serial)).some((e) => e.id !== id)
+        && !(unitBySerial(undone.serial) || {}).work_order) {
         sheetLocal.delete(`new:${undone.serial}`);
-        // A Done / Void / Save sent against that serial would now find no DRAFT —
-        // take mine back with it rather than leave it to be refused by the engine.
-        for (const e of mineOnly(pendingBySerial(state.pending, undone.serial))) {
-          try { await deleteEvent(ctx(), e.id); } catch (_) { /* drained or offline — the engine refuses it harmlessly */ }
+        for (const e of mineOnly(woPendingBySerial(state.pending, undone.serial))) {
+          try {
+            await deleteEvent(ctx(), e.id);
+            state.pending = state.pending.filter((x) => x.id !== e.id);
+          } catch (_) { /* drained or offline — the engine refuses it harmlessly */ }
         }
       }
       // Drop it locally so the badge goes at once, then re-read /api/data so
@@ -5246,7 +5193,6 @@ document.addEventListener('click', async (ev) => {
     const form = kind === 'reserve' ? reserveForm(u)
       : kind === 'dispatch' ? addRunForm(runPrefillForUnit(u, currentHold(u, todayCentral())))
       : kind === 'wo-open' ? woOpenForm(u)
-      : kind === 'insp-open' ? inspPickForm(u)
       : readinessForm(u);
     $('#write-form').innerHTML = form;
     const el = $('#write-form form');
@@ -5487,35 +5433,52 @@ function eventBody(action, form, fd) {
 }
 
 /**
- * D65: one action, six verbs. `serial` rides at the top level on OPEN only —
- * that is how the pending OPEN finds its unit before it has a W-number. Every
- * other verb is keyed on payload.work_order. No cost / rate / price key is ever
- * built here; the Worker would refuse it by name if one were.
+ * D65 / D69: one action, seven verbs. OPEN names its unit by the top-level
+ * serial. Every other verb is keyed on EXACTLY ONE of payload.work_order or —
+ * a work order opened on this phone that the engine hasn't numbered yet — the
+ * top-level serial, which the engine resolves to that serial's one OPEN work
+ * order. No cost / rate / price key is ever built here; the Worker would
+ * refuse it by name if one were.
  */
 function woEventBody(form, fd, s, orNull) {
   const verb = form.dataset.verb;
   const wo = form.dataset.wo || null;
   if (verb === 'OPEN') {
-    const payload = { action: 'OPEN', purpose: s('purpose'), note: orNull('note'), parts: woLines(fd) };
-    // D67: opened from an inspection sheet — the engine links the two both ways.
-    if (form.dataset.inspection) payload.inspection = form.dataset.inspection;
-    return { serial: form.dataset.serial, payload };
+    return { serial: form.dataset.serial, payload: { action: 'OPEN', purpose: s('purpose'), note: orNull('note'), parts: woLines(fd) } };
   }
-  if (verb === 'ADD-PARTS') return { serial: null, payload: { action: verb, work_order: wo, parts: woLines(fd) } };
+  const serial = wo ? null : form.dataset.serial || null;
+  const key = wo ? { work_order: wo } : {};
+  if (verb === 'ADD-PARTS') return { serial, payload: { action: verb, ...key, parts: woLines(fd) } };
   if (verb === 'PART-STATE' && form.dataset.state === 'SHOP-STOCK') {
     // D68: a source, not a state — no `state` key; the engine lands it DELIVERED.
-    return { serial: null, payload: { action: verb, work_order: wo, line: Number(form.dataset.line), source: 'SHOP-STOCK', note: orNull('note') } };
+    return { serial, payload: { action: verb, ...key, line: Number(form.dataset.line), source: 'SHOP-STOCK', note: orNull('note') } };
   }
   if (verb === 'PART-STATE') {
-    const payload = { action: verb, work_order: wo, line: Number(form.dataset.line), state: form.dataset.state };
+    const payload = { action: verb, ...key, line: Number(form.dataset.line), state: form.dataset.state };
     for (const k of ['date', 'vendor', 'vendor_ref', 'tracking']) { const v = orNull(k); if (v) payload[k] = v; }
     payload.note = orNull('note');
-    return { serial: null, payload };
+    return { serial, payload };
   }
   if (verb === 'LABOR') {
-    return { serial: null, payload: { action: verb, work_order: wo, date: orNull('date'), who: s('who'), hours: Number(s('hours')), note: orNull('note') } };
+    return { serial, payload: { action: verb, ...key, date: orNull('date'), who: s('who'), hours: Number(s('hours')), note: orNull('note') } };
   }
-  return { serial: null, payload: { action: verb, work_order: wo, note: orNull('note') } };
+  if (verb === 'INSPECT') {
+    const step = form.dataset.step;
+    const payload = { action: verb, step, ...key };
+    if (step === 'DONE') payload.tech = orNull('tech');
+    else if (step === 'SKIP') payload.reason = String(fd.get('reason') || '').trim().slice(0, MAX_REASON);
+    else payload.note = orNull('note');
+    return { serial, payload };
+  }
+  if (verb === 'CLOSE') {
+    const payload = { action: verb, ...key, note: orNull('note') };
+    // D69: the close IS the ready call. The box is only drawn on a unit at home;
+    // when it isn't drawn, no key rides and the engine leaves readiness alone.
+    const box = form.querySelector('[name=ready]');
+    if (box) payload.ready = !!box.checked;
+    return { serial, payload };
+  }
+  return { serial, payload: { action: verb, ...key, note: orNull('note') } };
 }
 /** The typed lines, in order. A row with nothing typed is not a line. */
 function woLines(fd) {
@@ -5550,6 +5513,9 @@ function woFormProblem(form, fd) {
     if (lines.length > MAX_LINES) return `${MAX_LINES} lines per tap — add the rest after the next run.`;
   }
   if (verb === 'LABOR' && !hoursValid(Number(fd.get('hours')))) return `Hours go in quarter hours, ${HOURS_MIN} to ${HOURS_MAX}.`;
+  if (verb === 'INSPECT' && form.dataset.step === 'SKIP' && !String(fd.get('reason') || '').trim()) {
+    return 'Say why there is no inspection — one line.';
+  }
   return null;
 }
 const WO_MSG = {
@@ -5559,6 +5525,11 @@ const WO_MSG = {
   LABOR: 'The hours land at the next run.',
   CLOSE: 'It closes at the next run.',
   CANCEL: 'It comes off the board at the next run.',
+};
+const INSPECT_MSG = {
+  DONE: 'Sheet done. The hours reach the unit at the next run.',
+  SKIP: 'No inspection — recorded at the next run.',
+  REOPEN: 'The sheet goes back to PENDING at the next run.',
 };
 
 const SUBMIT_MSG = {
@@ -5591,7 +5562,6 @@ document.addEventListener('submit', async (ev) => {
   const fd = new FormData(form);
   const action = form.dataset.action;
   if (action === 'reserve' && updateWindowHint(form)) return;   // only end<start / past windows block; overlaps never do
-  if (action === 'inspection') { await submitInspection(form, fd, btn); return; }
 
   // A customer ticket needs a customer; a fleet one takes it from the unit.
   if (action === 'ticket_open' && fd.get('machine_owner') === 'CUSTOMER' && !String(fd.get('customer') || '').trim()) {
@@ -5637,10 +5607,28 @@ document.addEventListener('submit', async (ev) => {
   btn.disabled = true;
   const inline = isInline(action, form);
   const { serial, payload } = eventBody(action, form, fd);
+  const verb = action === 'work_order' ? form.dataset.verb : null;
 
   try {
+    // D69: Done saves whatever is still unsaved FIRST — the engine applies in
+    // order, so the last section lands before the lock — and refuses to go if
+    // that save failed.
+    if (verb === 'INSPECT' && form.dataset.step === 'DONE') {
+      const key = form.dataset.key;
+      await flushSheet(key);
+      const l = sheetLocal.get(key);
+      if (l && (l.dirty.size || l.status === 'failed')) throw new Error("The last change didn't save — retry it, then Done.");
+    }
     const stored = await postEvent(ctx(), action, serial, payload);
     state.pending.push(stored);
+    if (verb === 'OPEN') {
+      // Straight to the new work order — its inspection sheet is waiting.
+      sheetLocal.delete(`new:${serial}`);
+      ui.sheetCard.delete(`new:${serial}`);
+      window.location.hash = `#/wo/new/${enc(serial)}`;
+      return;
+    }
+    if (verb === 'INSPECT' && ['DONE', 'SKIP'].includes(form.dataset.step)) ui.sheetCard.delete(form.dataset.key);
     if (inline) {
       render();
       const msg = $('#write-msg');
@@ -5649,6 +5637,7 @@ document.addEventListener('submit', async (ev) => {
     } else {
       ui.form = null;
       ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb])
+        || (verb === 'INSPECT' && INSPECT_MSG[form.dataset.step])
         || (action === 'work_order' && WO_MSG[form.dataset.verb]) || SUBMIT_MSG[action] || 'Applies at the next run.' };
       render();
     }
@@ -5663,46 +5652,6 @@ document.addEventListener('submit', async (ev) => {
     }
   }
 });
-
-/**
- * D67 — Done / Void / Reopen on a sheet. Done saves whatever is still unsaved
- * FIRST (the engine applies in order, so the last section lands before the
- * lock), and refuses to go if that save failed.
- */
-const INSP_MSG = {
-  DONE: 'Done. The hours reach the unit at the next run.',
-  VOID: 'The sheet goes away at the next run.',
-  REOPEN: 'It goes back to DRAFT at the next run.',
-};
-async function submitInspection(form, fd, btn) {
-  const verb = form.dataset.verb;
-  const id = form.dataset.insp;
-  const key = form.dataset.key;
-  if (btn) btn.disabled = true;
-  try {
-    let payload;
-    if (verb === 'DONE') {
-      await flushSheet(key);
-      const l = sheetLocal.get(key);
-      if (l && (l.dirty.size || l.status === 'failed')) throw new Error("The last change didn't save — retry it, then Done.");
-      payload = { action: 'DONE', tech: String(fd.get('tech') || '') || null };
-    } else {
-      payload = { action: verb, note: String(fd.get('note') || '').trim() || null };
-    }
-    // Keyed on the I-number, or — a sheet not numbered yet (D67c) — on the
-    // serial, which the engine resolves to that serial's one DRAFT. Never both.
-    const serial = form.dataset.serial || null;
-    if (!serial) payload.inspection = id;
-    const stored = await postEvent(ctx(), 'inspection', serial, payload);
-    state.pending.push(stored);
-    ui.form = null;
-    ui.msg = { tone: 'ok', text: INSP_MSG[verb] || 'Applies at the next run.' };
-  } catch (err) {
-    ui.msg = { tone: 'bad', text: err.message };
-    if (btn) btn.disabled = false;
-  }
-  render();
-}
 
 // D67: a sheet with unsaved changes saves on the way out — a new route, the
 // app going to the background, the tab closing. Best effort; the save line

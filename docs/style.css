@@ -1183,8 +1183,37 @@ form.write .wo-line select, form.write .wo-line input { margin: 0; min-width: 0;
    One long scroll, gloves on. Every answer is a tap target >= 44px; the only
    typing is the meter, the hydrometer and the notes. Flag answers (Repair /
    Problem / Replace) light amber, never red — a found problem is the sheet
-   doing its job, not an alarm. */
+   doing its job, not an alarm.
+   D69: the sheet is the 📋 card on the work order, between the header and
+   Parts — open while PENDING, folded once DONE / SKIPPED. */
 .chip.insp { background: #ECFDF5; color: #065F46; text-transform: none; letter-spacing: 0; }
+.chip.insp.amber, .chip.amber { background: var(--warn-bg); color: var(--warn); }
+.chip.insp.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.insp.ok { background: var(--ok-bg); color: var(--ok); }
+.chip.skip { background: var(--slate-100); color: var(--slate-700); text-transform: none; letter-spacing: 0;
+  white-space: normal; max-width: 100%; }
+.sheet-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); margin: 14px 0 12px; padding: 0 16px 4px; }
+.sheet-card.pending { border-left: 4px solid var(--warn); }
+.sheet-head {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; width: calc(100% + 32px); min-height: var(--tap);
+  margin: 0 -16px; padding: 12px 16px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.sheet-head:focus-visible { outline: 2px solid var(--red); outline-offset: -2px; }
+.sheet-t { font-weight: 700; font-size: 15px; color: var(--slate-900); flex: 1 1 auto; }
+.sheet-head .chip { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.sheet-card h3 { font-size: 11.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--ink-3); margin: 18px 0 8px; }
+.sheet-card h3 .count { display: inline-block; background: var(--slate-100); color: var(--slate-700); border-radius: 999px;
+  padding: 0 8px; margin-left: 6px; font-size: 11px; letter-spacing: 0; }
+.sheet-card .card { box-shadow: none; }
+.sheet-card .irow.flag { margin: 0 -16px; }
+.inote-add.ipart { color: var(--warn); border: 1px solid var(--warn); border-radius: 999px; margin: -4px 0 0; padding: 2px 10px; }
+.close-why { color: var(--warn); font-weight: 650; }
+label.check { display: flex; align-items: center; gap: 10px; min-height: var(--tap); font-weight: 650; font-size: 15px; }
+label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok); }
+.last-insp { margin: 4px 0 8px; }
+.li-t { font-size: 11.5px; font-weight: 750; letter-spacing: .6px; text-transform: uppercase; color: var(--slate-500); margin-right: 4px; }
 .hours-line { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--slate-700); margin-top: 2px; }
 .irow-link {
   display: flex; align-items: center; gap: 8px; padding: 12px 0; min-height: var(--tap);
@@ -1192,7 +1221,6 @@ form.write .wo-line select, form.write .wo-line input { margin: 0; min-width: 0;
 }
 .irow-link:last-child { border-bottom: 0; }
 .irow-link > span:first-child { flex: 1 1 auto; font-variant-numeric: tabular-nums; }
-.insp-pick label { display: block; font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); margin: 4px 0 8px; }
 .insp-status { margin: 8px 0; padding: 8px 12px; border-radius: var(--radius-sm);
   background: var(--slate-50); border: 1px solid var(--slate-200); font-size: 13px; color: var(--ink-2); }
 /* A save that failed pins itself above the tab bar — wherever the tech has
@@ -1255,10 +1283,10 @@ form.write .wo-line select, form.write .wo-line input { margin: 0; min-width: 0;
 .cell-r input { font-variant-numeric: tabular-nums; padding: 8px 6px; }
 .cell-r select { padding: 8px 4px; font-size: 13.5px; }
 .insp-foot { margin-top: 18px; }
-/* The Inspections pill is the longest words on the landing — let it drop under
-   the title on a phone rather than squeeze the title into three lines. */
-.insp-strip .parts-head { flex-wrap: wrap; row-gap: 6px; }
-.insp-strip .parts-t, .insp-strip .parts-n, .insp-strip .parts-new { white-space: nowrap; }
+/* The Work orders pill (D69) is the longest words on the landing — let it drop
+   under the title on a phone rather than squeeze the title into three lines. */
+.parts .parts-head { flex-wrap: wrap; row-gap: 6px; }
+.parts .parts-t, .parts .parts-n, .parts .parts-new { white-space: nowrap; }
 .pct-wrap { position: relative; display: block; }
 .pct-wrap input { padding-right: 30px; font-variant-numeric: tabular-nums; }
 .pct-suf { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-weight: 650; pointer-events: none; }

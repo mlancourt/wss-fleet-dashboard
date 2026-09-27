@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * selftest-workorders.mjs — the D65 work-order rules in docs/workorders.js.
+ * selftest-workorders.mjs — the D65 / D68 / D69 work-order rules in docs/workorders.js.
  * Pure: no DOM, no network. Dates are pinned strings, never "today".
  */
 import assert from 'node:assert/strict';
@@ -9,6 +9,7 @@ import {
   fmtHours, hoursValid, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
   isStockLine, sourceOf, pendingLineLabel, PART_VERB_LABEL,
+  PURPOSES, PURPOSE_LABEL, closeBlocker, readyOffered, stripCounts, stripTone, openWorkOrders, pendingBySerial, byTs,
 } from '../docs/workorders.js';
 
 let passed = 0;
@@ -19,7 +20,7 @@ const part = (line, state, o = {}) => ({ line, manufacturer: 'FACTORY-CAT', part
   state, ordered: null, vendor: null, vendor_ref: null, tracking: null, carrier: null, delivered: null, source: 'VENDOR', ...o });
 const wo = (id, o = {}) => ({ id, serial: '900100', asset_item: 'A-1001', ticket: null, status: 'OPEN', purpose: 'REPAIR',
   opened: '2026-09-20', opened_by: 'Josh', closed: null, age_days: 1, note: null, parts: [], labor: [],
-  parts_open: 0, hours_total: 0, log: [], ...o });
+  inspection: { status: 'DONE', flags: 0 }, parts_open: 0, hours_total: 0, log: [], ...o });
 
 const LIST = [
   wo('W1001', { age_days: 1, parts: [
@@ -95,16 +96,30 @@ check('hours: 0.25–12 in quarter steps; formatted without trailing zeros', () 
   assert.equal(fmtHours(null), '0');
 });
 
-check('the unit chip: "W1001 · 2 parts open · 3.5 h", engine counts only', () => {
-  assert.equal(woChipText(wo('W1001', { parts_open: 2, hours_total: 3.5 })), 'W1001 · 2 parts open · 3.5 h');
-  assert.equal(woChipText(wo('W1002', { parts_open: 1, hours_total: 0 })), 'W1002 · 1 part open · 0 h');
-  assert.equal(woChipText(null, { work_order: 'W1009', wo_parts_open: 3 }), 'W1009 · 3 parts open', 'unit keys when the row is missing');
+check('D69 unit chip: "W1003 · RETURN · 📋 pending · 2 parts open · 1.5 h", engine counts only', () => {
+  assert.equal(woChipText(wo('W1003', { purpose: 'RETURN', inspection: { status: 'PENDING' }, parts_open: 2, hours_total: 1.5 })),
+    'W1003 · RETURN · 📋 pending · 2 parts open · 1.5 h');
+  assert.equal(woChipText(wo('W1002', { purpose: 'PM', inspection: { status: 'DONE', flags: 2 }, parts_open: 1, hours_total: 0 })),
+    'W1002 · PM · 📋 ✓ 2 ⚑ · 1 part open · 0 h');
+  assert.equal(woChipText(wo('W1004', { inspection: { status: 'SKIPPED', skipped_reason: 'x' } })), 'W1004 · REPAIR · 📋 skipped · 0 parts open · 0 h');
+  assert.equal(woChipText(null, { work_order: 'W1009', wo_parts_open: 3, wo_inspection: 'PENDING' }), 'W1009 · 📋 pending · 3 parts open', 'unit keys when the row is missing');
+  assert.equal(woChipText(null, { work_order: 'W1009', wo_parts_open: 3 }), 'W1009 · 3 parts open', 'a pre-D69 unit');
+  assert.equal(woChipText(wo('W1', { inspection: 'I1001' })), 'W1 · REPAIR · 📋 pending · 0 parts open · 0 h', 'a legacy string sheet reads pending');
 });
 
-check('OPEN defaults: rent-ready for a unit in prep, else repair; the make from the brand; vendor from the make', () => {
-  assert.equal(defaultPurpose({ readiness: 'NEEDS-PREP' }), 'RENT-READY');
-  assert.equal(defaultPurpose({ readiness: 'DOWN' }), 'REPAIR');
-  assert.equal(defaultPurpose({ readiness: 'READY' }), 'REPAIR');
+check('D69 purposes: the five, D67 kinds folded in; a legacy RENT-READY still has a label', () => {
+  assert.deepEqual(PURPOSES, ['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER']);
+  assert.equal(PURPOSE_LABEL.CHECKOUT, 'Check-out');
+  assert.equal(PURPOSE_LABEL['RENT-READY'], 'Rent-ready');
+});
+
+check('OPEN defaults (D69 §2, the engine\'s): NEEDS-PREP → RETURN · DOWN / ON-RENT → REPAIR · READY → CHECKOUT · else PM', () => {
+  assert.equal(defaultPurpose({ readiness: 'NEEDS-PREP', unit_state: 'IN-SHOP' }), 'RETURN');
+  assert.equal(defaultPurpose({ readiness: 'DOWN', unit_state: 'IN-SHOP' }), 'REPAIR');
+  assert.equal(defaultPurpose({ readiness: 'READY', unit_state: 'ON-RENT' }), 'REPAIR', 'out on rent beats READY');
+  assert.equal(defaultPurpose({ readiness: 'READY', unit_state: 'AVAILABLE' }), 'CHECKOUT');
+  assert.equal(defaultPurpose({ readiness: 'NEEDS-PICKUP', unit_state: 'ON-DEMO' }), 'PM');
+  assert.equal(defaultPurpose(null), 'PM');
   assert.equal(manufacturerFor('Factory Cat'), 'FACTORY-CAT');
   assert.equal(manufacturerFor('FACTORY CAT'), 'FACTORY-CAT');
   assert.equal(manufacturerFor('IPC Eagle'), 'IPC-EAGLE');
@@ -138,6 +153,44 @@ check('line buttons by role × state (D68 §3 table)', () => {
   assert.deepEqual(partActions(wo('W1', { status: 'CLOSED' }), part(1, 'ORDERED'), 'owner', 'Matt'), [], 'nothing on a closed one');
 });
 
+check('D69 Close: lines settled AND the sheet DONE or SKIPPED — the blocker says which; Mark READY only at home', () => {
+  const settled = [part(1, 'DELIVERED'), part(2, 'CANCELLED')];
+  assert.equal(closeBlocker(wo('W1', { parts: settled })), null);
+  assert.equal(closeBlocker(wo('W1', { parts: settled, inspection: { status: 'SKIPPED' } })), null);
+  const sheet = closeBlocker(wo('W1', { parts: settled, inspection: { status: 'PENDING' } }));
+  assert.ok(/inspection is still pending/.test(sheet) && !/part line/.test(sheet), sheet);
+  const line = closeBlocker(wo('W1', { parts: [part(1, 'ORDERED')] }));
+  assert.ok(/1 part line still open/.test(line) && !/inspection/.test(line), line);
+  const both = closeBlocker(wo('W1', { parts: [part(1, 'REQUESTED'), part(2, 'IN-TRANSIT')], inspection: { status: 'PENDING' } }));
+  assert.ok(/2 part lines still open/.test(both) && /inspection is still pending/.test(both), both);
+  assert.ok(!closeEnabled(wo('W1', { inspection: 'I1001' })), 'a legacy string sheet is PENDING — holds Close');
+  assert.ok(!closeEnabled(wo('W1', { inspection: null })));
+  assert.equal(closeBlocker(wo('W1', { status: 'CLOSED', inspection: { status: 'PENDING' } })), null, 'nothing to close');
+  for (const st of ['AVAILABLE', 'RESERVED', 'IN-SHOP']) assert.ok(readyOffered({ unit_state: st }), st);
+  for (const st of ['ON-RENT', 'ON-DEMO', 'LOANER-OUT']) assert.ok(!readyOffered({ unit_state: st }), st);
+  assert.ok(!readyOffered(null));
+});
+
+check('D69 strip: "N open · M inspection pending · K parts open"; amber from a stale PENDING sheet, red only from parts', () => {
+  const list = [
+    wo('W1', { age_days: 1, inspection: { status: 'PENDING' }, parts: [part(1, 'ORDERED')] }),
+    wo('W2', { age_days: 5, inspection: { status: 'DONE', flags: 1 } }),
+    wo('W3', { status: 'CLOSED', age_days: null, inspection: { status: 'DONE' } }),
+  ];
+  assert.deepEqual(stripCounts({ open: 2, inspections_pending: 1, parts_requested: 0, parts_ordered: 1, parts_in_transit: 0 }, list),
+    { open: 2, pending: 1, parts: 1 }, 'the engine summary');
+  assert.deepEqual(stripCounts(null, list), { open: 2, pending: 1, parts: 1 }, 'counted from rows');
+  const T = { partsAmber: 3, partsRed: 7, inspectAmber: 2 };
+  assert.equal(stripTone(null, list, T), '', 'a PENDING sheet one day old');
+  const stale = [wo('W1', { age_days: 2, inspection: { status: 'PENDING' } })];
+  assert.equal(stripTone({ inspections_pending: 1 }, stale, T), 'amber', 'two days PENDING');
+  assert.equal(stripTone({ inspections_pending: 0 }, stale, T), '', 'the summary says none pending');
+  assert.equal(stripTone(null, [wo('W1', { age_days: 9, inspection: { status: 'SKIPPED' } })], T), '', 'a skipped sheet is settled');
+  assert.equal(stripTone(null, [wo('W1', { age_days: 3, parts: [part(1, 'REQUESTED')] })], T), 'amber', 'the D65 parts rule');
+  assert.equal(stripTone(null, [wo('W1', { age_days: 8, inspection: { status: 'PENDING' }, parts: [part(1, 'REQUESTED')] })], T), 'red', 'parts red wins');
+  assert.deepEqual(openWorkOrders(list).map((w) => w.id), ['W2', 'W1'], 'OPEN only, oldest first');
+});
+
 check('Close: owner only, enabled once every line is DELIVERED or CANCELLED; Cancel: owner or the opener pre-order', () => {
   const open = wo('W1', { parts: [part(1, 'DELIVERED'), part(2, 'IN-TRANSIT')] });
   const done = wo('W2', { parts: [part(1, 'DELIVERED'), part(2, 'CANCELLED')] });
@@ -165,9 +218,28 @@ check('pending: OPEN keyed on serial (no id), the rest on payload.work_order', (
   assert.deepEqual(pendingOpenFor(P, '900107'), []);
   assert.deepEqual(pendingForWo(P, 'W1001').map((e) => e.id), ['e2', 'e3']);
   assert.deepEqual(pendingForWo(P, 'W1002'), []);
-  assert.equal(describeWoEvent(P[0]), 'new work order — labor only');
+  assert.equal(describeWoEvent(P[0]), 'new PM work order');
   assert.equal(describeWoEvent(P[1]), '1.5 h logged for Zac');
   assert.equal(describeWoEvent(P[2]), 'line 2 → Delivered');
+});
+
+check('D69: every verb but OPEN may be keyed on the serial — pendingBySerial finds them; INSPECT reads in English', () => {
+  const P = [
+    { id: 'e1', ts: '2026-09-27T10:00:00Z', action: 'work_order', serial: '153928', payload: { action: 'OPEN', purpose: 'RETURN', parts: [] } },
+    { id: 'e3', ts: '2026-09-27T10:02:00Z', action: 'work_order', serial: '153928', payload: { action: 'INSPECT', step: 'DONE', tech: 'Zac' } },
+    { id: 'e2', ts: '2026-09-27T10:01:00Z', action: 'work_order', serial: '153928', payload: { action: 'INSPECT', step: 'SAVE', readings: { hours_key: 41 } } },
+    { id: 'e4', ts: '2026-09-27T10:03:00Z', action: 'work_order', serial: null, payload: { action: 'INSPECT', step: 'SAVE', work_order: 'W1003', comments: 'x' } },
+    { id: 'e5', ts: '2026-09-27T10:04:00Z', action: 'work_order', serial: '153928', payload: { action: 'LABOR', who: 'Zac', hours: 1.5 } },
+  ];
+  assert.deepEqual(pendingBySerial(P, '153928').sort(byTs).map((e) => e.id), ['e2', 'e3', 'e5'], 'not the OPEN, not the W-keyed one');
+  assert.deepEqual(pendingBySerial(P, 153928).map((e) => e.id).length, 3, 'serial compared as text');
+  assert.deepEqual(pendingForWo(P, 'W1003').map((e) => e.id), ['e4']);
+  assert.equal(describeWoEvent(P[0]), 'new Return work order');
+  assert.equal(describeWoEvent(P[2]), 'sheet saved — readings');
+  assert.equal(describeWoEvent(P[1]), 'sheet done (Zac)');
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'INSPECT', step: 'SKIP', reason: 'gasket only' } }), 'no inspection — gasket only');
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'INSPECT', step: 'REOPEN' } }), 'sheet reopened');
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'CLOSE', work_order: 'W1', ready: false } }), 'close (readiness left alone)');
 });
 
 check('D68: source is a fact about the part — stock lines are DELIVERED, land in Delivered, never block Close', () => {
