@@ -4,9 +4,11 @@
  * KV, so the Worker's shape rules run under `npm test` and not only in the curl
  * loop (tools/m1-loop.sh, which needs `wrangler dev`). All data here is FAKE.
  *
- * Scope: the D67 `inspection` action (five verbs) and the D65 `work_order`
- * OPEN back-link, plus the money refusal still firing on the new action. The
- * curl loop keeps the end-to-end proof; this keeps the rules honest per commit.
+ * Scope: the D69 work order — INSPECT {step} (the D67 sheet, moved onto the
+ * work order), the serial-or-W-number key on every verb but OPEN, OPEN's
+ * `inspection` object, CLOSE {ready}, the retired `inspection` action — plus
+ * D68 stock and the money refusal. The curl loop keeps the end-to-end proof;
+ * this keeps the rules honest per commit.
  */
 import assert from 'node:assert/strict';
 import worker from '../worker/worker.js';
@@ -49,7 +51,6 @@ async function post(role, body) {
   }), env);
   return { status: res.status, body: await res.json() };
 }
-const insp = (payload, serial) => (serial === undefined ? { action: 'inspection', payload } : { action: 'inspection', serial, payload });
 async function ok(role, body, what) {
   const r = await post(role, body);
   assert.equal(r.status, 201, `${what}: wanted 201, got ${r.status} ${JSON.stringify(r.body)}`);
@@ -60,104 +61,134 @@ async function refused(role, body, what, status = 400, hint) {
   assert.equal(r.status, status, `${what}: wanted ${status}, got ${r.status} ${JSON.stringify(r.body)}`);
   if (hint) assert.ok(String(r.body.error).includes(hint), `${what}: error should mention ${hint} — got ${r.body.error}`);
 }
+const wo = (payload, serial) => (serial === undefined ? { action: 'work_order', payload } : { action: 'work_order', serial, payload });
+const insp = (step, extra = {}, serial) => wo({ action: 'INSPECT', step, ...(serial === undefined ? { work_order: 'W1001' } : {}), ...extra }, serial);
 
-console.log('worker self-test (D67 inspection · D65 back-link · D68 stock)');
+console.log('worker self-test (D69 work order + sheet · D68 stock)');
 
 const FULL_SAVE = {
-  action: 'SAVE', inspection: 'I1001', machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND',
+  machine_class: 'SCRUBBER', body_style: 'WALK-BEHIND',
   battery: { type: 'WET', voltage: 24, pack: '4x6V' },
   readings: { hours_key: 412.5, hours_traction: null, brush1_pct: 60, brush2_pct: 0, brushes_rotated: true },
   cells: [{ battery: 1, cell: 'A', sg: 1.265, clarity: 'CLEAR', level: 'FULL' }, { battery: 1, cell: 'B', sg: null, clarity: null, level: null }],
-  items: [{ id: 'ctl.key_switch', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'REPLACE', note: 'torn' }, { id: 'sqg.blades', result: null }],
-  comments: 'ready after blade',
+  items: [{ id: 'ctl.key_switch', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'REPLACE', note: 'torn' }],
+  comments: 'rear squeegee chewed',
 };
 
-await check('all five verbs are accepted, by any role, and the event is stamped server-side', async () => {
-  const open = await ok('service', insp({ action: 'OPEN', kind: 'CHECKOUT' }, '900100'), 'OPEN');
-  assert.equal(open.actor, 'Josh');
-  assert.equal(open.serial, '900100');
-  assert.deepEqual(open.payload, { action: 'OPEN', kind: 'CHECKOUT' });
-  const save = await ok('sales', insp(FULL_SAVE), 'SAVE');
-  assert.equal(save.payload.inspection, 'I1001');
-  assert.deepEqual(save.payload.battery, { type: 'WET', voltage: 24, pack: '4x6V' });
-  assert.equal(save.payload.items.length, 3);
-  assert.equal(save.payload.items[2].result, null, 'an unanswered row stays unanswered');
-  const done = await ok('service', insp({ action: 'DONE', inspection: 'I1001', tech: 'Zac' }), 'DONE');
-  assert.equal(done.payload.tech, 'Zac');
-  // REOPEN / VOID hinge on who and when — business state, the engine's call.
+await check('D69: INSPECT — all four steps, any role at the Worker (REOPEN is the engine’s to referee)', async () => {
   for (const role of ['owner', 'sales', 'service']) {
-    await ok(role, insp({ action: 'REOPEN', inspection: 'I1001', note: 'missed the recovery tank' }), `REOPEN as ${role}`);
-    await ok(role, insp({ action: 'VOID', inspection: 'I1001', note: 'wrong unit' }), `VOID as ${role}`);
+    const save = await ok(role, insp('SAVE', FULL_SAVE), `${role} SAVE`);
+    assert.deepEqual(save.payload, { action: 'INSPECT', step: 'SAVE', work_order: 'W1001', ...FULL_SAVE });
+    const done = await ok(role, insp('DONE', { tech: 'Zac' }), `${role} DONE`);
+    assert.deepEqual(done.payload, { action: 'INSPECT', step: 'DONE', work_order: 'W1001', tech: 'Zac' });
+    const skip = await ok(role, insp('SKIP', { reason: 'gasket only — inspected last week' }), `${role} SKIP`);
+    assert.deepEqual(skip.payload, { action: 'INSPECT', step: 'SKIP', work_order: 'W1001', reason: 'gasket only — inspected last week' });
+    const re = await ok(role, insp('REOPEN', { note: 'missed the recovery tank' }), `${role} REOPEN`);
+    assert.deepEqual(re.payload, { action: 'INSPECT', step: 'REOPEN', work_order: 'W1001', note: 'missed the recovery tank' });
   }
+  const last = await ok('service', insp('DONE', { tech: 'Josh', readings: { hours_key: 41 } }), 'DONE carrying the last section');
+  assert.deepEqual(last.payload.readings, { hours_key: 41 });
+  const one = await ok('service', insp('SAVE', { readings: { hours_key: 7 } }), 'one section');
+  assert.deepEqual(Object.keys(one.payload).sort(), ['action', 'readings', 'step', 'work_order']);
+  const clear = await ok('service', insp('SAVE', { comments: null }), 'comments cleared');
+  assert.equal(clear.payload.comments, null);
 });
 
-await check('SAVE is a merge: only the sections present travel, and a present null is kept (it clears)', async () => {
-  const one = await ok('service', insp({ action: 'SAVE', inspection: 'I1002', readings: { hours_key: 7 } }), 'readings only');
-  assert.deepEqual(Object.keys(one.payload).sort(), ['action', 'inspection', 'readings']);
-  const clear = await ok('service', insp({ action: 'SAVE', inspection: 'I1002', comments: null }), 'comments cleared');
-  assert.ok('comments' in clear.payload && clear.payload.comments === null, 'a null section is an instruction, not an absence');
-  await refused('service', insp({ action: 'SAVE', inspection: 'I1002' }), 'SAVE with no section', 400, 'at least one section');
-});
-
-await check('before the I-number exists: OPEN may carry the first sections; SAVE may key on the serial, never both', async () => {
-  const o = await ok('service', insp({ action: 'OPEN', kind: 'RETURN', readings: { hours_key: 12 }, items: [{ id: 'ctl.horn', result: 'REPAIR', note: 'weak' }] }, '900101'), 'OPEN + sections');
-  assert.equal(o.payload.readings.hours_key, 12);
-  assert.equal(o.payload.items[0].result, 'REPAIR');
-  const s = await ok('service', insp({ action: 'SAVE', comments: 'x' }, '900101'), 'SAVE by serial');
-  assert.equal(s.serial, '900101');
-  assert.ok(!('inspection' in s.payload));
-  await refused('service', insp({ action: 'SAVE', inspection: 'I1003', comments: 'x' }, '900101'), 'SAVE with both', 400, 'not both');
-  await refused('service', insp({ action: 'SAVE', comments: 'x' }), 'SAVE with neither');
-  await refused('service', insp({ action: 'OPEN', kind: 'PM' }), 'OPEN without a serial', 400, 'serial');
-  await refused('service', insp({ action: 'DONE', inspection: 'I1003' }, '900101'), 'DONE with both', 400, 'not both');
-});
-
-await check('DONE and VOID key on the serial before the I-number exists; exactly one of the two; REOPEN never does', async () => {
-  const d = await ok('service', insp({ action: 'DONE', tech: 'Josh' }, '150074'), 'DONE by serial');
-  assert.equal(d.serial, '150074');
-  assert.deepEqual(d.payload, { action: 'DONE', tech: 'Josh' }, 'no invented inspection key');
-  const v = await ok('service', insp({ action: 'VOID', note: 'wrong unit' }, '150074'), 'VOID by serial');
-  assert.deepEqual(v.payload, { action: 'VOID', note: 'wrong unit' });
-  await ok('service', insp({ action: 'DONE', inspection: 'I1003', tech: 'Zac' }), 'DONE by number still fine');
-  await ok('service', insp({ action: 'VOID', inspection: 'I1003' }), 'VOID by number still fine');
-  for (const verb of ['SAVE', 'DONE', 'VOID']) {
-    const extra = verb === 'SAVE' ? { comments: 'x' } : {};
-    await refused('service', insp({ action: verb, inspection: 'I1003', ...extra }, '150074'), `${verb} with both`, 400, 'not both');
-    await refused('service', insp({ action: verb, ...extra }), `${verb} with neither`, 400, 'needs the inspection');
-  }
-  await refused('owner', insp({ action: 'REOPEN', note: 'x' }, '150074'), 'REOPEN by serial', 400, 'keyed on inspection');
-  await refused('owner', insp({ action: 'REOPEN', inspection: 'I1003' }, '150074'), 'REOPEN with both', 400, 'keyed on inspection');
-  await refused('owner', insp({ action: 'REOPEN' }), 'REOPEN with neither', 400, 'inspection is required');
-});
-
-await check('refused: a 6th verb, inspection "W1001", 19 cells, sg 2.0, an unknown top-level key, a result outside both scales', async () => {
-  await refused('owner', insp({ action: 'SIGN', inspection: 'I1001' }), '6th verb');
-  await refused('owner', insp({ action: 'DONE', inspection: 'W1001' }), 'a W-number', 400, 'I1001');
-  const cells = [];
-  for (let b = 1; b <= 4; b++) for (const c of 'ABCDE') cells.push({ battery: b, cell: c, sg: 1.2 });
-  await refused('owner', insp({ action: 'SAVE', inspection: 'I1001', cells: cells.slice(0, 19) }), '19 cells', 400, '18');
-  await ok('owner', insp({ action: 'SAVE', inspection: 'I1001', cells: cells.slice(0, 18) }), '18 cells');
-  await refused('owner', insp({ action: 'SAVE', inspection: 'I1001', cells: [{ battery: 1, cell: 'A', sg: 2.0 }] }), 'sg 2.0', 400, 'sg');
-  await refused('owner', insp({ action: 'SAVE', inspection: 'I1001', cells: [{ battery: 1, cell: 'A', sg: 0.99 }] }), 'sg 0.99');
-  await ok('owner', insp({ action: 'SAVE', inspection: 'I1001', cells: [{ battery: 1, cell: 'A', sg: 1.0 }, { battery: 1, cell: 'B', sg: 1.4 }] }), 'sg at both edges');
-  await refused('owner', insp({ action: 'SAVE', inspection: 'I1001', comments: 'x', signature: 'Matt' }), 'unknown top-level key', 400, 'signature');
-  await refused('owner', insp({ action: 'SAVE', inspection: 'I1001', items: [{ id: 'ctl.key_switch', result: 'FINE' }] }), 'result outside both scales', 400, 'result');
+await check('D69: INSPECT refusals — a 5th step, no step, SKIP with a section / without a reason, a stray key', async () => {
+  await refused('owner', insp('SIGN'), 'a 5th step', 400, 'step');
+  await refused('owner', insp(undefined), 'no step', 400, 'step');
+  await refused('owner', insp('SAVE'), 'SAVE with no section', 400, 'at least one section');
+  await refused('service', insp('SKIP', { reason: 'x', items: [] }), 'SKIP with items', 400, 'SKIP carries no sheet sections');
+  await refused('service', insp('SKIP', { reason: 'x', readings: { hours_key: 1 } }), 'SKIP with readings', 400, 'readings');
+  await refused('service', insp('SKIP'), 'SKIP without a reason', 400, 'reason');
+  await refused('service', insp('SKIP', { reason: '   ' }), 'SKIP with a blank reason', 400, 'reason');
+  await refused('service', insp('SKIP', { reason: 'x'.repeat(121) }), 'reason 121', 400, 'reason');
+  await ok('service', insp('SKIP', { reason: 'x'.repeat(120) }), 'reason 120');
+  await refused('owner', insp('DONE', { tech: 'Bob' }), 'tech outside the crew', 400, 'tech');
+  await refused('owner', insp('REOPEN', { note: 'x'.repeat(201) }), 'REOPEN note 201', 400, 'note');
+  await refused('owner', insp('REOPEN', { comments: 'x' }), 'REOPEN with a section', 400, 'comments');
+  await refused('owner', insp('SAVE', { comments: 'x', signature: 'Matt' }), 'unknown top-level key', 400, 'signature');
+  await refused('owner', insp('SAVE', { comments: 'x', inspection: 'I1001' }), 'the old I-number key', 400, 'inspection');
+  await refused('owner', insp('SAVE', { items: [{ id: 'ctl.key_switch', result: 'FINE' }] }), 'result outside both scales', 400, 'result');
   // A scale MISMATCH (WEAR word on a FUNCTION row) passes here — the row's scale is the library's, and the library is the vault's.
-  await ok('owner', insp({ action: 'SAVE', inspection: 'I1001', items: [{ id: 'ctl.key_switch', result: 'WORN' }] }), 'scale mismatch is the engine’s call');
+  await ok('owner', insp('SAVE', { items: [{ id: 'ctl.key_switch', result: 'WORN' }] }), 'scale mismatch is the engine’s call');
+});
+
+await check('D69: every verb but OPEN — exactly one of work_order or the top-level serial', async () => {
+  const verbs = [
+    ['INSPECT', { step: 'SAVE', comments: 'x' }], ['INSPECT', { step: 'DONE', tech: 'Zac' }], ['INSPECT', { step: 'SKIP', reason: 'x' }],
+    ['INSPECT', { step: 'REOPEN' }], ['ADD-PARTS', { parts: [{ manufacturer: 'KODIAK', part_number: '1', qty: 1 }] }],
+    ['PART-STATE', { line: 1, state: 'DELIVERED' }], ['PART-STATE', { line: 1, source: 'SHOP-STOCK' }],
+    ['LABOR', { who: 'Zac', hours: 1.5 }], ['CLOSE', { ready: true }], ['CANCEL', {}],
+  ];
+  for (const [verb, extra] of verbs) {
+    const what = `${verb}${extra.step ? ` ${extra.step}` : ''}`;
+    const byW = await ok('owner', wo({ action: verb, work_order: 'W1003', ...extra }), `${what} by W-number`);
+    assert.equal(byW.payload.work_order, 'W1003');
+    assert.equal(byW.serial, null);
+    const byS = await ok('owner', wo({ action: verb, ...extra }, '153928'), `${what} by serial`);
+    assert.ok(!('work_order' in byS.payload), `${what}: no invented work_order key`);
+    assert.equal(byS.serial, '153928');
+    await refused('owner', wo({ action: verb, work_order: 'W1003', ...extra }, '153928'), `${what} with both`, 400, 'not both');
+    await refused('owner', wo({ action: verb, ...extra }), `${what} with neither`, 400, 'needs the work_order');
+  }
+  await refused('owner', wo({ action: 'CLOSE', work_order: 'I1001' }), 'an I-number as the work order', 400, 'W1001');
+  await refused('owner', wo({ action: 'OPEN', purpose: 'PM' }), 'OPEN without a serial', 400, 'serial');
+});
+
+await check('D69: OPEN — purpose is the five (+ RENT-READY, mapped by the engine), inspection is an OBJECT', async () => {
+  for (const p of ['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER', 'RENT-READY']) {
+    assert.equal((await ok('service', wo({ action: 'OPEN', purpose: p }, '153928'), `purpose ${p}`)).payload.purpose, p);
+  }
+  assert.equal((await ok('service', wo({ action: 'OPEN' }, '153928'), 'purpose left off')).payload.purpose, null, 'the engine picks the default');
+  await refused('service', wo({ action: 'OPEN', purpose: 'BOGUS' }, '153928'), 'purpose BOGUS', 400, 'purpose');
+  const first = await ok('service', wo({ action: 'OPEN', purpose: 'RETURN', inspection: { readings: { hours_key: 41 }, body_style: 'STAND-ON' } }, '153928'), 'OPEN + first save');
+  assert.deepEqual(first.payload.inspection, { body_style: 'STAND-ON', readings: { hours_key: 41 } });
+  const plain = await ok('service', wo({ action: 'OPEN', purpose: 'PM', parts: [] }, '153928'), 'OPEN without');
+  assert.ok(!('inspection' in plain.payload), 'absent stays absent');
+  await refused('service', wo({ action: 'OPEN', purpose: 'REPAIR', inspection: 'I1001' }, '153928'), 'the retired string back-link', 400, 'retired');
+  await refused('service', wo({ action: 'OPEN', purpose: 'REPAIR', inspection: [] }, '153928'), 'a list', 400, 'object');
+  await refused('service', wo({ action: 'OPEN', inspection: { kind: 'PM' } }, '153928'), 'an unknown section', 400, 'kind');
+  await refused('service', wo({ action: 'OPEN', inspection: { cells: [{ battery: 1, cell: 'A', sg: 2 }] } }, '153928'), 'a bad section inside', 400, 'sg');
+});
+
+await check('D69: CLOSE takes ready (a real boolean, owner only); absent stays absent', async () => {
+  assert.equal((await ok('owner', wo({ action: 'CLOSE', work_order: 'W1003', ready: true }), 'ready true')).payload.ready, true);
+  assert.equal((await ok('owner', wo({ action: 'CLOSE', work_order: 'W1003', ready: false }), 'ready false')).payload.ready, false);
+  assert.ok(!('ready' in (await ok('owner', wo({ action: 'CLOSE', work_order: 'W1003' }), 'ready left off')).payload));
+  await refused('owner', wo({ action: 'CLOSE', work_order: 'W1003', ready: 'yes' }), 'ready "yes"', 400, 'ready');
+  await refused('owner', wo({ action: 'CLOSE', work_order: 'W1003', ready: 1 }), 'ready 1', 400, 'ready');
+  await refused('service', wo({ action: 'CLOSE', work_order: 'W1003', ready: true }), 'service close', 403);
+  await refused('owner', wo({ action: 'CANCEL', work_order: 'W1003', ready: true }), 'ready on CANCEL', 400, 'ready');
+});
+
+await check('D69: the `inspection` action is retired — every verb 400s', async () => {
+  for (const verb of ['OPEN', 'SAVE', 'DONE', 'REOPEN', 'VOID']) {
+    await refused('owner', { action: 'inspection', serial: '153928', payload: { action: verb, kind: 'PM' } }, `inspection ${verb}`, 400, 'unknown action');
+  }
+});
+
+await check('cells ≤ 18, sg 1.000–1.400, items ≤ 120 — the D67 shape rules, now under INSPECT', async () => {
+  const cells = [];
+  for (let b = 1; b <= 6; b++) for (const c of ['A', 'B', 'C', 'D']) cells.push({ battery: b, cell: c, sg: 1.2 });
+  await refused('owner', insp('SAVE', { cells: cells.slice(0, 19) }), '19 cells', 400, '18');
+  await ok('owner', insp('SAVE', { cells: cells.slice(0, 18) }), '18 cells');
+  await refused('owner', insp('SAVE', { cells: [{ battery: 1, cell: 'A', sg: 2.0 }] }), 'sg 2.0', 400, 'sg');
+  await refused('owner', insp('SAVE', { cells: [{ battery: 1, cell: 'A', sg: 0.99 }] }), 'sg 0.99');
+  await ok('owner', insp('SAVE', { cells: [{ battery: 1, cell: 'A', sg: 1.0 }, { battery: 1, cell: 'B', sg: 1.4 }] }), 'sg at both edges');
 });
 
 await check('lengths, enums and shapes inside the sections', async () => {
-  const bad = (payload, what, hint) => refused('owner', insp({ action: 'SAVE', inspection: 'I1001', ...payload }), what, 400, hint);
+  const bad = (payload, what, hint) => refused('owner', insp('SAVE', payload), what, 400, hint);
   const items = Array.from({ length: 121 }, (_, i) => ({ id: `ctl.r${i}`, result: 'N/A' }));
   await bad({ items }, '121 items', '120');
-  await ok('owner', insp({ action: 'SAVE', inspection: 'I1001', items: items.slice(0, 120) }), '120 items');
+  await ok('owner', insp('SAVE', { items: items.slice(0, 120) }), '120 items');
   await bad({ items: [{ id: 'ctl.a', result: 'GOOD' }, { id: 'ctl.a', result: 'WORN' }] }, 'a row answered twice', 'twice');
   await bad({ items: [{ id: 'ctl.a', result: 'GOOD', note: 'x'.repeat(121) }] }, 'item note 121', 'note');
   await bad({ items: [{ id: 'ctl.a', result: 'GOOD', photo: 'x' }] }, 'unknown item key', 'photo');
   await bad({ comments: 'x'.repeat(1001) }, 'comments 1001', 'comments');
   await bad({ machine_class: 'VACUUM' }, 'class enum');
   await bad({ body_style: 'RIDE-ON' }, 'body_style enum');
-  // v1.2 (red-pen #1): the old names are gone from the shape, and the Worker says which.
   await bad({ controls: 'RIDER' }, 'the retired controls key', 'controls');
   await bad({ readings: { recharge_count: 88 } }, 'no recharge counter any more', 'recharge_count');
   await bad({ readings: { brush1_length: 1.5 } }, 'lengths are gone', 'brush1_length');
@@ -165,14 +196,14 @@ await check('lengths, enums and shapes inside the sections', async () => {
   await bad({ battery: { type: 'WET', voltage: 48 } }, 'voltage 48', 'voltage');
   await bad({ battery: { type: 'WET', voltage: 24, pack: '3x12V' } }, 'pack vs voltage', 'pack');
   await bad({ battery: { type: 'AGM', voltage: 24, pack: '4x6V' } }, 'a pack on AGM', 'WET');
-  await ok('owner', insp({ action: 'SAVE', inspection: 'I1001', battery: { type: 'LITHIUM', voltage: 36, pack: null } }), 'lithium, no pack');
+  await ok('owner', insp('SAVE', { battery: { type: 'LITHIUM', voltage: 36, pack: null } }), 'lithium, no pack');
   await bad({ readings: { hours_key: '412' } }, 'hours as a string', 'number');
   await bad({ readings: { hours_key: -1 } }, 'negative hours');
   await bad({ readings: { hours_key: 100000 } }, 'hours > 99999');
   await bad({ readings: { brush1_pct: 101 } }, 'a brush at 101%', 'brush1_pct');
   await bad({ readings: { main_broom_pct: -1 } }, 'a broom at -1%');
   await bad({ readings: { brush2_pct: 55.5 } }, 'a fractional percent', 'whole-number');
-  await ok('owner', insp({ action: 'SAVE', inspection: 'I1001', readings: { main_broom_pct: 0, brush1_pct: 100, brush2_pct: null } }), 'percent edges + null');
+  await ok('owner', insp('SAVE', { readings: { main_broom_pct: 0, brush1_pct: 100, brush2_pct: null } }), 'percent edges + null');
   await bad({ readings: { brushes_rotated: 'Y' } }, 'rotated as a string', 'true or false');
   await bad({ readings: { odometer: 5 } }, 'unknown reading', 'odometer');
   await bad({ cells: [{ battery: 7, cell: 'A' }] }, 'battery 7');
@@ -180,28 +211,22 @@ await check('lengths, enums and shapes inside the sections', async () => {
   await bad({ cells: [{ battery: 1, cell: 'A' }, { battery: 1, cell: 'A' }] }, 'a cell twice', 'twice');
   await bad({ cells: [{ battery: 1, cell: 'A', clarity: 'MILKY' }] }, 'clarity enum');
   await bad({ cells: [{ battery: 1, cell: 'A', level: 'HALF' }] }, 'level enum');
-  await refused('owner', insp({ action: 'OPEN', kind: 'WASH' }, '900100'), 'kind enum');
-  await refused('owner', insp({ action: 'DONE', inspection: 'I1001', tech: 'Bob' }), 'tech outside the crew');
-  await refused('owner', insp({ action: 'VOID', inspection: 'I1001', note: 'x'.repeat(201) }), 'verb note 201', 400, 'note');
-  await refused('owner', insp({ action: 'DONE', inspection: 'I1001', comments: 'late' }), 'DONE carries no sections', 400, 'comments');
 });
 
-await check('no money travels on an inspection either — refused by name (D65)', async () => {
-  await refused('owner', insp({ action: 'SAVE', inspection: 'I1001', items: [{ id: 'ctl.a', result: 'REPAIR', cost: 40 }] }), 'cost in an item', 400, '"cost"');
-  await refused('owner', insp({ action: 'SAVE', inspection: 'I1001', price: 1 }), 'price at the top', 400, '"price"');
+await check('no money travels on a sheet either — refused by name (D65), at any depth', async () => {
+  await refused('owner', insp('SAVE', { items: [{ id: 'ctl.a', result: 'REPAIR', cost: 40 }] }), 'cost in an item', 400, '"cost"');
+  await refused('owner', insp('SAVE', { comments: 'x', price: 1 }), 'price at the top', 400, '"price"');
+  await refused('owner', wo({ action: 'OPEN', purpose: 'PM', inspection: { readings: { hours_key: 1 }, rate: 95 } }, '153928'), 'rate inside OPEN’s sheet', 400, '"rate"');
+  await refused('owner', insp('SKIP', { reason: 'x', cost: 0 }), 'cost on a SKIP', 400, '"cost"');
 });
 
-await check('work_order OPEN takes an optional inspection back-link (^I\\d{4}$); nothing else does', async () => {
-  const wo = await ok('service', { action: 'work_order', serial: '900100',
-    payload: { action: 'OPEN', purpose: 'REPAIR', inspection: 'I1001', note: 'from I1001: Check and rotate blades', parts: [] } }, 'OPEN with the sheet');
-  assert.equal(wo.payload.inspection, 'I1001');
-  const plain = await ok('service', { action: 'work_order', serial: '900100', payload: { action: 'OPEN', purpose: 'PM', parts: [] } }, 'OPEN without');
-  assert.ok(!('inspection' in plain.payload), 'absent stays absent');
-  await refused('service', { action: 'work_order', serial: '900100', payload: { action: 'OPEN', purpose: 'REPAIR', inspection: 'W1001' } }, 'a W-number as the sheet', 400, 'I1001');
-  await refused('service', { action: 'work_order', payload: { action: 'CLOSE', work_order: 'W1001', inspection: 'I1001' } }, 'on another verb', 400, 'inspection');
+await check('a whole sheet fits the 32 KB cap', async () => {
+  const items = Array.from({ length: 120 }, (_, i) => ({ id: `sect.row_${i}`, result: 'REPAIR', note: 'n'.repeat(120) }));
+  const cells = [];
+  for (let b = 1; b <= 6; b++) for (const c of ['A', 'B', 'C']) cells.push({ battery: b, cell: c, sg: 1.265, clarity: 'CLOUDY', level: 'OVERFILLED' });
+  await ok('service', insp('SAVE', { ...FULL_SAVE, items, cells, comments: 'c'.repeat(1000) }), 'max sheet');
 });
 
-const wo = (payload, serial) => (serial === undefined ? { action: 'work_order', payload } : { action: 'work_order', serial, payload });
 const STOCK = { manufacturer: 'FACTORY-CAT', part_number: '264-4086', description: 'filter', qty: 1 };
 
 await check('D68: parts[].source (VENDOR | SHOP-STOCK | WARRANTY) on OPEN and ADD-PARTS, any role; absent stays absent', async () => {
@@ -231,8 +256,8 @@ await check('D68: PART-STATE {source: SHOP-STOCK} — service + owner 201 (state
   await refused('owner', wo({ action: 'OPEN', purpose: 'REPAIR', parts: [{ ...STOCK, source: 'SHOP-STOCK', price: 9 }] }, '900100'), 'money on a stock line', 400, '"price"');
 });
 
-await check('the undo valve (D46) covers an inspection tap — your own, still pending', async () => {
-  const e = await ok('service', insp({ action: 'OPEN', kind: 'PM' }, '900102'), 'OPEN');
+await check('the undo valve (D46) covers a work-order tap — your own, still pending', async () => {
+  const e = await ok('service', insp('SAVE', { comments: 'x' }, '900102'), 'serial-keyed SAVE');
   const del = (role) => worker.fetch(new Request(`https://w.example/api/event/${encodeURIComponent(e.id)}`, {
     method: 'DELETE', headers: { Authorization: `Bearer ${TOK[role]}` } }), env);
   assert.equal((await del('owner')).status, 403, 'not Matt’s to undo');

@@ -8,9 +8,9 @@
 #   -> PUT/GET/DELETE a document (schema 6) with the hash check that names it
 #   -> POST a document from a "phone" + the doc_attach event that points at it (S2)
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all
-# sixteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
+# fifteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
 # three schema-5 ones, doc_attach (schema 6 / S2), rental_update (D64),
-# work_order (D65, with its by-name money refusal), inspection (D67), and the
+# work_order (D65 + D69 INSPECT, with its by-name money refusal), and the
 # schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
 # Local:   npm run dev:worker     (in another terminal)      then:  npm run m1
@@ -464,7 +464,7 @@ POSTWO "hours 1.3 -> 400"  400 "" "$T_OWNER" "$(WO '' '{"action":"LABOR","work_o
 POSTWO "a backwards state (-> REQUESTED) -> 400" 400 "" "$T_OWNER" \
   "$(WO '' '{"action":"PART-STATE","work_order":"W1001","line":1,"state":"REQUESTED"}')"
 POSTWO "OPEN without a serial -> 400" 400 "" "$T_OWNER" "$(WO '' '{"action":"OPEN","purpose":"PM"}')"
-POSTWO "LABOR with a serial (keyed on work_order) -> 400" 400 "" "$T_OWNER" \
+POSTWO "LABOR with both a serial and work_order (D69: exactly one) -> 400" 400 "" "$T_OWNER" \
   "$(WO ',"serial":"900233"' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1}')"
 POSTWO "qty 0 -> 400" 400 "" "$T_OWNER" "$(WO '' '{"action":"ADD-PARTS","work_order":"W1001","parts":[{"manufacturer":"OTHER","part_number":"1","qty":0}]}')"
 POSTWO "an unknown key on a part line -> 400" 400 "" "$T_OWNER" \
@@ -508,43 +508,42 @@ expect "all twelve work-order events drained -> deleted 12" 200 "b.deleted===12"
   -d "{\"ids\":[\"$WO1\",\"$WO2\",\"$WO3\",\"$WO4\",\"$WO5\",\"$WO6\",\"$WO7\",\"$WO8\",\"$WO10\",\"$WO11\",\"$WO12\",\"$WO13\"]}"
 expect "pending back to baseline after the work orders" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
-echo "-- crew: inspection (D67) — the sixteenth action, five verbs"
-IN() { echo "{\"action\":\"inspection\"$1,\"payload\":$2}"; }
-POSTWO "service opens a check-out sheet -> 201" 201 "b.serial==='900233' && b.payload.action==='OPEN' && b.payload.kind==='CHECKOUT'" \
-  "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"OPEN","kind":"CHECKOUT"}')"
+echo "-- crew: the sheet on the work order (D69) — work_order INSPECT {step}; the inspection action is retired"
+IN() { echo "{\"action\":\"work_order\"$1,\"payload\":$2}"; }
+POSTWO "OPEN with a first save (inspection object) -> 201" 201 "b.payload.purpose==='RETURN' && b.payload.inspection.readings.hours_key===41" \
+  "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"OPEN","purpose":"RETURN","inspection":{"readings":{"hours_key":41}}}')"
 IN1=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "SAVE one section (merge) -> 201" 201 "b.payload.inspection==='I1001' && b.payload.readings.hours_key===412.5 && !('items' in b.payload)" \
-  "$T_SERVICE" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"hours_key":412.5}}')"
+POSTWO "INSPECT SAVE one section by W-number -> 201" 201 "b.payload.work_order==='W1001' && b.payload.readings.hours_key===412.5 && !('items' in b.payload)" \
+  "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","readings":{"hours_key":412.5}}')"
 IN2=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "DONE (any role) -> 201" 201 "b.payload.tech==='Zac'" "$T_SALES" "$(IN '' '{"action":"DONE","inspection":"I1001","tech":"Zac"}')"
+POSTWO "INSPECT SAVE keyed on the serial -> 201" 201 "b.serial==='900233' && !('work_order' in b.payload)" \
+  "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"INSPECT","step":"SAVE","comments":"cleaned the inline filter"}')"
 IN3=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "REOPEN -> 201 (who may is the engine's call)" 201 "" "$T_SERVICE" "$(IN '' '{"action":"REOPEN","inspection":"I1001","note":"missed a row"}')"
+POSTWO "INSPECT DONE (any role) -> 201" 201 "b.payload.tech==='Zac'" "$T_SALES" "$(IN '' '{"action":"INSPECT","step":"DONE","work_order":"W1001","tech":"Zac"}')"
 IN4=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "VOID -> 201" 201 "" "$T_OWNER" "$(IN '' '{"action":"VOID","inspection":"I1001","note":"wrong unit"}')"
+POSTWO "INSPECT SKIP with a reason -> 201" 201 "b.payload.reason.startsWith('gasket')" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"SKIP","work_order":"W1001","reason":"gasket only"}')"
 IN5=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "work_order OPEN from a sheet carries inspection -> 201" 201 "b.payload.inspection==='I1001'" "$T_SERVICE" \
-  "$(WO ',"serial":"900233"' '{"action":"OPEN","purpose":"REPAIR","inspection":"I1001","note":"from I1001: Check and rotate blades","parts":[]}')"
+POSTWO "INSPECT REOPEN -> 201 (who may is the engine's call)" 201 "" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"REOPEN","work_order":"W1001","note":"missed a row"}')"
 IN6=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "a 6th verb -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SIGN","inspection":"I1001"}')"
-POSTWO "inspection W1001 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"DONE","inspection":"W1001"}')"
-POSTWO "sg 2.0 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","cells":[{"battery":1,"cell":"A","sg":2.0}]}')"
-POSTWO "an unknown top-level key -> 400" 400 "b.error.includes('signature')" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","signature":"x"}')"
-POSTWO "a result outside both scales -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","items":[{"id":"ctl.key_switch","result":"FINE"}]}')"
-POSTWO "OPEN without a serial -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"OPEN","kind":"PM"}')"
-POSTWO "D67c: DONE keyed on the serial -> 201" 201 "b.serial==='900233' && !('inspection' in b.payload) && b.payload.tech==='Josh'" "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"DONE","tech":"Josh"}')"
+POSTWO "CLOSE {ready:false} -> 201" 201 "b.payload.ready===false" "$T_OWNER" "$(IN '' '{"action":"CLOSE","work_order":"W1001","ready":false}')"
 IN7=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "D67c: VOID keyed on the serial -> 201" 201 "b.serial==='900233' && !('inspection' in b.payload)" "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"VOID","note":"wrong unit"}')"
-IN8=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-POSTWO "D67c: DONE with both serial and inspection -> 400" 400 "" "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"DONE","inspection":"I1001"}')"
-POSTWO "D67c: VOID with neither -> 400" 400 "" "$T_SERVICE" "$(IN '' '{"action":"VOID"}')"
-POSTWO "D67c: REOPEN keyed on the serial -> 400" 400 "" "$T_OWNER" "$(IN ',"serial":"900233"' '{"action":"REOPEN"}')"
-POSTWO "v1.2: the retired controls key -> 400" 400 "b.error.includes('controls')" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","controls":"RIDER"}')"
-POSTWO "v1.2: a fractional brush percent -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"brush1_pct":55.5}}')"
-POSTWO "v1.2: recharge_count is gone -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"SAVE","inspection":"I1001","readings":{"recharge_count":8}}')"
-expect "all eight inspection events drained -> deleted 8" 200 "b.deleted===8" \
+POSTWO "a 5th step -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SIGN","work_order":"W1001"}')"
+POSTWO "SKIP carrying items -> 400" 400 "b.error.includes('SKIP')" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SKIP","work_order":"W1001","reason":"x","items":[]}')"
+POSTWO "SKIP without a reason -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SKIP","work_order":"W1001"}')"
+POSTWO "OPEN with the retired string back-link -> 400" 400 "b.error.includes('retired')" "$T_OWNER" "$(IN ',"serial":"900233"' '{"action":"OPEN","purpose":"REPAIR","inspection":"I1001"}')"
+POSTWO "purpose BOGUS -> 400" 400 "" "$T_OWNER" "$(IN ',"serial":"900233"' '{"action":"OPEN","purpose":"BOGUS"}')"
+POSTWO "CLOSE ready \"yes\" -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"CLOSE","work_order":"W1001","ready":"yes"}')"
+POSTWO "INSPECT with both serial and work_order -> 400" 400 "" "$T_SERVICE" "$(IN ',"serial":"900233"' '{"action":"INSPECT","step":"DONE","work_order":"W1001"}')"
+POSTWO "INSPECT with neither -> 400" 400 "" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"SAVE","comments":"x"}')"
+POSTWO "sg 2.0 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","cells":[{"battery":1,"cell":"A","sg":2.0}]}')"
+POSTWO "an unknown top-level key -> 400" 400 "b.error.includes('signature')" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","signature":"x"}')"
+POSTWO "a result outside both scales -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","items":[{"id":"ctl.key_switch","result":"FINE"}]}')"
+POSTWO "a fractional brush percent -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","readings":{"brush1_pct":55.5}}')"
+POSTWO "the retired inspection action -> 400" 400 "" "$T_OWNER" '{"action":"inspection","serial":"900233","payload":{"action":"OPEN","kind":"PM"}}'
+expect "all seven sheet events drained -> deleted 7" 200 "b.deleted===7" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
-  -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\",\"$IN7\",\"$IN8\"]}"
-expect "pending back to baseline after the inspections" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
+  -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\",\"$IN7\"]}"
+expect "pending back to baseline after the sheet" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- the money gate (Leads spec §6, L4) — NOT optional"
 # The literal grep the spec names. It runs on the RAW bytes, before any JSON

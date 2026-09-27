@@ -64,13 +64,10 @@ const ACTION_ROLES = {
   // part number. The owner-only verbs (ORDERED, CLOSE) and the service/owner
   // ones (IN-TRANSIT, DELIVERED, a cancelled line) are narrowed in cleanPayload.
   work_order: ALL_ROLES,
-  // D67 (2026-09-25) — the SIXTEENTH action. The fleet inspection sheet
-  // (check-out / return / PM). OPEN / SAVE / DONE are anyone's — whoever has
-  // the machine in front of them fills the sheet. REOPEN (owner, or the tech
-  // within 24 h of DONE) and VOID (owner, or the opener while DRAFT) hinge on
-  // who did what and when, which is business state: the engine referees both,
-  // so this file passes every role through at the action level.
-  inspection: ALL_ROLES,
+  // D69 (2026-09-27): the D67 `inspection` action is RETIRED — the sheet is a
+  // section of the work order now (`work_order` INSPECT). Fifteen actions. A
+  // stale phone posting `inspection` gets "unknown action" (400) from here and
+  // a pointer from the engine if one ever slipped through.
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -110,8 +107,11 @@ const RENTAL_VERBS = new Set(['OUT', 'OFF-RENT', 'IN']);
 const SERVICE_LEAD_KEYS = new Set(['lead', 'note']);
 // D65 — work orders. Membership only, as everywhere: forward-only part states,
 // one OPEN per serial and the close guard are the engine's, not ours.
-const WO_VERBS = new Set(['OPEN', 'ADD-PARTS', 'PART-STATE', 'LABOR', 'CLOSE', 'CANCEL']);
-const WO_PURPOSES = new Set(['RENT-READY', 'REPAIR', 'PM', 'OTHER']);
+// D69 adds INSPECT — the sheet lives on the work order, one per work order.
+const WO_VERBS = new Set(['OPEN', 'ADD-PARTS', 'PART-STATE', 'LABOR', 'CLOSE', 'CANCEL', 'INSPECT']);
+// D69: the D67 sheet kinds folded into `purpose`. RENT-READY is still accepted
+// from a stale phone — the engine maps it to CHECKOUT — so it is legal here.
+const WO_PURPOSES = new Set(['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER', 'RENT-READY']);
 const WO_MANUFACTURERS = new Set(['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'OTHER']);
 const WO_VENDORS = new Set(['RPS', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'TENNANT', 'OTHER']);
 // REQUESTED is where a line starts, never where a tap sends it — the one
@@ -124,25 +124,12 @@ const WO_PART_STATES = new Set(['ORDERED', 'IN-TRANSIT', 'DELIVERED', 'CANCELLED
 const WO_PART_SOURCES = new Set(['VENDOR', 'SHOP-STOCK', 'WARRANTY']);
 const WO_ID_RE = /^W\d{4}$/;
 const WO_MAX_LINES = 10;             // per event; the engine holds the 20-per-WO cap
-// The keys each verb may carry. Anything else is a 400 — a work order is a new
-// shape, so there is no old client to be lenient with.
-const WO_KEYS = {
-  OPEN: ['action', 'purpose', 'note', 'parts', 'inspection'],   // D67: the sheet it was opened from
-  'ADD-PARTS': ['action', 'work_order', 'parts'],
-  'PART-STATE': ['action', 'work_order', 'line', 'state', 'source', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],   // D68: source
-  LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'note'],
-  CLOSE: ['action', 'work_order', 'note'],
-  CANCEL: ['action', 'work_order', 'note'],
-};
-const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty', 'source']);   // D68: source
-// D67 — the inspection sheet. Shape + enums + lengths ONLY. Which row ids
-// exist, which scale a row uses and whether a retired row may be answered all
-// live in the vault's row library (Fleet/_Inspection-Checklist.md) — the
-// library is deliberately NOT on this Worker: a row is a vault edit, never a
-// deploy, and a second copy here would be the one that goes stale.
-const INSP_VERBS = new Set(['OPEN', 'SAVE', 'DONE', 'REOPEN', 'VOID']);
-const INSP_ID_RE = /^I\d{4}$/;
-const INSP_KINDS = new Set(['CHECKOUT', 'RETURN', 'PM']);
+// The inspection sheet (D67 shapes, D69 home). Shape + enums + lengths ONLY.
+// Which row ids exist, which scale a row uses and whether a retired row may be
+// answered all live in the vault's row library (Fleet/_Inspection-Checklist.md)
+// — the library is deliberately NOT on this Worker: a row is a vault edit,
+// never a deploy, and a second copy here would be the one that goes stale.
+const INSP_STEPS = new Set(['SAVE', 'DONE', 'SKIP', 'REOPEN']);
 const INSP_CLASSES = new Set(['SWEEPER', 'SCRUBBER']);
 const INSP_BODY_STYLES = new Set(['WALK-BEHIND', 'RIDER', 'STAND-ON']);   // v1.2: was `controls`
 const INSP_BATTERY_TYPES = new Set(['WET', 'AGM', 'LITHIUM']);
@@ -159,19 +146,29 @@ const INSP_METER_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub
 const INSP_ROW_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;   // "ctl.key_switch" — shape only; which ids exist is the library's
 const INSP_MAX_CELLS = 18;
 const INSP_MAX_ITEMS = 120;
+const INSP_MAX_REASON = 120;
 // The sections a SAVE may carry. Present = "replace this section", absent =
 // "leave it alone" (merge by section) — so a key is kept even when its value is
 // null, because a null there is an instruction to clear it.
 const INSP_SECTIONS = ['machine_class', 'body_style', 'battery', 'readings', 'cells', 'items', 'comments'];
-const INSP_KEYS = {
-  // OPEN may carry a first SAVE: the engine merges it into the new sheet. That
-  // is how a sheet typed before its I-number exists reaches the vault.
-  OPEN: ['action', 'kind', ...INSP_SECTIONS],
-  SAVE: ['action', 'inspection', ...INSP_SECTIONS],
-  DONE: ['action', 'inspection', 'tech'],
-  REOPEN: ['action', 'inspection', 'note'],
-  VOID: ['action', 'inspection', 'note'],
+// The keys each verb may carry. Anything else is a 400 — a work order is a new
+// shape, so there is no old client to be lenient with. INSPECT's keys depend
+// on its step and are listed in WO_INSPECT_KEYS.
+const WO_KEYS = {
+  OPEN: ['action', 'purpose', 'note', 'parts', 'inspection'],   // D69: `inspection` = a first SAVE (an object)
+  'ADD-PARTS': ['action', 'work_order', 'parts'],
+  'PART-STATE': ['action', 'work_order', 'line', 'state', 'source', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],   // D68: source
+  LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'note'],
+  CLOSE: ['action', 'work_order', 'note', 'ready'],             // D69: ready (bool) — the close IS the ready call
+  CANCEL: ['action', 'work_order', 'note'],
 };
+const WO_INSPECT_KEYS = {
+  SAVE: ['action', 'step', 'work_order', ...INSP_SECTIONS],
+  DONE: ['action', 'step', 'work_order', 'tech', ...INSP_SECTIONS],   // DONE may carry the last section too
+  SKIP: ['action', 'step', 'work_order', 'reason'],
+  REOPEN: ['action', 'step', 'work_order', 'note'],
+};
+const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty', 'source']);   // D68: source
 /**
  * D65: NO MONEY FROM A PHONE, for any role, in any action. Cost is backfilled
  * in the vault from the vendor invoice (D66) and the shop rate lives there too;
@@ -220,7 +217,8 @@ const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const DOC_NAME_MAX = 120;
 
 // 32 KB: a whole inspection sheet (120 answered rows with notes, 18 cells,
-// the comments box) can travel as one OPEN or SAVE. Nothing else comes close.
+// the comments box) can travel as one work_order OPEN or INSPECT SAVE / DONE.
+// Nothing else comes close.
 const MAX_EVENT_BYTES = 32 * 1024;
 const MAX_ACK_IDS = 1000;
 const MAX_SNAPSHOT_BYTES = 24 * 1024 * 1024;    // KV value limit is 25 MiB
@@ -535,6 +533,107 @@ function cleanPayload(action, p, role, serial) {
   };
   const optStr = (v, max, field) => (v == null || v === '' ? null : str(v, max, field, true));
 
+  /**
+   * The inspection sheet's sections (D67 shapes; D69 they ride on work_order
+   * INSPECT, or on OPEN as `inspection: {…}`). Only the sections present
+   * travel — absent means untouched (merge by section). `at` prefixes the
+   * field names in a 400 ("inspection.readings…" on OPEN).
+   */
+  const inspSections = (src, at) => {
+    const num = (v, lo, hi, field) => {
+      if (v == null) return null;
+      if (typeof v !== 'number' || !isFinite(v)) throw httpError(400, `${field} must be a number`);
+      if (v < lo || v > hi) throw httpError(400, `${field} must be ${lo}–${hi}`);
+      return v;
+    };
+    const obj2 = (v, field) => {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) throw httpError(400, `${field} must be an object`);
+      return v;
+    };
+    const out = {};
+    if ('machine_class' in src) out.machine_class = oneOf(src.machine_class, INSP_CLASSES, `${at}machine_class`);
+    if ('body_style' in src) out.body_style = oneOf(src.body_style, INSP_BODY_STYLES, `${at}body_style`);
+    if ('battery' in src) {
+      if (src.battery == null) out.battery = null;
+      else {
+        const b = obj2(src.battery, `${at}battery`);
+        for (const k of Object.keys(b)) if (!['type', 'voltage', 'pack'].includes(k)) throw httpError(400, `${at}battery does not take ${k}`);
+        const type = optOneOf(b.type, INSP_BATTERY_TYPES, `${at}battery.type`);
+        let voltage = null;
+        if (b.voltage != null && b.voltage !== '') {
+          if (b.voltage !== 24 && b.voltage !== 36) throw httpError(400, `${at}battery.voltage must be 24 or 36`);
+          voltage = b.voltage;
+        }
+        let pack = null;
+        if (b.pack != null && b.pack !== '') {
+          if (type !== 'WET') throw httpError(400, `${at}battery.pack is only for a WET pack`);
+          if (!voltage || !INSP_PACKS[voltage].includes(b.pack)) throw httpError(400, `${at}battery.pack must match the voltage (24 → 4x6V|2x12V, 36 → 3x12V|6x6V)`);
+          pack = b.pack;
+        }
+        out.battery = { type, voltage, pack };
+      }
+    }
+    if ('readings' in src) {
+      if (src.readings == null) out.readings = null;
+      else {
+        const r = obj2(src.readings, `${at}readings`);
+        const rd = {};
+        for (const k of Object.keys(r)) {
+          if (!INSP_READINGS.has(k)) throw httpError(400, `${at}readings does not take ${k}`);
+          if (k === 'brushes_rotated') {
+            if (r[k] != null && typeof r[k] !== 'boolean') throw httpError(400, 'brushes_rotated must be true or false');
+            rd[k] = r[k] == null ? null : r[k];
+          } else if (INSP_METER_READINGS.has(k)) {
+            rd[k] = num(r[k], 0, 99999, k);
+          } else {
+            const v = num(r[k], 0, 100, k);
+            if (v != null && !Number.isInteger(v)) throw httpError(400, `${k} is a whole-number percent (0–100)`);
+            rd[k] = v;
+          }
+        }
+        out.readings = rd;
+      }
+    }
+    if ('cells' in src) {
+      const list = src.cells == null ? [] : src.cells;
+      if (!Array.isArray(list)) throw httpError(400, `${at}cells must be a list`);
+      if (list.length > INSP_MAX_CELLS) throw httpError(400, `${at}cells is limited to ${INSP_MAX_CELLS}`);
+      const seen = new Set();
+      out.cells = list.map((c, i) => {
+        if (!c || typeof c !== 'object' || Array.isArray(c)) throw httpError(400, `cells[${i}] must be an object`);
+        for (const k of Object.keys(c)) if (!['battery', 'cell', 'sg', 'clarity', 'level'].includes(k)) throw httpError(400, `cells[${i}] does not take ${k}`);
+        if (!Number.isInteger(c.battery) || c.battery < 1 || c.battery > 6) throw httpError(400, `cells[${i}].battery must be 1–6`);
+        if (typeof c.cell !== 'string' || !/^[A-F]$/.test(c.cell)) throw httpError(400, `cells[${i}].cell must be A–F`);
+        const key = `${c.battery}${c.cell}`;
+        if (seen.has(key)) throw httpError(400, `cell ${key} is in the list twice`);
+        seen.add(key);
+        return {
+          battery: c.battery,
+          cell: c.cell,
+          sg: num(c.sg, 1, 1.4, `cells[${i}].sg`),
+          clarity: optOneOf(c.clarity, INSP_CLARITY, `cells[${i}].clarity`),
+          level: optOneOf(c.level, INSP_LEVEL, `cells[${i}].level`),
+        };
+      });
+    }
+    if ('items' in src) {
+      const list = src.items == null ? [] : src.items;
+      if (!Array.isArray(list)) throw httpError(400, `${at}items must be a list`);
+      if (list.length > INSP_MAX_ITEMS) throw httpError(400, `${at}items is limited to ${INSP_MAX_ITEMS}`);
+      const seen = new Set();
+      out.items = list.map((it, i) => {
+        if (!it || typeof it !== 'object' || Array.isArray(it)) throw httpError(400, `items[${i}] must be an object`);
+        for (const k of Object.keys(it)) if (!['id', 'result', 'note'].includes(k)) throw httpError(400, `items[${i}] does not take ${k}`);
+        if (typeof it.id !== 'string' || !INSP_ROW_ID_RE.test(it.id)) throw httpError(400, `items[${i}].id must look like ctl.key_switch`);
+        if (seen.has(it.id)) throw httpError(400, `row ${it.id} is answered twice`);
+        seen.add(it.id);
+        return { id: it.id, result: optOneOf(it.result, INSP_RESULTS, `items[${i}].result`), note: optStr(it.note, 120, `items[${i}].note`) };
+      });
+    }
+    if ('comments' in src) out.comments = optStr(src.comments, 1000, `${at}comments`);
+    return out;
+  };
+
   if (action === 'reserve') {
     // v2: an inclusive [start, end] window. Legacy `until` is accepted as `end`
     // for any in-flight v1 client; new code never sends it. Shape only — whether
@@ -775,17 +874,34 @@ function cleanPayload(action, p, role, serial) {
 
   if (action === 'work_order') {
     const verb = oneOf(obj.action, WO_VERBS, 'action');
-    for (const k of Object.keys(obj)) {
-      if (!WO_KEYS[verb].includes(k)) throw httpError(400, `${verb} does not take ${k}`);
+    const step = verb === 'INSPECT' ? oneOf(obj.step, INSP_STEPS, 'step') : null;
+    // D69: SKIP is "no inspection, and here's why" — a sheet section riding
+    // along is a contradiction, so it is refused by name before the key check
+    // turns it into a generic "does not take".
+    if (step === 'SKIP') {
+      const sec = INSP_SECTIONS.find((k) => k in obj);
+      if (sec) throw httpError(400, `SKIP carries no sheet sections (got ${sec}) — SAVE them or drop them`);
     }
-    // The serial names the unit on OPEN and nowhere else: every later verb is
-    // keyed on the W-number, which already knows its serial.
+    const allowed = step ? WO_INSPECT_KEYS[step] : WO_KEYS[verb];
+    for (const k of Object.keys(obj)) {
+      if (!allowed.includes(k)) throw httpError(400, `${step ? `INSPECT ${step}` : verb} does not take ${k}`);
+    }
+    // OPEN names the unit by serial, and mints the W-number. Every other verb
+    // (D69, generalising D67c) is keyed on EXACTLY ONE of payload.work_order or
+    // the top-level serial: a work order opened on this phone a minute ago has
+    // no W-number until the engine runs, and the engine resolves a serial to
+    // its one OPEN work order. Both or neither is ambiguous — 400.
     if (verb === 'OPEN' && !serial) throw httpError(400, 'OPEN needs the unit serial');
-    if (verb !== 'OPEN' && serial) throw httpError(400, `${verb} is keyed on work_order, not serial`);
-    const woId = () => {
+    const hasWo = obj.work_order != null && obj.work_order !== '';
+    if (verb !== 'OPEN') {
+      if (hasWo && serial) throw httpError(400, `${verb} is keyed on work_order or serial, not both`);
+      if (!hasWo && !serial) throw httpError(400, `${verb} needs the work_order (or, before it has one, the serial)`);
+    }
+    const woKey = () => {
+      if (!hasWo) return {};
       const t = str(obj.work_order, 16, 'work_order', true);
       if (!WO_ID_RE.test(t)) throw httpError(400, 'work_order must look like W1001');
-      return t;
+      return { work_order: t };
     };
     const parts = (required) => {
       const list = obj.parts == null ? [] : obj.parts;
@@ -812,16 +928,46 @@ function cleanPayload(action, p, role, serial) {
     const note = () => optStr(obj.note, 200, 'note');
 
     if (verb === 'OPEN') {
-      const out = { action: verb, purpose: oneOf(obj.purpose, WO_PURPOSES, 'purpose'), note: note(), parts: parts(false) };
-      // D67: the inspection sheet this work order came from. A back-link only —
-      // whether that sheet is on this serial is the engine's call.
-      if (obj.inspection != null && obj.inspection !== '') {
-        if (typeof obj.inspection !== 'string' || !INSP_ID_RE.test(obj.inspection)) throw httpError(400, 'inspection must look like I1001');
-        out.inspection = obj.inspection;
+      // `purpose` may be left off — the engine picks it from the unit's
+      // readiness (NEEDS-PREP → RETURN, DOWN / ON-RENT → REPAIR, READY →
+      // CHECKOUT, else PM). RENT-READY passes; the engine maps it.
+      const out = { action: verb, purpose: optOneOf(obj.purpose, WO_PURPOSES, 'purpose'), note: note(), parts: parts(false) };
+      // D69: a first SAVE of the sheet the work order is born with. An OBJECT
+      // of sections — the D67 I-number back-link ("I1001") is retired.
+      if (obj.inspection != null) {
+        if (typeof obj.inspection !== 'object' || Array.isArray(obj.inspection)) {
+          throw httpError(400, 'inspection on OPEN is an object of sheet sections (D69) — the I-number back-link is retired');
+        }
+        for (const k of Object.keys(obj.inspection)) {
+          if (!INSP_SECTIONS.includes(k)) throw httpError(400, `inspection does not take ${k}`);
+        }
+        out.inspection = inspSections(obj.inspection, 'inspection.');
       }
       return out;
     }
-    if (verb === 'ADD-PARTS') return { action: verb, work_order: woId(), parts: parts(true) };
+    if (verb === 'INSPECT') {
+      const key = woKey();
+      if (step === 'SAVE') {
+        const out = inspSections(obj, '');
+        if (!Object.keys(out).length) throw httpError(400, 'INSPECT SAVE needs at least one section');
+        return { action: verb, step, ...key, ...out };
+      }
+      if (step === 'DONE') {
+        // Which tech signs is the crew enum; "has an hours reading" is the
+        // sheet's state, so the engine checks it (the page mirrors it).
+        return { action: verb, step, ...key, tech: optOneOf(obj.tech, DRIVERS, 'tech'), ...inspSections(obj, '') };
+      }
+      if (step === 'SKIP') {
+        // "No inspection" is a choice somebody owns — the reason is the owning.
+        const reason = str(obj.reason, INSP_MAX_REASON, 'reason', true);
+        if (!reason) throw httpError(400, 'reason is required — say why there is no inspection');
+        return { action: verb, step, ...key, reason };
+      }
+      // REOPEN: owner, or the tech within 24 h of DONE / SKIP — who did what
+      // and when is business state, so the engine referees it.
+      return { action: verb, step, ...key, note: note() };
+    }
+    if (verb === 'ADD-PARTS') return { action: verb, ...woKey(), parts: parts(true) };
     if (verb === 'PART-STATE' && obj.source != null && obj.source !== '') {
       // D68 "Use from stock": REQUESTED -> DELIVERED off the shelf. SHOP-STOCK is
       // the only source a tap may set here, `state` may be left off (or say
@@ -837,7 +983,7 @@ function cleanPayload(action, p, role, serial) {
       if (role !== 'owner' && role !== 'service') throw httpError(403, `role ${role} cannot pull a part from stock`);
       if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
       return {
-        action: verb, work_order: woId(), line: obj.line, state: 'DELIVERED', source: 'SHOP-STOCK',
+        action: verb, ...woKey(), line: obj.line, state: 'DELIVERED', source: 'SHOP-STOCK',
         date: optDate(obj.date, 'date'), note: note(),
       };
     }
@@ -850,7 +996,7 @@ function cleanPayload(action, p, role, serial) {
       if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
       return {
         action: verb,
-        work_order: woId(),
+        ...woKey(),
         line: obj.line,
         state,
         date: optDate(obj.date, 'date'),
@@ -864,147 +1010,23 @@ function cleanPayload(action, p, role, serial) {
       const h = obj.hours;
       if (typeof h !== 'number' || !isFinite(h) || h < 0.25 || h > 12) throw httpError(400, 'hours must be 0.25–12');
       if (Math.round(h * 4) !== h * 4) throw httpError(400, 'hours go in quarter-hour steps');
-      return { action: verb, work_order: woId(), date: optDate(obj.date, 'date'), who: oneOf(obj.who, DRIVERS, 'who'), hours: h, note: note() };
+      return { action: verb, ...woKey(), date: optDate(obj.date, 'date'), who: oneOf(obj.who, DRIVERS, 'who'), hours: h, note: note() };
     }
-    if (verb === 'CLOSE' && role !== 'owner') throw httpError(403, `role ${role} cannot close a work order`);
+    if (verb === 'CLOSE') {
+      if (role !== 'owner') throw httpError(403, `role ${role} cannot close a work order`);
+      // D69: the close is the ready call. Absent = the engine's default (true);
+      // anything but a real boolean is a 400 — "yes" is not a readiness decision.
+      const out = { action: verb, ...woKey(), note: note() };
+      if (obj.ready != null) {
+        if (typeof obj.ready !== 'boolean') throw httpError(400, 'ready must be true or false');
+        out.ready = obj.ready;
+      }
+      return out;
+    }
     // CANCEL is owner, or whoever opened it while nothing has been ordered —
     // both halves are business state (opened_by, line states), so the engine
     // referees it and this file passes any role through.
-    return { action: verb, work_order: woId(), note: note() };
-  }
-
-  if (action === 'inspection') {
-    const verb = oneOf(obj.action, INSP_VERBS, 'action');
-    for (const k of Object.keys(obj)) {
-      if (!INSP_KEYS[verb].includes(k)) throw httpError(400, `${verb} does not take ${k}`);
-    }
-    const inspId = (required) => {
-      if (!required && (obj.inspection == null || obj.inspection === '')) return null;
-      const t = str(obj.inspection, 16, 'inspection', true);
-      if (!INSP_ID_RE.test(t)) throw httpError(400, 'inspection must look like I1001');
-      return t;
-    };
-    const num = (v, lo, hi, field) => {
-      if (v == null) return null;
-      if (typeof v !== 'number' || !isFinite(v)) throw httpError(400, `${field} must be a number`);
-      if (v < lo || v > hi) throw httpError(400, `${field} must be ${lo}–${hi}`);
-      return v;
-    };
-    const obj2 = (v, field) => {
-      if (!v || typeof v !== 'object' || Array.isArray(v)) throw httpError(400, `${field} must be an object`);
-      return v;
-    };
-    // Only the sections present travel — absent means untouched (merge by section).
-    const sections = () => {
-      const out = {};
-      if ('machine_class' in obj) out.machine_class = oneOf(obj.machine_class, INSP_CLASSES, 'machine_class');
-      if ('body_style' in obj) out.body_style = oneOf(obj.body_style, INSP_BODY_STYLES, 'body_style');
-      if ('battery' in obj) {
-        if (obj.battery == null) out.battery = null;
-        else {
-          const b = obj2(obj.battery, 'battery');
-          for (const k of Object.keys(b)) if (!['type', 'voltage', 'pack'].includes(k)) throw httpError(400, `battery does not take ${k}`);
-          const type = optOneOf(b.type, INSP_BATTERY_TYPES, 'battery.type');
-          let voltage = null;
-          if (b.voltage != null && b.voltage !== '') {
-            if (b.voltage !== 24 && b.voltage !== 36) throw httpError(400, 'battery.voltage must be 24 or 36');
-            voltage = b.voltage;
-          }
-          let pack = null;
-          if (b.pack != null && b.pack !== '') {
-            if (type !== 'WET') throw httpError(400, 'battery.pack is only for a WET pack');
-            if (!voltage || !INSP_PACKS[voltage].includes(b.pack)) throw httpError(400, `battery.pack must match the voltage (24 → 4x6V|2x12V, 36 → 3x12V|6x6V)`);
-            pack = b.pack;
-          }
-          out.battery = { type, voltage, pack };
-        }
-      }
-      if ('readings' in obj) {
-        if (obj.readings == null) out.readings = null;
-        else {
-          const r = obj2(obj.readings, 'readings');
-          const rd = {};
-          for (const k of Object.keys(r)) {
-            if (!INSP_READINGS.has(k)) throw httpError(400, `readings does not take ${k}`);
-            if (k === 'brushes_rotated') {
-              if (r[k] != null && typeof r[k] !== 'boolean') throw httpError(400, 'brushes_rotated must be true or false');
-              rd[k] = r[k] == null ? null : r[k];
-            } else if (INSP_METER_READINGS.has(k)) {
-              rd[k] = num(r[k], 0, 99999, k);
-            } else {
-              const v = num(r[k], 0, 100, k);
-              if (v != null && !Number.isInteger(v)) throw httpError(400, `${k} is a whole-number percent (0–100)`);
-              rd[k] = v;
-            }
-          }
-          out.readings = rd;
-        }
-      }
-      if ('cells' in obj) {
-        const list = obj.cells == null ? [] : obj.cells;
-        if (!Array.isArray(list)) throw httpError(400, 'cells must be a list');
-        if (list.length > INSP_MAX_CELLS) throw httpError(400, `cells is limited to ${INSP_MAX_CELLS}`);
-        const seen = new Set();
-        out.cells = list.map((c, i) => {
-          if (!c || typeof c !== 'object' || Array.isArray(c)) throw httpError(400, `cells[${i}] must be an object`);
-          for (const k of Object.keys(c)) if (!['battery', 'cell', 'sg', 'clarity', 'level'].includes(k)) throw httpError(400, `cells[${i}] does not take ${k}`);
-          if (!Number.isInteger(c.battery) || c.battery < 1 || c.battery > 6) throw httpError(400, `cells[${i}].battery must be 1–6`);
-          if (typeof c.cell !== 'string' || !/^[A-F]$/.test(c.cell)) throw httpError(400, `cells[${i}].cell must be A–F`);
-          const key = `${c.battery}${c.cell}`;
-          if (seen.has(key)) throw httpError(400, `cell ${key} is in the list twice`);
-          seen.add(key);
-          return {
-            battery: c.battery,
-            cell: c.cell,
-            sg: num(c.sg, 1, 1.4, `cells[${i}].sg`),
-            clarity: optOneOf(c.clarity, INSP_CLARITY, `cells[${i}].clarity`),
-            level: optOneOf(c.level, INSP_LEVEL, `cells[${i}].level`),
-          };
-        });
-      }
-      if ('items' in obj) {
-        const list = obj.items == null ? [] : obj.items;
-        if (!Array.isArray(list)) throw httpError(400, 'items must be a list');
-        if (list.length > INSP_MAX_ITEMS) throw httpError(400, `items is limited to ${INSP_MAX_ITEMS}`);
-        const seen = new Set();
-        out.items = list.map((it, i) => {
-          if (!it || typeof it !== 'object' || Array.isArray(it)) throw httpError(400, `items[${i}] must be an object`);
-          for (const k of Object.keys(it)) if (!['id', 'result', 'note'].includes(k)) throw httpError(400, `items[${i}] does not take ${k}`);
-          if (typeof it.id !== 'string' || !INSP_ROW_ID_RE.test(it.id)) throw httpError(400, `items[${i}].id must look like ctl.key_switch`);
-          if (seen.has(it.id)) throw httpError(400, `row ${it.id} is answered twice`);
-          seen.add(it.id);
-          return { id: it.id, result: optOneOf(it.result, INSP_RESULTS, `items[${i}].result`), note: optStr(it.note, 120, `items[${i}].note`) };
-        });
-      }
-      if ('comments' in obj) out.comments = optStr(obj.comments, 1000, 'comments');
-      return out;
-    };
-
-    if (verb === 'OPEN') {
-      // The unit is named by the top-level serial; the engine mints the I-number.
-      if (!serial) throw httpError(400, 'OPEN needs the unit serial');
-      return { action: verb, kind: optOneOf(obj.kind, INSP_KINDS, 'kind'), ...sections() };
-    }
-    // REOPEN targets a DONE sheet by number — never by serial (a serial has
-    // one DRAFT, not one DONE).
-    if (verb === 'REOPEN') {
-      if (serial) throw httpError(400, 'REOPEN is keyed on inspection, not serial');
-      return { action: verb, inspection: inspId(true), note: optStr(obj.note, 200, 'note') };
-    }
-    // SAVE / DONE / VOID: keyed on the I-number — or, before the engine has
-    // minted one, on the top-level serial, which the engine resolves to that
-    // serial's one DRAFT. Exactly one of the two.
-    const id = inspId(false);
-    if (id && serial) throw httpError(400, `${verb} is keyed on inspection or serial, not both`);
-    if (!id && !serial) throw httpError(400, `${verb} needs the inspection (or, before it has one, the serial)`);
-    const key = id ? { inspection: id } : {};
-    if (verb === 'SAVE') {
-      const out = sections();
-      if (!Object.keys(out).length) throw httpError(400, 'SAVE needs at least one section');
-      return { action: verb, ...key, ...out };
-    }
-    if (verb === 'DONE') return { action: verb, ...key, tech: optOneOf(obj.tech, DRIVERS, 'tech') };
-    return { action: verb, ...key, note: optStr(obj.note, 200, 'note') };
+    return { action: verb, ...woKey(), note: note() };
   }
 
   return {}; // every action in ACTION_ROLES is handled above
