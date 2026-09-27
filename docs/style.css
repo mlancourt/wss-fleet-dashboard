@@ -1290,3 +1290,5 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
 .pct-wrap { position: relative; display: block; }
 .pct-wrap input { padding-right: 30px; font-variant-numeric: tabular-nums; }
 .pct-suf { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-weight: 650; pointer-events: none; }
+/* 9/27 strip polish: a part row's W-number is a reference, not the headline — grey like the asset chip. */
+.chip.wo-ref { text-decoration: none; }

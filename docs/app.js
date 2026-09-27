@@ -73,7 +73,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-27-d69';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-27-d69b';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -606,7 +606,12 @@ function woStripRow(wo) {
     </div>`;
 }
 
-/** One part line in the strip. The PO leads; the chips say where it is and whose it is. */
+/**
+ * One part line in the strip. The PART leads (9/27 strip polish): "🔩 264-4086 × 1",
+ * its description under it. Red mono "PO W…" belongs to the work order's own row
+ * in Open, so here the W-number is a grey chip like the asset one — same job,
+ * different thing. Chips: [W1001] [asset] [order trail / carrier] [age] (+ ticket).
+ */
 function partStripRow({ wo, part }) {
   const u = unitBySerial(wo.serial);
   const asset = wo.asset_item || (u && u.asset_item) || `#${wo.serial}`;
@@ -614,11 +619,11 @@ function partStripRow({ wo, part }) {
   return html`
     <div class="prow">
       <a class="prow-main" href="#/wo/${raw(enc(wo.id))}">
-        <span class="prow-po">PO <strong>${wo.id}</strong></span>
-        <span class="prow-part"><span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
+        <span class="prow-part">🔩 <span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
         ${part.description ? raw(html`<span class="prow-desc">${part.description}</span>`) : ''}
       </a>
       <div class="chips">
+        <a class="chip asset wo-ref" href="#/wo/${raw(enc(wo.id))}">${wo.id}</a>
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">${asset}</a>
         ${raw(partTrailChips(part))}
         ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}

@@ -2572,7 +2572,18 @@ await check('D65/D69: expanded — open work orders with their 📋 chip, then p
   const open = snap.work_orders.filter((w) => w.status === 'OPEN');
   const lines = open.flatMap((w) => w.parts).filter((p) => ['REQUESTED', 'ORDERED', 'IN-TRANSIT'].includes(p.state)).length;
   assert.equal(rows, open.length + lines, 'one row per open work order, then one per open PART LINE');
-  assert.ok(st.includes('PO <strong>W1001</strong>') && st.includes('href="#/wo/W1001"'), 'W-number labelled PO, tap → #/wo/');
+  assert.ok(st.includes('PO <strong>W1001</strong>') && st.includes('href="#/wo/W1001"'), 'the work order\'s own row: W-number labelled PO, tap → #/wo/');
+  // 9/27 strip polish: a part row leads with the PART; the W-number is a grey chip, no "PO", first in the chips.
+  const lineRows = st.split('<div class="prow">').slice(1).filter((r) => r.includes('class="prow-part">🔩 '));
+  assert.equal(lineRows.length, lines, 'every part row leads with 🔩 <part #> × <qty>');
+  for (const r of lineRows) {
+    assert.ok(!r.includes('prow-po') && !/>PO</.test(r), 'no red PO slot on a part row');
+    const chips = r.slice(r.indexOf('<div class="chips">'));
+    assert.ok(/^<div class="chips">\s*<a class="chip asset wo-ref" href="#\/wo\/W\d{4}">W\d{4}<\/a>\s*<a class="chip asset" href="#\/unit\//.test(chips), 'chips: [W…] then [asset]');
+  }
+  const ups = lineRows.find((r) => r.includes('30-750'));
+  assert.ok(ups.includes('>🔩 <span class="unit-serial">30-750</span> × 1<') && ups.includes('<span class="prow-desc">Vac hose 1.5in x 6ft</span>'), 'part # × qty, description under it');
+  assert.ok(ups.indexOf('wo-ref') < ups.indexOf('chip asset"') && ups.indexOf('chip asset"') < ups.indexOf('ups.com'), 'W · asset · carrier');
   assert.ok(st.includes('href="https://www.ups.com/track?tracknum=1Z999AA10123456784"'), 'UPS → a carrier link');
   assert.ok(st.includes('<span class="chip track">LTL PRO 48213377</span>'), 'unknown carrier → plain text, no link');
   assert.ok(st.includes('href="#/ticket/S1002"'), 'the 🔩 row carries its ticket chip');
