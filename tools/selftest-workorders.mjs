@@ -10,6 +10,7 @@ import {
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
   isStockLine, sourceOf, pendingLineLabel, PART_VERB_LABEL,
   PURPOSES, PURPOSE_LABEL, closeBlocker, readyOffered, stripCounts, stripTone, openWorkOrders, pendingBySerial, byTs,
+  DELIVERED_DAYS, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
 } from '../docs/workorders.js';
 
 let passed = 0;
@@ -268,6 +269,90 @@ check('no money: nothing this module returns carries a figure or a money key', (
   const out = JSON.stringify([stripGroups(LIST), woChipText(LIST[0]), LIST.map((w) => partActions(w, w.parts[0], 'owner', 'Matt'))]);
   assert.ok(!/\$\s?\d/.test(out));
   assert.ok(!/"(cost|rate|price)"/.test(out));
+});
+
+/* ------------------------------------------------ D70: service history */
+
+check('D70: Delivered (30d) is 30 days of boxes — a 40-day line is out, a pre-D70 line (no key) is in', () => {
+  assert.equal(DELIVERED_DAYS, 30);
+  const list = [
+    wo('W2001', { status: 'CLOSED', closed: '2026-08-19', parts: [part(1, 'DELIVERED', { delivered: '2026-08-19', delivered_age_days: 40 })] }),
+    wo('W2002', { parts: [part(1, 'DELIVERED', { delivered: '2026-09-25', delivered_age_days: 3 })] }),
+    wo('W2003', { status: 'CLOSED', parts: [part(1, 'DELIVERED', { delivered: '2026-08-29', delivered_age_days: 30 })] }),
+    wo('W2004', { parts: [part(1, 'DELIVERED', { delivered: '2026-09-01' })] }),   // pre-D70: no key → 0
+  ];
+  assert.deepEqual(stripGroups(list).delivered.map((r) => r.wo.id), ['W2002', 'W2004', 'W2003']);
+});
+
+check('D70: unitHistory — this serial, CLOSED only, WOs + fleet tickets merged, newest first by string, id-desc ties', () => {
+  const wos = [
+    wo('W1004', { status: 'CLOSED', closed: '2026-09-23' }),
+    wo('W1005', { status: 'CLOSED', closed: '2026-08-19' }),
+    wo('W1006', { status: 'CLOSED', closed: '2026-09-10' }),
+    wo('W1001', { status: 'OPEN' }),                                                        // open → not history
+    wo('W1009', { status: 'CLOSED', closed: '2026-09-27', serial: '900200' }),             // another machine
+  ];
+  const tk = (ticket, o) => ({ ticket, status: 'CLOSED', machine_owner: 'WSS', serial: '900100', closed: '2026-09-02', ...o });
+  const tickets = [
+    tk('S2015', { closed: '2026-09-10' }),
+    tk('S2032', { closed: '2026-09-26' }),
+    tk('S2040', { status: 'OPEN', closed: null }),                                          // open → not history
+    tk('S2050', { machine_owner: 'CUSTOMER', serial: null }),                               // customer machine never matches
+    { ticket: 'S2051', status: 'CLOSED', serial: 900100, closed: '2026-07-01' },            // a numeric serial still matches as text
+  ];
+  const h = unitHistory('900100', wos, tickets);
+  assert.deepEqual(h.map((r) => [r.kind, r.id]), [
+    ['ticket', 'S2032'], ['wo', 'W1004'], ['wo', 'W1006'], ['ticket', 'S2015'], ['wo', 'W1005'], ['ticket', 'S2051'],
+  ], 'newest closed first; a same-day tie goes to the higher id as text (W1006 > S2015)');
+  assert.deepEqual(unitHistory(900100, wos, tickets).map((r) => r.id), h.map((r) => r.id), 'serial compared as text');
+  assert.deepEqual(unitHistory('999999', wos, tickets), []);
+  assert.deepEqual(unitHistory(null, wos, tickets), [], 'no serial, no history');
+  assert.deepEqual(unitHistory('900100', undefined, undefined), [], 'a pre-D65 snapshot');
+  // A work order and its linked ticket are two rows.
+  const linked = unitHistory('900100', [wo('W2003', { status: 'CLOSED', closed: '2026-09-26', ticket: 'S2032' })], [tk('S2032', { closed: '2026-09-26' })]);
+  assert.deepEqual(linked.map((r) => r.id), ['W2003', 'S2032']);
+});
+
+check('D70: the caption reads each window off its summary (fallbacks 30 / 7); who worked it, in first-seen order', () => {
+  assert.equal(historyCaption({ closed_window_days: 365 }, { closed_window_days: 90 }), 'Work orders a year back · tickets 90 days');
+  assert.equal(historyCaption(null, null), 'Work orders 30 days back · tickets 7 days');
+  assert.deepEqual(laborWho(wo('W1', { labor: [{ who: 'Josh' }, { who: 'Zac' }, { who: 'Josh' }, {}] })), ['Josh', 'Zac']);
+});
+
+/* ------------------------------------------------ D71: travel vs labor */
+
+check('D71: laborPayloads — one per non-zero stepper, TRAVEL first, same day / who / note; 0 / 0 refused', () => {
+  const base = { key: { work_order: 'W1003' }, date: '2026-09-25', who: 'Josh', note: 'brakes' };
+  const both = laborPayloads({ ...base, travel: 1.25, labor: 3 });
+  assert.deepEqual(both, [
+    { action: 'LABOR', work_order: 'W1003', date: '2026-09-25', who: 'Josh', hours: 1.25, kind: 'TRAVEL', note: 'brakes' },
+    { action: 'LABOR', work_order: 'W1003', date: '2026-09-25', who: 'Josh', hours: 3, kind: 'LABOR', note: 'brakes' },
+  ]);
+  assert.deepEqual(laborPayloads({ ...base, travel: 0, labor: 1 }).map((p) => p.kind), ['LABOR']);
+  assert.deepEqual(laborPayloads({ ...base, travel: 0.5, labor: 0 }).map((p) => p.kind), ['TRAVEL']);
+  assert.deepEqual(laborPayloads({ ...base, key: {}, travel: 0, labor: 1 })[0].work_order, undefined, 'serial-keyed: no invented work_order');
+  assert.deepEqual(laborPayloads({ ...base, travel: 0, labor: 0 }), []);
+  assert.match(laborProblem(0, 0), /Travel, Labor, or both/);
+  assert.equal(laborProblem(0.5, 0), null);
+  assert.ok(laborProblem(0.1, 1), 'each stepper on its own: 0.1 is not a quarter hour');
+  assert.ok(laborProblem(1, 12.25), '12.25 is over');
+  assert.ok(laborProblem(NaN, 1));
+  assert.deepEqual(laborPayloads({ ...base, travel: 1.3, labor: 1 }), [], 'one bad stepper sends nothing');
+  assert.ok(stepperValid(0) && stepperValid(0.25) && stepperValid(12) && !stepperValid(-0.25));
+});
+
+check('D71: kind on a labor row — TRAVEL or Labor (legacy / missing → LABOR); the travel sum is plain addition', () => {
+  assert.equal(laborKindOf({ kind: 'TRAVEL' }), 'TRAVEL');
+  assert.equal(laborKindOf({ kind: 'travel' }), 'TRAVEL');
+  assert.equal(laborKindOf({ kind: 'LABOR' }), 'LABOR');
+  assert.equal(laborKindOf({}), 'LABOR');
+  assert.equal(laborKindOf(null), 'LABOR');
+  const w = wo('W1', { labor: [{ hours: 1.25, kind: 'TRAVEL' }, { hours: 3 }, { hours: 0.5, kind: 'TRAVEL' }] });
+  assert.equal(travelHours(w), 1.75);
+  assert.equal(travelHours(wo('W2')), 0);
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'LABOR', hours: 0.5, who: 'Josh', kind: 'TRAVEL' } }), '0.5 h travel logged for Josh');
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'LABOR', hours: 1, who: 'Josh', kind: 'LABOR' } }), '1 h logged for Josh');
+  assert.ok(!/cost|rate|price|\$/i.test(JSON.stringify(laborPayloads({ who: 'Josh', travel: 1, labor: 1 }))), 'no money');
 });
 
 console.log(`${passed} checks passed.`);

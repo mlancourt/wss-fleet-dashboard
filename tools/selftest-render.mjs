@@ -2754,16 +2754,155 @@ await check('D65: the ORDERED sheet names the PO and defaults the vendor; hours 
   assert.deepEqual(posted[0], { action: 'work_order', serial: null, payload: { action: 'PART-STATE', work_order: 'W1001', line: 1,
     state: 'ORDERED', date: '2026-09-24', vendor: 'RPS', vendor_ref: 'SO-448121', note: null } });
   // A labor line off the quarter hour never leaves the phone.
-  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-24', who: 'Zac', hours: '1.3', note: '' });
+  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-24', who: 'Zac', travel: '0', labor: '1.3', note: '' });
   assert.equal(posted.length, 1, '1.3 h is refused before the POST');
-  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-24', who: 'Zac', hours: '1.5', note: 'rebuild' });
-  assert.deepEqual(posted[1].payload, { action: 'LABOR', work_order: 'W1001', date: '2026-09-24', who: 'Zac', hours: 1.5, note: 'rebuild' });
+  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-24', who: 'Zac', travel: '0', labor: '1.5', note: 'rebuild' });
+  assert.deepEqual(posted[1].payload, { action: 'LABOR', work_order: 'W1001', date: '2026-09-24', who: 'Zac', hours: 1.5, kind: 'LABOR', note: 'rebuild' });
   const out = await renderRoute('#/wo/W1001');
   assert.ok(out.includes('⏳ 2 pending') && out.includes('line 1 → Ordered') && out.includes('1.5 h logged for Zac'), 'badged on payload.work_order');
   assert.ok(out.includes('⏳ → Ordered — applies at the next run') && !/data-id="W1001\|1\|ORDERED"/.test(out), 'the line waits, its buttons go');
   globalThis.fetch = realFetch;
   window.location.hostname = 'localhost';
   window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+/* ----------------------------------- D70: service history + the catch --- */
+
+await check('D70: the unit page draws Service history after Moves — closed WOs + fleet tickets, newest first, 5 then Show all', async () => {
+  const snap = await asFull('owner');
+  const w4 = snap.work_orders.find((w) => w.id === 'W1004');
+  const u = snap.units.find((x) => x.serial === w4.serial);
+  let out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  const at = out.indexOf('<h2>Service history');
+  assert.ok(at > 0, 'the section draws');
+  assert.ok(at < out.indexOf('<h2>Money</h2>'), 'before Money');
+  const moves = out.indexOf('<h2>Moves</h2>');
+  if (moves > 0) assert.ok(moves < at, 'after Moves');
+  const sec = out.slice(at, out.indexOf('<h2>Money</h2>'));
+  const ids = [...sec.matchAll(/href="#\/(wo|ticket)\/([A-Z]\d+)"/g)].map((m) => m[2]);
+  const closedTk = snap.service_queue.find((t) => t.status === 'CLOSED' && t.serial === u.serial);
+  assert.ok(closedTk, 'the mock gives this unit a closed fleet ticket');
+  assert.deepEqual(ids, ['W1004', closedTk.ticket, 'W1005'], 'newest closed first: 5d, 26d, 40d');
+  assert.ok(sec.includes('🔧 W1004') && sec.includes('Check-out') && sec.includes('2.75 h · Josh') && sec.includes('3 parts'), 'WO row anatomy');
+  assert.ok(sec.includes('📋 ✓'), 'the sheet chip');
+  assert.ok(sec.includes(`🎫 ${closedTk.ticket}`) && sec.includes('Field call'), 'ticket row: id + issue');
+  assert.ok(sec.includes('Work orders a year back · tickets 90 days'), 'the caption');
+  assert.ok(!sec.includes('Show all'), 'three rows: no Show all');
+  assert.ok(!/\$\s?\d/.test(sec), 'no money in the history');
+  // Pad it to seven: five rows + "Show all 7", then all seven.
+  for (const [i, closed] of [[6, '2026-06-01'], [7, '2026-05-01'], [8, '2026-04-01'], [9, '2026-03-01']]) {
+    snap.work_orders.push({ ...w4, id: `W10${i}0`, closed, labor: [], hours_total: 0, parts: [], ticket: null, note: null });
+  }
+  out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  let hist = out.slice(out.indexOf('<h2>Service history'), out.indexOf('<h2>Money</h2>'));
+  assert.equal((hist.match(/class="drow hist-row"/g) || []).length, 5, 'first five');
+  assert.ok(hist.includes('data-history-all="1">Show all 7<'), 'Show all N');
+  await fireOn('click', fakeTarget('[data-history-all]'));
+  await settle();
+  hist = view._html.slice(view._html.indexOf('<h2>Service history'), view._html.indexOf('<h2>Money</h2>'));
+  assert.equal((hist.match(/class="drow hist-row"/g) || []).length, 7, 'all seven');
+  assert.ok(!hist.includes('Show all'));
+  app.__ui().historyExpanded = false;
+  await asFull('owner');
+});
+
+await check('D70: a unit with no closed records draws no Service history heading at all', async () => {
+  const snap = await asFull('owner');
+  const ids = new Set([...snap.work_orders.filter((w) => w.status === 'CLOSED').map((w) => String(w.serial)),
+    ...snap.service_queue.filter((t) => t.status === 'CLOSED' && t.serial).map((t) => String(t.serial))]);
+  const u = snap.units.find((x) => !ids.has(String(x.serial)));
+  const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('<h2>Money</h2>') && !out.includes('Service history'), 'nothing, not even an empty line');
+});
+
+await check('D70: + New ticket — a fleet serial typed on a customer ticket shows the nudge; the button flips it to Ours on that unit', async () => {
+  const snap = await asFull('owner');
+  const u = snap.units.find((x) => x.unit_state === 'ON-RENT' && x.customer);
+  const fields = {
+    machine_owner: { value: 'CUSTOMER' }, customer: { value: 'Acme Foods' }, equipment: { value: `Scrubber ${u.serial} Unit H6` },
+    issue: { value: 'brakes drag' }, location: { value: 'AT-CUSTOMER' }, intake_move: { value: 'NONE' },
+    return_move: { value: 'NONE' }, site: { value: 'x' },
+  };
+  const hint = { hidden: true, dataset: {}, innerHTML: '' };
+  const serialSel = { value: '' };
+  const tgButtons = [{ dataset: { val: 'CUSTOMER' }, classList: { toggle() {} } }, { dataset: { val: 'WSS' }, classList: { toggle() {} } }];
+  const form = {
+    dataset: { action: 'ticket_open' },
+    querySelector: (q) => {
+      const m = q.match(/^(?:input)?\[name="?([a-z_]+)"?\]$/);
+      if (m && fields[m[1]]) return fields[m[1]];
+      if (q === '[data-hint="fleet"]') return hint;
+      if (q === 'select[name=serial]') return serialSel;
+      if (q.startsWith('.toggle[data-toggle=')) return { querySelectorAll: () => tgButtons };
+      return null;
+    },
+    querySelectorAll: () => [],
+  };
+  const typing = { closest: (q) => (q === 'form.write' ? form : null), name: 'equipment' };
+  await fireOn('input', typing);
+  assert.equal(hint.hidden, false, 'the hint shows');
+  assert.ok(hint.innerHTML.includes(`⚠️ #${u.serial} is ours`) && hint.innerHTML.includes(`on rent to ${u.customer}`), 'names the unit and where it is');
+  assert.ok(hint.innerHTML.includes(`data-fleet-switch="${u.serial}"`) && hint.innerHTML.includes("keep the machine's history and costs"));
+  // The button: Ours (fleet), that unit selected, the rest of the form kept.
+  const btn = { dataset: { fleetSwitch: u.serial }, closest: (q) => (q === '[data-fleet-switch]' ? btn : q === 'form' ? form : null) };
+  await fireOn('click', btn);
+  assert.equal(fields.machine_owner.value, 'WSS');
+  assert.equal(serialSel.value, u.serial);
+  assert.equal(fields.issue.value, 'brakes drag', 'issue kept');
+  assert.equal(hint.hidden, true, 'WSS → the hint goes');
+  // No match / short tokens → no hint. Never a gate: nothing here touches submit.
+  fields.machine_owner.value = 'CUSTOMER';
+  fields.equipment.value = 'XR 36 24V H6';
+  await fireOn('input', typing);
+  assert.equal(hint.hidden, true, 'no match, no hint');
+});
+
+/* ------------------------------------ D71: travel vs labor hours ------- */
+
+await check('D71: + Log hours has Travel + Labor steppers — one event per non-zero, TRAVEL first; 0/0 never leaves', async () => {
+  const { posted } = await apiAs({ name: 'Josh', role: 'service' });
+  await renderRoute('#/wo/W1001');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'wo-labor', id: 'W1001' } }));
+  await settle();
+  const sheet = view._html;
+  assert.ok(sheet.includes('Travel (drive time)') && sheet.includes('Labor (on the machine)'), 'two steppers, labelled');
+  assert.ok(/name="travel"[^>]*value="0"/.test(sheet) && /name="labor"[^>]*value="1"/.test(sheet), 'Travel 0 · Labor 1 by default');
+  assert.ok(sheet.includes('The day the work happened.'), 'the Day field says what day it wants');
+  assert.ok(sheet.indexOf('name="date"') < sheet.indexOf('name="travel"'), 'Day sits above the steppers');
+  assert.ok(sheet.includes('the shop rate lives in the vault, not on the phone'), 'the footnote stays true');
+  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-25', who: 'Josh', travel: '0', labor: '0', note: '' });
+  assert.equal(posted.length, 0, '0 / 0 is refused before any POST');
+  assert.ok(view._html.includes('Put the hours in Travel, Labor, or both'), 'and says how to fix it');
+  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-25', who: 'Josh', travel: '0.5', labor: '1', note: 'brakes' });
+  assert.equal(posted.length, 2, 'two events');
+  assert.deepEqual(posted.map((e) => [e.payload.kind, e.payload.hours]), [['TRAVEL', 0.5], ['LABOR', 1]], 'TRAVEL first');
+  for (const e of posted) {
+    assert.equal(e.payload.date, '2026-09-25'); assert.equal(e.payload.who, 'Josh'); assert.equal(e.payload.note, 'brakes');
+    assert.ok(!/cost|rate|price/i.test(JSON.stringify(e)), 'no money key');
+  }
+  await submitWo({ verb: 'LABOR', wo: 'W1001' }, { date: '2026-09-25', who: 'Josh', travel: '0.75', labor: '0', note: '' });
+  assert.equal(posted.length, 3, 'travel only → one event');
+  assert.equal(posted[2].payload.kind, 'TRAVEL');
+  const out = await renderRoute('#/wo/W1001');
+  assert.ok(out.includes('0.5 h travel logged for Josh') && out.includes('1 h logged for Josh'), 'both are ordinary pendings');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D71: the Labor card draws 🚚 / 🔧 before the hours and a travel suffix on the header', async () => {
+  await asFull('owner');
+  const out = await renderRoute('#/wo/W1004');
+  assert.ok(out.includes('🚚 Travel') && out.includes('🔧 Labor'), 'a chip per row');
+  assert.ok(/<h2>Labor · 2\.75 h · 0\.75 travel<\/h2>/.test(out), 'header: total + travel');
+  const plain = await renderRoute('#/wo/W1002');
+  assert.ok(/<h2>Labor · 1 h<\/h2>/.test(plain), 'no travel → no suffix');
+  // A pre-D71 row (no kind) reads Labor.
+  const w = app.__state().snapshot.work_orders.find((x) => x.id === 'W1002');
+  delete w.labor[0].kind;
+  assert.ok((await renderRoute('#/wo/W1002')).includes('🔧 Labor'), 'legacy row → Labor');
   await asFull('owner');
 });
 
@@ -2833,8 +2972,13 @@ await check('D68: the strip — a stock line only in Delivered (30d), with the s
     assert.ok(r.includes('delivered '), `${pn}: the delivered date`);
     assert.ok(!/ups\.com|fedex\.com|usps\.com/.test(r), `${pn}: no carrier link`);
   }
-  assert.equal(snap.work_order_summary.delivered_30d, snap.work_orders.flatMap((w) => w.parts).filter((p) => p.state === 'DELIVERED').length,
-    'delivered_30d counts stock lines');
+  assert.equal(snap.work_order_summary.delivered_30d, snap.work_orders.flatMap((w) => w.parts)
+    .filter((p) => p.state === 'DELIVERED' && p.delivered_age_days <= 30).length,
+    'delivered_30d counts stock lines (and only the last 30 days — D70)');
+  // D70: W1005's 40-day-old box is in the snapshot (a year of closed WOs) but not in the strip.
+  assert.ok(snap.work_orders.some((w) => w.id === 'W1005'), 'the mock ships a CLOSED work order older than 30 days');
+  assert.equal(rowsOf('18-1150').length, 0, 'a 40-day-old delivery stays out of Delivered (30d)');
+  assert.ok((await renderRoute('#/wo/W1005')).includes('18-1150'), 'the WO page still shows every line');
   assert.ok(!MONEY_RE.test(st), 'no money in the strip');
   setParts(false);
 });
@@ -2953,12 +3097,13 @@ await check('D69: ticket detail carries a read-only 🔧 W · 📋 chip for the 
   await asFull('owner');
 });
 
-await check('D65: the mock itself carries no money key on any work order, and W1005 (closed 40d) never ships', async () => {
+await check('D65: the mock itself carries no money key on any work order; D70: W1005 (closed 40d) ships inside the 365-day window', async () => {
   const snap = await asFull('owner');
   const text = JSON.stringify(snap.work_orders);
   assert.ok(!/"(cost|cost_source_inv|rate|price)"/.test(text), 'no money key');
   assert.ok(!MONEY_RE.test(text), 'no figure');
-  assert.ok(!snap.work_orders.some((w) => w.id === 'W1005'), 'outside the 30-day window');
+  assert.ok(snap.work_orders.some((w) => w.id === 'W1005' && w.status === 'CLOSED'), 'D70: CLOSED ships a year');
+  assert.equal(snap.work_order_summary.closed_window_days, 365);
   assert.ok(snap.work_orders.every((w) => w.status !== 'CLOSED' || w.age_days === null), 'age_days is null once CLOSED');
 });
 
@@ -3390,8 +3535,8 @@ await check('D69: a NEW work order — the sheet saves keyed on the serial (no W
   assert.ok(out.includes(`data-sheet="insp-done" data-id="${key}">Done<`), 'hours → Done');
   // + Add parts and + Log hours work before the number, keyed on the serial too.
   assert.ok(out.includes(`data-sheet="wo-add" data-id="${key}"`) && out.includes(`data-sheet="wo-labor" data-id="${key}"`));
-  await submitForm({ action: 'work_order', verb: 'LABOR', serial: u.serial }, { date: '2026-09-27', who: 'Zac', hours: '1.5', note: '' });
-  assert.deepEqual(posted[2], { action: 'work_order', serial: u.serial, payload: { action: 'LABOR', date: '2026-09-27', who: 'Zac', hours: 1.5, note: null } });
+  await submitForm({ action: 'work_order', verb: 'LABOR', serial: u.serial }, { date: '2026-09-27', who: 'Zac', travel: '0', labor: '1.5', note: '' });
+  assert.deepEqual(posted[2], { action: 'work_order', serial: u.serial, payload: { action: 'LABOR', date: '2026-09-27', who: 'Zac', hours: 1.5, kind: 'LABOR', note: null } });
   await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'DONE', key, serial: u.serial }, { tech: 'Zac' });
   assert.deepEqual(posted[3], { action: 'work_order', serial: u.serial, payload: { action: 'INSPECT', step: 'DONE', tech: 'Zac' } });
   out = await renderRoute(`#/wo/new/${encodeURIComponent(u.serial)}`);

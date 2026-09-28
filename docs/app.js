@@ -26,17 +26,19 @@ import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
   stageOptions, columnize, pipeline, sortTickets, completedTickets, closedWindowDays, missingMoves, openCount, dispatchFor, dispatchById,
-  sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups,
+  sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups, fleetSerialIn,
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
 import {
   PURPOSES, PURPOSE_LABEL, MANUFACTURERS, MANUFACTURER_LABEL, VENDORS, VENDOR_LABEL, PART_STATE_LABEL, PART_VERB_LABEL,
-  MAX_LINES, HOURS_MIN, HOURS_MAX, HOURS_STEP,
+  MAX_LINES, HOURS_MAX, HOURS_STEP,
   workOrdersOf, woById, laborOf, isOpenLine, stripGroups, openPartCount, requestedTone, lineTone, trackingUrl,
-  fmtHours, hoursValid, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
+  fmtHours, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
   closeShown, closeEnabled, closeBlocker, readyOffered, cancelShown, pendingOpens, pendingOpenFor, pendingForWo,
   pendingBySerial as woPendingBySerial, byTs, describeWoEvent, stripCounts as woStripCounts, stripTone as woStripTone,
   openWorkOrders, isStockLine, sourceOf, pendingLineLabel,
+  unitHistory, historyCaption, HISTORY_FIRST, laborWho, laborKindOf, LABOR_KIND_LABEL, travelHours,
+  laborPayloads, laborProblem,
 } from './workorders.js';
 import {
   CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
@@ -73,7 +75,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-27-d69b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-28-d70';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -205,6 +207,7 @@ const ui = {
   // D69: the 📋 sheet card on a work order — expanded while PENDING, folded once
   // DONE / SKIPPED. A tap flips it for this page view; key → true (open) / false.
   sheetCard: new Map(),
+  historyExpanded: false,         // D70: the unit page's Service history — first 5, "Show all N" for the session
 };
 
 /* ---- uploads in flight (S2) --------------------------------------------
@@ -868,6 +871,8 @@ function viewUnit(serial) {
 
     ${raw(unitMoves(u))}
 
+    ${raw(serviceHistory(u))}
+
     <h2>Money</h2>
     <div class="card"><dl class="kv">
       ${raw(kvRow('Ask', fmtMoney(u.ask), 'num'))}
@@ -942,6 +947,55 @@ function unitMoves(u) {
     ${raw(pickupLine)}
     <h2>Moves</h2>
     <div class="card dlist">${raw(rows.map((r) => dispatchRow(r, { compact: true })).join(''))}</div>`;
+}
+
+/**
+ * D70 §3 — Service history: this machine's CLOSED work orders and CLOSED fleet
+ * tickets, newest first. The OPEN ones already sit in the facts card and the
+ * Actions chip. Nothing on a new machine → nothing drawn, not even a heading.
+ * Hours are `hours_total` (no travel split here); no money, ever.
+ */
+function serviceHistory(u) {
+  const rows = unitHistory(u.serial, workOrders(), serviceQueue());
+  if (!rows.length) return '';
+  const shown = ui.historyExpanded ? rows : rows.slice(0, HISTORY_FIRST);
+  return html`
+    <h2>Service history <span class="count">${rows.length}</span></h2>
+    <div class="card dlist history">
+      ${raw(shown.map((r) => (r.kind === 'wo' ? historyWoRow(r.wo) : historyTicketRow(r.ticket))).join(''))}
+    </div>
+    ${rows.length > HISTORY_FIRST && !ui.historyExpanded
+      ? raw(html`<button class="linkish" type="button" data-history-all="1">Show all ${rows.length}</button>`) : ''}
+    <div class="form-note">${historyCaption(woSummary(), serviceSummary())}</div>`;
+}
+function historyWoRow(wo) {
+  const hours = typeof wo.hours_total === 'number' ? wo.hours_total : 0;
+  const who = laborWho(wo);
+  const nParts = Array.isArray(wo.parts) ? wo.parts.filter(Boolean).length : 0;
+  const b = blockOf(wo);
+  const meta = [hours ? `${fmtHours(hours)} h${who.length ? ` · ${who.join(', ')}` : ''}` : '', nParts ? `${nParts} part${nParts === 1 ? '' : 's'}` : '']
+    .filter(Boolean).join(' · ');
+  return html`
+    <a class="drow hist-row" href="#/wo/${raw(enc(wo.id))}">
+      <div class="drow-top">
+        <span class="drow-what">🔧 ${wo.id}</span>
+        <span class="hist-p">${PURPOSE_LABEL[wo.purpose] || wo.purpose || '—'}</span>
+        <span class="hist-d">${wo.closed ? `Closed ${fmtMD(wo.closed)}` : 'Closed'}</span>
+      </div>
+      <div class="drow-meta">${meta}${wo.ticket ? raw(html` ${raw(chip(wo.ticket, 'asset'))}`) : ''}${b.status !== 'PENDING' ? raw(html` ${raw(chip(`📋 ${sheetChipText(b)}`, `insp ${sheetChipTone(b)}`))}`) : ''}</div>
+      ${wo.note ? raw(html`<div class="drow-meta hist-note">${wo.note}</div>`) : ''}
+    </a>`;
+}
+function historyTicketRow(t) {
+  const docs = Array.isArray(t.docs) ? t.docs.length : 0;
+  return html`
+    <a class="drow hist-row" href="#/ticket/${raw(enc(t.ticket))}">
+      <div class="drow-top">
+        <span class="drow-what">🎫 ${t.ticket}</span>
+        <span class="hist-d">${t.closed ? `Closed ${fmtMD(t.closed)}` : 'Closed'}</span>
+      </div>
+      <div class="drow-meta"><span class="hist-note">${t.issue || '—'}</span>${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
+    </a>`;
 }
 
 /* ---- holds (v2): the list is the calendar; the chip is the state ---- */
@@ -1926,6 +1980,7 @@ function newTicketForm() {
         <input id="nt-cust" name="customer" autocomplete="off">
         <label for="nt-eq">Equipment</label>
         <input id="nt-eq" name="equipment" placeholder="brand / model / serial if you have it" autocomplete="off">
+        <div class="hint" data-hint="fleet" hidden></div>
       </div>
       <div data-when="machine_owner=WSS" hidden>
         <label for="nt-unit">Which unit</label>
@@ -2309,7 +2364,7 @@ function viewNumberedWorkOrder(c, crumb) {
     ${isOpen ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="wo-add" data-id="${c.key}">+ Add parts</button></div>`) : ''}
     ${sheetOpen('wo-add', c.key) ? raw(woAddPartsForm(c)) : ''}
 
-    <h2>Labor · ${fmtHours(wo.hours_total)} h</h2>
+    <h2>Labor · ${fmtHours(wo.hours_total)} h${travelHours(wo) > 0 ? ` · ${fmtHours(travelHours(wo))} travel` : ''}</h2>
     <div class="card dlist">
       ${labor.length ? raw(labor.map(laborRow).join('')) : raw('<div class="hold-empty">No hours logged yet.</div>')}
     </div>
@@ -2394,6 +2449,7 @@ const laborRow = (l) => html`
     <div class="lrow">
       <span class="lrow-d">${fmtDate(l.date) || '—'}</span>
       <span class="lrow-w">${l.who || '—'}</span>
+      ${raw(chip(LABOR_KIND_LABEL[laborKindOf(l)], `lkind ${laborKindOf(l) === 'TRAVEL' ? 'travel' : 'labor'}`))}
       <span class="lrow-h">${fmtHours(l.hours)} h</span>
       ${l.note ? raw(html`<span class="lrow-n">${l.note}</span>`) : ''}
     </div>`;
@@ -2494,16 +2550,14 @@ function woLaborForm(c) {
   const me = state.me && DRIVERS.includes(state.me.name) ? state.me.name : DRIVERS[0];
   return html`
     <form class="write sheet" data-action="work_order" data-verb="LABOR" ${raw(woKeyAttr(c))}>
+      <div class="form-note">Drive time and time on the machine go in separately — quarter hours.</div>
       <label for="wl-date">Day</label>
       <input id="wl-date" name="date" type="date" value="${today}" max="${today}" required>
+      <div class="form-note">The day the work happened.</div>
+      ${raw(hoursStepper('travel', 'Travel (drive time)', 0))}
+      ${raw(hoursStepper('labor', 'Labor (on the machine)', 1))}
       <label>Who</label>
       ${raw(toggle('who', DRIVERS.map((n) => [n, n]), me))}
-      <label for="wl-hours">Hours</label>
-      <div class="stepper">
-        <button class="btn sm ghost" type="button" data-hours-step="-1" aria-label="Quarter hour less">−</button>
-        <input id="wl-hours" name="hours" type="number" inputmode="decimal" min="${HOURS_MIN}" max="${HOURS_MAX}" step="${HOURS_STEP}" value="1" required>
-        <button class="btn sm ghost" type="button" data-hours-step="1" aria-label="Quarter hour more">+</button>
-      </div>
       <label for="wl-note">Note (optional)</label>
       <textarea id="wl-note" name="note" maxlength="200" placeholder="what got done"></textarea>
       ${raw(sheetButtons('Log the hours'))}
@@ -2511,6 +2565,14 @@ function woLaborForm(c) {
     </form>`;
 }
 
+/** D71: one quarter-hour stepper; 0 means "none of this kind". */
+const hoursStepper = (name, label, value) => html`
+      <label for="wl-${name}">${label}</label>
+      <div class="stepper">
+        <button class="btn sm ghost" type="button" data-hours-step="-1" data-for="${name}" aria-label="Quarter hour less ${name}">−</button>
+        <input id="wl-${name}" name="${name}" type="number" inputmode="decimal" min="0" max="${HOURS_MAX}" step="${HOURS_STEP}" value="${value}">
+        <button class="btn sm ghost" type="button" data-hours-step="1" data-for="${name}" aria-label="Quarter hour more ${name}">+</button>
+      </div>`;
 
 /**
  * Close (owner) and Cancel (owner, or the opener before anything is ordered).
@@ -4578,7 +4640,27 @@ function applyConditionals(form) {
       const site = form.querySelector('[name="site"]');
       hint.hidden = !(truck && site && !site.value.trim());
     }
+    fleetHint(form, val);
   }
+}
+
+/**
+ * D70 §4 — the fleet-serial catch: a customer ticket whose text names one of
+ * our machines gets a nudge to file it on the unit instead. Never blocks.
+ */
+function fleetHint(form, val) {
+  const hint = form.querySelector('[data-hint="fleet"]');
+  if (!hint) return;
+  const text = ['customer', 'equipment', 'issue'].map((n) => val(n) || '').join(' ');
+  const u = val('machine_owner') === 'CUSTOMER' ? fleetSerialIn(text, units()) : null;
+  if (!u) { hint.hidden = true; hint.dataset.serial = ''; return; }
+  hint.hidden = false;
+  if (hint.dataset.serial === String(u.serial)) return;   // same match — leave the button alone mid-tap
+  hint.dataset.serial = String(u.serial);
+  const out = ['ON-RENT', 'ON-DEMO', 'LOANER-OUT'].includes(u.unit_state);
+  hint.innerHTML = html`<strong>⚠️ #${u.serial} is ours</strong> — ${unitName(u)}${out && u.customer ? `, on rent to ${u.customer}` : ''}
+    <div class="actions row"><button class="btn sm" type="button" data-fleet-switch="${u.serial}">Open it as a fleet ticket</button></div>
+    <div class="form-note">Fleet tickets keep the machine's history and costs on the machine.</div>`;
 }
 
 /** Set a segmented control's value from code (the buttons and the hidden input). */
@@ -4914,17 +4996,29 @@ document.addEventListener('click', async (ev) => {
     if (input) input.focus();
     return;
   }
-  // D65 hours stepper: quarter hours, clamped to 0.25–12. In place, no render.
+  // D65 hours stepper: quarter hours, clamped to 0–12 (D71). In place, no render.
   const step = ev.target.closest('[data-hours-step]');
   if (step) {
-    const input = step.closest('form') && step.closest('form').querySelector('[name=hours]');
+    const input = step.closest('form') && step.closest('form').querySelector(`[name="${step.dataset.for || 'hours'}"]`);
     if (!input) return;
     const cur = Number(input.value) || 0;
-    const next = Math.min(HOURS_MAX, Math.max(HOURS_MIN, Math.round((cur + Number(step.dataset.hoursStep) * HOURS_STEP) * 4) / 4));
+    // D71: each of the two steppers can sit at 0 ("none of this kind").
+    const next = Math.min(HOURS_MAX, Math.max(0, Math.round((cur + Number(step.dataset.hoursStep) * HOURS_STEP) * 4) / 4));
     input.value = String(next);
     return;
   }
   if (ev.target.closest('[data-completed-toggle]')) { ui.showCompleted = !ui.showCompleted; render(); return; }
+  if (ev.target.closest('[data-history-all]')) { ui.historyExpanded = true; render(); return; }
+  const fleetSwitch = ev.target.closest('[data-fleet-switch]');
+  if (fleetSwitch) {
+    // D70: flip the form to Ours (fleet) on that unit; issue, priority, location and moves stay.
+    const form = fleetSwitch.closest('form');
+    setToggle(form, 'machine_owner', 'WSS');
+    const sel = form.querySelector('select[name=serial]');
+    if (sel) sel.value = fleetSwitch.dataset.fleetSwitch;
+    applyConditionals(form);
+    return;
+  }
   if (ev.target.closest('[data-closed-toggle]')) { ui.showClosedLeads = !ui.showClosedLeads; render(); return; }
   if (ev.target.closest('[data-score-toggle]')) { ui.showScore = !scoreOpen(); render(); return; }
   if (ev.target.closest('[data-insights-toggle]')) { ui.showInsights = !ui.showInsights; render(); return; }
@@ -5465,7 +5559,13 @@ function woEventBody(form, fd, s, orNull) {
     return { serial, payload };
   }
   if (verb === 'LABOR') {
-    return { serial, payload: { action: verb, ...key, date: orNull('date'), who: s('who'), hours: Number(s('hours')), note: orNull('note') } };
+    // D71: one event per non-zero stepper, TRAVEL first. `payloads` rides
+    // alongside so the submit loop posts each; `payload` is the first.
+    const payloads = laborPayloads({
+      key, date: orNull('date'), who: s('who'), note: orNull('note'),
+      travel: Number(s('travel') || 0), labor: Number(s('labor') || 0),
+    });
+    return { serial, payload: payloads[0], payloads };
   }
   if (verb === 'INSPECT') {
     const step = form.dataset.step;
@@ -5517,7 +5617,10 @@ function woFormProblem(form, fd) {
     if (lines.some((l) => !Number.isInteger(l.qty) || l.qty < 1 || l.qty > 99)) return 'Quantity is a whole number, 1 to 99.';
     if (lines.length > MAX_LINES) return `${MAX_LINES} lines per tap — add the rest after the next run.`;
   }
-  if (verb === 'LABOR' && !hoursValid(Number(fd.get('hours')))) return `Hours go in quarter hours, ${HOURS_MIN} to ${HOURS_MAX}.`;
+  if (verb === 'LABOR') {
+    const problem = laborProblem(Number(fd.get('travel') || 0), Number(fd.get('labor') || 0));
+    if (problem) return problem;
+  }
   if (verb === 'INSPECT' && form.dataset.step === 'SKIP' && !String(fd.get('reason') || '').trim()) {
     return 'Say why there is no inspection — one line.';
   }
@@ -5611,7 +5714,7 @@ document.addEventListener('submit', async (ev) => {
 
   btn.disabled = true;
   const inline = isInline(action, form);
-  const { serial, payload } = eventBody(action, form, fd);
+  const { serial, payload, payloads } = eventBody(action, form, fd);
   const verb = action === 'work_order' ? form.dataset.verb : null;
 
   try {
@@ -5624,8 +5727,11 @@ document.addEventListener('submit', async (ev) => {
       const l = sheetLocal.get(key);
       if (l && (l.dirty.size || l.status === 'failed')) throw new Error("The last change didn't save — retry it, then Done.");
     }
-    const stored = await postEvent(ctx(), action, serial, payload);
-    state.pending.push(stored);
+    // D71: + Log hours can be two events (TRAVEL then LABOR). Each is an
+    // ordinary pending; if the second is refused the first still stands.
+    for (const p of payloads || [payload]) {
+      state.pending.push(await postEvent(ctx(), action, serial, p));
+    }
     if (verb === 'OPEN') {
       // Straight to the new work order — its inspection sheet is waiting.
       sheetLocal.delete(`new:${serial}`);

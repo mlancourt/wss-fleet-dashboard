@@ -62,6 +62,12 @@ export const WO_ID_RE = /^W\d{4}$/;
 export const HOURS_MIN = 0.25;
 export const HOURS_MAX = 12;
 export const HOURS_STEP = 0.25;
+/** D70: the strip's Delivered group stays 30 days now that CLOSED work orders ship a year (engine clock: `delivered_age_days`). */
+export const DELIVERED_DAYS = 30;
+/** D71: a labor row is time on the machine or time in the truck — one shop rate, two bill rates (the rates are the vault's). */
+export const LABOR_KINDS = ['TRAVEL', 'LABOR'];
+export const LABOR_KIND_LABEL = { TRAVEL: '🚚 Travel', LABOR: '🔧 Labor' };
+export const laborKindOf = (l) => (l && String(l.kind || '').toUpperCase() === 'TRAVEL' ? 'TRAVEL' : 'LABOR');
 
 /** `work_orders[]`, or [] on a pre-D65 snapshot (the key is simply absent). */
 export const workOrdersOf = (snap) => (snap && Array.isArray(snap.work_orders) ? snap.work_orders.filter(Boolean) : []);
@@ -84,7 +90,7 @@ export const openLinesOf = (w) => partsOf(w).filter(isOpenLine);
  *   ordered     oldest order first (it has been on order longest)
  *   inTransit   oldest order first
  *   requested   oldest work order first — the one nobody has ordered yet
- *   delivered   newest delivery first
+ *   delivered   newest delivery first, ≤ DELIVERED_DAYS old (D70)
  * Ties break on W-number, then line, so the order never shuffles between runs.
  * A CANCELLED line is in none of them. Only OPEN work orders feed the three
  * working groups; a delivered line from a closed one still shows in Delivered.
@@ -102,7 +108,9 @@ export function stripGroups(list) {
       .sort((a, b) => byDateAsc(a.part.ordered, b.part.ordered) || tie(a, b)),
     requested: rows.filter((r) => open(r) && r.part.state === 'REQUESTED')
       .sort((a, b) => ((age(b) ?? -1) - (age(a) ?? -1)) || tie(a, b)),
-    delivered: rows.filter((r) => r.part.state === 'DELIVERED')
+    // D70: the snapshot keeps a year of closed work orders; the strip keeps 30
+    // days of boxes. A pre-D70 line without the key reads 0 (inside the window).
+    delivered: rows.filter((r) => r.part.state === 'DELIVERED' && (num(r.part.delivered_age_days) ?? 0) <= DELIVERED_DAYS)
       .sort((a, b) => byDateAsc(b.part.delivered, a.part.delivered) || tie(a, b)),
   };
 }
@@ -160,6 +168,34 @@ export function trackingUrl(carrier, tracking) {
   return n ? f(encodeURIComponent(n)) : null;
 }
 
+/**
+ * D70 §3 — a machine's service history: its CLOSED work orders and its CLOSED
+ * fleet tickets, one list, newest `closed` first (string compare — never a Date
+ * of a date-only string), ties by id descending. A work order and the ticket it
+ * hangs off are two records, so two rows. A customer ticket (`serial: null`)
+ * never matches. The OPEN work order / ticket live elsewhere on the unit page.
+ */
+export function unitHistory(serial, workOrders, tickets) {
+  if (serial == null || serial === '') return [];
+  const s = String(serial);
+  const wos = (Array.isArray(workOrders) ? workOrders : []).filter((w) => w && w.status === 'CLOSED'
+    && w.serial != null && String(w.serial) === s)
+    .map((w) => ({ kind: 'wo', id: w.id, closed: w.closed || null, wo: w }));
+  const tks = (Array.isArray(tickets) ? tickets : []).filter((t) => t && t.status === 'CLOSED'
+    && t.serial != null && String(t.serial) === s)
+    .map((t) => ({ kind: 'ticket', id: t.ticket, closed: t.closed || null, ticket: t }));
+  return [...wos, ...tks].sort((a, b) => byDateAsc(b.closed, a.closed) || String(b.id || '').localeCompare(String(a.id || '')));
+}
+/** The caption under the history: each list's window, from the summaries (legacy fallbacks 30 / 7, per D62). */
+export function historyCaption(woSummary, serviceSummary) {
+  const w = num(woSummary && woSummary.closed_window_days) ?? 30;
+  const t = num(serviceSummary && serviceSummary.closed_window_days) ?? 7;
+  return `Work orders ${w === 365 ? 'a year back' : `${w} days back`} · tickets ${t} days`;
+}
+export const HISTORY_FIRST = 5;
+/** "Josh" / "Josh, Zac" — who put hours on it, in the order they first did. */
+export const laborWho = (w) => [...new Set(laborOf(w).map((l) => l.who).filter(Boolean))];
+
 /** 1 -> "1", 2.5 -> "2.5", 0.75 -> "0.75". Hours, never money. */
 export const fmtHours = (h) => {
   const n = num(h);
@@ -167,6 +203,29 @@ export const fmtHours = (h) => {
 };
 export const hoursValid = (h) => typeof h === 'number' && isFinite(h)
   && h >= HOURS_MIN && h <= HOURS_MAX && Math.round(h * 4) === h * 4;
+
+/** D71: each stepper on its own — 0 (nothing to send) or a real quarter-hour reading. */
+export const stepperValid = (h) => h === 0 || hoursValid(h);
+/** D71: the travel hours on a work order — plain addition over labor[]; hours_total stays the engine's. */
+export const travelHours = (w) => laborOf(w).filter((l) => laborKindOf(l) === 'TRAVEL')
+  .reduce((sum, l) => sum + (num(l.hours) || 0), 0);
+export const LABOR_HOURS_PROBLEM = 'Put the hours in Travel, Labor, or both — quarter hours, 0.25 to 12.';
+/** What's wrong with the two steppers, or null. */
+export function laborProblem(travel, labor) {
+  if (!stepperValid(travel) || !stepperValid(labor)) return LABOR_HOURS_PROBLEM;
+  if (travel === 0 && labor === 0) return LABOR_HOURS_PROBLEM;
+  return null;
+}
+/**
+ * D71: the + Log hours sheet → LABOR payloads, one per non-zero stepper,
+ * TRAVEL first (the drive comes before the wrench). Same key, day, who and
+ * note on both. [] when there's nothing valid to send — laborProblem says why.
+ */
+export function laborPayloads({ key = {}, date = null, who, note = null, travel, labor }) {
+  if (laborProblem(travel, labor)) return [];
+  return [['TRAVEL', travel], ['LABOR', labor]].filter(([, h]) => h > 0)
+    .map(([kind, hours]) => ({ action: 'LABOR', ...key, date, who, hours, kind, note }));
+}
 
 /** "W1003 · RETURN · 📋 pending · 2 parts open · 1.5 h" — the unit page's chip (D69 §3). Engine counts only. */
 export function woChipText(wo, unit) {
@@ -328,7 +387,7 @@ export function describeWoEvent(e) {
       return `${parts} added${stock ? ` (${stock} from stock)` : ''}`;
     }
     case 'PART-STATE': return `line ${p.line} → ${pendingLineLabel(p)}`;
-    case 'LABOR': return `${fmtHours(p.hours)} h logged for ${p.who || 'someone'}`;
+    case 'LABOR': return `${fmtHours(p.hours)} h${laborKindOf(p) === 'TRAVEL' ? ' travel' : ''} logged for ${p.who || 'someone'}`;
     case 'CLOSE': return p.ready === false ? 'close (readiness left alone)' : 'close';
     case 'CANCEL': return 'cancel the work order';
     case 'INSPECT': return describeStep(p);

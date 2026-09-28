@@ -337,3 +337,28 @@ export function unbookedPickups(pickups, dispatch) {
     .map((r) => String(r.serial)));
   return (pickups || []).filter((p) => !booked.has(String(p.serial)));
 }
+
+/**
+ * D70 §4 — the fleet-serial catch. A "customer" ticket whose text names one of
+ * OUR machines is a fleet ticket filed in the wrong column; the machine's
+ * history and costs only follow it if it's on the serial. Tokenise the text on
+ * anything not a letter or digit; a token of 5+ characters that equals a unit's
+ * `serial` or `asset_item` (case-insensitive) is a match. Short tokens ("36",
+ * "24V", "H6") never fire. RETIRED units never match. First match wins.
+ * A nudge, never a gate — a customer's machine could share a number.
+ */
+export const FLEET_TOKEN_MIN = 5;
+export function fleetSerialIn(text, units) {
+  const tokens = new Set(String(text || '').split(/[^A-Za-z0-9]+/)
+    .filter((t) => t.length >= FLEET_TOKEN_MIN).map((t) => t.toUpperCase()));
+  if (!tokens.size) return null;
+  for (const u of Array.isArray(units) ? units : []) {
+    if (!u || u.unit_state === 'RETIRED') continue;
+    for (const id of [u.serial, u.asset_item]) {
+      if (id == null) continue;
+      const k = String(id).trim().toUpperCase();
+      if (k.length >= FLEET_TOKEN_MIN && tokens.has(k)) return u;
+    }
+  }
+  return null;
+}

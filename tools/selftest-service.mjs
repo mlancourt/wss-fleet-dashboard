@@ -6,7 +6,7 @@ import {
   STAGES, PIPELINE_STAGES, stagesFor, canStage, stageOptions, filterTickets, columnize, columnsFor, pipeline, sortTickets,
   completedTickets, closedWindowDays, closedAge, WEEK_DAYS,
   missingMoves, openCount, dispatchFor, sortOpen, sortByKind, groupByDate, sections, rigClash,
-  driverChoices, defaultDriver, canCancel, unbookedPickups,
+  driverChoices, defaultDriver, canCancel, unbookedPickups, fleetSerialIn,
 } from '../docs/service.js';
 
 let passed = 0;
@@ -423,6 +423,27 @@ check('D62: a pre-D62 snapshot (no closed_age_days, no closed_window_days) rende
   assert.equal(closedWindowDays(null), WEEK_DAYS, 'the copy says 7 days');
   assert.equal(closedWindowDays({ open_customer: 1 }), 7);
   assert.equal(closedWindowDays({ closed_window_days: 90 }), 90);
+});
+
+/* ------------------------------------------- D70: the fleet-serial catch */
+
+check('D70: fleetSerialIn — a serial or asset # (5+ chars, any case) in the text is one of ours; RETIRED and short tokens never fire', () => {
+  const U = [
+    { serial: '900317', asset_item: 'FX-2201', unit_state: 'ON-RENT' },
+    { serial: '900450', asset_item: 'AI40210', unit_state: 'AVAILABLE' },
+    { serial: '900999', asset_item: 'OLD99', unit_state: 'RETIRED' },
+    { serial: '36', asset_item: 'H6', unit_state: 'IN-SHOP' },
+  ];
+  assert.equal(fleetSerialIn('Acme Scrub XR 900317 Unit H6', U).serial, '900317');
+  assert.equal(fleetSerialIn('rider sweeper ai40210 at the dock', U).serial, '900450', 'asset #, case-insensitive');
+  assert.equal(fleetSerialIn('tag#900450/left side', U).serial, '900450', 'punctuation splits tokens');
+  assert.equal(fleetSerialIn('XR 36 24V H6', U), null, 'short tokens never fire');
+  assert.equal(fleetSerialIn('old unit OLD99 and 900999', U), null, 'RETIRED never matches');
+  assert.equal(fleetSerialIn('model 9003170', U), null, 'a longer number is not ours');
+  assert.equal(fleetSerialIn('', U), null);
+  assert.equal(fleetSerialIn(null, U), null);
+  assert.equal(fleetSerialIn('900317', undefined), null, 'no units, no match');
+  assert.equal(fleetSerialIn('900450 then 900317', U).serial, '900317', 'first unit in the fleet list wins');
 });
 
 console.log(`\n${passed} checks passed.`);

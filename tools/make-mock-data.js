@@ -884,6 +884,12 @@ function build({ withServiceQueue }) {
       issue: 'Recovery tank float switch', assigned: 'Josh' });
     closedOld(80, { customer: 'Lakeshore Beverage', equipment: 'Meridian T-500 (customer owned)',
       issue: 'Squeegee assembly rebuild', assigned: 'Zac' });
+    // D70: a closed FLEET ticket on the first unit out on rent — the same machine
+    // W1004 + W1005 land on, so its unit page has a Service history of three
+    // (two work orders + this). Filed on the serial, the way the catch wants it.
+    closedOld(26, { unit: units.find((u) => u.unit_state === 'ON-RENT'), customer: 'WSS',
+      issue: 'Field call — drive wheel drags, brake adjusted on site', assigned: 'Josh',
+      location: 'AT-CUSTOMER', intake_move: 'NONE', return_move: 'NONE' });
 
     // ------------------------------------------------------------- dispatch board
     const move = (m) => {
@@ -1151,8 +1157,11 @@ function build({ withServiceQueue }) {
  *          detect (tracking, no link); linked to the unit's open WSS ticket
  *   W1004  CLOSED CHECKOUT 5 days ago, sheet DONE — DELIVERED lines inside the
  *          30-day window + one CANCELLED line + a SHOP-STOCK line
- *   W1005  CLOSED 40 days ago — NOT EMITTED. The window is the engine's; its
- *          absence here is the test.
+ *   W1005  CLOSED 40 days ago on the same unit as W1004 (D70: CLOSED ships a
+ *          year now) — its DELIVERED line is 40 days old, so the strip's
+ *          Delivered (30d) must leave it out while the WO page keeps it
+ * D70: every DELIVERED line carries `delivered_age_days` (null otherwise).
+ * D71: every labor row carries `kind` (LABOR | TRAVEL); W1004 has a TRAVEL row.
  * D69: every row carries `inspection` as an OBJECT (never null, never an
  * I-number). Every unit carries `work_order`, `wo_parts_open`, `wo_inspection`
  * and `last_inspection` (null when none) + `hours` / `hours_as_of` (written by a
@@ -1166,7 +1175,7 @@ function buildWorkOrders({ withWorkOrders, units }) {
     u.hours = null; u.hours_as_of = null;
   }
   const empty = { open: 0, inspections_pending: 0, inspections_done_7d: 0, parts_requested: 0, parts_ordered: 0,
-    parts_in_transit: 0, delivered_30d: 0, closed_window_days: 30 };
+    parts_in_transit: 0, delivered_30d: 0, closed_window_days: 365 };
   if (!withWorkOrders) return { work_orders: [], work_order_summary: empty };
 
   const used = new Set();
@@ -1221,6 +1230,13 @@ function buildWorkOrders({ withWorkOrders, units }) {
     };
     delete row.age;
     if (row.status === 'CLOSED') row.age_days = null;
+    // D70: the engine's clock on a delivered box; null until DELIVERED.
+    for (const p of row.parts) {
+      p.delivered_age_days = p.state === 'DELIVERED' && p.delivered
+        ? Math.round((TODAY - Date.parse(p.delivered + 'T00:00:00Z')) / DAY) : null;
+    }
+    // D71: a legacy row reads LABOR; the engine ships the key on every row.
+    row.labor = row.labor.map((l) => ({ ...l, kind: l.kind || 'LABOR' }));
     row.parts_open = row.parts.filter((p) => p.state !== 'DELIVERED' && p.state !== 'CANCELLED').length;
     row.hours_total = row.labor.reduce((n, l) => n + l.hours, 0);
     if (row.status === 'OPEN') {
@@ -1343,7 +1359,10 @@ function buildWorkOrders({ withWorkOrders, units }) {
         line(3, { manufacturer: mfr(closedUnit), part_number: '18-2204', description: 'Brush drive belt', qty: 2,
           state: 'DELIVERED', delivered: d(-7), source: 'SHOP-STOCK' }),
       ],
-      labor: [{ date: d(-7), who: 'Josh', hours: 2, note: 'pump swap + test run' }],
+      labor: [
+        { date: d(-7), who: 'Josh', hours: 0.75, kind: 'TRAVEL', note: 'out to the site and back' },
+        { date: d(-7), who: 'Josh', hours: 2, kind: 'LABOR', note: 'pump swap + test run' },
+      ],
       log: logOf([
         [ts(-12, '11:20'), 'Matt', 'opened by Matt (CHECKOUT) — 2 part line(s), inspection pending'],
         [ts(-11, '09:00'), 'Matt', 'Line 1 ordered — RPS SO-447702; line 2 cancelled, found in shop stock'],
@@ -1352,7 +1371,22 @@ function buildWorkOrders({ withWorkOrders, units }) {
       ]),
     }));
   }
-  // W1005 closed 40 days ago would be here — outside closed_window_days, so it never ships.
+  if (closedUnit) {
+    out.push(wo('W1005', closedUnit, {
+      age: 48, status: 'CLOSED', purpose: 'PM', closed: d(-40), opened_by: 'Zac',
+      note: '500-hour PM between rentals',
+      inspection: sheet(closedUnit, { status: 'DONE', done: d(-44), tech: 'Zac', readings: { hours_key: 388 } }),
+      parts: [
+        line(1, { manufacturer: mfr(closedUnit), part_number: '18-1150', description: 'Squeegee blade set', qty: 1,
+          state: 'DELIVERED', ordered: d(-47), vendor: 'RPS', vendor_ref: 'SO-446010', delivered: d(-40) }),
+      ],
+      labor: [{ date: d(-44), who: 'Zac', hours: 1.5, note: 'PM + the sheet' }],
+      log: logOf([
+        [ts(-48, '08:30'), 'Zac', 'opened by Zac (PM) — 1 part line(s), inspection pending'],
+        [ts(-40, '15:10'), 'Matt', 'CLOSED by Matt'],
+      ]),
+    }));
+  }
 
   const lines = out.flatMap((w) => w.parts.map((p) => ({ w, p })));
   const cnt = (st) => lines.filter(({ p }) => p.state === st).length;
@@ -1365,8 +1399,8 @@ function buildWorkOrders({ withWorkOrders, units }) {
       parts_requested: cnt('REQUESTED'),
       parts_ordered: cnt('ORDERED'),
       parts_in_transit: cnt('IN-TRANSIT'),
-      delivered_30d: cnt('DELIVERED'),
-      closed_window_days: 30,
+      delivered_30d: lines.filter(({ p }) => p.state === 'DELIVERED' && p.delivered_age_days <= 30).length,   // D70
+      closed_window_days: 365,                                                                              // D70
     },
   };
 }
