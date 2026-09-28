@@ -439,6 +439,16 @@ WO6=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
 POSTWO "LABOR 1.5 h for Zac, logged by Matt -> 201" 201 "b.payload.hours===1.5 && b.payload.who==='Zac' && b.actor==='Test Matt'" \
   "$T_OWNER" "$(WO '' '{"action":"LABOR","work_order":"W1001","date":"2026-09-25","who":"Zac","hours":1.5,"note":"squeegee rebuild"}')"
 WO7=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D71: LABOR kind TRAVEL (lowercase in, upper stored) -> 201" 201 "b.payload.kind==='TRAVEL' && b.payload.hours===0.5" \
+  "$T_SERVICE" "$(WO '' '{"action":"LABOR","work_order":"W1001","date":"2026-09-25","who":"Josh","hours":0.5,"kind":"travel"}')"
+WO7T=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D71: LABOR without kind stores no kind (engine defaults LABOR) -> 201" 201 "!('kind' in b.payload)" \
+  "$T_SERVICE" "$(WO '' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1}')"
+WO7L=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "D71: LABOR kind DRIVE -> 400" 400 "b.error.includes('kind')" \
+  "$T_OWNER" "$(WO '' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1,"kind":"DRIVE"}')"
+POSTWO "D71: a rate beside kind TRAVEL -> 400 naming it" 400 "b.error.includes('\"rate\"')" \
+  "$T_OWNER" "$(WO '' '{"action":"LABOR","work_order":"W1001","who":"Josh","hours":1,"kind":"TRAVEL","rate":75}')"
 POSTWO "owner CLOSEs -> 201" 201 "b.payload.action==='CLOSE' && b.payload.note===null" \
   "$T_OWNER" "$(WO '' '{"action":"CLOSE","work_order":"W1001","note":""}')"
 WO8=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
@@ -503,9 +513,9 @@ POSTWO "D68: source SHOP-STOCK + state ORDERED -> 400" 400 "" \
   "$T_OWNER" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":1,"state":"ORDERED","source":"SHOP-STOCK"}')"
 POSTWO "D68: a cost key on a stock pull -> 400 naming it" 400 "b.error.includes('\"cost\"')" \
   "$T_SERVICE" "$(WO '' '{"action":"PART-STATE","work_order":"W1002","line":1,"source":"SHOP-STOCK","cost":12}')"
-expect "all twelve work-order events drained -> deleted 12" 200 "b.deleted===12" \
+expect "all fourteen work-order events drained -> deleted 14" 200 "b.deleted===14" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
-  -d "{\"ids\":[\"$WO1\",\"$WO2\",\"$WO3\",\"$WO4\",\"$WO5\",\"$WO6\",\"$WO7\",\"$WO8\",\"$WO10\",\"$WO11\",\"$WO12\",\"$WO13\"]}"
+  -d "{\"ids\":[\"$WO1\",\"$WO2\",\"$WO3\",\"$WO4\",\"$WO5\",\"$WO6\",\"$WO7\",\"$WO7T\",\"$WO7L\",\"$WO8\",\"$WO10\",\"$WO11\",\"$WO12\",\"$WO13\"]}"
 expect "pending back to baseline after the work orders" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- crew: the sheet on the work order (D69) — work_order INSPECT {step}; the inspection action is retired"

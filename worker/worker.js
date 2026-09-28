@@ -114,6 +114,7 @@ const WO_VERBS = new Set(['OPEN', 'ADD-PARTS', 'PART-STATE', 'LABOR', 'CLOSE', '
 const WO_PURPOSES = new Set(['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER', 'RENT-READY']);
 const WO_MANUFACTURERS = new Set(['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'OTHER']);
 const WO_VENDORS = new Set(['RPS', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'TENNANT', 'OTHER']);
+const WO_LABOR_KINDS = new Set(['LABOR', 'TRAVEL']);   // D71: travel vs labor hours — absent = LABOR
 // REQUESTED is where a line starts, never where a tap sends it — the one
 // backwards move this file can see without knowing the line's current state.
 const WO_PART_STATES = new Set(['ORDERED', 'IN-TRANSIT', 'DELIVERED', 'CANCELLED']);
@@ -158,7 +159,7 @@ const WO_KEYS = {
   OPEN: ['action', 'purpose', 'note', 'parts', 'inspection'],   // D69: `inspection` = a first SAVE (an object)
   'ADD-PARTS': ['action', 'work_order', 'parts'],
   'PART-STATE': ['action', 'work_order', 'line', 'state', 'source', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],   // D68: source
-  LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'note'],
+  LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'kind', 'note'],
   CLOSE: ['action', 'work_order', 'note', 'ready'],             // D69: ready (bool) — the close IS the ready call
   CANCEL: ['action', 'work_order', 'note'],
 };
@@ -1010,7 +1011,11 @@ function cleanPayload(action, p, role, serial) {
       const h = obj.hours;
       if (typeof h !== 'number' || !isFinite(h) || h < 0.25 || h > 12) throw httpError(400, 'hours must be 0.25–12');
       if (Math.round(h * 4) !== h * 4) throw httpError(400, 'hours go in quarter-hour steps');
-      return { action: verb, ...woKey(), date: optDate(obj.date, 'date'), who: oneOf(obj.who, DRIVERS, 'who'), hours: h, note: note() };
+      const out = { action: verb, ...woKey(), date: optDate(obj.date, 'date'), who: oneOf(obj.who, DRIVERS, 'who'), hours: h, note: note() };
+      // D71: travel vs labor hours. Absent = LABOR (the engine defaults it), so
+      // the key is only stored when sent; case-insensitive, anything else a 400.
+      if (obj.kind != null) out.kind = oneOf(String(obj.kind).toUpperCase(), WO_LABOR_KINDS, 'kind');
+      return out;
     }
     if (verb === 'CLOSE') {
       if (role !== 'owner') throw httpError(403, `role ${role} cannot close a work order`);

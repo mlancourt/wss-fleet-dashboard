@@ -265,4 +265,17 @@ await check('the undo valve (D46) covers a work-order tap — your own, still pe
   assert.equal((await del('service')).status, 404, 'gone');
 });
 
+await check('D71: LABOR takes kind (LABOR | TRAVEL, case-insensitive); absent stays absent; money still refused', async () => {
+  const L = (extra) => wo({ action: 'LABOR', work_order: 'W1003', date: '2026-09-25', who: 'Josh', hours: 0.5, ...extra });
+  assert.equal((await ok('service', L({ kind: 'TRAVEL' }), 'TRAVEL')).payload.kind, 'TRAVEL');
+  assert.equal((await ok('service', L({ kind: 'LABOR' }), 'LABOR')).payload.kind, 'LABOR');
+  assert.equal((await ok('sales', L({ kind: 'travel' }), 'lowercase travel')).payload.kind, 'TRAVEL');
+  assert.ok(!('kind' in (await ok('owner', L({}), 'kind left off')).payload), 'the engine defaults it');
+  assert.ok(!('kind' in (await ok('owner', L({ kind: null }), 'kind null')).payload));
+  await refused('owner', L({ kind: 'DRIVE' }), 'kind DRIVE', 400, 'kind');
+  await refused('owner', L({ kind: 'TRAVEL', rate: 75 }), 'a rate beside kind', 400, '"rate"');
+  await refused('owner', L({ kind: 'LABOR', cost: 75 }), 'a cost beside kind', 400, '"cost"');
+  await refused('owner', wo({ action: 'CLOSE', work_order: 'W1003', kind: 'TRAVEL' }), 'kind on CLOSE', 400, 'kind');
+});
+
 console.log(`${passed} checks passed.`);
