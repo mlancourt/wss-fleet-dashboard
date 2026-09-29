@@ -2829,12 +2829,12 @@ function readingsCard(sheet, dis, editable) {
   const headRow = scrub ? html`<div class="ifl"><span>Scrub head</span><div class="iseg">${raw(HEAD_TYPES.map(hb).join(''))}</div></div>` : '';
   const padBlock = head === 'PAD' ? html`
       <div class="ifl"><span>Needs new</span><div class="iseg">${raw(PAD_NEEDS.map(pb).join(''))}</div></div>
-      ${r.pads_needed === true ? html`<div class="insp-2">
+      ${r.pads_needed === true ? raw(html`<div class="insp-2">
         <label class="ifl"><span>Pad diameter</span>
           <span class="pct-wrap"><input type="number" inputmode="decimal" step="any" min="0" max="${MAX_PAD_DIAMETER}" data-ifield="readings.pad_diameter" value="${r.pad_diameter == null ? '' : r.pad_diameter}"${dis}><span class="pct-suf" aria-hidden="true">in</span></span></label>
         <label class="ifl"><span>Pad color</span>
           <input type="text" maxlength="${MAX_PAD_COLOR}" autocomplete="off" placeholder="red" data-ifield="readings.pad_color" value="${r.pad_color == null ? '' : r.pad_color}"${dis}></label>
-      </div>` : ''}` : '';
+      </div>`) : ''}` : '';
   const brushBlock = head === 'PAD' ? '' : html`
       <div class="insp-2">${raw(shown.filter((d) => !d.hours).map(numField).join(''))}</div>
       <div class="ifl"><span>Brushes rotated</span><div class="iseg">${raw(rb(true, 'Yes'))}${raw(rb(false, 'No'))}</div></div>`;

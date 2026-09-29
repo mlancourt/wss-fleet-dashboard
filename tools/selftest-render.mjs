@@ -3298,6 +3298,24 @@ await check('D69: the sheet renders FROM the checklist on the work order — lib
   assert.ok(out.includes('data-ifield="readings.brush1_pct"') && !out.includes('readings.main_broom_pct'), 'readings follow the class');
   assert.ok(/<input type="number" inputmode="numeric" pattern="\[0-9\]\*" step="1" min="0" max="100" data-ifield="readings.brush1_pct"/.test(out), 'a numeric-keypad percent field');
   assert.ok(out.includes('<span>Body style</span>') && !out.includes('data-ifield="kind"'), 'no kind dropdown — purpose is the work order\'s');
+  // D74: four meters, the Scrub head toggle on a scrubber, brush rows while the head is unset.
+  assert.ok(out.includes('data-ifield="readings.hours_vac"'), 'vac motor hours is a meter field');
+  assert.ok(out.includes('data-ihead="BRUSH"') && out.includes('data-ihead="PAD"'), 'scrub head toggle on a scrubber');
+  assert.ok(!out.includes('data-ipad='), 'no pad block until the head is PAD');
+  await fireOn('click', fakeTarget('[data-ihead]', { dataset: { ihead: 'PAD' } }));
+  let pad = await renderRoute('#/wo/W1001');
+  assert.ok(!pad.includes('data-ifield="readings.brush1_pct"') && !pad.includes('data-irot='), 'PAD hides the brush rows + rotated');
+  assert.ok(['pad_drivers_needed', 'pad_holders_needed', 'pads_needed'].every((k) => pad.includes(`data-ipad="${k}"`)), 'the three needs');
+  assert.ok(!pad.includes('readings.pad_diameter'), 'no diameter until Pads is lit');
+  await fireOn('click', fakeTarget('[data-ipad]', { dataset: { ipad: 'pads_needed' } }));
+  pad = await renderRoute('#/wo/W1001');
+  assert.ok(/<input type="number" inputmode="decimal" step="any" min="0" max="60" data-ifield="readings.pad_diameter"/.test(pad), 'diameter is a real input, not escaped markup');
+  assert.ok(/<input type="text" maxlength="20" autocomplete="off" placeholder="red" data-ifield="readings.pad_color"/.test(pad), 'color is a real input');
+  assert.ok(!pad.includes('&lt;input'), 'no escaped markup anywhere on the sheet');
+  await fireOn('click', fakeTarget('[data-ihead]', { dataset: { ihead: 'PAD' } }));   // tap the lit one → unset
+  pad = await renderRoute('#/wo/W1001');
+  assert.ok(pad.includes('data-ifield="readings.brush1_pct"') && !pad.includes('data-ipad='), 'unset head brings the brush rows back');
+  resetSheets();
   assert.ok(out.includes('<span class="count">3/4 answered</span>'), 'Batteries: 3 of 4');
   assert.ok(/data-iseg="deck.curtains" data-val="REPLACE"/.test(out) && !/data-iseg="deck.curtains" data-val="REPAIR"/.test(out));
   // A DONE sheet that carries the retired row still draws it.
