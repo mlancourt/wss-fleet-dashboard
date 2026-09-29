@@ -1246,7 +1246,8 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
 .insp input.bad { border-color: var(--bad); background: var(--bad-bg); }
 .insp :disabled { background: var(--slate-50); color: var(--slate-700); opacity: 1; }
 .ifl.big input { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; min-height: 52px; }
-.insp-hours { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.insp-hours { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }   /* D74: four meters — 2×2 on a phone */
+@media (min-width: 640px) { .insp-hours { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .insp-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .insp-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 

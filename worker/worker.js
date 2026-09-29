@@ -141,9 +141,15 @@ const INSP_LEVEL = new Set(['OVERFILLED', 'FULL', 'LOW', 'DRY']);
 // only refuse a word that belongs to neither.
 const INSP_RESULTS = new Set(['IN-SPEC', 'REPAIR', 'PROBLEM', 'GOOD', 'WORN', 'REPLACE', 'N/A']);
 // v1.2: no recharge counter; broom / brush wear is % life remaining, a whole number 0–100.
-const INSP_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub',
-  'main_broom_pct', 'brush1_pct', 'brush2_pct', 'brushes_rotated']);
-const INSP_METER_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub']);
+// D74: hours_vac (a meter) · head_type BRUSH|PAD · the pad "needs" (booleans) · pad_diameter (0–60 in) · pad_color (≤20 chars).
+const INSP_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub', 'hours_vac',
+  'main_broom_pct', 'brush1_pct', 'brush2_pct', 'brushes_rotated',
+  'head_type', 'pad_drivers_needed', 'pad_holders_needed', 'pads_needed', 'pad_diameter', 'pad_color']);
+const INSP_METER_READINGS = new Set(['hours_key', 'hours_traction', 'hours_scrub', 'hours_vac']);
+const INSP_BOOL_READINGS = new Set(['brushes_rotated', 'pad_drivers_needed', 'pad_holders_needed', 'pads_needed']);
+const INSP_HEAD_TYPES = ['BRUSH', 'PAD'];
+const INSP_MAX_PAD_DIAMETER = 60;
+const INSP_MAX_PAD_COLOR = 20;
 const INSP_ROW_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;   // "ctl.key_switch" — shape only; which ids exist is the library's
 const INSP_MAX_CELLS = 18;
 const INSP_MAX_ITEMS = 120;
@@ -581,9 +587,19 @@ function cleanPayload(action, p, role, serial) {
         const rd = {};
         for (const k of Object.keys(r)) {
           if (!INSP_READINGS.has(k)) throw httpError(400, `${at}readings does not take ${k}`);
-          if (k === 'brushes_rotated') {
-            if (r[k] != null && typeof r[k] !== 'boolean') throw httpError(400, 'brushes_rotated must be true or false');
+          if (INSP_BOOL_READINGS.has(k)) {
+            if (r[k] != null && typeof r[k] !== 'boolean') throw httpError(400, `${k} must be true or false`);
             rd[k] = r[k] == null ? null : r[k];
+          } else if (k === 'head_type') {
+            if (r[k] != null && !INSP_HEAD_TYPES.includes(r[k])) throw httpError(400, 'head_type must be BRUSH or PAD');
+            rd[k] = r[k] == null ? null : r[k];
+          } else if (k === 'pad_color') {
+            if (r[k] != null && typeof r[k] !== 'string') throw httpError(400, 'pad_color must be text');
+            const c = r[k] == null ? '' : r[k].trim();
+            if (c.length > INSP_MAX_PAD_COLOR) throw httpError(400, `pad_color is limited to ${INSP_MAX_PAD_COLOR} characters`);
+            rd[k] = c || null;
+          } else if (k === 'pad_diameter') {
+            rd[k] = num(r[k], 0, INSP_MAX_PAD_DIAMETER, k);
           } else if (INSP_METER_READINGS.has(k)) {
             rd[k] = num(r[k], 0, 99999, k);
           } else {

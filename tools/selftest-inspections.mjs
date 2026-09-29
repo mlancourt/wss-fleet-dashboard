@@ -178,8 +178,18 @@ check('a section on the wire: only visible answers, only laid-out cells, the pac
   assert.deepEqual(sectionValue(overlay(s, { battery: { type: 'WET', voltage: 36, pack: '4x6V' } }), 'battery', LIB), { type: 'WET', voltage: 36, pack: null });
   assert.deepEqual(sectionValue(overlay(s, { battery: { type: 'AGM', voltage: 24 } }), 'cells', LIB), [], 'no grid, no cells');
   const r = sectionValue(s, 'readings', LIB);
-  assert.deepEqual(Object.keys(r).sort(), ['brush1_pct', 'brush2_pct', 'brushes_rotated', 'hours_key', 'hours_scrub',
-    'hours_traction', 'main_broom_pct'], 'readings go whole — v1.2: no recharge counter, no lengths');
+  assert.deepEqual(Object.keys(r).sort(), ['brush1_pct', 'brush2_pct', 'brushes_rotated', 'head_type', 'hours_key', 'hours_scrub',
+    'hours_traction', 'hours_vac', 'main_broom_pct', 'pad_color', 'pad_diameter', 'pad_drivers_needed', 'pad_holders_needed', 'pads_needed'],
+  'readings go whole — v1.2: no recharge counter, no lengths; D74: vac meter + scrub head');
+  // D74: the pad block is scrubbed unless the head is PAD; diameter / color unless pads are needed.
+  const padOn = sectionValue(overlay(s, { readings: { head_type: 'PAD', pads_needed: true, pad_drivers_needed: true, pad_diameter: 17, pad_color: '  red  ' } }), 'readings', LIB);
+  assert.equal(padOn.head_type, 'PAD'); assert.equal(padOn.pad_drivers_needed, true); assert.equal(padOn.pad_holders_needed, null);
+  assert.equal(padOn.pad_diameter, 17); assert.equal(padOn.pad_color, 'red', 'color trimmed');
+  const padOff = sectionValue(overlay(s, { readings: { head_type: 'BRUSH', pads_needed: true, pad_diameter: 17, pad_color: 'red', hours_vac: 12.5 } }), 'readings', LIB);
+  assert.equal(padOff.pads_needed, null, 'no pad needs on a BRUSH head'); assert.equal(padOff.pad_color, null); assert.equal(padOff.hours_vac, 12.5, 'vac hours are a meter, decimals kept');
+  const noPads = sectionValue(overlay(s, { readings: { head_type: 'PAD', pad_holders_needed: true, pad_diameter: 17, pad_color: 'red' } }), 'readings', LIB);
+  assert.equal(noPads.pad_holders_needed, true); assert.equal(noPads.pad_diameter, null, 'diameter only when pads are needed');
+  assert.equal(sectionValue(overlay(s, { readings: { head_type: 'DISC' } }), 'readings', LIB).head_type, null, 'an unknown head type drops');
   assert.equal(sectionValue(overlay(s, { readings: { hours_key: 5, brush1_pct: 62.6 } }), 'readings', LIB).brush1_pct, 63, 'a percent goes out whole');
   assert.equal(sectionValue(overlay(s, { comments: '   ' }), 'comments', LIB), null, 'a blank box is null');
   assert.equal(sectionValue(s, 'machine_class', LIB), 'SCRUBBER');

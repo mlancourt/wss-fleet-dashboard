@@ -44,7 +44,18 @@ export const RESULT_LABEL = {
   'IN-SPEC': 'In spec', REPAIR: 'Repair', PROBLEM: 'Problem', GOOD: 'Good', WORN: 'Worn', REPLACE: 'Replace', 'N/A': 'N/A',
 };
 export const FLAG_RESULTS = new Set(['REPAIR', 'PROBLEM', 'REPLACE']);
-export const HOURS_KEYS = ['hours_key', 'hours_traction', 'hours_scrub'];
+export const HOURS_KEYS = ['hours_key', 'hours_traction', 'hours_scrub'];   // unit-hours write-back order — vac is a meter, never the machine's hours
+/** D74: the scrub head — brushes (life-left %) or pad drivers (what it needs). SCRUBBER only. */
+export const HEAD_TYPES = ['BRUSH', 'PAD'];
+export const HEAD_LABEL = { BRUSH: 'Brushes', PAD: 'Pad drivers' };
+export const PAD_NEEDS = [
+  { key: 'pad_drivers_needed', label: 'Pad drivers' },
+  { key: 'pad_holders_needed', label: 'Pad holders' },
+  { key: 'pads_needed', label: 'Pads' },
+];
+export const BOOL_KEYS = new Set(['brushes_rotated', ...PAD_NEEDS.map((p) => p.key)]);
+export const MAX_PAD_DIAMETER = 60;
+export const MAX_PAD_COLOR = 20;
 /**
  * The typed readings, hours first (§4.3). `class` limits a reading to one
  * machine class. v1.2: broom / brush wear is "% life remaining", a whole
@@ -54,11 +65,13 @@ export const READINGS = [
   { key: 'hours_key', label: 'Key hours', max: 99999, hours: true },
   { key: 'hours_traction', label: 'Traction hours', max: 99999, hours: true },
   { key: 'hours_scrub', label: 'Scrub hours', max: 99999, hours: true },
+  { key: 'hours_vac', label: 'Vac motor hours', max: 99999, hours: true },
   { key: 'main_broom_pct', label: 'Main broom life left', max: 100, pct: true, class: 'SWEEPER' },
   { key: 'brush1_pct', label: 'Brush 1 life left', max: 100, pct: true, class: 'SCRUBBER' },
   { key: 'brush2_pct', label: 'Brush 2 life left', max: 100, pct: true, class: 'SCRUBBER' },
 ];
-export const READING_KEYS = [...READINGS.map((r) => r.key), 'brushes_rotated'];
+export const READING_KEYS = [...READINGS.map((r) => r.key), 'brushes_rotated',
+  'head_type', ...PAD_NEEDS.map((p) => p.key), 'pad_diameter', 'pad_color'];
 export const PCT_KEYS = new Set(READINGS.filter((r) => r.pct).map((r) => r.key));
 export const SECTION_KEYS = ['machine_class', 'body_style', 'battery', 'readings', 'cells', 'items', 'comments'];
 export const MAX_COMMENTS = 1000;
@@ -278,9 +291,15 @@ export function sectionValue(sheet, key, sections) {
     for (const k of READING_KEYS) {
       const v = sheet.readings[k];
       const n = num(v);
-      out[k] = k === 'brushes_rotated' ? (typeof v === 'boolean' ? v : null)
-        : PCT_KEYS.has(k) && n != null ? Math.round(n) : n;
+      if (BOOL_KEYS.has(k)) out[k] = typeof v === 'boolean' ? v : null;
+      else if (k === 'head_type') out[k] = HEAD_TYPES.includes(v) ? v : null;
+      else if (k === 'pad_color') { const c = v == null ? '' : String(v).trim(); out[k] = c ? c.slice(0, MAX_PAD_COLOR) : null; }
+      else if (k === 'pad_diameter') out[k] = n != null && n >= 0 && n <= MAX_PAD_DIAMETER ? n : null;
+      else out[k] = PCT_KEYS.has(k) && n != null ? Math.round(n) : n;
     }
+    // D74: the pad block only means something on a PAD head; diameter / color only when pads are needed.
+    if (out.head_type !== 'PAD') for (const p of PAD_NEEDS) out[p.key] = null;
+    if (out.head_type !== 'PAD' || out.pads_needed !== true) { out.pad_diameter = null; out.pad_color = null; }
     return out;
   }
   if (key === 'cells') {

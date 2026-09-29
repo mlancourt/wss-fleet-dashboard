@@ -2136,3 +2136,34 @@ the number" copy is gone.
 4. **No Void button on a NEW sheet.** Its Undo already discards the whole sheet
    without a trip through the engine. The Worker accepts a serial-keyed VOID for
    anyone who needs it.
+
+
+## 2026-09-29 14:20 CT — D74: vac motor hours + scrub head (brushes vs pad drivers)
+
+Matt's ask (14:12, screenshot of the READINGS card): a vac motor reading beside
+key / traction / scrub, and a selector between brushes (life left) and pad
+drivers — with pad drivers the tech ticks what it needs (pad drivers, pad
+holders, pads) and pads open diameter + color.
+
+- `inspections.js`: `hours_vac` joins READINGS (`hours: true`, so it draws big
+  and sits in `.insp-hours`); `HOURS_KEYS` (the unit-hours write-back order)
+  does NOT take it. `HEAD_TYPES`, `PAD_NEEDS`, `BOOL_KEYS`, `MAX_PAD_DIAMETER`
+  60, `MAX_PAD_COLOR` 20. `sectionValue('readings')` types every new key and
+  nulls the pad block off a PAD head, diameter / color off `pads_needed`.
+- `app.js` readingsCard: **Scrub head** segmented toggle (SCRUBBER only,
+  `data-ihead`), brush rows hidden on PAD, **Needs new** row of three
+  independent `data-ipad` toggles (`.seg-b.f` warn tint), diameter (`in`
+  suffix, decimal keypad) + color (text) when Pads is lit. Input handler grows
+  a `pad_color` string branch (the one free-text reading) and resolves
+  `pad_diameter`'s max outside READINGS.
+- `style.css`: `.insp-hours` 2×2 by default, 4-up ≥ 640px. `sw.js` v46.
+- Worker: six new `INSP_READINGS`, `hours_vac` a meter, `INSP_BOOL_READINGS`,
+  `head_type` enum, `pad_color` text ≤ 20, `pad_diameter` 0–60.
+- Engine `wss_inspections.py`: `READING_KEYS` +6, `METER_KEYS` (bounds) vs
+  `HOURS_KEYS` (write-back), `clean_readings` branches. Templates + both site
+  specs list the keys. Tests: inspections (page), worker, render fixture,
+  engine selftest — 170 site checks, 17/17 engine.
+- Kept flat inside `readings` rather than a new `head` section: one section
+  key across three validators and a template is cheaper than four. The
+  ugly part is `pad_color` — the first string in a numeric block — fenced by
+  its own branch in all three layers.

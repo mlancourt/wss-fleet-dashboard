@@ -43,7 +43,7 @@ import {
 import {
   CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
   BATTERY_TYPES, BATTERY_LABEL, VOLTAGES, PACKS_BY_VOLTAGE, PACK_LABEL, CLARITY, CLARITY_LABEL, LEVEL, LEVEL_LABEL,
-  SCALES, RESULT_LABEL, READINGS, SECTION_KEYS, MAX_COMMENTS, MAX_ITEM_NOTE, MAX_NOTE, MAX_REASON,
+  SCALES, RESULT_LABEL, READINGS, SECTION_KEYS, HEAD_TYPES, HEAD_LABEL, PAD_NEEDS, MAX_PAD_DIAMETER, MAX_PAD_COLOR, MAX_COMMENTS, MAX_ITEM_NOTE, MAX_NOTE, MAX_REASON,
   checklistOf, blockOf, deriveProfile, visibleSections, profileOf,
   cellLayout, cellKey, parseSg, sheetFrom, overlay, firstHours, doneReady, isFlag, flagCount, answeredIn,
   sectionValue, reopenShown, fmtReading, chipText as sheetChipText, chipTone as sheetChipTone,
@@ -75,7 +75,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-28-d70';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-29-d74';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -2820,11 +2820,28 @@ function readingsCard(sheet, dis, editable) {
   const shown = READINGS.filter((d) => !d.class || d.class === sheet.machine_class);
   const rot = r.brushes_rotated;
   const rb = (v, label) => html`<button type="button" class="seg-b${rot === v ? ' on' : ''}" data-irot="${String(v)}" aria-pressed="${rot === v ? 'true' : 'false'}"${dis}>${label}</button>`;
+  // D74: a scrubber's head is brushes (life left) or pad drivers (what it needs). The toggle only
+  // shows on a SCRUBBER; an unset head keeps the brush rows so old sheets read exactly as before.
+  const scrub = sheet.machine_class === 'SCRUBBER';
+  const head = scrub ? r.head_type : null;
+  const hb = (v) => html`<button type="button" class="seg-b${head === v ? ' on' : ''}" data-ihead="${v}" aria-pressed="${head === v ? 'true' : 'false'}"${dis}>${HEAD_LABEL[v]}</button>`;
+  const pb = (p) => html`<button type="button" class="seg-b f${r[p.key] === true ? ' on' : ''}" data-ipad="${p.key}" aria-pressed="${r[p.key] === true ? 'true' : 'false'}"${dis}>${p.label}</button>`;
+  const headRow = scrub ? html`<div class="ifl"><span>Scrub head</span><div class="iseg">${raw(HEAD_TYPES.map(hb).join(''))}</div></div>` : '';
+  const padBlock = head === 'PAD' ? html`
+      <div class="ifl"><span>Needs new</span><div class="iseg">${raw(PAD_NEEDS.map(pb).join(''))}</div></div>
+      ${r.pads_needed === true ? html`<div class="insp-2">
+        <label class="ifl"><span>Pad diameter</span>
+          <span class="pct-wrap"><input type="number" inputmode="decimal" step="any" min="0" max="${MAX_PAD_DIAMETER}" data-ifield="readings.pad_diameter" value="${r.pad_diameter == null ? '' : r.pad_diameter}"${dis}><span class="pct-suf" aria-hidden="true">in</span></span></label>
+        <label class="ifl"><span>Pad color</span>
+          <input type="text" maxlength="${MAX_PAD_COLOR}" autocomplete="off" placeholder="red" data-ifield="readings.pad_color" value="${r.pad_color == null ? '' : r.pad_color}"${dis}></label>
+      </div>` : ''}` : '';
+  const brushBlock = head === 'PAD' ? '' : html`
+      <div class="insp-2">${raw(shown.filter((d) => !d.hours).map(numField).join(''))}</div>
+      <div class="ifl"><span>Brushes rotated</span><div class="iseg">${raw(rb(true, 'Yes'))}${raw(rb(false, 'No'))}</div></div>`;
   return html`
     <div class="card insp-card">
       <div class="insp-hours">${raw(shown.filter((d) => d.hours).map(numField).join(''))}</div>
-      <div class="insp-2">${raw(shown.filter((d) => !d.hours).map(numField).join(''))}</div>
-      <div class="ifl"><span>Brushes rotated</span><div class="iseg">${raw(rb(true, 'Yes'))}${raw(rb(false, 'No'))}</div></div>
+      ${raw(headRow)}${raw(brushBlock)}${raw(padBlock)}
       ${editable && !doneReady(sheet) ? raw('<div class="form-note" id="insp-hours-hint">Done needs at least one hours reading — the meter is the one thing this sheet never leaves blank.</div>') : ''}
     </div>`;
 }
@@ -3019,7 +3036,12 @@ function onInspField(el, committed) {
   }
   if (f.startsWith('readings.')) {
     const k = f.slice(9);
-    const d = READINGS.find((x) => x.key === k);
+    if (k === 'pad_color') {                                              // D74: the one free-text reading
+      const c = v.trim().slice(0, MAX_PAD_COLOR);
+      editSheet((l, sh) => { l.edits.readings = { ...sh.readings, pad_color: c || null }; }, ['readings'], soon);
+      return;
+    }
+    const d = READINGS.find((x) => x.key === k) || (k === 'pad_diameter' ? { key: k, max: MAX_PAD_DIAMETER } : null);
     let n = v.trim() === '' ? null : Number(v);
     if (n != null && d && d.pct && isFinite(n)) n = Math.round(n);     // a percent is a whole number
     if (n != null && (!isFinite(n) || n < 0 || (d && n > d.max))) { bad(true); return; }
@@ -4889,6 +4911,25 @@ document.addEventListener('click', async (ev) => {
     const want = irot.dataset.irot === 'true';
     editSheet((l, sh) => {
       l.edits.readings = { ...sh.readings, brushes_rotated: sh.readings.brushes_rotated === want ? null : want };
+    }, ['readings']);
+    return;
+  }
+  // D74: scrub head — tap the lit one again to unset; the pad "needs" are independent on/off taps.
+  const ihead = ev.target.closest('[data-ihead]');
+  if (ihead) {
+    if (ihead.disabled) return;
+    const want = ihead.dataset.ihead;
+    editSheet((l, sh) => {
+      l.edits.readings = { ...sh.readings, head_type: sh.readings.head_type === want ? null : want };
+    }, ['readings']);
+    return;
+  }
+  const ipad = ev.target.closest('[data-ipad]');
+  if (ipad) {
+    if (ipad.disabled) return;
+    const k = ipad.dataset.ipad;
+    editSheet((l, sh) => {
+      l.edits.readings = { ...sh.readings, [k]: sh.readings[k] === true ? null : true };
     }, ['readings']);
     return;
   }

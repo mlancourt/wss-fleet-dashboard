@@ -205,6 +205,15 @@ await check('lengths, enums and shapes inside the sections', async () => {
   await bad({ readings: { brush2_pct: 55.5 } }, 'a fractional percent', 'whole-number');
   await ok('owner', insp('SAVE', { readings: { main_broom_pct: 0, brush1_pct: 100, brush2_pct: null } }), 'percent edges + null');
   await bad({ readings: { brushes_rotated: 'Y' } }, 'rotated as a string', 'true or false');
+  // D74: vac meter + scrub head + the pad needs.
+  await ok('owner', insp('SAVE', { readings: { hours_vac: 812.5, head_type: 'PAD', pad_drivers_needed: true, pads_needed: true, pad_diameter: 17, pad_color: 'red' } }), 'a PAD head with pads');
+  await ok('owner', insp('SAVE', { readings: { head_type: 'BRUSH', brush1_pct: 40, brushes_rotated: false } }), 'a BRUSH head');
+  await bad({ readings: { head_type: 'DISC' } }, 'an unknown head type', 'BRUSH or PAD');
+  await bad({ readings: { pads_needed: 'yes' } }, 'a pad need as a string', 'true or false');
+  await bad({ readings: { pad_diameter: 61 } }, 'a 61-inch pad', 'pad_diameter');
+  await bad({ readings: { pad_color: 'x'.repeat(21) } }, 'a 21-char color', '20 characters');
+  await bad({ readings: { pad_color: 7 } }, 'a numeric color', 'text');
+  await bad({ readings: { hours_vac: 100000 } }, 'vac hours over the meter', 'hours_vac');
   await bad({ readings: { odometer: 5 } }, 'unknown reading', 'odometer');
   await bad({ cells: [{ battery: 7, cell: 'A' }] }, 'battery 7');
   await bad({ cells: [{ battery: 1, cell: 'G' }] }, 'cell G');

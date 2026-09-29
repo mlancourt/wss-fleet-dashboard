@@ -1201,7 +1201,8 @@ function buildWorkOrders({ withWorkOrders, units }) {
     return ['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN'].includes(b) ? b : 'OTHER';
   };
   const blankReadings = () => ({ hours_key: null, hours_traction: null, hours_scrub: null,
-    main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null });
+    hours_vac: null, main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null,
+    head_type: null, pad_drivers_needed: null, pad_holders_needed: null, pads_needed: null, pad_diameter: null, pad_color: null });
   const cells = (n, per, sgs) => {
     const out = [];
     for (let b = 1; b <= n; b++) for (const c of 'ABCDEF'.slice(0, per)) {
@@ -2081,7 +2082,8 @@ const pending = [
     actor: 'Josh', role: 'service',
     action: 'work_order', serial: woOpenUnit.serial,
     payload: { action: 'INSPECT', step: 'SAVE', readings: { hours_key: 1204, hours_traction: null, hours_scrub: null,
-      main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null } },
+      hours_vac: null, main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null,
+    head_type: null, pad_drivers_needed: null, pad_holders_needed: null, pads_needed: null, pad_diameter: null, pad_color: null } },
   },
   {
     id: 'evt-mock-14',

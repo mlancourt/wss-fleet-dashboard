@@ -3526,7 +3526,8 @@ await check('D69: a NEW work order — the sheet saves keyed on the serial (no W
   await fireOn('change', fieldTarget('readings.hours_key', '41'));
   await app.__flushSheets();
   assert.deepEqual(posted[0], { action: 'work_order', serial: u.serial, payload: { action: 'INSPECT', step: 'SAVE', readings:
-    { hours_key: 41, hours_traction: null, hours_scrub: null, main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null } } },
+    { hours_key: 41, hours_traction: null, hours_scrub: null, hours_vac: null, main_broom_pct: null, brush1_pct: null, brush2_pct: null, brushes_rotated: null,
+      head_type: null, pad_drivers_needed: null, pad_holders_needed: null, pads_needed: null, pad_diameter: null, pad_color: null } } },
     'keyed on the serial — no invented work_order key');
   await fireOn('change', fieldTarget('readings.hours_key', '42'));
   await app.__flushSheets();
