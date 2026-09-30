@@ -2245,3 +2245,53 @@ Floor calls:
   `crew: true` on a quote *will* draw a ✕ — the engine then refuses the event.
 - **✕ glyph, not "Remove" text**, at 390 px: the row already fights a long
   filename for width; the aria-label carries the words.
+
+## 2026-09-30 — D78: the Activity tape on the landing — `activity[]`
+
+Page only: schema 7 untouched, no Worker change, no new action, no new key of
+ours. The engine publishes top-level `activity[]` (newest first, ≤ 40,
+`{ts, actor, role, action, verb, record, text, evt}`) — the Worker's stamp
+joined to the engine's one-line detail, so the feed costs nothing to build.
+
+- `activity.js` (new, pure): `activityGroups(rows, now, pendingRows)` (Central
+  day buckets, newest first, 40 cap, junk `ts` dropped, your ⏳ rows at the top
+  of Today — Today created if needed), `pendingActivityRows(pending, me,
+  activity)` (only `me.name`'s events, minus any whose id is already an
+  `activity[].evt` — compared bare, so `evt:` / `evt_` prefixes match),
+  `activityRoute(record, units)` (S → ticket · L → lead · W → WO · one of our
+  serials → unit · else no link), `ACTOR_COLORS` (+ grey default), `HUE_BG`.
+- `app.js`: `activityStrip()` mounted after `partsTracker()` (so it lands under
+  Work orders when the tracker draws no card); `section.activity card`
+  `aria-label="Activity"`; `ui.showActivity` + `ACTIVITY_OPEN_KEY`
+  (`wss.activity.open`, sessionStorage) + `data-activity-toggle`. Head = the
+  newest row (pill · time · text) or `nothing yet` (`.parts-n.zero`); the strip
+  draws even when the key is absent. Rows: pill · h:mm · text, the whole row a
+  link when the record routes.
+- Mock: 12 rows over today / yesterday / 3 days back, all four names, every
+  record shape, one `record: null`, one `Architect`; one row carries
+  `evt-mock-6` (Matt's pending `dispatch_done`) to prove suppression. Empty →
+  `[]`; legacy → no key. BUILD d78, SW v49 (`activity.js` in the shell).
+- Tests: `selftest-activity.mjs` (8), render +4 (all roles, open body + routes,
+  ⏳ rows + suppression, `[]` / absent key, the no-digit-after-a-pill guard),
+  money-gate + m1 assert `activity[]` text for every role never matches
+  `/\$\s?\d/`.
+
+Floor calls:
+- **Central, not device-local.** "Render local time" — the crew's phones are
+  Central, and every other instant in the app renders Central
+  (`fmtInstantCentral`); it also makes the day buckets deterministic in tests.
+- **h:mm with no AM/PM**, per the work order. The day label carries the date;
+  a 2:14 that could be AM is rare enough on a shop tape.
+- **Pills are solid white-on-hue** (purple Matt · blue Kevin · green Josh ·
+  orange Zac · grey everyone else) — D53 pin hues darkened to ≥ 4.5:1 (lowest:
+  green 5.0:1), asserted in the test against the CSS. The app has no dark mode;
+  solid pills don't depend on the page background, so they hold if it gets one.
+- **At ≤ 400 px the head drops the time**, not the text — the folded line is
+  for reading what happened; the open list has the times.
+- **The render lives in `app.js`, not `activity.js`** — the work order asked for
+  `activityStrip(ctx)` in the new module, but every render (incl. the tracker it
+  copies) lives beside the `html` helper in `app.js`; `activity.js` stays pure
+  and testable like its siblings.
+- **Live `/api/data` not verified** — no crew token on this machine. Built to
+  the shape in the work order; a pre-D78 snapshot renders the strip as
+  `nothing yet` (tested).

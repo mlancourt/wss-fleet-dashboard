@@ -629,6 +629,14 @@ for RN in owner sales service; do
     "Array.isArray(b.snapshot.work_orders) && b.snapshot.work_orders.length>0 && !/\\\$\\s?\\d/.test(JSON.stringify(b.snapshot.work_orders)) && !/\"(cost|cost_source_inv|rate|price)\"/.test(JSON.stringify(b.snapshot.work_orders))" \
     "$WORKER/api/data" -H "$(auth $R)"
 done
+# D78: the activity tape ships to EVERY role untouched (never role-gated) and is
+# money-free by contract — no line of its text carries a figure.
+for RN in owner sales service; do
+  case $RN in owner) R=$T_OWNER;; sales) R=$T_SALES;; service) R=$T_SERVICE;; esac
+  expect "$RN: activity[] ships whole, no /\\\$\\s?\\d/ in any line" 200 \
+    "Array.isArray(b.snapshot.activity) && b.snapshot.activity.length>0 && b.snapshot.activity.every(r=>!/\\\$\\s?\\d/.test(String(r.text||'')))" \
+    "$WORKER/api/data" -H "$(auth $R)"
+done
 
 echo "-- documents (schema 6): the doc id IS the sha256 of the bytes"
 PDF="${PDF:-$(dirname "$0")/../test/fixtures/sample-quote.pdf}"

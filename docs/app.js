@@ -71,11 +71,12 @@ import {
   canEditLead, canCloseLead, stageOptions as leadStageOptions, stageNeeds,
   delta, pctOr, statOr, leadForHold, isDemoHold, isStale,
 } from './leads.js';
+import { activityGroups, pendingActivityRows, activityRoute, activityTime, actorHue, actorLabel } from './activity.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-30-d77';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-30-d78';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -179,6 +180,11 @@ const TRACKER_OPEN_KEY = 'wss.tracker.open';
 function storedTrackerOpen() {
   try { return sessionStorage.getItem(TRACKER_OPEN_KEY) === '1'; } catch (_) { return false; }
 }
+// D78: the Activity tape folds the same way, on its own key.
+const ACTIVITY_OPEN_KEY = 'wss.activity.open';
+function storedActivityOpen() {
+  try { return sessionStorage.getItem(ACTIVITY_OPEN_KEY) === '1'; } catch (_) { return false; }
+}
 const LEAD_FILTER_KEY = 'wss_fleet_lead_filter';
 function storedLeadFilter() {
   try {
@@ -211,6 +217,7 @@ const ui = {
   showPartsDelivered: false,      // D65: Delivered (30d) — in the Parts tracker since D75; always starts folded
   showTracker: storedTrackerOpen(),   // D75: the Parts tracker strip — collapsed by default, remembered per session
   trackerOpen: new Set(),         // D75: the W-numbers whose tracker group is unfolded — this page load only
+  showActivity: storedActivityOpen(), // D78: the Activity tape — collapsed by default, remembered per session
   // D69: the 📋 sheet card on a work order — expanded while PENDING, folded once
   // DONE / SKIPPED. A tap flips it for this page view; key → true (open) / false.
   sheetCard: new Map(),
@@ -551,7 +558,9 @@ function viewCategories() {
   // list, not a totals block, like the D56 Shop List).
   // D69: the D67 Inspections strip retired into it — one Work orders strip.
   // D75: split in two — the work orders, then their parts grouped under them.
-  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(partsTracker())}${raw(cards.join(''))}${raw(shopList())}`;
+  // D78: the Activity tape under them (under Work orders when the tracker has
+  // no card) — folded, so it never pushes the lights down more than one row.
+  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(partsTracker())}${raw(activityStrip())}${raw(cards.join(''))}${raw(shopList())}`;
 }
 
 /**
@@ -636,6 +645,59 @@ function partsTracker() {
       </button>
       ${raw(body)}
     </section>`;
+}
+
+/**
+ * The Activity tape (D78) — "what's happened on the tracker lately, and who
+ * did it", one line each, the person as a coloured pill. The engine joins the
+ * Worker's stamp {ts, actor} to its own one-line detail and ships `activity[]`;
+ * we draw it verbatim. Your own unapplied taps ride on top of Today as ⏳ rows,
+ * from the same `pending` that drives every other ⏳ badge — until the engine
+ * applies one and its real line (same evt) replaces it.
+ *
+ * Collapsed, the head IS the newest line, so the folded strip is useful on its
+ * own. Always drawn, even empty ("nothing yet") and even on a pre-D78 snapshot
+ * with no key — it is the door, and an empty tape is a fact.
+ *
+ * D54: NO COUNTS. Not in the head, not per person, not per day. A name is a
+ * pill beside what they did, never a number beside a name.
+ */
+function activityStrip() {
+  const snap = state.snapshot || {};
+  const filed = Array.isArray(snap.activity) ? snap.activity : [];
+  const mine = pendingActivityRows(state.pending, state.me, filed);
+  const groups = activityGroups(filed, new Date(), mine);
+  const newest = groups.length ? groups[0].rows[0] : null;
+  const units = snap.units || [];
+  const open = ui.showActivity;
+
+  const body = open ? html`
+    <div class="parts-body" id="activity-body">
+      ${groups.length ? raw(groups.map((g) => html`
+        <div class="parts-g act-day">${g.label}</div>
+        ${raw(g.rows.map((r) => activityRow(r, units)).join(''))}`).join(''))
+        : raw('<div class="hold-empty">Nothing on the tape yet.</div>')}
+    </div>` : '';
+
+  return html`
+    <section class="activity card" aria-label="Activity">
+      <button type="button" class="parts-head act-head" data-activity-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="activity-body">
+        <span class="parts-t act-t">📣 Activity ${open ? '▾' : '▸'}</span>
+        ${newest ? raw(html`<span class="act-last">${raw(actorPill(newest.actor))}<span class="act-time">${activityTime(newest.ts)}</span><span class="act-text">· ${newest.pending ? '⏳ ' : ''}${newest.text || ''}</span></span>`)
+          : raw('<span class="parts-n zero">nothing yet</span>')}
+      </button>
+      ${raw(body)}
+    </section>`;
+}
+
+const actorPill = (name) => html`<span class="pill-actor h-${actorHue(name)}">${actorLabel(name)}</span>`;
+
+/** One tape line: pill · h:mm · text. The whole row is the link when the record routes. */
+function activityRow(r, units) {
+  const href = activityRoute(r.record, units);
+  const inner = html`${raw(actorPill(r.actor))}<span class="act-time">${activityTime(r.ts)}</span><span class="act-text">${r.pending ? '⏳ ' : ''}${r.text || ''}</span>`;
+  const cls = `act-row${r.pending ? ' pending' : ''}`;
+  return href ? html`<a class="${cls}" href="${raw(href)}">${raw(inner)}</a>` : html`<div class="${cls}">${raw(inner)}</div>`;
 }
 
 /**
@@ -5138,6 +5200,13 @@ document.addEventListener('click', async (ev) => {
   }
   const trk = ev.target.closest('[data-tracker-wo]');
   if (trk && !ev.target.closest('a')) { toggleTrackerGroup(trk.dataset.trackerWo); return; }
+  // D78: the Activity tape. Remembered for the session, like the two above.
+  if (ev.target.closest('[data-activity-toggle]')) {
+    ui.showActivity = !ui.showActivity;
+    try { sessionStorage.setItem(ACTIVITY_OPEN_KEY, ui.showActivity ? '1' : '0'); } catch (_) { /* storage blocked */ }
+    render();
+    return;
+  }
 
   // D68 Order · Stock, per line. In place, like "+ line" — typed fields survive.
   const src = ev.target.closest('[data-wo-src]');

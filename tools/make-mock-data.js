@@ -1067,6 +1067,9 @@ function build({ withServiceQueue }) {
   // ------------------------------------------------- work orders (D65)
   const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units });
 
+  // ---------------------------------------------------- activity (D78)
+  const activity = buildActivity({ withActivity: withServiceQueue, units, service_queue, leads, work_orders, dispatch, agreements });
+
   // schema 4: a count and nothing else. No cost, no book, no ask (D45).
   const totals = { units: units.length };
 
@@ -1141,9 +1144,50 @@ function build({ withServiceQueue }) {
     // D67: the row library ships verbatim — the phone renders the sheet from
     // it. D69 retired `inspections[]` / `inspection_summary`: never emitted.
     inspection_checklist: CHECKLIST_FIXTURE,
+    // D78 (schema 7, additive): the activity tape. Newest first, <= 40, money-free.
+    activity,
   };
 
   return { snapshot, ledger };
+}
+
+/* ------------------------------------------------- activity (D78)
+ * The engine joins the Worker's stamp {ts, actor, role} to its own one-line
+ * detail for every event it applies. ~12 rows across all four names and every
+ * record shape (ticket · lead · work order · serial · dispatch id · agreement ·
+ * null), one unknown actor ("Architect"), spread over today, yesterday and
+ * three days back so the day labels all draw. One row carries evt-mock-6 —
+ * Matt's pending dispatch_done in mock-pending.json — so the owner view proves
+ * the filed line suppresses the ⏳ one. Text is money-free by contract.
+ * The empty variant ships `activity: []` (the strip still draws, "nothing yet").
+ */
+function buildActivity({ withActivity, units, service_queue, leads, work_orders, dispatch, agreements }) {
+  if (!withActivity) return [];
+  const at = (mins) => new Date(Date.now() - mins * 60000).toISOString();
+  const t1 = service_queue[0] && service_queue[0].ticket;
+  const t2 = service_queue[1] && service_queue[1].ticket;
+  const l1 = leads[0] && leads[0].lead;
+  const l2 = leads[1] && leads[1].lead;
+  const u = units.find((x) => x.unit_state === 'IN-SHOP') || units[0];
+  const pickup = dispatch.find((r) => r.source === 'RENTAL-RETURN' && r.status === 'SCHEDULED') || dispatch[0];
+  const agmt = (agreements.find((a) => a.agreement != null) || {}).agreement ?? null;
+  let n = 0;
+  const row = (mins, actor, role, action, verb, record, text, evt) =>
+    ({ ts: at(mins), actor, role, action, verb, record, text, evt: evt || `mock-act-${++n}` });
+  return [
+    row(8, 'Josh', 'service', 'work_order', 'LABOR', 'W1003', 'W1003: 1.5 h by Josh (3 h total)'),
+    row(25, 'Kevin', 'sales', 'lead_update', null, l1, `${l1}: moved to Quoted`),
+    row(55, 'Matt', 'owner', 'dispatch_done', null, pickup.id, `${pickup.id}: picked up — back in the yard`, 'evt-mock-6'),
+    row(95, 'Zac', 'service', 'readiness', null, u.serial, `#${u.serial}: readiness → Needs prep (squeegee blades)`),
+    row(140, 'Josh', 'service', 'doc_attach', null, t1, `${t1}: photo attached`),
+    row(200, 'Architect', null, 'ticket_update', null, null, 'vault note: checklist library bumped to 1.1'),
+    row(60 * 20, 'Matt', 'owner', 'work_order', 'PART-STATE', 'W1001', 'W1001 line 2: ordered from RPS'),
+    row(60 * 22, 'Zac', 'service', 'work_order', 'INSPECT DONE', 'W1002', 'W1002: inspection done by Zac — 2 flags'),
+    row(60 * 26, 'Kevin', 'sales', 'rental_update', null, agmt, `${agmt}: went out`),
+    row(60 * 30, 'Josh', 'service', 'ticket_update', null, t2, `${t2}: stage → Waiting on parts`),
+    row(60 * 74, 'Matt', 'owner', 'lead_open', null, l2, `${l2}: new lead from the website`),
+    row(60 * 76, 'Kevin', 'sales', 'reserve', null, null, 'hold placed for Acme Foods'),
+  ];
 }
 
 /* --------------------------------------------- work orders (D65 · D69)
@@ -1888,6 +1932,8 @@ function downgradeToSchema2(s3, ledger) {
   // D67 / D69 postdate it too: no library, no unit keys. The work-order page
   // draws the sheet's readings / battery / comments without the rows.
   delete snap.inspection_checklist;
+  // D78 postdates it too: no tape. The strip still draws — "nothing yet".
+  delete snap.activity;
   for (const u of snap.units) { delete u.wo_inspection; delete u.last_inspection; delete u.hours_as_of; }
   return snap;
 }

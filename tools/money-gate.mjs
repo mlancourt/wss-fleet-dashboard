@@ -196,6 +196,19 @@ try {
     ok(found.length === 0, `${role}: no cost / rate / price / amount key on any sheet or library row (${n})`);
     for (const f of found) console.log(`         ${f}`);
   }
+
+  /* ------ D78: the activity tape is money-free BY CONTRACT, every role ----
+   * The engine's builder refuses to publish a figure in an activity line; this
+   * holds it to that on the real file. Never role-gated, never stripped — so
+   * if this ever fails the fix is upstream, not a redaction here. A pre-D78
+   * snapshot has no key, which passes vacuously and says so. */
+  for (const [role, doc] of [['owner', owner], ['sales', sales], ['service', svc]]) {
+    const act = Array.isArray(doc.snapshot.activity) ? doc.snapshot.activity : [];
+    const n = Array.isArray(doc.snapshot.activity) ? act.length : 'no key';
+    const bad = act.filter((r) => MONEY_RE.test(String((r && r.text) || '')));
+    ok(bad.length === 0, `${role}: no activity[] text matches /\\$\\s?\\d/ (${n})`);
+    for (const r of bad) console.log(`         ${r.record}: ${r.text}`);
+  }
 } finally {
   // Put the mock back, whatever happened above. Real data does not linger in a
   // KV this script touched.

@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-09-30T14:12:53.469Z",
+    "generated_at": "2026-09-30T14:52:33.774Z",
     "run_id": "mock-empty-2026-09-30",
     "fleet_totals": {
       "units": 39
@@ -2817,5 +2817,6 @@
         ]
       }
     ]
-  }
+  },
+  "activity": []
 }

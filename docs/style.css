@@ -1163,6 +1163,42 @@ a.chip { text-decoration: none; }
 .ptrk-counts { font-size: 13px; color: var(--ink-3); flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ptrk-head .chip { flex: none; margin-left: auto; }
 .ptrk-lines { margin: 0 0 8px 12px; padding-left: 12px; border-left: 1px solid var(--slate-300); }
+/* D78 — the Activity tape. Same fold anatomy as the Parts strips. The head is
+   the newest line: pill · time stay put, the text ellipses at 360px. Pills are
+   white on a darkened D53 pin hue (no brand red) — every pair ≥ 4.5:1, checked
+   in tools/selftest-activity.mjs against HUE_BG in docs/activity.js; the hex
+   values below must match that map. Solid pills don't depend on the page
+   background, so they read the same on any theme. NO COUNTS anywhere (D54). */
+.activity { padding: 0; overflow: hidden; }
+.act-head { gap: 8px; }
+.act-head .act-t { flex: none; }
+.act-head .parts-n { margin-left: auto; }
+/* At phone width the head gives the time up before the text: the line is the point, the open list has the times. */
+@media (max-width: 400px) { .act-last .act-time { display: none; } }
+.act-last { display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; font-size: 13.5px; color: var(--ink-2); }
+.act-last .act-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-day { margin-top: 12px; }
+.act-row {
+  display: flex; align-items: center; gap: 10px; min-height: var(--tap); padding: 6px 0;
+  border-bottom: 1px solid var(--slate-100); color: var(--slate-900); text-decoration: none; font-size: 14px;
+}
+.act-row:last-child { border-bottom: 0; }
+a.act-row:active { background: var(--slate-50); }
+.act-row.pending { color: var(--red-deep); }
+.act-time { flex: none; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 2.8em; }
+.act-row .act-text { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill-actor {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 4.4em; min-height: 24px; padding: 0 8px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 700; line-height: 1; color: #FFFFFF; background: #475569; white-space: nowrap;
+}
+.pill-actor.h-purple { background: #6D28D9; }
+.pill-actor.h-blue   { background: #1D4ED8; }
+.pill-actor.h-green  { background: #15803D; }
+.pill-actor.h-orange { background: #C2410C; }
+.pill-actor.h-teal   { background: #0F766E; }
+.pill-actor.h-grey   { background: #475569; }
+
 .chip.asset { background: var(--slate-100); color: var(--slate-800); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; font-family: var(--mono); }
 .chip.track { background: var(--white); color: var(--slate-700); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; font-family: var(--mono); white-space: normal; word-break: break-all; }
 a.chip.track { color: var(--rent); border-color: #BFDBFE; }

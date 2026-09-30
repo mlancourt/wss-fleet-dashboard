@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-30T11:12:53.474Z",
+    "ts": "2026-09-30T11:52:33.779Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-30T13:32:53.474Z",
+    "ts": "2026-09-30T14:12:33.779Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-30T14:00:53.474Z",
+    "ts": "2026-09-30T14:40:33.779Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-30T14:06:53.474Z",
+    "ts": "2026-09-30T14:46:33.779Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-30T14:09:53.474Z",
+    "ts": "2026-09-30T14:49:33.779Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-30T14:10:53.474Z",
+    "ts": "2026-09-30T14:50:33.779Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-09-30T13:47:53.474Z",
+    "ts": "2026-09-30T14:27:33.779Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-09-30T14:03:53.474Z",
+    "ts": "2026-09-30T14:43:33.779Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -128,7 +128,7 @@
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-09-30T14:05:53.474Z",
+    "ts": "2026-09-30T14:45:33.779Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -142,7 +142,7 @@
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-09-30T14:07:53.474Z",
+    "ts": "2026-09-30T14:47:33.779Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-09-30T14:09:53.474Z",
+    "ts": "2026-09-30T14:49:33.779Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-09-30T14:08:53.474Z",
+    "ts": "2026-09-30T14:48:33.779Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-09-30T14:10:53.474Z",
+    "ts": "2026-09-30T14:50:33.779Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -221,7 +221,7 @@
   },
   {
     "id": "evt-mock-15",
-    "ts": "2026-09-30T14:11:53.474Z",
+    "ts": "2026-09-30T14:51:33.779Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "doc_detach",
@@ -233,7 +233,7 @@
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-09-30T14:08:53.474Z",
+    "ts": "2026-09-30T14:48:33.779Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",

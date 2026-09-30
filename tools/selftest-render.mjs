@@ -3841,6 +3841,117 @@ await check('D69: no money KEY on a sheet or the library — and a tech\'s "$40 
   await asFull('owner');
 });
 
+/* ============================================ D78 — the Activity tape ====== */
+
+const activityOf = (out) => {
+  const i = out.indexOf('<section class="activity card" aria-label="Activity">');
+  if (i < 0) return '';
+  return out.slice(i, out.indexOf('</section>', i) + 10);
+};
+const headOf = (sec) => sec.slice(sec.indexOf('data-activity-toggle'), sec.indexOf('</button>'));
+const setActivity = (open) => { app.__ui().showActivity = open; };
+/** D54 guard: strip tags; after every pill's name comes a time or nothing — never a bare number. */
+const noCountAfterPill = (markup, where) => {
+  for (const m of markup.matchAll(/<span class="pill-actor[^"]*">([^<]*)<\/span>([^]*?)(?=<span class="pill-actor|$)/g)) {
+    assert.ok(!/\d/.test(m[1]), `${where}: a digit inside a pill (${m[1]})`);
+    const next = m[2].replace(/<[^>]+>/g, ' ').trimStart();
+    assert.ok(!/^\d/.test(next) || /^\d{1,2}:\d{2}(\D|$)/.test(next), `${where}: a number right after ${m[1]}: "${next.slice(0, 20)}"`);
+  }
+};
+
+await check('D78: the Activity strip draws for every role, under the Parts tracker, folded, head = the newest line', async () => {
+  for (const role of ['owner', 'service', 'sales']) {
+    const snap = await asFull(role);
+    setActivity(false);
+    const out = await renderRoute('#/');
+    const sec = activityOf(out);
+    assert.ok(sec, `${role}: strip present`);
+    const trk = out.indexOf('aria-label="Parts tracker"');
+    const act = out.indexOf('aria-label="Activity"');
+    assert.ok(trk >= 0 && act > trk && out.indexOf('cat-card') > act, `${role}: tracker → activity → cards`);
+    assert.ok(!sec.includes('id="activity-body"'), 'folded by default');
+    const head = headOf(sec);
+    assert.ok(head.includes('📣 Activity ▸'));
+    const newest = snap.activity[0];
+    assert.ok(head.includes(`>${newest.actor}</span>`) && head.includes(newest.text), `${role}: head is the newest row`);
+    assert.ok(head.includes('pill-actor h-green'), 'Josh is green');
+    noCountAfterPill(head, `${role} head`);
+    assert.ok(!MONEY_RE.test(sec), `${role}: no figure on the tape`);
+  }
+});
+
+await check('D78: open — day labels, rows linked by record shape, unknown actor grey, no counts anywhere', async () => {
+  const snap = await asFull('sales');
+  setActivity(true);
+  const sec = activityOf(await renderRoute('#/'));
+  assert.ok(sec.includes('id="activity-body"'));
+  assert.ok(sec.includes('>Today</div>'), 'Today label');
+  assert.ok(sec.includes('>Yesterday</div>'), 'Yesterday label');
+  assert.equal([...sec.matchAll(/class="act-row/g)].length, snap.activity.length, 'one row per filed line (sales has no pending here)');
+  assert.ok(sec.includes('href="#/wo/W1003"'));
+  assert.ok(sec.includes(`href="#/lead/${snap.activity[1].record}"`));
+  const serialRow = snap.activity.find((r) => r.action === 'readiness');
+  assert.ok(sec.includes(`href="#/unit/${serialRow.record}"`), 'a serial routes to the unit');
+  const disp = snap.activity.find((r) => r.action === 'dispatch_done');
+  assert.ok(!sec.includes(`href="#/dispatch/${disp.record}"`) && sec.includes(`<div class="act-row">`), 'dispatch id / null → a plain row');
+  assert.ok(sec.includes('<span class="pill-actor h-grey">Architect</span>'), 'unknown actor: grey, name as given');
+  noCountAfterPill(sec, 'body');
+  setActivity(false);
+});
+
+await check('D78: my own pending taps ride on top of Today as ⏳ rows; one already filed (same evt) is suppressed', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner&pending=1';
+  window.location.search = '?mock=full&role=owner&pending=1';
+  await app.__refresh();
+  const st = app.__state();
+  setActivity(true);
+  let sec = activityOf(await renderRoute('#/'));
+  const mine = st.pending.filter((e) => e.actor === 'Matt');
+  assert.ok(mine.some((e) => e.id === 'evt-mock-6'), 'fixture: Matt has evt-mock-6 pending');
+  assert.ok(st.snapshot.activity.some((r) => r.evt === 'evt-mock-6'), 'fixture: and it is already on the tape');
+  const pend = [...sec.matchAll(/class="act-row pending"/g)].length;
+  assert.equal(pend, mine.length - 1, 'every Matt pending but the filed one');
+  assert.ok(!headOf(sec).includes('⏳'), "Matt's only pending is filed — the head is the real line");
+  // Josh (service) has several unapplied taps and none is on the tape yet.
+  window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
+  window.location.search = '?mock=full&role=service&pending=1';
+  await app.__refresh();
+  sec = activityOf(await renderRoute('#/'));
+  const joshes = app.__state().pending.filter((e) => e.actor === 'Josh');
+  assert.ok(joshes.length >= 2, 'fixture: Josh has pending taps');
+  assert.equal([...sec.matchAll(/class="act-row pending"/g)].length, joshes.length);
+  const firstRow = sec.indexOf('class="act-row');
+  assert.ok(sec.slice(firstRow, firstRow + 40).includes('pending'), 'the ⏳ rows sit at the top');
+  assert.ok(sec.indexOf('>Today</div>') < firstRow);
+  assert.ok(!/>(Kevin|Matt|Zac)<\/span><span class="act-time">[^<]*<\/span><span class="act-text">⏳/.test(sec), "nobody else's pending shows");
+  // head leads with my newest pending
+  assert.ok(headOf(sec).includes('⏳'));
+  setActivity(false);
+  await asFull('owner');
+});
+
+await check('D78: activity: [] → "nothing yet" and the strip still draws; absent key (pre-D78) → the same', async () => {
+  window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
+  window.location.search = '?mock=empty&role=owner';
+  await app.__refresh();
+  assert.deepEqual(app.__state().snapshot.activity, []);
+  let sec = activityOf(await renderRoute('#/'));
+  assert.ok(sec && sec.includes('parts-n zero">nothing yet<'), 'empty: nothing yet');
+  window.location.href = 'http://localhost:8787/?mock=legacy&role=owner';
+  window.location.search = '?mock=legacy&role=owner';
+  await app.__refresh();
+  assert.ok(!('activity' in app.__state().snapshot));
+  sec = activityOf(await renderRoute('#/'));
+  assert.ok(sec && sec.includes('nothing yet'), 'legacy: still draws');
+  const snap = await asFull('owner');
+  delete snap.activity;
+  setActivity(true);
+  sec = activityOf(await renderRoute('#/'));
+  assert.ok(sec.includes('Nothing on the tape yet.') && !/undefined|NaN/.test(sec), 'full minus the key: renders, empty body');
+  setActivity(false);
+  await asFull('owner');
+});
+
 await check('every module app.js imports is in the service worker’s shell (an installed app must boot offline)', async () => {
   const appSrc = fs.readFileSync(path.join(DOCS, 'app.js'), 'utf8');
   const sw = fs.readFileSync(path.join(DOCS, 'sw.js'), 'utf8');

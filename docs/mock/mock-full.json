@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-09-30T14:12:53.468Z",
+    "generated_at": "2026-09-30T14:52:33.773Z",
     "run_id": "mock-full-2026-09-30",
     "fleet_totals": {
       "units": 39
@@ -5810,5 +5810,127 @@
         ]
       }
     ]
-  }
+  },
+  "activity": [
+    {
+      "ts": "2026-09-30T14:44:33.773Z",
+      "actor": "Josh",
+      "role": "service",
+      "action": "work_order",
+      "verb": "LABOR",
+      "record": "W1003",
+      "text": "W1003: 1.5 h by Josh (3 h total)",
+      "evt": "mock-act-1"
+    },
+    {
+      "ts": "2026-09-30T14:27:33.773Z",
+      "actor": "Kevin",
+      "role": "sales",
+      "action": "lead_update",
+      "verb": null,
+      "record": "L1001",
+      "text": "L1001: moved to Quoted",
+      "evt": "mock-act-2"
+    },
+    {
+      "ts": "2026-09-30T13:57:33.773Z",
+      "actor": "Matt",
+      "role": "owner",
+      "action": "dispatch_done",
+      "verb": null,
+      "record": "m-pu-900128",
+      "text": "m-pu-900128: picked up — back in the yard",
+      "evt": "evt-mock-6"
+    },
+    {
+      "ts": "2026-09-30T13:17:33.773Z",
+      "actor": "Zac",
+      "role": "service",
+      "action": "readiness",
+      "verb": null,
+      "record": "900191",
+      "text": "#900191: readiness → Needs prep (squeegee blades)",
+      "evt": "mock-act-3"
+    },
+    {
+      "ts": "2026-09-30T12:32:33.773Z",
+      "actor": "Josh",
+      "role": "service",
+      "action": "doc_attach",
+      "verb": null,
+      "record": "S1001",
+      "text": "S1001: photo attached",
+      "evt": "mock-act-4"
+    },
+    {
+      "ts": "2026-09-30T11:32:33.773Z",
+      "actor": "Architect",
+      "role": null,
+      "action": "ticket_update",
+      "verb": null,
+      "record": null,
+      "text": "vault note: checklist library bumped to 1.1",
+      "evt": "mock-act-5"
+    },
+    {
+      "ts": "2026-09-29T18:52:33.773Z",
+      "actor": "Matt",
+      "role": "owner",
+      "action": "work_order",
+      "verb": "PART-STATE",
+      "record": "W1001",
+      "text": "W1001 line 2: ordered from RPS",
+      "evt": "mock-act-6"
+    },
+    {
+      "ts": "2026-09-29T16:52:33.773Z",
+      "actor": "Zac",
+      "role": "service",
+      "action": "work_order",
+      "verb": "INSPECT DONE",
+      "record": "W1002",
+      "text": "W1002: inspection done by Zac — 2 flags",
+      "evt": "mock-act-7"
+    },
+    {
+      "ts": "2026-09-29T12:52:33.773Z",
+      "actor": "Kevin",
+      "role": "sales",
+      "action": "rental_update",
+      "verb": null,
+      "record": 4103,
+      "text": "4103: went out",
+      "evt": "mock-act-8"
+    },
+    {
+      "ts": "2026-09-29T08:52:33.773Z",
+      "actor": "Josh",
+      "role": "service",
+      "action": "ticket_update",
+      "verb": null,
+      "record": "S1002",
+      "text": "S1002: stage → Waiting on parts",
+      "evt": "mock-act-9"
+    },
+    {
+      "ts": "2026-09-27T12:52:33.773Z",
+      "actor": "Matt",
+      "role": "owner",
+      "action": "lead_open",
+      "verb": null,
+      "record": "L1002",
+      "text": "L1002: new lead from the website",
+      "evt": "mock-act-10"
+    },
+    {
+      "ts": "2026-09-27T10:52:33.773Z",
+      "actor": "Kevin",
+      "role": "sales",
+      "action": "reserve",
+      "verb": null,
+      "record": null,
+      "text": "hold placed for Acme Foods",
+      "evt": "mock-act-11"
+    }
+  ]
 }
