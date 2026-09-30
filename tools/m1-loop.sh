@@ -8,8 +8,8 @@
 #   -> PUT/GET/DELETE a document (schema 6) with the hash check that names it
 #   -> POST a document from a "phone" + the doc_attach event that points at it (S2)
 # plus the refusals: bad token, bad secret, wrong role, bad shape — and all
-# fifteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
-# three schema-5 ones, doc_attach (schema 6 / S2), rental_update (D64),
+# sixteen write actions: the six schema-3 (D47's NEEDS-QUOTE stage included),
+# three schema-5 ones, doc_attach (schema 6 / S2), doc_detach (D77), rental_update (D64),
 # work_order (D65 + D69 INSPECT, with its by-name money refusal), and the
 # schema-5 MONEY GATE: a service token's /api/data must not carry lead money.
 #
@@ -773,9 +773,19 @@ expect "the owner may attach too — it is any-role" 201 "b.role==='owner'" \
   -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
   -d "{\"action\":\"doc_attach\",\"payload\":{\"record\":\"S1018\",\"doc_id\":\"$DOC_ID\",\"kind\":\"OTHER\",\"name\":\"note.pdf\"}}"
 D3=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
-expect "all three doc_attach events drained -> deleted 3" 200 "b.deleted===3" \
+echo "-- doc_detach (D77): the sixteenth write action — shape only, no store check"
+expect "a tech takes it off the wrong ticket -> 201, {record, doc_id} only" 201 \
+  "b.action==='doc_detach' && b.role==='service' && b.serial===null && b.payload.record==='S1018' && b.payload.doc_id==='$DOC_ID' && Object.keys(b.payload).length===2" \
+  -X POST "$WORKER/api/event" -H "$(auth $T_SERVICE)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"doc_detach\",\"payload\":{\"record\":\"s1018\",\"doc_id\":\"$DOC_ID\"}}"
+D4=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+expect "doc_detach with a bad doc_id -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
+  -d '{"action":"doc_detach","payload":{"record":"S1018","doc_id":"../snapshot"}}'
+expect "doc_detach with a bad record -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
+  -d "{\"action\":\"doc_detach\",\"payload\":{\"record\":\"W1001\",\"doc_id\":\"$DOC_ID\"}}"
+expect "all three doc_attach events + the detach drained -> deleted 4" 200 "b.deleted===4" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
-  -d "{\"ids\":[\"$D1\",\"$D2\",\"$D3\"]}"
+  -d "{\"ids\":[\"$D1\",\"$D2\",\"$D3\",\"$D4\"]}"
 expect "pending back to baseline after the attaches" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 expect "the crew PNG is deleted -> 200" 200 "b.deleted===true" \

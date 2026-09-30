@@ -2211,3 +2211,37 @@ folds closed by default, real click handler unfolds → lines without wo-ref,
 state chips + UPS tracking chip, PO tap never toggles, Delivered band, no
 tracker on legacy/empty, tracker toggle on its own session key). Browser
 check at 360px: headers one line (44px), no horizontal scroll, no console errors.
+
+## 2026-09-30 — D77: remove a document from a ticket or lead — `doc_detach`
+
+Matt approved the sixteenth action (2026-09-30): a tech attached a work order to
+the wrong ticket and needs it off. The engine already applies
+`doc_detach {record, doc_id}` (live 09:04) — it cuts the row and keeps the file.
+
+- `worker.js`: `ACTION_ROLES.doc_detach = ALL_ROLES`; `cleanPayload` →
+  `{record, doc_id}` with the `doc_attach` id/record rules (record upper-cased,
+  `kind`/`name` dropped). **No `docmeta` check** — a filed doc may be evicted
+  from KV already; the vault decides. Money refusal runs as for every action.
+- `attachments.js`: `docRows()` passes `crew` (`=== true` only);
+  `pendingDetachIds(events, record)` → Set.
+- `app.js`: `filedRow()` — a `crew: true` row sits in `div.docline` with a ✕
+  (`data-doc-detach` + `data-record`) beside the `docrow` button; the confirm
+  sheet is `ui.form {kind:'doc-detach', id:'<record>:<id>'}`; Remove →
+  `postEvent('doc_detach')`. A pending detach draws `is-detaching` (struck,
+  `⏳ removing`, no ✕, still opens) and joins `pendingForTicket` /
+  `pendingForLead`, so the record's own pending list names it
+  ("removing Workorder — …") and gives the owner of the tap the D46 Undo.
+- `api.js`: `postEvent` now appends the Worker's `error` on a 4xx
+  (`Event rejected (400): bad doc_id`) and sets `err.status` — every action's
+  toast benefits.
+- Mock: `crew` on S1001 (WORKORDER true / PHOTO false), the Fairmont quote
+  (false), L1005 (QUOTE false + a crew PHOTO true); `evt-mock-15` is Kevin's
+  pending detach of that photo. BUILD d77, SW v48.
+
+Floor calls:
+- **Gate is `crew` alone.** The work order says both "never on a QUOTE/CONTRACT
+  even with `crew: true` set by hand" and "gate on crew only, no kind logic";
+  I followed the second (the engine refuses non-crew paths). A hand-set
+  `crew: true` on a quote *will* draw a ✕ — the engine then refuses the event.
+- **✕ glyph, not "Remove" text**, at 390 px: the row already fights a long
+  filename for width; the aria-label carries the words.

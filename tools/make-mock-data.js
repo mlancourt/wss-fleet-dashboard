@@ -109,7 +109,10 @@ const logOf = (rows) => rows.map(([t, who, text]) => ({ ts: t, who: who || null,
  * one of these in mock mode says "documents live on the Worker" and stops,
  * which is the honest answer.
  */
-const doc = (id, name, kind, bytes, addedDaysAgo) => ({ id, name, kind, bytes, added: d(addedDaysAgo) });
+// D77: `crew` rides on ticket + lead docs — true for a phone upload (the only
+// rows a phone may take off), false for what the vault pushed. Left off when
+// not given, so the older shape (and the agreement docs) keep reading false.
+const doc = (id, name, kind, bytes, addedDaysAgo, crew) => ({ id, name, kind, bytes, added: d(addedDaysAgo), ...(crew === undefined ? {} : { crew }) });
 
 // D59: an agreement id is OPAQUE and either an int (legacy Integra, 4130) or a
 // string on WSS's own paper ("R092526A"). An invoice hangs off it as
@@ -718,8 +721,8 @@ function build({ withServiceQueue }) {
       // Two kinds and two icons on one ticket: the work order Josh drives with
       // and the photo the customer texted in.
       docs: [
-        doc('4f2a91c07be3d518', '2026-09-07-Ironwood-Workorder.pdf', 'WORKORDER', 18442, -1),
-        doc('a10c73be9d4f2205', 'key-switch-panel.jpg', 'PHOTO', 1874300, -1),
+        doc('4f2a91c07be3d518', '2026-09-07-Ironwood-Workorder.pdf', 'WORKORDER', 18442, -1, true),
+        doc('a10c73be9d4f2205', 'key-switch-panel.jpg', 'PHOTO', 1874300, -1, false),
       ],
     });
 
@@ -738,7 +741,7 @@ function build({ withServiceQueue }) {
       intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', assigned: 'Josh', opened: -12,
       quote: { number: 'Q-2211', amount: 2480, sent: d(-6), approved: null },
       machinio_ref: 'MCH-74210',
-      docs: [doc('ab0b83a1b88c21ff', '2026-09-02-FairmontDairy-Quote.pdf', 'QUOTE', 25602, -6)],
+      docs: [doc('ab0b83a1b88c21ff', '2026-09-02-FairmontDairy-Quote.pdf', 'QUOTE', 25602, -6, false)],
     });
 
     // 4 — WAITING-ON-PARTS: the wait state that eats a shop.
@@ -1540,7 +1543,11 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
       source: 'REFERRAL', interest: 'SALE-NEW', machine: 'Nordvale SC-2400', value: 28900,
       quote: { number: '990142', file: null, sent: d(-5) }, contactHours: 3,
       next_action: 'Follow up Thursday', stageDays: 5, totalDays: 9,
-      docs: [doc('7e6b02fd419ac83b', '2026-09-03-HarborLine-Quote-990142.pdf', 'QUOTE', 132880, -5)],
+      docs: [
+        doc('7e6b02fd419ac83b', '2026-09-03-HarborLine-Quote-990142.pdf', 'QUOTE', 132880, -5, false),
+        // D77: Kevin's walk-through photo — a crew upload, so it carries a ✕.
+        doc('3b9e5d20c4a17f86', 'WO-L1005-20260904-1015.jpg', 'PHOTO', 412880, -4, true),
+      ],
       log: logOf([
         [ts(-9, '08:50'), 'Kevin', 'opened by Kevin (RECEIVED, REFERRAL): Sent over by Harbor Line\u2019s maintenance lead.'],
         [ts(-9, '11:55'), 'Kevin', 'Kevin RECEIVED \u2192 CONTACTED: Talked to Marcus. Two shifts, tile and sealed concrete, wants a rider.'],
@@ -2091,6 +2098,15 @@ const pending = [
     actor: 'Josh', role: 'service',
     action: 'work_order', serial: null,
     payload: { action: 'INSPECT', step: 'SAVE', work_order: 'W1001', comments: 'needs the rear curtain before it goes out' },
+  },
+  // D77: Kevin takes his walk-through photo back off L1005 — the row draws
+  // struck through "⏳ removing" and the lead's pending list gives him Undo.
+  {
+    id: 'evt-mock-15',
+    ts: ago(1),
+    actor: 'Kevin', role: 'sales',
+    action: 'doc_detach', serial: null,
+    payload: { record: 'L1005', doc_id: '3b9e5d20c4a17f86' },
   },
   // A close proposal on a lead that is still OPEN on the board.
   {

@@ -836,6 +836,23 @@ table.ins td.n { color: var(--slate-700); }
   padding: 10px 12px; margin: 8px 0; border-bottom: 0;
 }
 .doc-pend { flex: 0 0 auto; font-size: 12px; font-weight: 650; color: var(--red-deep); }
+
+/* D77 — remove a crew upload. The ✕ sits BESIDE the row (a button may not
+   hold a button), so the line is the flex row and carries the rule; the row
+   inside it gives its own up. A pending removal is struck through, not hidden:
+   it is still on the record until the next publish says otherwise. */
+.docline { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--slate-100); }
+.docline:last-child { border-bottom: 0; }
+.docline .docrow { flex: 1 1 auto; min-width: 0; border-bottom: 0; }
+.docx {
+  flex: 0 0 auto; width: var(--tap); height: var(--tap); min-height: var(--tap);
+  background: none; border: 0; border-radius: var(--radius-sm);
+  font: inherit; font-size: 16px; color: var(--slate-400); cursor: pointer;
+}
+.docx:active { background: var(--slate-50); color: var(--slate-800); }
+.docrow.is-detaching { opacity: .6; }
+.docrow.is-detaching .doc-name { text-decoration: line-through; }
+.undo-confirm.doc-detach { margin: 4px 0 10px; }
 .doc-fail { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--bad); }
 
 /* A thumbnail sits in the icon's slot, same width, so rows with and without
@@ -851,7 +868,7 @@ table.ins td.n { color: var(--slate-700); }
    in gloves aims at a half-screen button, not a link. */
 .doc-add { display: flex; gap: 8px; padding: 10px 0 2px; }
 .doc-add .btn { flex: 1 1 0; min-width: 0; }
-.docrow + .doc-add { border-top: 1px solid var(--slate-100); margin-top: 2px; }
+.docrow + .doc-add, .docline + .doc-add, .doc-detach + .doc-add { border-top: 1px solid var(--slate-100); margin-top: 2px; }
 
 .doc-sheet {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);

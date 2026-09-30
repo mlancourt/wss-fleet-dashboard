@@ -259,6 +259,16 @@ Four things here that are easy to undo by accident:
   pointer the engine could never apply.
 - **The same bytes twice are one document** (`existed: true`), because the id is
   the hash. That is the double-tap protection, and it costs nothing.
+- **`doc_detach` (D77) never deletes a file.** It cuts the row off the vault
+  record; the bytes stay in the archive. The id *is* the content hash and the
+  engine sweeps unfiled crew docs, so a deleted file would be re-filed onto the
+  very ticket it came off. To move a doc: ✕ it here, then upload the same file
+  from the right ticket — same bytes, same id, the engine links the copy it has.
+  ```bash
+  curl -s -X POST "$W/api/event" -H "Authorization: Bearer <crew token>" \
+    -H 'Content-Type: application/json' \
+    -d '{"action":"doc_detach","payload":{"record":"S1018","doc_id":"<id>"}}'
+  ```
 - **Nothing about an upload is persisted client-side.** No `localStorage` blob
   queue, no IndexedDB, no service-worker background sync. A failed send stays
   one tap from a retry while the tech is looking at it and is gone if he leaves
@@ -363,7 +373,7 @@ package.json            scripts; wrangler is the sole dev dependency
 
 docs/                   GitHub Pages root — the app shell
   index.html            markup + header/tab chrome
-  app.js                routing, views, write forms, the fifteen write actions
+  app.js                routing, views, write forms, the sixteen write actions
   api.js                data source + writes + doc upload (pure; covered by npm test)
   dates.js              date + money formatting (pure; covered by npm test)
   holds.js              hold-list logic (pure)
@@ -610,6 +620,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `dispatch_done` | any | optional | `dispatch_id`, `note` |
 | `dispatch_cancel` | **owner** | optional | `dispatch_id` |
 | `doc_attach` | any | not used | `record`, `doc_id`, `kind`, `name` — **schema 6 / S2.** The one action the Worker checks state for: 400 if `docmeta:<doc_id>` is not in the store, because an attach with no bytes behind it is a dangling pointer into *our* KV. |
+| `doc_detach` | any | not used | `record`, `doc_id` — **D77.** Takes a crew upload off the wrong ticket or lead. Shape only — the `doc_attach` id + record rules, record upper-cased, nothing else kept — and deliberately **no** `docmeta` check: a filed doc may already be gone from our KV cache, and the vault is the authority. The engine cuts the row and **keeps the file**. |
 | `rental_update` | owner, sales | not used | `agreement` (opaque — int or string, kept in its type), `action` OUT·OFF-RENT·IN, `date` (optional `YYYY-MM-DD`), `note` (optional, ≤ 200) — **D64.** Whether the agreement may make that move today is the engine's call. |
 | `work_order` | any (per verb below) | **OPEN** — required. **Every other verb** — the serial *or* `work_order`, exactly one (D69: the engine resolves a serial to its one OPEN work order; both / neither → 400) | `action` OPEN·ADD-PARTS·PART-STATE·LABOR·CLOSE·CANCEL·INSPECT — **D65 / D68 / D69.** OPEN: `purpose` CHECKOUT·RETURN·PM·REPAIR·OTHER (+ RENT-READY, mapped by the engine; optional), `note` ≤ 200, `parts` 0–10, optional `inspection` = an **object** of sheet sections (a first SAVE; a string → 400). ADD-PARTS: `parts` 1–10. A part line is exactly `{manufacturer, part_number ≤ 40, description ≤ 80, qty 1–99, source?}` (D68 `source` VENDOR·SHOP-STOCK·WARRANTY). PART-STATE: `line`, `state` ORDERED (**owner**) · IN-TRANSIT · DELIVERED · CANCELLED (service/owner) — or `source: SHOP-STOCK` (service/owner, lands DELIVERED, no vendor keys) — optional `date`, `vendor`, `vendor_ref`, `tracking`, `note`. LABOR: `who` (driver enum), `hours` 0.25–12 in quarter steps, optional `date`, `note`, optional `kind` LABOR·TRAVEL (**D71**; case-insensitive, stored upper, absent = LABOR and no key stored). CLOSE (**owner**): `note`, optional `ready` (a real boolean — the close is the ready call). CANCEL: `note`. **INSPECT** (D69): `step` SAVE·DONE·SKIP·REOPEN. SAVE: at least one section — `machine_class` SWEEPER·SCRUBBER, `body_style` WALK-BEHIND·RIDER·STAND-ON, `battery` `{type WET·AGM·LITHIUM, voltage 24·36, pack}` (pack only on WET, matching the voltage), `readings` (the seven keys; hour meters 0–99999, `*_pct` whole numbers 0–100, `brushes_rotated` bool), `cells` ≤ 18 `{battery 1–6, cell A–F, sg 1.000–1.400, clarity, level}`, `items` ≤ 120 `{id, result, note ≤ 120}`, `comments` ≤ 1000 — present replaces, absent untouched. DONE: `tech` (driver enum) + any section. SKIP: `reason` ≤ 120, required, and **no section key** (400 by name). REOPEN: `note`. Unknown keys → 400. Forward-only states, one OPEN per serial, the close gate (lines settled + sheet DONE/SKIPPED), row ids and REOPEN's who-and-when are the engine's. The D67 `inspection` action is **retired** — "unknown action", 400. |
 
@@ -740,7 +751,7 @@ To revoke someone: remove them from the map and re-post it.
 ## Ask Matt before you
 
 change money display formats · change category names or order · add any write
-action beyond the fifteen now defined · add any map or navigation integration ·
+action beyond the sixteen now defined · add any map or navigation integration ·
 add push/notifications (out of scope — the run cadence is the refresh) · need a
 new DNS record or a paid plan · change repo visibility.
 

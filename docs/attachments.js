@@ -74,7 +74,12 @@ export function humanBytes(n) {
  * anywhere and must render exactly as it did before (forward/backward
  * compatibility, CLAUDE.md snapshot contract).
  *
- * -> [{ id, name, kind, label, icon, bytes, size }]
+ * `crew` (D77) is true only when the engine says the file is a crew upload —
+ * the one kind of row a phone may take off its record. Absent (an older
+ * snapshot, the agreements tile) reads false: never offer to remove what we
+ * cannot prove a phone put there.
+ *
+ * -> [{ id, name, kind, label, icon, bytes, size, crew }]
  */
 export function docRows(entity) {
   const raw = entity && Array.isArray(entity.docs) ? entity.docs : [];
@@ -86,7 +91,7 @@ export function docRows(entity) {
     const name = typeof d.name === 'string' && d.name.trim() ? d.name.trim() : 'document';
     const kind = typeof d.kind === 'string' && d.kind.trim() ? d.kind.trim() : 'OTHER';
     const bytes = typeof d.bytes === 'number' && isFinite(d.bytes) && d.bytes >= 0 ? d.bytes : null;
-    out.push({ id, name, kind, label: kindLabel(kind), icon: docIcon(kind), bytes, size: humanBytes(bytes) });
+    out.push({ id, name, kind, label: kindLabel(kind), icon: docIcon(kind), bytes, size: humanBytes(bytes), crew: d.crew === true });
   }
   return out;
 }
@@ -221,6 +226,30 @@ export function pendingDocRows(events, recordId) {
       icon: docIcon(kind),
       who: typeof e.actor === 'string' && e.actor.trim() ? e.actor.trim() : null,
     });
+  }
+  return out;
+}
+
+/**
+ * D77 — the doc ids with a pending `doc_detach` against one record.
+ *
+ * The row stays drawn (struck through, "⏳ removing") until the next publish
+ * drops it from `docs[]`: a detach is a proposal like every other write, and
+ * the file itself is never deleted — the id is the content hash, and the
+ * engine's sweep would re-file a deleted crew doc onto the very ticket it was
+ * taken off. Malformed events are ignored, same as pendingDocRows.
+ *
+ * -> Set<docId>
+ */
+export function pendingDetachIds(events, recordId) {
+  const out = new Set();
+  if (!recordId) return out;
+  for (const e of Array.isArray(events) ? events : []) {
+    if (!e || e.action !== 'doc_detach') continue;
+    const p = e.payload || {};
+    if (p.record !== recordId) continue;
+    const docId = typeof p.doc_id === 'string' ? p.doc_id.trim() : '';
+    if (DOC_ID_RE.test(docId)) out.add(docId);
   }
   return out;
 }

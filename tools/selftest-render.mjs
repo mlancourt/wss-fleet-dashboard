@@ -1008,8 +1008,9 @@ await check('the lead detail carries the whole record and its pending writes', a
   assert.ok(out.includes('$28,900'), 'the value');
   assert.ok(out.includes('Potential commission'));
   assert.ok(out.includes('Who') && out.includes('The deal') && out.includes('Timing'));
-  // evt-mock-8 is Kevin's pending stage move on this lead.
-  assert.ok(out.includes('⏳ 1 pending change'), 'the pending write is badged');
+  // evt-mock-8 is Kevin's pending stage move on this lead; evt-mock-15 (D77)
+  // his photo coming off it — both ride the same pending list.
+  assert.ok(out.includes('⏳ 2 pending changes'), 'the pending writes are badged');
   assert.ok(out.includes('stage → Demo booked'), 'and described in English');
   assert.ok(out.includes('data-sheet="undo"'), 'and Kevin may take his own tap back');
 });
@@ -1524,6 +1525,99 @@ await check('a malformed pending doc_attach is dropped, never drawn as a broken 
   assert.ok(!out.includes('is-pending'), 'neither row may draw');
   app.__state().pending.length = 0;
   await asFull('owner');
+});
+
+/* ================================ remove a crew upload — D77 =============== */
+
+const crewIds = (entity) => (entity.docs || []).filter((d) => d.crew === true).map((d) => d.id);
+const detachIds = (out) => [...out.matchAll(/data-doc-detach="([0-9a-f]{16})"/g)].map((m) => m[1]);
+
+await check('D77: the ✕ sits only on crew:true filed rows — every role, ticket and lead', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    const snap = await asFull(role);
+    const t = snap.service_queue.find((x) => crewIds(x).length && (x.docs || []).some((d) => d.crew === false));
+    const l = snap.leads.find((x) => crewIds(x).length && (x.docs || []).some((d) => d.crew === false));
+    assert.ok(t && l, 'the fixture must carry a crew and a vault doc on a ticket and on a lead');
+    for (const [hash, rec, id] of [[`#/ticket/${t.ticket}`, t, t.ticket], [`#/lead/${l.lead}`, l, l.lead]]) {
+      const out = await renderRoute(hash);
+      assert.deepEqual(detachIds(out), crewIds(rec), `${role} ${id}: ✕ on exactly the crew rows`);
+      for (const d of rec.docs) assert.ok(out.includes(`data-doc="${d.id}"`), `${d.name} still opens`);
+      // Beside the row, never inside it: the row button closes before the ✕ opens.
+      assert.ok(/<\/button>\s*<button class="docx" type="button" data-doc-detach="/.test(out), 'the ✕ must not nest in the row');
+      assert.ok(out.includes(`data-record="${id}"`) && out.includes(`aria-label="Remove `) && out.includes(` from ${id}"`));
+    }
+    // A vault-only ticket (the quote) has no ✕ at all.
+    const q = snap.service_queue.find((x) => (x.docs || []).length && !crewIds(x).length);
+    assert.deepEqual(detachIds(await renderRoute(`#/ticket/${q.ticket}`)), []);
+  }
+});
+
+await check('D77: an absent crew key reads false — no ✕; pending attach rows never get one', async () => {
+  const snap = await asFull('owner');
+  const t = snap.service_queue.find((x) => crewIds(x).length);
+  for (const d of t.docs) delete d.crew;
+  app.__state().pending.push({ id: 'pa', action: 'doc_attach', actor: 'Matt', role: 'owner', serial: null,
+    payload: { record: t.ticket, doc_id: '9999888877776666', kind: 'WORKORDER', name: 'wo2.pdf' } });
+  const out = await renderRoute(`#/ticket/${t.ticket}`);
+  assert.ok(out.includes('is-pending') && out.includes('wo2.pdf'));
+  assert.deepEqual(detachIds(out), [], 'no crew flag, no ✕ — and a pending row never has one');
+  app.__state().pending.length = 0;
+  await asFull('owner');
+});
+
+await check('D77: a pending doc_detach strikes the row through, drops its ✕, keeps it openable, offers Undo', async () => {
+  const out = await leadsAs('sales', '#/lead/L1005');
+  const ev = app.__state().pending.find((e) => e.action === 'doc_detach');
+  assert.ok(ev && ev.payload.record === 'L1005', 'the pending fixture must carry the detach');
+  const id = ev.payload.doc_id;
+  assert.ok(new RegExp(`class="docrow is-detaching"[^>]*data-doc="${id}"`).test(out), 'struck-through row, still openable');
+  assert.ok(out.includes('⏳ removing'));
+  assert.ok(!out.includes(`data-doc-detach="${id}"`), 'no ✕ on a row already on its way off');
+  assert.ok(out.includes('removing Photo — WO-L1005-'), 'the pending list names what is coming off');
+  assert.ok(out.includes(`data-sheet="undo" data-id="${ev.id}"`), "Kevin's own tap gets the ordinary Undo");
+  // Josh sees it pending too, but it is not his to undo.
+  const josh = await leadsAs('service', '#/lead/L1005');
+  assert.ok(josh.includes('is-detaching') && !josh.includes(`data-id="${ev.id}"`));
+  await asFull('owner');
+});
+
+await check('D77: ✕ → confirm sheet → Remove posts {record, doc_id}; a 4xx toasts the Worker and changes nothing', async () => {
+  const posted = [];
+  let reply = 201;
+  const snap = await apiMode(async (u, init) => {
+    const body = JSON.parse(init.body);
+    posted.push(body);
+    if (reply !== 201) return { ok: false, status: reply, json: async () => ({ error: 'bad doc_id' }) };
+    return { ok: true, status: 201, json: async () => ({ id: 'evt-d1', ts: 'x', actor: 'Josh', role: 'service', action: body.action, serial: null, payload: body.payload }) };
+  });
+  const t = snap.service_queue.find((x) => crewIds(x).length);
+  const [id] = crewIds(t);
+  const hash = `#/ticket/${t.ticket}`;
+  await renderRoute(hash);
+
+  await fireOn('click', fakeTarget('[data-doc-detach]', { dataset: { docDetach: id, record: t.ticket } }));
+  let out = await renderRoute(hash);
+  assert.ok(out.includes(`Remove this document from ${t.ticket}?`));
+  assert.ok(out.includes('The file stays in the office archive — nothing is deleted.'));
+  assert.ok(out.includes(`data-doc-detach-go="${id}"`) && out.includes('data-sheet-close="1"'));
+
+  // A 4xx: the Worker's words, the row as it was.
+  reply = 400;
+  await fireOn('click', fakeTarget('[data-doc-detach-go]', { dataset: { docDetachGo: id, record: t.ticket } }));
+  await settle();
+  out = view._html;   // the message shows once — read the handler's own render
+  assert.ok(out.includes('Event rejected (400): bad doc_id'), 'the toast carries the Worker message');
+  assert.ok(!out.includes('is-detaching') && out.includes(`data-doc-detach="${id}"`));
+
+  reply = 201;
+  await fireOn('click', fakeTarget('[data-doc-detach-go]', { dataset: { docDetachGo: id, record: t.ticket } }));
+  out = await renderRoute(hash);
+  const last = posted[posted.length - 1];
+  assert.deepEqual(last, { action: 'doc_detach', serial: null, payload: { record: t.ticket, doc_id: id } });
+  assert.ok(out.includes('is-detaching') && out.includes('⏳ removing'));
+  assert.ok(!out.includes(`data-doc-detach="${id}"`));
+  assert.ok(out.includes('data-sheet="undo" data-id="evt-d1"'), 'my own detach gets Undo in the pending list');
+  await backToMock();
 });
 
 /* ==================================================== the map — D52 ======== */

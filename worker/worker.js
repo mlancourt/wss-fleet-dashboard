@@ -54,6 +54,11 @@ const ACTION_ROLES = {
   // person who has the photo. The binary never rides in the event — the file
   // goes to POST /api/doc first and this carries only its id.
   doc_attach: ALL_ROLES,
+  // D77 (approved 2026-09-30) — the SIXTEENTH action: take a crew upload off
+  // the wrong ticket or lead. Everyone, like doc_attach. The engine cuts the
+  // row off the record and KEEPS the file — the id is the content hash, and its
+  // sweep would re-file a deleted crew doc onto the very record it came off.
+  doc_detach: ALL_ROLES,
   // D64 (2026-09-24) — the FOURTEENTH action. One action, three verbs on the
   // agreement: OUT (a customer drove it away), OFF-RENT (stop the clock) and IN
   // (back in the shop). Kevin's and Matt's: a rental is a sales record.
@@ -67,7 +72,8 @@ const ACTION_ROLES = {
   // D69 (2026-09-27): the D67 `inspection` action is RETIRED — the sheet is a
   // section of the work order now (`work_order` INSPECT). Fifteen actions. A
   // stale phone posting `inspection` gets "unknown action" (400) from here and
-  // a pointer from the engine if one ever slipped through.
+  // a pointer from the engine if one ever slipped through. D77 adds doc_detach
+  // above: sixteen.
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -854,6 +860,17 @@ function cleanPayload(action, p, role, serial) {
       kind: oneOf(String(obj.kind || '').toUpperCase(), CREW_DOC_KINDS, 'kind'),
       name: str(obj.name, DOC_NAME_MAX, 'name', true),
     };
+  }
+
+  if (action === 'doc_detach') {
+    // D77. Shape only — deliberately NO docmeta existence check (unlike
+    // doc_attach): once filed, the bytes may already be evicted from our KV
+    // cache, and the vault is the authority. The engine is idempotent.
+    const doc_id = str(obj.doc_id, 64, 'doc_id', true);
+    if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
+    const record = str(obj.record, 16, 'record', true).toUpperCase();
+    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket or lead id (S1018 / L1005)');
+    return { record, doc_id };
   }
 
   if (action === 'lead_close') {

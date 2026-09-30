@@ -195,6 +195,15 @@ export async function postEvent({ url, token, apiBase = API_BASE, fetch = defaul
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, serial, payload }),
   });
-  if (!res.ok) throw fail('error', `Event rejected (${res.status})`);
+  if (!res.ok) {
+    // D77: a 4xx carries the Worker's own reason — say it, don't just say "400".
+    let why = '';
+    if (res.status >= 400 && res.status < 500 && typeof res.json === 'function') {
+      try { const b = await res.json(); why = b && typeof b.error === 'string' ? b.error : ''; } catch (_) { /* no body */ }
+    }
+    const e = fail('error', why ? `Event rejected (${res.status}): ${why}` : `Event rejected (${res.status})`);
+    e.status = res.status;
+    throw e;
+  }
   return res.json();
 }

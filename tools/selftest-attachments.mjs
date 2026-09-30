@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import {
   DOC_ID_RE, docRows, hasDocs, docIcon, kindLabel, humanBytes, docUrl,
   DOC_RECORD_RE, CREW_KINDS, KIND_CHOICES, resolveKind, sanitizeName, retypeName,
-  cameraName, isImageMime, pendingDocRows,
+  cameraName, isImageMime, pendingDocRows, pendingDetachIds,
 } from '../docs/attachments.js';
 
 let passed = 0;
@@ -245,6 +245,35 @@ check('a pending attach with no usable doc_id is dropped, like a filed one', () 
     null,
   ];
   assert.deepEqual(pendingDocRows(bad, 'S1001'), []);
+});
+
+/* ----------------------------------------------------- D77 doc_detach -- */
+
+check('docRows passes crew — true only when the engine says true; absent reads false', () => {
+  const rows = docRows({ docs: [
+    D({ id: '1111111111111111', crew: true }),
+    D({ id: '2222222222222222', crew: false }),
+    D({ id: '3333333333333333' }),
+    D({ id: '4444444444444444', crew: 'true' }),
+  ] });
+  assert.deepEqual(rows.map((r) => r.crew), [true, false, false, false], 'only a real boolean true counts');
+});
+
+check('pendingDetachIds: the doc ids coming off THAT record; malformed ones ignored', () => {
+  const DET = (record, doc_id) => ({ id: `d-${doc_id}`, action: 'doc_detach', actor: 'Josh', payload: { record, doc_id } });
+  const events = [
+    DET('S1034', '1111111111111111'),
+    ATT('S1034', '2222222222222222'),
+    DET('L1005', '3333333333333333'),
+    DET('S1034', 'NOTHEXNOTHEXNOTH'),
+    { id: 'x', action: 'doc_detach', payload: null },
+    null,
+  ];
+  assert.deepEqual([...pendingDetachIds(events, 'S1034')], ['1111111111111111'], 'an attach is not a detach');
+  assert.deepEqual([...pendingDetachIds(events, 'L1005')], ['3333333333333333']);
+  assert.equal(pendingDetachIds(events, 'S9999').size, 0);
+  assert.equal(pendingDetachIds(events, null).size, 0);
+  assert.equal(pendingDetachIds(undefined, 'S1034').size, 0);
 });
 
 console.log(`\n${passed} checks passed`);

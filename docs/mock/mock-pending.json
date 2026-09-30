@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-09-29T21:46:19.297Z",
+    "ts": "2026-09-30T11:12:53.474Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,13 +9,13 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "start": "2026-10-02",
-      "end": "2026-10-05"
+      "start": "2026-10-03",
+      "end": "2026-10-06"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-09-30T00:06:19.297Z",
+    "ts": "2026-09-30T13:32:53.474Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-09-30T00:34:19.297Z",
+    "ts": "2026-09-30T14:00:53.474Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-09-30T00:40:19.297Z",
+    "ts": "2026-09-30T14:06:53.474Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -55,13 +55,13 @@
     "payload": {
       "dispatch_id": "m-si-2201",
       "rig": "TRAILER-6000",
-      "date": "2026-09-30",
+      "date": "2026-10-01",
       "driver": "Kevin"
     }
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-09-30T00:43:19.297Z",
+    "ts": "2026-09-30T14:09:53.474Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-09-30T00:44:19.297Z",
+    "ts": "2026-09-30T14:10:53.474Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-09-30T00:21:19.297Z",
+    "ts": "2026-09-30T13:47:53.474Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-09-30T00:37:19.297Z",
+    "ts": "2026-09-30T14:03:53.474Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -121,14 +121,14 @@
     "payload": {
       "lead": "L1005",
       "stage": "DEMO-SCHEDULED",
-      "demo_date": "2026-10-01",
+      "demo_date": "2026-10-02",
       "demo_serial": "900107",
       "note": "They asked to see it run"
     }
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-09-30T00:39:19.297Z",
+    "ts": "2026-09-30T14:05:53.474Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -136,13 +136,13 @@
     "payload": {
       "agreement": "R092526A",
       "action": "OFF-RENT",
-      "date": "2026-09-29",
+      "date": "2026-09-30",
       "note": "Plant called — done with it"
     }
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-09-30T00:41:19.297Z",
+    "ts": "2026-09-30T14:07:53.474Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-09-30T00:43:19.297Z",
+    "ts": "2026-09-30T14:09:53.474Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -171,7 +171,7 @@
     "payload": {
       "action": "LABOR",
       "work_order": "W1001",
-      "date": "2026-09-29",
+      "date": "2026-09-30",
       "who": "Josh",
       "hours": 0.75,
       "note": "valve seat cleaned"
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-09-30T00:42:19.297Z",
+    "ts": "2026-09-30T14:08:53.474Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-09-30T00:44:19.297Z",
+    "ts": "2026-09-30T14:10:53.474Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -220,8 +220,20 @@
     }
   },
   {
+    "id": "evt-mock-15",
+    "ts": "2026-09-30T14:11:53.474Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "doc_detach",
+    "serial": null,
+    "payload": {
+      "record": "L1005",
+      "doc_id": "3b9e5d20c4a17f86"
+    }
+  },
+  {
     "id": "evt-mock-9",
-    "ts": "2026-09-30T00:42:19.297Z",
+    "ts": "2026-09-30T14:08:53.474Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",

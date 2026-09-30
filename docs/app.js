@@ -60,7 +60,7 @@ import {
   EDGE_LABEL_ALLOWANCE,
 } from './map.js';
 import {
-  docRows, docUrl, pendingDocRows, resolveKind, sanitizeName, retypeName, cameraName,
+  docRows, docUrl, pendingDocRows, pendingDetachIds, resolveKind, sanitizeName, retypeName, cameraName,
   isImageMime, humanBytes, kindLabel, docIcon, KIND_CHOICES, DOC_RECORD_RE,
 } from './attachments.js';
 import {
@@ -75,7 +75,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-29-d75';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-30-d77';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -362,14 +362,17 @@ const pendingReleases = (serial, holdId) => pendingFor(serial).filter((e) => e.a
  * pending ticket_open has NO id of its own — the engine assigns the number —
  * so it is drawn as a synthetic RECEIVED card and never invents "S????". */
 const pl = (e) => (e && e.payload) || {};
-const pendingForTicket = (id) => (id ? state.pending.filter((e) => e.action === 'ticket_update' && pl(e).ticket === id) : []);
+// D77: a pending doc_detach rides in the ticket's (and the lead's) own pending
+// list, so it gets the ordinary badge + Undo — no special case.
+const isDetachOn = (e, id) => e.action === 'doc_detach' && pl(e).record === id;
+const pendingForTicket = (id) => (id ? state.pending.filter((e) => (e.action === 'ticket_update' && pl(e).ticket === id) || isDetachOn(e, id)) : []);
 const pendingForDispatch = (id) => (id ? state.pending.filter((e) => String(e.action).startsWith('dispatch_') && pl(e).dispatch_id === id) : []);
 const pendingTicketOpens = () => state.pending.filter((e) => e.action === 'ticket_open');
 const pendingDispatchAdds = () => state.pending.filter((e) => e.action === 'dispatch_add');
 // schema 5: keyed on `lead`, and — like ticket_open — a pending lead_open has no
 // number of its own until the engine assigns one.
 const pendingForLead = (id) => (id ? state.pending.filter((e) =>
-  (e.action === 'lead_update' || e.action === 'lead_close') && pl(e).lead === id) : []);
+  ((e.action === 'lead_update' || e.action === 'lead_close') && pl(e).lead === id) || isDetachOn(e, id)) : []);
 const pendingLeadOpens = () => state.pending.filter((e) => e.action === 'lead_open');
 // schema 6 / S2: keyed on `record`, which is a ticket id OR a lead id — the one
 // action whose key spans both boards. Deliberately NOT folded into
@@ -377,6 +380,14 @@ const pendingLeadOpens = () => state.pending.filter((e) => e.action === 'lead_op
 // document arriving, and it renders in the Documents group rather than in the
 // "pending changes" list at the top of the record.
 const pendingDocsFor = (recordId) => (recordId ? pendingDocRows(state.pending, recordId) : []);
+const pendingDetachFor = (recordId) => pendingDetachIds(state.pending, recordId);
+/** "removing Workorder — wo.pdf" for the pending list; the name off the filed row when we have it. */
+function describeDetach(e) {
+  const p = pl(e);
+  const rec = /^S/.test(String(p.record || '')) ? ticketById(p.record) : leadById(leads(), p.record);
+  const d = rec ? docRows(rec).find((r) => r.id === p.doc_id) : null;
+  return `removing ${d ? `${d.label} — ${d.name}` : 'a document'}`;
+}
 
 /** Top-level holds rollup (v2). Derived from units when a snapshot lacks it. */
 function holdsRollup() {
@@ -1657,6 +1668,7 @@ function pendingLine(n) {
 function docsSection(entity, recordId) {
   const filed = docRows(entity);
   const pendingRows = pendingDocsFor(recordId);
+  const detaching = pendingDetachFor(recordId);
   const unsent = uploadsFor(recordId);
   // Uploading needs a record the Worker will accept. A detail view always has
   // one; the guard is so a future caller can't quietly ship a broken button.
@@ -1672,10 +1684,7 @@ function docsSection(entity, recordId) {
   return html`
     <h2>Documents${total ? raw(html` <span class="count">${total}</span>`) : ''}</h2>
     <div class="card docs">
-      ${raw(filed.map((d) => row(html`
-        ${raw(face(d, thumbs.get(d.id)))}
-        ${d.size ? raw(html`<span class="doc-size">${d.size}</span>`) : ''}
-        <span class="doc-go" aria-hidden="true">›</span>`, '', `data-doc="${esc(d.id)}"`)).join(''))}
+      ${raw(filed.map((d) => filedRow(d, recordId, detaching, row, face)).join(''))}
 
       ${raw(pendingRows.map((d) => row(html`
         ${raw(face(d, thumbs.get(d.docId)))}
@@ -1690,6 +1699,41 @@ function docsSection(entity, recordId) {
       ${canAdd ? raw(docAddRow(recordId)) : ''}
     </div>
     ${canAdd && sheetOpen('doc-kind', recordId) ? raw(kindSheet(recordId)) : ''}`;
+}
+
+/**
+ * One filed row. D77: a crew upload (`crew: true`, the engine's word — no kind
+ * logic here) grows a ✕ BESIDE the row, never inside it: the row is a button
+ * and a button may not hold another. A row with a pending doc_detach is struck
+ * through with "⏳ removing" and loses its ✕ — still openable, because the file
+ * is still there (and stays in the archive after, too).
+ */
+function filedRow(d, recordId, detaching, row, face) {
+  const faceOf = face(d, thumbs.get(d.id));
+  if (detaching.has(d.id)) {
+    return row(html`${raw(faceOf)}<span class="doc-pend">⏳ removing</span>`, 'is-detaching', `data-doc="${esc(d.id)}"`);
+  }
+  const plain = row(html`
+    ${raw(faceOf)}
+    ${d.size ? raw(html`<span class="doc-size">${d.size}</span>`) : ''}
+    <span class="doc-go" aria-hidden="true">›</span>`, '', `data-doc="${esc(d.id)}"`);
+  if (!d.crew || !DOC_RECORD_RE.test(String(recordId || ''))) return plain;
+  const key = `${recordId}:${d.id}`;
+  return html`
+    <div class="docline">
+      ${raw(plain)}
+      <button class="docx" type="button" data-doc-detach="${d.id}" data-record="${recordId}"
+        aria-label="Remove ${d.name} from ${recordId}">✕</button>
+    </div>
+    ${sheetOpen('doc-detach', key) ? raw(html`
+      <div class="undo-confirm doc-detach">
+        <div class="undo-q"><strong>Remove this document from ${recordId}?</strong><br>
+          It comes off this ${recordId.startsWith('L') ? 'lead' : 'ticket'} at the next update. The file stays in the office archive — nothing is deleted.</div>
+        <div class="actions row">
+          <button class="btn sm" type="button" data-doc-detach-go="${d.id}" data-record="${recordId}">Remove</button>
+          <button class="btn sm ghost" type="button" data-sheet-close="1">Cancel</button>
+        </div>
+      </div>`) : ''}`;
 }
 
 /** The unsent files for one record, oldest first — insertion order of the Map. */
@@ -2150,6 +2194,7 @@ function viewTicket(id) {
 
 /** A one-line English rendering of a pending ticket_update, whatever it carried. */
 function describeUpdate(e) {
+  if (e.action === 'doc_detach') return describeDetach(e);
   const p = pl(e);
   const bits = [];
   if (p.stage) bits.push(`stage → ${STAGE_LABEL[p.stage] || p.stage}`);
@@ -4220,6 +4265,7 @@ function viewLead(id) {
 
 /** One-line English for a pending lead write, whatever it carried. */
 function describeLead(e) {
+  if (e.action === 'doc_detach') return describeDetach(e);
   const p = pl(e);
   if (e.action === 'lead_close') {
     return `closing as ${p.outcome}${p.reason ? ` — ${REASON_LABEL[p.reason] || p.reason}` : ''}`;
@@ -5290,6 +5336,34 @@ document.addEventListener('click', async (ev) => {
   // A pending row is not a document yet — there is nothing to open.
   if (ev.target.closest('[data-doc-pending]')) {
     ui.msg = { tone: 'bad', text: 'Filing on the next run — it opens once the engine has it.' };
+    render();
+    return;
+  }
+
+  // D77: ✕ on a crew upload — arm the confirm (the same ✕ again folds it).
+  const dx = ev.target.closest('[data-doc-detach]');
+  if (dx) {
+    const key = `${dx.dataset.record}:${dx.dataset.docDetach}`;
+    if (sheetOpen('doc-detach', key)) { closeSheet(); return; }
+    ui.form = { kind: 'doc-detach', id: key, arg: null };
+    ui.msg = null;
+    render();
+    return;
+  }
+  // Remove: a proposal like every other write. The row goes ⏳ removing, and
+  // the pending list above gets the ordinary Undo.
+  const dgo = ev.target.closest('[data-doc-detach-go]');
+  if (dgo) {
+    dgo.disabled = true;
+    try {
+      const stored = await postEvent(ctx(), 'doc_detach', null, { record: dgo.dataset.record, doc_id: dgo.dataset.docDetachGo });
+      state.pending.push(stored);
+      ui.form = null;
+      ui.msg = { tone: 'ok', text: 'Comes off at the next run. The file stays in the office archive.' };
+    } catch (err) {
+      ui.form = null;
+      ui.msg = { tone: 'bad', text: err.message };
+    }
     render();
     return;
   }

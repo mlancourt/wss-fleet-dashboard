@@ -287,4 +287,22 @@ await check('D71: LABOR takes kind (LABOR | TRAVEL, case-insensitive); absent st
   await refused('owner', wo({ action: 'CLOSE', work_order: 'W1003', kind: 'TRAVEL' }), 'kind on CLOSE', 400, 'kind');
 });
 
+await check('D77: doc_detach — any role, {record, doc_id} only, no store check; shape refused; unknown action still 400', async () => {
+  const D = (payload, serial) => (serial === undefined ? { action: 'doc_detach', payload } : { action: 'doc_detach', serial, payload });
+  for (const role of ['owner', 'sales', 'service']) {
+    // No docmeta for this id in the fake KV — the vault is the authority, the Worker does not look.
+    const e = await ok(role, D({ record: 's1034', doc_id: '4f2a91c07be3d518', kind: 'WORKORDER', name: 'x.pdf' }), `${role} detach`);
+    assert.deepEqual(e.payload, { record: 'S1034', doc_id: '4f2a91c07be3d518' }, 'record upper-cased; kind + name dropped');
+    assert.equal(e.serial, null);
+  }
+  assert.equal((await ok('sales', D({ record: 'L1005', doc_id: 'aaaabbbbccccdddd' }, null), 'lead, serial null')).payload.record, 'L1005');
+  await refused('service', D({ record: 'S1034', doc_id: 'NOTHEX0000000000' }), 'bad doc_id', 400, 'doc_id');
+  await refused('service', D({ record: 'S1034', doc_id: '../snapshot' }), 'path doc_id', 400, 'doc_id');
+  await refused('service', D({ record: 'S1034' }), 'no doc_id', 400, 'doc_id');
+  await refused('service', D({ record: 'W1001', doc_id: '4f2a91c07be3d518' }), 'a work order is not a record', 400, 'record');
+  await refused('service', D({ doc_id: '4f2a91c07be3d518' }), 'no record', 400, 'record');
+  await refused('owner', D({ record: 'S1034', doc_id: '4f2a91c07be3d518', price: 5 }), 'money on a detach', 400, '"price"');
+  await refused('owner', { action: 'doc_delete', payload: { record: 'S1034', doc_id: '4f2a91c07be3d518' } }, 'unknown action', 400, 'unknown action');
+});
+
 console.log(`${passed} checks passed.`);
