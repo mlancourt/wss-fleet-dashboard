@@ -1128,6 +1128,24 @@ a.chip { text-decoration: none; }
 .prow .chips { margin-top: 6px; }
 .prow.pending-card { background: var(--red-soft); border-radius: var(--radius-sm); padding: 10px; margin: 8px 0; border-bottom: 0; }
 .prow.pending-card .prow-main { font-weight: 650; font-size: 13.5px; color: var(--red-deep); }
+/* D75 — the Parts tracker: one fold per work order. The header is one line on
+   a 360px phone: chevron · PO · asset · counts · age, and the counts give way
+   (ellipsis) before the asset does. The lines sit inside, indented on a
+   hairline, so they read as belonging to that work order. */
+.ptrk { border-bottom: 1px solid var(--slate-100); }
+.ptrk:last-child { border-bottom: 0; }
+.ptrk-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--tap);
+  padding: 10px 0; border: 0; background: none; font: inherit; color: inherit;
+  text-align: left; cursor: pointer; white-space: nowrap;
+}
+.ptrk-head:focus-visible { outline: 2px solid var(--red); outline-offset: -2px; }
+.ptrk-chev { color: var(--slate-500); font-size: 12px; flex: none; }
+.ptrk-head .prow-po { text-decoration: none; flex: none; }
+.ptrk-asset { font-family: var(--mono); font-size: 13px; color: var(--slate-600); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ptrk-counts { font-size: 13px; color: var(--ink-3); flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ptrk-head .chip { flex: none; margin-left: auto; }
+.ptrk-lines { margin: 0 0 8px 12px; padding-left: 12px; border-left: 1px solid var(--slate-300); }
 .chip.asset { background: var(--slate-100); color: var(--slate-800); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; font-family: var(--mono); }
 .chip.track { background: var(--white); color: var(--slate-700); border-color: var(--slate-300); text-transform: none; letter-spacing: 0; font-family: var(--mono); white-space: normal; word-break: break-all; }
 a.chip.track { color: var(--rent); border-color: #BFDBFE; }

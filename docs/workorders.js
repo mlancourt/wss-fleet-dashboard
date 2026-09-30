@@ -116,6 +116,62 @@ export function stripGroups(list) {
 }
 
 /**
+ * D75 — the Parts tracker: the strip's part lines, grouped BY WORK ORDER, so
+ * one job's boxes stay together while the AP sweep moves them between states.
+ * Built off stripGroups() — the same rows, the same 30-day window (D70), the
+ * same "CANCELLED never" — just folded by W-number instead of by state.
+ *
+ *   active     work orders with ≥ 1 open line (REQUESTED / ORDERED / IN-TRANSIT
+ *              — stripGroups only yields those on non-CLOSED work orders), oldest
+ *              `age_days` first, W-number breaking ties. Their in-window
+ *              DELIVERED lines ride inside the same group.
+ *   delivered  work orders whose in-window lines are ALL delivered — newest
+ *              delivery first. A CLOSED work order only ever lands here.
+ * Lines inside a group are `line` ascending. `worstTone` is the worst lineTone
+ * among the group's open lines (red > amber > ''), given the thresholds app.js
+ * owns (PARTS_AMBER / PARTS_RED); without them it is ''.
+ */
+export function trackerGroups(list, amber, red) {
+  const g = stripGroups(list);
+  const byWo = new Map();
+  for (const r of [...g.requested, ...g.ordered, ...g.inTransit, ...g.delivered]) {
+    const k = r.wo.id;
+    if (!byWo.has(k)) byWo.set(k, { wo: r.wo, lines: [] });
+    byWo.get(k).lines.push(r.part);
+  }
+  const rank = { '': 0, amber: 1, red: 2 };
+  const groups = [...byWo.values()].map((x) => {
+    const lines = x.lines.sort((a, b) => (num(a.line) || 0) - (num(b.line) || 0));
+    const n = (st) => lines.filter((p) => p.state === st).length;
+    const counts = { requested: n('REQUESTED'), ordered: n('ORDERED'), inTransit: n('IN-TRANSIT'), delivered: n('DELIVERED') };
+    let worstTone = '';
+    if (amber != null && red != null) {
+      for (const p of lines) {
+        const t = lineTone(x.wo, p, amber, red);
+        if (rank[t] > rank[worstTone]) worstTone = t;
+      }
+    }
+    const newestDelivered = lines.map((p) => p.delivered).filter(Boolean).sort().pop() || null;
+    return { wo: x.wo, lines, counts, worstTone, newestDelivered };
+  });
+  const isActive = (x) => x.counts.requested + x.counts.ordered + x.counts.inTransit > 0;
+  const id = (a, b) => String(a.wo.id).localeCompare(String(b.wo.id));
+  return {
+    active: groups.filter(isActive)
+      .sort((a, b) => ((num(b.wo.age_days) ?? -1) - (num(a.wo.age_days) ?? -1)) || id(a, b))
+      .map(({ wo, lines, counts, worstTone }) => ({ wo, lines, counts, worstTone })),
+    delivered: groups.filter((x) => !isActive(x))
+      .sort((a, b) => byDateAsc(b.newestDelivered, a.newestDelivered) || id(a, b))
+      .map(({ wo, lines, counts, newestDelivered }) => ({ wo, lines, counts, newestDelivered })),
+  };
+}
+/** D75: the tracker's head pill — open lines on non-CLOSED work orders, counted from the rows. */
+export function trackerCounts(list) {
+  const g = stripGroups(list);
+  return { requested: g.requested.length, ordered: g.ordered.length, inTransit: g.inTransit.length };
+}
+
+/**
  * The pill: lines REQUESTED + ORDERED + IN-TRANSIT. The engine's summary when
  * it ships one (it is the one clock and the one count); counted from the rows
  * only for a snapshot that carries work orders without a summary.
@@ -341,11 +397,19 @@ export function stripCounts(summary, list) {
 export function stripTone(summary, list, { partsAmber, partsRed, inspectAmber }) {
   const parts = requestedTone(list, partsAmber, partsRed);
   if (parts === 'red') return 'red';
+  return inspectTone(summary, list, inspectAmber) || parts;
+}
+/**
+ * The inspection half of the tone alone: amber when an OPEN work order's sheet
+ * has sat PENDING `inspectAmber` days or more. D75: the Work orders strip's
+ * whole tone — the parts half moved to the Parts tracker (requestedTone).
+ */
+export function inspectTone(summary, list, inspectAmber) {
   const s = summary && typeof summary === 'object' ? summary : {};
   const anyPending = num(s.inspections_pending) == null || s.inspections_pending > 0;
   const stale = anyPending && (Array.isArray(list) ? list : []).some((w) => w && w.status === 'OPEN'
     && blockOf(w).status === 'PENDING' && num(w.age_days) != null && w.age_days >= inspectAmber);
-  return stale ? 'amber' : parts;
+  return stale ? 'amber' : '';
 }
 /** The OPEN work orders the strip lists (D69 §5), oldest first; the W-number breaks ties. */
 export const openWorkOrders = (list) => (Array.isArray(list) ? list : []).filter((w) => w && w.status === 'OPEN')

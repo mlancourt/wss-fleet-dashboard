@@ -2531,67 +2531,173 @@ await check('D64: #/agreement/<id> renders int, string and PENDING ids; no Notes
 /* ============================================ D65 — work orders ========== */
 
 const MONEY_RE = /\$\s?\d/;
-const partsStripOf = (out) => {
-  const i = out.indexOf('<section class="parts');
+/** One landing strip by its aria-label ('Work orders' by default, 'Parts tracker'). */
+const sectionOf = (out, label) => {
+  const i = out.indexOf(`<section class="parts card" aria-label="${label}">`);
   if (i < 0) return '';
   return out.slice(i, out.indexOf('</section>', i) + 10);
 };
-const setParts = (open) => { app.__ui().showParts = open; app.__ui().showPartsDelivered = open; };
+const partsStripOf = (out) => sectionOf(out, 'Work orders');
+const trackerOf = (out) => sectionOf(out, 'Parts tracker');
+const setParts = (open) => {
+  const u = app.__ui();
+  u.showParts = open; u.showPartsDelivered = open; u.showTracker = open; u.trackerOpen = new Set();
+};
+/** A tracker group's markup, header + (when unfolded) its lines. */
+const trackerGroupOf = (st, id) => {
+  const i = st.indexOf(`data-tracker-wo="${id}"`);
+  if (i < 0) return '';
+  const start = st.lastIndexOf('<div class="ptrk">', i);
+  const next = st.indexOf('<div class="ptrk">', i);
+  const sub = st.indexOf('class="parts-sub"', i);
+  const ends = [next, sub, st.indexOf('</section>', i)].filter((x) => x > 0);
+  return st.slice(start, Math.min(...ends));
+};
 
-await check('D65/D69: the Work orders strip sits under the utilization card, above the cards, folded, with the engine pill', async () => {
+await check('D75: two strips under the utilization card — Work orders, then Parts tracker — both folded, above the cards', async () => {
   const snap = await asFull('owner');
   setParts(false);
   const out = await renderRoute('#/');
+  assert.equal([...out.matchAll(/<section class="parts card"/g)].length, 2, 'two section.parts');
   const util = out.indexOf('class="util"');
-  const strip = out.indexOf('<section class="parts');
+  const wo = out.indexOf('aria-label="Work orders"');
+  const trk = out.indexOf('aria-label="Parts tracker"');
   const card = out.indexOf('cat-card');
-  assert.ok(util >= 0 && strip > util && card > strip, 'util → strip → category cards');
+  assert.ok(util >= 0 && wo > util && trk > wo && card > trk, 'util → Work orders → Parts tracker → category cards');
   const s = snap.work_order_summary;
-  const n = s.parts_requested + s.parts_ordered + s.parts_in_transit;
   const st = partsStripOf(out);
   assert.ok(st.includes('🔧 Work orders ▸'), 'reads 🔧 Work orders ▸');
-  assert.ok(st.includes(`>${s.open} open · ${s.inspections_pending} inspection pending · ${n} parts open<`),
-    `pill = open · inspections pending · requested + ordered + in transit (${n})`);
-  assert.ok(!out.includes('📋 Inspections'), 'the D67 strip is gone');
+  assert.ok(st.includes(`>${s.open} open · ${s.inspections_pending} inspection pending<`), 'pill = open · inspections pending — no parts segment');
+  assert.ok(!st.includes('parts open<'), 'the parts count moved to the tracker');
+  assert.ok(/parts-n amber/.test(st) && !/parts-n red/.test(st), 'Work orders tones by the inspection rule only (W1001 PENDING 3 days → amber, never red)');
   assert.ok(!st.includes('id="parts-body"'), 'collapsed by default');
-  assert.ok(/parts-n red/.test(st), 'a REQUESTED line on an 8-day-old work order is red');
+  const tr = trackerOf(out);
+  assert.ok(tr.includes('📦 Parts tracker ▸'), 'reads 📦 Parts tracker ▸');
+  const open = snap.work_orders.filter((w) => w.status !== 'CLOSED').flatMap((w) => w.parts);
+  const n = (st2) => open.filter((p) => p.state === st2).length;
+  assert.ok(tr.includes(`>${n('ORDERED')} ordered · ${n('IN-TRANSIT')} in transit · ${n('REQUESTED')} requested<`), 'pill = ordered · in transit · requested');
+  assert.ok(/parts-n red/.test(tr), 'a REQUESTED line on an 8-day-old work order is red — on the tracker');
+  assert.ok(!tr.includes('id="tracker-body"'), 'collapsed by default');
+  assert.ok(!out.includes('📋 Inspections'), 'the D67 strip is gone');
 });
 
-await check('D65/D69: expanded — open work orders with their 📋 chip, then part lines Ordered · In transit · Requested, Delivered folded', async () => {
+await check('D75: Work orders expanded — the open work orders with their 📋 chip, and no part lines', async () => {
   const snap = await asFull('owner');
-  app.__ui().showParts = true; app.__ui().showPartsDelivered = false;
+  setParts(false);
+  app.__ui().showParts = true;
   const st = partsStripOf(await renderRoute('#/'));
-  const w = st.indexOf('>Open <');
-  const o = st.indexOf('>Ordered <'); const t = st.indexOf('>In transit <'); const r = st.indexOf('>Requested <');
-  assert.ok(w > 0 && o > w && t > o && r > t, 'Open work orders, then Ordered, In transit, Requested');
+  assert.ok(st.includes('>Open <'), 'Open group');
+  for (const g of ['>Ordered <', '>In transit <', '>Requested <', 'Delivered (30d)']) assert.ok(!st.includes(g), `no ${g} group`);
+  assert.ok(!st.includes('🔩'), 'no 🔩 part rows');
+  assert.ok(!st.includes('wo-ref'), 'no W-number chips');
   assert.ok(st.includes('>📋 pending</span>') && /chip insp amber">📋 pending/.test(st), 'W1001: pending, amber (3 days)');
   assert.ok(st.includes('>📋 ✓ 2 ⚑</span>'), 'W1002: done, two flags');
   assert.ok(st.includes('>📋 skipped</span>'), 'W1003: skipped');
-  assert.ok(st.includes('Delivered (30d)') && !st.includes('delivered '), 'Delivered is folded');
   const rows = [...st.matchAll(/<div class="prow">/g)].length;
-  const open = snap.work_orders.filter((w) => w.status === 'OPEN');
-  const lines = open.flatMap((w) => w.parts).filter((p) => ['REQUESTED', 'ORDERED', 'IN-TRANSIT'].includes(p.state)).length;
-  assert.equal(rows, open.length + lines, 'one row per open work order, then one per open PART LINE');
-  assert.ok(st.includes('PO <strong>W1001</strong>') && st.includes('href="#/wo/W1001"'), 'the work order\'s own row: W-number labelled PO, tap → #/wo/');
-  // 9/27 strip polish: a part row leads with the PART; the W-number is a grey chip, no "PO", first in the chips.
-  const lineRows = st.split('<div class="prow">').slice(1).filter((r) => r.includes('class="prow-part">🔩 '));
-  assert.equal(lineRows.length, lines, 'every part row leads with 🔩 <part #> × <qty>');
-  for (const r of lineRows) {
-    assert.ok(!r.includes('prow-po') && !/>PO</.test(r), 'no red PO slot on a part row');
-    const chips = r.slice(r.indexOf('<div class="chips">'));
-    assert.ok(/^<div class="chips">\s*<a class="chip asset wo-ref" href="#\/wo\/W\d{4}">W\d{4}<\/a>\s*<a class="chip asset" href="#\/unit\//.test(chips), 'chips: [W…] then [asset]');
-  }
-  const ups = lineRows.find((r) => r.includes('30-750'));
-  assert.ok(ups.includes('>🔩 <span class="unit-serial">30-750</span> × 1<') && ups.includes('<span class="prow-desc">Vac hose 1.5in x 6ft</span>'), 'part # × qty, description under it');
-  assert.ok(ups.indexOf('wo-ref') < ups.indexOf('chip asset"') && ups.indexOf('chip asset"') < ups.indexOf('ups.com'), 'W · asset · carrier');
-  assert.ok(st.includes('href="https://www.ups.com/track?tracknum=1Z999AA10123456784"'), 'UPS → a carrier link');
-  assert.ok(st.includes('<span class="chip track">LTL PRO 48213377</span>'), 'unknown carrier → plain text, no link');
-  assert.ok(st.includes('href="#/ticket/S1002"'), 'the 🔩 row carries its ticket chip');
+  assert.equal(rows, snap.work_orders.filter((w) => w.status === 'OPEN').length, 'one row per open work order');
+  assert.ok(st.includes('PO <strong>W1001</strong>') && st.includes('href="#/wo/W1001"'), 'W-number labelled PO, tap → #/wo/');
   assert.ok(!MONEY_RE.test(st), 'no money in the strip');
-  app.__ui().showPartsDelivered = true;
-  const st2 = partsStripOf(await renderRoute('#/'));
-  assert.ok(st2.includes('delivered ') && st2.includes('tools.usps.com'), 'Delivered (30d) opens, USPS links');
   setParts(false);
+});
+
+await check('D75: Parts tracker expanded — one fold per work order, oldest first, each folded, header counts + worst-tone age', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  app.__ui().showTracker = true;
+  const tr = trackerOf(await renderRoute('#/'));
+  assert.ok(tr.includes('id="tracker-body"'));
+  assert.ok(!tr.includes('🔩'), 'every group starts folded — no lines drawn');
+  const order = [...tr.matchAll(/data-tracker-wo="(W\d{4})"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['W1003', 'W1001', 'W1002'], 'Active: oldest age_days first; Delivered (30d) folded');
+  assert.ok(tr.includes('Delivered (30d) <span class="count">1</span>'), 'Delivered (30d) counts work orders (W1004), not lines');
+  assert.ok(!tr.includes('W1005'), 'the 40-day-old closed work order never shows');
+  assert.ok(!/>Active</i.test(tr), 'no label on the Active band');
+  const w1 = trackerGroupOf(tr, 'W1001');
+  assert.ok(w1.includes('role="button"') && w1.includes('aria-expanded="false"'), 'the header is the toggle');
+  assert.ok(w1.includes('<a class="prow-po" href="#/wo/W1001">PO <strong>W1001</strong></a>'), 'PO W1001, red mono, a link to the work order');
+  const w = snap.work_orders.find((x) => x.id === 'W1001');
+  assert.ok(w1.includes(`<span class="ptrk-asset">${w.asset_item}</span>`), 'asset as plain text, not a chip');
+  assert.ok(w1.includes('>1 requested · 1 ordered · 1 in transit · 1 delivered<'), 'per-state counts, requested → delivered');
+  assert.ok(w1.includes('<span class="chip age amber">3d</span>'), 'age chip toned by the worst open line (REQUESTED on a 3-day WO → amber)');
+  const w3 = trackerGroupOf(tr, 'W1003');
+  assert.ok(w3.includes('>1 requested · 1 in transit<'), 'zero segments dropped');
+  assert.ok(w3.includes('<span class="chip age red">8d</span>'), '8 days → red');
+  assert.ok(!MONEY_RE.test(tr), 'no money in the tracker');
+  setParts(false);
+});
+
+await check('D75: tapping a fold (the real click handler) drops its lines — no W-number chip, state chip, tracking chip intact', async () => {
+  await asFull('owner');
+  setParts(false);
+  app.__ui().showTracker = true;
+  await renderRoute('#/');
+  // A tap on the PO link inside the header is the link's — it must not toggle.
+  const linkTap = fakeTarget('[data-tracker-wo]', { dataset: { trackerWo: 'W1001' } });
+  const inner = linkTap.closest;
+  linkTap.closest = (q) => (q === 'a' ? { href: '#/wo/W1001' } : inner(q));
+  await fireOn('click', linkTap);
+  await settle();
+  assert.ok(!app.__ui().trackerOpen.has('W1001'), 'a tap on PO W1001 navigates, never folds');
+  await fireOn('click', fakeTarget('[data-tracker-wo]', { dataset: { trackerWo: 'W1001' } }));
+  await settle();
+  assert.ok(app.__ui().trackerOpen.has('W1001'));
+  const tr = trackerOf(view._html);
+  const g = trackerGroupOf(tr, 'W1001');
+  assert.ok(g.includes('aria-expanded="true"') && g.includes('class="ptrk-lines"'), 'unfolded');
+  const lines = g.split('<div class="prow">').slice(1);
+  assert.equal(lines.length, 4, 'all four in-window lines of W1001, delivered included');
+  assert.deepEqual(lines.map((r) => r.match(/unit-serial">([^<]+)</)[1]), ['150-4500', '21-422S', '30-750', '264-4086'], 'line ascending');
+  assert.ok(!g.includes('wo-ref') && !g.includes('chip asset'), 'no W-number or asset chip on the lines');
+  assert.ok(lines.every((r) => r.includes('href="#/wo/W1001"')), 'each line still links to the work order');
+  assert.ok(lines[0].includes('<span class="chip warn">requested</span>'), 'requested → warn');
+  assert.ok(lines[1].includes('<span class="chip hold">ordered</span>'), 'ordered → hold');
+  assert.ok(lines[2].includes('<span class="chip rent">in transit</span>'), 'in transit → rent');
+  assert.ok(lines[2].includes('href="https://www.ups.com/track?tracknum=1Z999AA10123456784"'), 'the D66 carrier + tracking chip');
+  assert.ok(lines[3].includes('<span class="chip stock">stock</span>') && !/chip (warn|hold|rent)"/.test(lines[3]), 'a delivered stock line: stock chip, no state chip');
+  assert.ok(!lines.some((r) => /chip age/.test(r)), 'no per-line age chip');
+  assert.ok(!trackerGroupOf(tr, 'W1003').includes('🔩'), 'the other folds stay folded');
+  // The LTL line on W1003 keeps its plain-text tracking, and the ticket chip rides the line.
+  await fireOn('click', fakeTarget('[data-tracker-wo]', { dataset: { trackerWo: 'W1003' } }));
+  await settle();
+  const g3 = trackerGroupOf(trackerOf(view._html), 'W1003');
+  assert.ok(g3.includes('<span class="chip track">LTL PRO 48213377</span>'), 'unknown carrier → plain text');
+  assert.ok(g3.includes('href="#/ticket/S1002"'), 'the 🔧 ticket chip');
+  // Tap again → folded.
+  await fireOn('click', fakeTarget('[data-tracker-wo]', { dataset: { trackerWo: 'W1001' } }));
+  await settle();
+  assert.ok(!trackerGroupOf(trackerOf(view._html), 'W1001').includes('🔩'), 'a second tap folds it');
+  setParts(false);
+});
+
+await check('D75: Delivered (30d) band — all-delivered work orders, newest first, "delivered <date>" in the header, CANCELLED never', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  app.__ui().showTracker = true; app.__ui().showPartsDelivered = true;
+  app.__ui().trackerOpen = new Set(['W1004']);
+  const tr = trackerOf(await renderRoute('#/'));
+  const g = trackerGroupOf(tr, 'W1004');
+  const w = snap.work_orders.find((x) => x.id === 'W1004');
+  assert.ok(g.includes('>2 delivered<'), 'counts the delivered lines; the CANCELLED one is not a line here');
+  const newest = w.parts.filter((p) => p.state === 'DELIVERED').map((p) => p.delivered).sort().pop();
+  assert.ok(/<span class="chip ok">delivered [^<]+<\/span>\s*<\/div>/.test(g.slice(0, g.indexOf('ptrk-lines'))), `delivered ${newest} in the header, no age`);
+  assert.ok(!g.includes('18-3310'), 'the CANCELLED line never draws');
+  assert.ok(g.includes('tools.usps.com'), 'USPS links');
+  assert.ok(!tr.includes('18-1150'), 'W1005 (40 days) stays out');
+  setParts(false);
+});
+
+await check('D75: the tracker toggle is remembered for the session, on its own key', async () => {
+  await asFull('owner');
+  setParts(false);
+  await renderRoute('#/');
+  await fireOn('click', fakeTarget('[data-tracker-toggle]', {}));
+  await settle();
+  assert.equal(app.__ui().showTracker, true);
+  assert.equal(app.__ui().showParts, false, 'the Work orders strip is untouched');
+  assert.equal(sessionStorage.getItem('wss.tracker.open'), '1');
+  assert.ok(trackerOf(view._html).includes('id="tracker-body"'));
+  setParts(false);
+  sessionStorage.removeItem('wss.tracker.open');
 });
 
 await check('D65: the strip toggle is remembered for the session', async () => {
@@ -2607,16 +2713,18 @@ await check('D65: the strip toggle is remembered for the session', async () => {
   sessionStorage.removeItem('wss.parts.open');
 });
 
-await check('D65: empty strip on the legacy fixture (no work_orders key) and on the quiet one', async () => {
+await check('D65/D75: empty Work orders strip and NO tracker on the legacy fixture (no work_orders key) and on the quiet one', async () => {
   for (const v of ['legacy', 'empty']) {
     window.location.href = `http://localhost:8787/?mock=${v}&role=owner`;
     window.location.search = `?mock=${v}&role=owner`;
     await app.__refresh();
-    app.__ui().showParts = true;
-    const st = partsStripOf(await renderRoute('#/'));
-    assert.ok(st.includes('>0 open · 0 parts open<') && st.includes('parts-n zero'), `${v}: 0 open, quiet`);
+    app.__ui().showParts = true; app.__ui().showTracker = true;
+    const out = await renderRoute('#/');
+    const st = partsStripOf(out);
+    assert.ok(st.includes('>0 open<') && st.includes('parts-n zero'), `${v}: 0 open, quiet`);
     assert.ok(!st.includes('class="prow"'), `${v}: no rows`);
     assert.ok(st.includes('No open work orders.'), `${v}: says so`);
+    assert.ok(!out.includes('Parts tracker'), `${v}: no lines anywhere → no tracker card at all`);
   }
   setParts(false);
   await asFull('owner');
@@ -2957,17 +3065,19 @@ await check('D68: a stock line on the WO page reads "stock", dashes the order tr
   await asFull('owner');
 });
 
-await check('D68: the strip — a stock line only in Delivered (30d), with the stock chip, no PO trail, no carrier link', async () => {
+await check('D68/D75: the tracker — a stock line draws the stock chip, no PO trail, no carrier link; W1005 stays out', async () => {
   const snap = await asFull('owner');
-  app.__ui().showParts = true; app.__ui().showPartsDelivered = false;
-  const folded = partsStripOf(await renderRoute('#/'));
-  assert.ok(!folded.includes('264-4086'), 'never under Ordered / In transit / Requested');
+  setParts(false);
+  app.__ui().showTracker = true; app.__ui().showPartsDelivered = false;
+  app.__ui().trackerOpen = new Set(['W1001', 'W1004']);
+  const folded = trackerOf(await renderRoute('#/'));
+  assert.ok(!folded.includes('18-2204'), 'W1004 (all delivered) sits in the folded Delivered (30d) band');
   app.__ui().showPartsDelivered = true;
-  const st = partsStripOf(await renderRoute('#/'));
+  const st = trackerOf(await renderRoute('#/'));
   const rowsOf = (pn) => st.split('<div class="prow">').slice(1).filter((b) => b.includes(`>${pn}</span>`));
   for (const pn of ['264-4086', '18-2204']) {
     const [r] = rowsOf(pn);
-    assert.ok(r, `${pn} is in Delivered (30d)`);
+    assert.ok(r, `${pn} is in the tracker`);
     assert.ok(r.includes('<span class="chip stock">stock</span>') && r.includes('ordered — · vendor — · tracking —'), `${pn}: stock chip, dashed trail`);
     assert.ok(r.includes('delivered '), `${pn}: the delivered date`);
     assert.ok(!/ups\.com|fedex\.com|usps\.com/.test(r), `${pn}: no carrier link`);
@@ -2975,11 +3085,11 @@ await check('D68: the strip — a stock line only in Delivered (30d), with the s
   assert.equal(snap.work_order_summary.delivered_30d, snap.work_orders.flatMap((w) => w.parts)
     .filter((p) => p.state === 'DELIVERED' && p.delivered_age_days <= 30).length,
     'delivered_30d counts stock lines (and only the last 30 days — D70)');
-  // D70: W1005's 40-day-old box is in the snapshot (a year of closed WOs) but not in the strip.
+  // D70: W1005's 40-day-old box is in the snapshot (a year of closed WOs) but not in the tracker.
   assert.ok(snap.work_orders.some((w) => w.id === 'W1005'), 'the mock ships a CLOSED work order older than 30 days');
   assert.equal(rowsOf('18-1150').length, 0, 'a 40-day-old delivery stays out of Delivered (30d)');
   assert.ok((await renderRoute('#/wo/W1005')).includes('18-1150'), 'the WO page still shows every line');
-  assert.ok(!MONEY_RE.test(st), 'no money in the strip');
+  assert.ok(!MONEY_RE.test(st), 'no money in the tracker');
   setParts(false);
 });
 

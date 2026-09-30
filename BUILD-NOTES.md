@@ -2167,3 +2167,47 @@ holders, pads) and pads open diameter + color.
   key across three validators and a template is cheaper than four. The
   ugly part is `pad_color` — the first string in a numeric block — fenced by
   its own branch in all three layers.
+
+## 2026-09-29 — D75: two strips — Work orders · Parts tracker
+
+Matt (19:34): the work orders blend in with the parts orders — give the work
+orders their own drop-down and a separate parts tracker that files parts under
+their work order. Page only; schema 7, Worker and engine untouched.
+
+- `workorders.js`: `trackerGroups(list, amber, red)` → `{active, delivered}`
+  (built off `stripGroups()`, so the 30-day window, the CLOSED rule and
+  "CANCELLED never" are inherited, not re-derived); `trackerCounts(list)`;
+  `inspectTone()` pulled out of `stripTone()` (which now composes it) so the
+  Work orders head can tone by the sheet rule alone.
+- `app.js`: `partsStrip()` trimmed to ⏳ NEW + Open rows; `partsTracker()`,
+  `trackerGroup()`, `trackerLine()` new; `partStripRow()` retired (no caller
+  left). `ui.showTracker` / `TRACKER_OPEN_KEY` (`wss.tracker.open`) /
+  `data-tracker-toggle`; `ui.trackerOpen` Set for the per-WO folds (page load
+  only, not stored). `showPartsDelivered` now drives the tracker's
+  Delivered (30d) fold. BUILD d75.
+- `style.css`: `.ptrk`, `.ptrk-head` (one line; counts `flex: 1 1 0` so they
+  ellipsize before the asset), `.ptrk-lines` (12px indent, hairline). `sw.js` v47.
+
+Floor calls:
+- **The fold header is a `role="button"` div, not a `<button>`.** The spec
+  asks for a button holding an `<a>`; interactive content inside `<button>` is
+  invalid HTML and Safari/Firefox don't reliably deliver the inner click. A
+  div with `tabindex=0` + a keydown listener (Enter/Space) gives the same
+  behaviour legally; the click handler skips the toggle when the tap is inside
+  an `<a>` (same effect as stopPropagation on the link).
+- **Mock unchanged.** It already carries the spec's cases: W1001 open with
+  four lines in four states (REQUESTED · ORDERED · IN-TRANSIT with UPS
+  carrier + tracking · DELIVERED stock); W1004 CLOSED with its DELIVERED lines
+  inside 30 days (two delivered + one CANCELLED — so the Delivered band also
+  proves CANCELLED never draws, rather than a single-line WO); W1005 closed 40
+  days stays out.
+- Active-group lines inside the header counts are the in-window lines only
+  (a 31-day delivered line on an open WO is neither drawn nor counted) — the
+  spec's "lines in the window", read literally.
+
+Tests: workorders 27 (5 new D75), render 174 (strip tests rewritten for the
+split: two sections + aria-labels, Work orders has no 🔩, tracker pill + tone,
+folds closed by default, real click handler unfolds → lines without wo-ref,
+state chips + UPS tracking chip, PO tap never toggles, Delivered band, no
+tracker on legacy/empty, tracker toggle on its own session key). Browser
+check at 360px: headers one line (44px), no horizontal scroll, no console errors.

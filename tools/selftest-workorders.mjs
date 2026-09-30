@@ -10,7 +10,7 @@ import {
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
   isStockLine, sourceOf, pendingLineLabel, PART_VERB_LABEL,
   PURPOSES, PURPOSE_LABEL, closeBlocker, readyOffered, stripCounts, stripTone, openWorkOrders, pendingBySerial, byTs,
-  DELIVERED_DAYS, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
+  DELIVERED_DAYS, trackerGroups, trackerCounts, inspectTone, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
 } from '../docs/workorders.js';
 
 let passed = 0;
@@ -282,6 +282,74 @@ check('D70: Delivered (30d) is 30 days of boxes — a 40-day line is out, a pre-
     wo('W2004', { parts: [part(1, 'DELIVERED', { delivered: '2026-09-01' })] }),   // pre-D70: no key → 0
   ];
   assert.deepEqual(stripGroups(list).delivered.map((r) => r.wo.id), ['W2002', 'W2004', 'W2003']);
+});
+
+/* ------------------------------------------------ D75: the Parts tracker */
+
+check('D75: trackerGroups — one group per work order; Active oldest first with its delivered lines inside; all-delivered → Delivered', () => {
+  const list = [
+    wo('W3001', { age_days: 2, parts: [
+      part(3, 'DELIVERED', { delivered: '2026-09-27', delivered_age_days: 2 }),
+      part(1, 'ORDERED', { ordered: '2026-09-27' }),
+      part(2, 'IN-TRANSIT', { ordered: '2026-09-26', tracking: '1Z999AA10123456784', carrier: 'UPS' }),
+      part(4, 'CANCELLED'),
+    ] }),
+    wo('W3002', { age_days: 9, parts: [part(1, 'REQUESTED')] }),
+    wo('W3003', { age_days: 9, parts: [part(1, 'ORDERED', { ordered: '2026-09-21' })] }),                    // tie on age → id asc
+    wo('W3004', { status: 'CLOSED', age_days: null, closed: '2026-09-25', parts: [
+      part(1, 'DELIVERED', { delivered: '2026-09-24', delivered_age_days: 5 }),
+    ] }),
+    wo('W3005', { status: 'CLOSED', age_days: null, parts: [
+      part(1, 'DELIVERED', { delivered: '2026-08-29', delivered_age_days: 31 }),                               // 31 days → no group
+    ] }),
+    wo('W3006', { parts: [part(1, 'DELIVERED', { delivered: '2026-09-28', delivered_age_days: 1 }), part(2, 'CANCELLED')] }),
+    wo('W3007', { parts: [part(1, 'CANCELLED')] }),                                                             // only cancelled → no group
+    wo('W3008', { status: 'CLOSED', age_days: null, parts: [part(1, 'ORDERED')] }),                           // a CLOSED WO is never Active
+  ];
+  const g = trackerGroups(list, 3, 7);
+  assert.deepEqual(g.active.map((x) => x.wo.id), ['W3002', 'W3003', 'W3001'], 'oldest age first, id asc on a tie');
+  const mixed = g.active.find((x) => x.wo.id === 'W3001');
+  assert.deepEqual(mixed.lines.map((p) => p.line), [1, 2, 3], 'line asc; the delivered line rides inside; CANCELLED never');
+  assert.deepEqual(mixed.counts, { requested: 0, ordered: 1, inTransit: 1, delivered: 1 });
+  assert.deepEqual(g.delivered.map((x) => x.wo.id), ['W3006', 'W3004'], 'all-delivered groups, newest delivery first; CLOSED allowed');
+  assert.equal(g.delivered[1].newestDelivered, '2026-09-24');
+  assert.deepEqual(g.delivered[0].counts, { requested: 0, ordered: 0, inTransit: 0, delivered: 1 }, 'the cancelled line is not counted');
+  const all = [...g.active, ...g.delivered].map((x) => x.wo.id);
+  for (const id of ['W3005', 'W3007', 'W3008']) assert.ok(!all.includes(id), `${id} has no group`);
+  assert.ok(![...g.active, ...g.delivered].some((x) => x.lines.some((p) => p.state === 'CANCELLED')), 'CANCELLED never in a group');
+});
+
+check('D75: worstTone — the worst lineTone among open lines (red beats amber); none without thresholds', () => {
+  const list = [
+    wo('W4001', { age_days: 4, parts: [part(1, 'REQUESTED'), part(2, 'ORDERED')] }),
+    wo('W4002', { age_days: 8, parts: [part(1, 'ORDERED'), part(2, 'REQUESTED')] }),
+    wo('W4003', { age_days: 20, parts: [part(1, 'ORDERED'), part(2, 'IN-TRANSIT')] }),     // an ordered part is never late
+  ];
+  const tone = Object.fromEntries(trackerGroups(list, 3, 7).active.map((x) => [x.wo.id, x.worstTone]));
+  assert.deepEqual(tone, { W4001: 'amber', W4002: 'red', W4003: '' });
+  assert.ok(trackerGroups(list).active.every((x) => x.worstTone === ''), 'no thresholds → no tone');
+  assert.deepEqual(trackerGroups([]), { active: [], delivered: [] });
+  assert.deepEqual(trackerGroups(null), { active: [], delivered: [] });
+});
+
+check('D75: trackerCounts — open lines on non-CLOSED work orders only', () => {
+  const list = [
+    wo('W5001', { parts: [part(1, 'REQUESTED'), part(2, 'ORDERED'), part(3, 'IN-TRANSIT'), part(4, 'IN-TRANSIT'), part(5, 'DELIVERED'), part(6, 'CANCELLED')] }),
+    wo('W5002', { status: 'CLOSED', age_days: null, parts: [part(1, 'REQUESTED'), part(2, 'ORDERED')] }),
+  ];
+  assert.deepEqual(trackerCounts(list), { requested: 1, ordered: 1, inTransit: 2 });
+  assert.deepEqual(trackerCounts([]), { requested: 0, ordered: 0, inTransit: 0 });
+});
+
+check('D75: the Work orders strip tones by the inspection rule alone — a stale REQUESTED line no longer reaches it', () => {
+  assert.equal(inspectTone(null, [wo('W1', { age_days: 9, parts: [part(1, 'REQUESTED')] })], 2), '', 'parts never tone it');
+  assert.equal(inspectTone(null, [wo('W1', { age_days: 2, inspection: { status: 'PENDING' } })], 2), 'amber');
+  assert.equal(inspectTone({ inspections_pending: 0 }, [wo('W1', { age_days: 5, inspection: { status: 'PENDING' } })], 2), '');
+});
+
+check('D75: no money in anything the tracker helpers return', () => {
+  const out = JSON.stringify([trackerGroups(LIST, 3, 7), trackerCounts(LIST)]);
+  assert.ok(!/\$\s?\d/.test(out) && !/"(cost|rate|price)"/.test(out));
 });
 
 check('D70: unitHistory — this serial, CLOSED only, WOs + fleet tickets merged, newest first by string, id-desc ties', () => {

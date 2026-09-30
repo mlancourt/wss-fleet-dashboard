@@ -32,13 +32,13 @@ import { logRows, pendingNotes } from './notes.js';
 import {
   PURPOSES, PURPOSE_LABEL, MANUFACTURERS, MANUFACTURER_LABEL, VENDORS, VENDOR_LABEL, PART_STATE_LABEL, PART_VERB_LABEL,
   MAX_LINES, HOURS_MAX, HOURS_STEP,
-  workOrdersOf, woById, laborOf, isOpenLine, stripGroups, openPartCount, requestedTone, lineTone, trackingUrl,
+  workOrdersOf, woById, laborOf, requestedTone, lineTone, trackingUrl,
   fmtHours, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
   closeShown, closeEnabled, closeBlocker, readyOffered, cancelShown, pendingOpens, pendingOpenFor, pendingForWo,
-  pendingBySerial as woPendingBySerial, byTs, describeWoEvent, stripCounts as woStripCounts, stripTone as woStripTone,
+  pendingBySerial as woPendingBySerial, byTs, describeWoEvent, stripCounts as woStripCounts,
   openWorkOrders, isStockLine, sourceOf, pendingLineLabel,
   unitHistory, historyCaption, HISTORY_FIRST, laborWho, laborKindOf, LABOR_KIND_LABEL, travelHours,
-  laborPayloads, laborProblem,
+  laborPayloads, laborProblem, trackerGroups, trackerCounts, inspectTone,
 } from './workorders.js';
 import {
   CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
@@ -75,7 +75,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-29-d74';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-09-29-d75';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -174,6 +174,11 @@ const PARTS_OPEN_KEY = 'wss.parts.open';
 function storedPartsOpen() {
   try { return sessionStorage.getItem(PARTS_OPEN_KEY) === '1'; } catch (_) { return false; }
 }
+// D75: the Parts tracker folds the same way, on its own key.
+const TRACKER_OPEN_KEY = 'wss.tracker.open';
+function storedTrackerOpen() {
+  try { return sessionStorage.getItem(TRACKER_OPEN_KEY) === '1'; } catch (_) { return false; }
+}
 const LEAD_FILTER_KEY = 'wss_fleet_lead_filter';
 function storedLeadFilter() {
   try {
@@ -203,7 +208,9 @@ const ui = {
   showCompleted: false,  // D62: the Service tab's Completed strip — collapsed by default, per session
   completedQuery: '',    // D62: its search box
   showParts: storedPartsOpen(),   // D65: the landing Parts strip — collapsed by default, remembered per session
-  showPartsDelivered: false,      // D65: Delivered (30d) inside it — always starts folded
+  showPartsDelivered: false,      // D65: Delivered (30d) — in the Parts tracker since D75; always starts folded
+  showTracker: storedTrackerOpen(),   // D75: the Parts tracker strip — collapsed by default, remembered per session
+  trackerOpen: new Set(),         // D75: the W-numbers whose tracker group is unfolded — this page load only
   // D69: the 📋 sheet card on a work order — expanded while PENDING, folded once
   // DONE / SKIPPED. A tap flips it for this page view; key → true (open) / false.
   sheetCard: new Map(),
@@ -532,59 +539,142 @@ function viewCategories() {
   // cards — but folded, so the lights still read first (D15 intact; a work
   // list, not a totals block, like the D56 Shop List).
   // D69: the D67 Inspections strip retired into it — one Work orders strip.
-  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(cards.join(''))}${raw(shopList())}`;
+  // D75: split in two — the work orders, then their parts grouped under them.
+  return html`<h1>Fleet</h1>${raw(utilBar())}${raw(partsStrip())}${raw(partsTracker())}${raw(cards.join(''))}${raw(shopList())}`;
 }
 
 /**
- * The Work orders strip (D65 §3, D69 §5) — "what job does this box go to", and
- * which sheet is still waiting.
+ * The Work orders strip (D65 §3, D69 §5, trimmed by D75) — which jobs are open
+ * and which sheet is still waiting.
  *
- * Collapsed it is one row: 🔧 Work orders ▸ N open · M inspection pending ·
- * K parts open (the engine's summary), toned amber/red by the D65 parts rule
- * (a REQUESTED line on an old work order) or amber when a sheet has sat
- * PENDING INSPECT_AMBER days. Expanded: the OPEN work orders, each with its 📋
- * chip, then the PART LINES grouped Ordered · In transit · Requested, with
- * Delivered folded inside. Every row leads with the W-number labelled PO,
- * because that is what is written on the packing slip in the tech's hand.
+ * Collapsed it is one row: 🔧 Work orders ▸ N open · M inspection pending (the
+ * engine's summary), amber when a sheet has sat PENDING INSPECT_AMBER days.
+ * Expanded: the ⏳ NEW cards, then the OPEN work orders, each with its 📋 chip.
+ * D75: the part lines left for the Parts tracker below — they drew the
+ * W-number twice and scattered one job's boxes across four state groups.
  * No money anywhere — the snapshot carries none to draw.
  */
 function partsStrip() {
   const list = workOrders();
-  const g = stripGroups(list);
   const opens = pendingOpens(state.pending);
   const c = woStripCounts(woSummary(), list);
-  const tone = woStripTone(woSummary(), list, { partsAmber: PARTS_AMBER, partsRed: PARTS_RED, inspectAmber: INSPECT_AMBER });
+  const tone = inspectTone(woSummary(), list, INSPECT_AMBER);
   const open = ui.showParts;
   const wos = openWorkOrders(list);
 
-  const group = (title, rows, fn = partStripRow) => (rows.length ? html`
-    <div class="parts-g">${title} <span class="count">${rows.length}</span></div>
-    ${raw(rows.map(fn).join(''))}` : '');
   const body = open ? html`
     <div class="parts-body" id="parts-body">
       ${raw(opens.map(pendingWoCard).join(''))}
-      ${raw(group('Open', wos, woStripRow))}
-      ${raw(group('Ordered', g.ordered))}
-      ${raw(group('In transit', g.inTransit))}
-      ${raw(group('Requested', g.requested))}
-      ${!wos.length && !g.ordered.length && !g.inTransit.length && !g.requested.length && !opens.length
-        ? raw('<div class="hold-empty">No open work orders. Open one from a unit page.</div>') : ''}
-      ${g.delivered.length ? raw(html`
-        <button type="button" class="parts-sub" data-parts-delivered-toggle="1" aria-expanded="${ui.showPartsDelivered ? 'true' : 'false'}">
-          Delivered (30d) <span class="count">${g.delivered.length}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
-        ${ui.showPartsDelivered ? raw(g.delivered.map(partStripRow).join('')) : ''}`) : ''}
+      ${wos.length ? raw(html`
+        <div class="parts-g">Open <span class="count">${wos.length}</span></div>
+        ${raw(wos.map(woStripRow).join(''))}`) : ''}
+      ${!wos.length && !opens.length ? raw('<div class="hold-empty">No open work orders. Open one from a unit page.</div>') : ''}
     </div>` : '';
 
-  const pill = `${c.open} open${c.pending ? ` · ${c.pending} inspection${c.pending === 1 ? '' : 's'} pending` : ''} · ${c.parts} part${c.parts === 1 ? '' : 's'} open`;
+  const pill = `${c.open} open${c.pending ? ` · ${c.pending} inspection${c.pending === 1 ? '' : 's'} pending` : ''}`;
   return html`
     <section class="parts card" aria-label="Work orders">
       <button type="button" class="parts-head" data-parts-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="parts-body">
         <span class="parts-t">🔧 Work orders ${open ? '▾' : '▸'}</span>
-        <span class="parts-n${tone ? ' ' + tone : ''}${c.open || c.parts ? '' : ' zero'}">${pill}</span>
+        <span class="parts-n${tone ? ' ' + tone : ''}${c.open ? '' : ' zero'}">${pill}</span>
         ${opens.length ? raw(html`<span class="parts-new">⏳ ${opens.length} new</span>`) : ''}
       </button>
       ${raw(body)}
     </section>`;
+}
+
+/**
+ * The Parts tracker (D75) — every part line in the window, folded under its
+ * work order. "There may be multiple parts orders for the same work order": one
+ * fold per W-number keeps them together while the AP sweep moves boxes between
+ * states, and keeps the list short on a phone.
+ *
+ * Collapsed: 📦 Parts tracker ▸ A ordered · B in transit · C requested, toned by
+ * the D65 rule (a REQUESTED line on an old work order). Expanded: the Active
+ * groups (≥ 1 open line, oldest work order first), then Delivered (30d) folded —
+ * work orders whose boxes have all arrived. Every group starts folded; its
+ * header carries the counts, so the lines only drop down when someone asks.
+ * Nothing at all when there is no line in the window — the strip above says
+ * enough. No money anywhere.
+ */
+function partsTracker() {
+  const list = workOrders();
+  const g = trackerGroups(list, PARTS_AMBER, PARTS_RED);
+  if (!g.active.length && !g.delivered.length) return '';
+  const c = trackerCounts(list);
+  const tone = requestedTone(list, PARTS_AMBER, PARTS_RED);
+  const open = ui.showTracker;
+  const segs = [[c.ordered, 'ordered'], [c.inTransit, 'in transit'], [c.requested, 'requested']]
+    .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
+  const pill = segs.length ? segs.join(' · ') : 'nothing open';
+
+  const body = open ? html`
+    <div class="parts-body" id="tracker-body">
+      ${raw(g.active.map((x) => trackerGroup(x, false)).join(''))}
+      ${g.delivered.length ? raw(html`
+        <button type="button" class="parts-sub" data-parts-delivered-toggle="1" aria-expanded="${ui.showPartsDelivered ? 'true' : 'false'}">
+          Delivered (30d) <span class="count">${g.delivered.length}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
+        ${ui.showPartsDelivered ? raw(g.delivered.map((x) => trackerGroup(x, true)).join('')) : ''}`) : ''}
+    </div>` : '';
+
+  return html`
+    <section class="parts card" aria-label="Parts tracker">
+      <button type="button" class="parts-head" data-tracker-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="tracker-body">
+        <span class="parts-t">📦 Parts tracker ${open ? '▾' : '▸'}</span>
+        <span class="parts-n${tone ? ' ' + tone : ''}${segs.length ? '' : ' zero'}">${pill}</span>
+      </button>
+      ${raw(body)}
+    </section>`;
+}
+
+/**
+ * One work order's fold in the tracker. The header toggles (role=button — a
+ * real <button> can't legally hold the PO link); the PO number itself is a link
+ * to the work order, and the click handler lets a tap on it through untouched.
+ */
+function trackerGroup({ wo, lines, counts, worstTone, newestDelivered }, deliveredBand) {
+  const u = unitBySerial(wo.serial);
+  const asset = wo.asset_item || (u && u.asset_item) || `#${wo.serial}`;
+  const open = ui.trackerOpen.has(wo.id);
+  const tally = [[counts.requested, 'requested'], [counts.ordered, 'ordered'], [counts.inTransit, 'in transit'], [counts.delivered, 'delivered']]
+    .filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(' · ');
+  const right = deliveredBand
+    ? (newestDelivered ? chip(`delivered ${fmtDate(newestDelivered)}`, 'ok') : '')
+    : (wo.status !== 'CLOSED' && typeof wo.age_days === 'number' ? chip(ageText(wo.age_days), `age${worstTone ? ' ' + worstTone : ''}`) : '');
+  return html`
+    <div class="ptrk">
+      <div class="ptrk-head" role="button" tabindex="0" data-tracker-wo="${wo.id}" aria-expanded="${open ? 'true' : 'false'}">
+        <span class="ptrk-chev">${open ? '▾' : '▸'}</span>
+        <a class="prow-po" href="#/wo/${raw(enc(wo.id))}">PO <strong>${wo.id}</strong></a>
+        <span class="ptrk-asset">${asset}</span>
+        <span class="ptrk-counts">${tally}</span>
+        ${raw(right)}
+      </div>
+      ${open ? raw(html`<div class="ptrk-lines">${raw(lines.map((part) => trackerLine({ wo, part })).join(''))}</div>`) : ''}
+    </div>`;
+}
+
+/**
+ * One part line inside a tracker group — partStripRow without the W-number and
+ * asset chips (the group header said both) and without the per-line age (the
+ * header carries it). The state chip comes back per line, since the state
+ * groups are gone; the D66 carrier + tracking chip is unchanged.
+ */
+const TRACKER_STATE_CLS = { REQUESTED: 'warn', ORDERED: 'hold', 'IN-TRANSIT': 'rent' };
+function trackerLine({ wo, part }) {
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="#/wo/${raw(enc(wo.id))}">
+        <span class="prow-part">🔩 <span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
+        ${part.description ? raw(html`<span class="prow-desc">${part.description}</span>`) : ''}
+      </a>
+      <div class="chips">
+        ${part.state !== 'DELIVERED' ? raw(chip((PART_STATE_LABEL[part.state] || part.state).toLowerCase(), TRACKER_STATE_CLS[part.state] || '')) : ''}
+        ${raw(partTrailChips(part))}
+        ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
+        ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
+      </div>
+    </div>`;
 }
 
 /** One OPEN work order in the strip (D69): PO · purpose · the 📋 chip · parts open · age. */
@@ -604,33 +694,6 @@ function woStripRow(wo) {
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">${asset}</a>
         ${raw(chip(`📋 ${sheetChipText(b)}`, `insp ${stale ? 'amber' : sheetChipTone(b)}`))}
         ${typeof wo.age_days === 'number' ? raw(chip(ageText(wo.age_days), `age${stale ? ' amber' : ''}`)) : ''}
-        ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
-      </div>
-    </div>`;
-}
-
-/**
- * One part line in the strip. The PART leads (9/27 strip polish): "🔩 264-4086 × 1",
- * its description under it. Red mono "PO W…" belongs to the work order's own row
- * in Open, so here the W-number is a grey chip like the asset one — same job,
- * different thing. Chips: [W1001] [asset] [order trail / carrier] [age] (+ ticket).
- */
-function partStripRow({ wo, part }) {
-  const u = unitBySerial(wo.serial);
-  const asset = wo.asset_item || (u && u.asset_item) || `#${wo.serial}`;
-  const tone = lineTone(wo, part, PARTS_AMBER, PARTS_RED);
-  return html`
-    <div class="prow">
-      <a class="prow-main" href="#/wo/${raw(enc(wo.id))}">
-        <span class="prow-part">🔩 <span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
-        ${part.description ? raw(html`<span class="prow-desc">${part.description}</span>`) : ''}
-      </a>
-      <div class="chips">
-        <a class="chip asset wo-ref" href="#/wo/${raw(enc(wo.id))}">${wo.id}</a>
-        <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">${asset}</a>
-        ${raw(partTrailChips(part))}
-        ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
-        ${isOpenLine(part) && typeof wo.age_days === 'number' ? raw(chip(ageText(wo.age_days), `age${tone ? ' ' + tone : ''}`)) : ''}
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
       </div>
     </div>`;
@@ -4855,6 +4918,22 @@ async function sendUpload(up) {
   render();
 }
 
+/** D75: fold / unfold one work order in the Parts tracker (this page load only). */
+function toggleTrackerGroup(id) {
+  if (!id) return;
+  if (ui.trackerOpen.has(id)) ui.trackerOpen.delete(id); else ui.trackerOpen.add(id);
+  render();
+}
+// The tracker's fold headers are role=button divs (they hold the PO link), so
+// they take Enter / Space the way a real button would.
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const trk = ev.target && ev.target.closest && ev.target.closest('[data-tracker-wo]');
+  if (!trk || ev.target.closest('a')) return;
+  ev.preventDefault();
+  toggleTrackerGroup(trk.dataset.trackerWo);
+});
+
 document.addEventListener('click', async (ev) => {
   // Segmented control: set the hidden input, then re-evaluate the form's
   // conditional blocks. No re-render — the typed-in fields must survive.
@@ -5003,6 +5082,16 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (ev.target.closest('[data-parts-delivered-toggle]')) { ui.showPartsDelivered = !ui.showPartsDelivered; render(); return; }
+  // D75: the Parts tracker, and each work order's fold inside it. A tap on the
+  // PO link in a fold header is the link's — let it navigate, don't toggle.
+  if (ev.target.closest('[data-tracker-toggle]')) {
+    ui.showTracker = !ui.showTracker;
+    try { sessionStorage.setItem(TRACKER_OPEN_KEY, ui.showTracker ? '1' : '0'); } catch (_) { /* storage blocked */ }
+    render();
+    return;
+  }
+  const trk = ev.target.closest('[data-tracker-wo]');
+  if (trk && !ev.target.closest('a')) { toggleTrackerGroup(trk.dataset.trackerWo); return; }
 
   // D68 Order · Stock, per line. In place, like "+ line" — typed fields survive.
   const src = ev.target.closest('[data-wo-src]');
