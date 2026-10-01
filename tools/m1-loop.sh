@@ -638,6 +638,16 @@ for RN in owner sales service; do
     "$WORKER/api/data" -H "$(auth $R)"
 done
 
+# D79: the customer parts order on a ticket carries no cost key and no figure,
+# for EVERY role (cost_total / cost_source_inv are vault-only; the Worker refuses
+# them at publish). Ticket logs + quote are deliberately not scanned — quotes.
+for RN in owner sales service; do
+  case $RN in owner) R=$T_OWNER;; sales) R=$T_SALES;; service) R=$T_SERVICE;; esac
+  expect "$RN: service_queue orders carry no cost key, no /\\\$\\s?\\d/" 200 \
+    "b.snapshot.service_queue.some(t=>t.order) && !/\"(cost_total|cost_source_inv)\"/.test(JSON.stringify(b.snapshot.service_queue)) && b.snapshot.service_queue.every(t=>!/\\\$\\s?\\d/.test(JSON.stringify(t.order||null)))" \
+    "$WORKER/api/data" -H "$(auth $R)"
+done
+
 echo "-- documents (schema 6): the doc id IS the sha256 of the bytes"
 PDF="${PDF:-$(dirname "$0")/../test/fixtures/sample-quote.pdf}"
 if [ ! -f "$PDF" ]; then

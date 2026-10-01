@@ -2668,7 +2668,10 @@ await check('D75: two strips under the utilization card — Work orders, then Pa
   const tr = trackerOf(out);
   assert.ok(tr.includes('📦 Parts tracker ▸'), 'reads 📦 Parts tracker ▸');
   const open = snap.work_orders.filter((w) => w.status !== 'CLOSED').flatMap((w) => w.parts);
-  const n = (st2) => open.filter((p) => p.state === st2).length;
+  // D79: the customer orders on OPEN tickets count in ordered / in transit (requested stays work-order only).
+  const orders = snap.service_queue.filter((t) => t.status === 'OPEN' && t.order).map((t) => t.order);
+  const n = (st2) => open.filter((p) => p.state === st2).length + orders.filter((o) => o.state === st2).length;
+  assert.ok(orders.some((o) => o.state === 'ORDERED') && orders.some((o) => o.state === 'IN-TRANSIT'), 'mock carries both');
   assert.ok(tr.includes(`>${n('ORDERED')} ordered · ${n('IN-TRANSIT')} in transit · ${n('REQUESTED')} requested<`), 'pill = ordered · in transit · requested');
   assert.ok(/parts-n red/.test(tr), 'a REQUESTED line on an 8-day-old work order is red — on the tracker');
   assert.ok(!tr.includes('id="tracker-body"'), 'collapsed by default');
@@ -2703,7 +2706,7 @@ await check('D75: Parts tracker expanded — one fold per work order, oldest fir
   assert.ok(!tr.includes('🔩'), 'every group starts folded — no lines drawn');
   const order = [...tr.matchAll(/data-tracker-wo="(W\d{4})"/g)].map((m) => m[1]);
   assert.deepEqual(order, ['W1003', 'W1001', 'W1002'], 'Active: oldest age_days first; Delivered (30d) folded');
-  assert.ok(tr.includes('Delivered (30d) <span class="count">1</span>'), 'Delivered (30d) counts work orders (W1004), not lines');
+  assert.ok(tr.includes('Delivered (30d) <span class="count">2</span>'), 'Delivered (30d) counts work orders (W1004), not lines — plus the one DELIVERED customer order (D79)');
   assert.ok(!tr.includes('W1005'), 'the 40-day-old closed work order never shows');
   assert.ok(!/>Active</i.test(tr), 'no label on the Active band');
   const w1 = trackerGroupOf(tr, 'W1001');
@@ -3949,6 +3952,173 @@ await check('D78: activity: [] → "nothing yet" and the strip still draws; abse
   sec = activityOf(await renderRoute('#/'));
   assert.ok(sec.includes('Nothing on the tape yet.') && !/undefined|NaN/.test(sec), 'full minus the key: renders, empty body');
   setActivity(false);
+  await asFull('owner');
+});
+
+/* ------------------------------------------------------------------ D79 -- */
+const orderTicket = (snap, state) => snap.service_queue.find((t) => t.status === 'OPEN' && t.order && t.order.state === state);
+const orderBlockOf = (out) => {
+  const i = out.indexOf('<section class="card order-block"');
+  return i < 0 ? '' : out.slice(i, out.indexOf('</section>', i) + 10);
+};
+
+await check('D79: ticket detail — the order block under the stage chips: state chip, vendor · ref · ordered, UPS link, note; no money', async () => {
+  const snap = await asFull('service');
+  const tr = orderTicket(snap, 'IN-TRANSIT');
+  const out = await renderRoute(`#/ticket/${tr.ticket}`);
+  const b = orderBlockOf(out);
+  assert.ok(b, 'drawn');
+  assert.ok(out.indexOf('class="detail-head"') < out.indexOf('order-block') && out.indexOf('order-block') < out.indexOf('<h2>Ticket'), 'directly under the stage chip row, above the Ticket card');
+  assert.ok(b.includes(`🔩 Parts order · PO <strong class="unit-serial">${tr.ticket}</strong>`), 'PO = the S-number');
+  assert.ok(b.includes('<span class="chip rent">in transit</span>'), 'IN-TRANSIT → blue (rent)');
+  assert.ok(b.includes('RPS · ref SO0001234 · ordered '), 'vendor · ref · ordered');
+  assert.ok(b.includes('href="https://www.ups.com/track?tracknum=1Z999AA10198765430"') && b.includes('UPS 1Z999AA10198765430 ↗'), 'the carrier link');
+  assert.ok(b.includes('Pump assy 41-2207, backordered once'), 'the note');
+  assert.ok(b.includes('data-sheet="order"') && b.includes('>Edit order<'), 'WAITING-ON-PARTS → Edit order');
+  assert.ok(!MONEY_RE.test(b) && !/cost/i.test(b), 'no money in the block');
+  assert.ok(out.includes('Pump assy 41-2207 — ETA Thursday'), '`parts` free text still renders where it did');
+
+  const o = orderTicket(snap, 'ORDERED');
+  const bo = orderBlockOf(await renderRoute(`#/ticket/${o.ticket}`));
+  assert.ok(bo.includes('<span class="chip hold">ordered</span>') && bo.includes('Tennant · ordered '), 'ORDERED → grey (hold); no ref segment when there is none');
+  assert.ok(!bo.includes('chip track') && !bo.includes('ups.com'), 'no tracking yet → no chip, no link');
+
+  const dl = orderTicket(snap, 'DELIVERED');
+  const bd = orderBlockOf(await renderRoute(`#/ticket/${dl.ticket}`));
+  assert.ok(bd.includes('<span class="chip ok">delivered</span>'), 'DELIVERED → green');
+  assert.ok(/<span class="chip ok">delivered [A-Z][a-z]{2} \d{1,2}<\/span>/.test(bd), 'and "delivered <date>"');
+  assert.ok(!bd.includes('Edit order'), 'not WAITING-ON-PARTS → no Edit order');
+
+  const none = snap.service_queue.find((t) => t.status === 'OPEN' && !t.order);
+  assert.ok(!(await renderRoute(`#/ticket/${none.ticket}`)).includes('order-block'), 'order null → nothing');
+});
+
+await check('D79: Parts tracker — a Customer orders band between the active work orders and Delivered (30d), oldest ordered first', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  app.__ui().showTracker = true;
+  const tr = trackerOf(await renderRoute('#/'));
+  const band = tr.indexOf('<div class="parts-g">Customer orders</div>');
+  assert.ok(band > tr.lastIndexOf('data-tracker-wo="W1002"') && band < tr.indexOf('Delivered (30d)'), 'between the Active WO groups and Delivered (30d)');
+  const rows = tr.slice(band, tr.indexOf('class="parts-sub"')).split('<div class="prow">').slice(1);
+  const it = orderTicket(snap, 'IN-TRANSIT');
+  const od = orderTicket(snap, 'ORDERED');
+  assert.deepEqual(rows.map((r) => r.match(/PO <strong>(S\d{4})<\/strong>/)[1]), [it.ticket, od.ticket], 'oldest `ordered` first; DELIVERED not in the band');
+  assert.ok(rows[0].includes(`<a class="chip asset" href="#/ticket/${it.ticket}">${it.customer}</a>`), 'customer chip → the ticket');
+  assert.ok(rows[0].includes('>RPS<') && rows[0].includes('>SO0001234<') && rows[0].includes('ups.com/track?tracknum=1Z999AA10198765430'), 'vendor · ref · UPS link');
+  assert.ok(rows[0].includes('<span class="chip rent">in transit</span>') && rows[0].includes(`<span class="chip age">${it.age_in_stage_days}d</span>`), 'state chip + the engine\'s age_in_stage_days');
+  assert.ok(rows[1].includes('<span class="chip hold">ordered</span>') && rows[1].includes('<span class="chip age">1d</span>'), 'ORDERED, 1d');
+  assert.ok(!MONEY_RE.test(tr), 'no money in the strip');
+  // Delivered (30d): the DELIVERED order of an OPEN ticket is a row in the fold.
+  app.__ui().showPartsDelivered = true;
+  const tr2 = trackerOf(await renderRoute('#/'));
+  const fold = tr2.slice(tr2.indexOf('class="parts-sub"'));
+  const dl = orderTicket(snap, 'DELIVERED');
+  assert.ok(fold.includes(`PO <strong>${dl.ticket}</strong>`) && /chip ok">delivered [A-Z]/.test(fold), 'delivered order row, with its date');
+  assert.ok(!fold.slice(fold.indexOf(dl.ticket)).includes('chip age'), 'no age in the delivered band');
+  assert.ok(!MONEY_RE.test(tr2), 'no money in the fold');
+  setParts(false);
+});
+
+await check('D79: CLOSED tickets never draw; orders alone still draw the strip; neither → nothing at all', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  app.__ui().showTracker = true; app.__ui().showPartsDelivered = true;
+  const closed = snap.service_queue.find((t) => t.status === 'CLOSED');
+  closed.order = { state: 'IN-TRANSIT', vendor: 'RPS', vendor_ref: 'CLOSEDREF', ordered: '2026-09-01', tracking: null, carrier: null, delivered: null, note: null };
+  assert.ok(!trackerOf(await renderRoute('#/')).includes('CLOSEDREF'), 'a CLOSED ticket\'s order never shows');
+  snap.work_orders = [];
+  const only = trackerOf(await renderRoute('#/'));
+  assert.ok(only.includes('Customer orders') && only.includes('>1 ordered · 1 in transit<'), 'no part lines, orders only: still drawn, head counts the orders');
+  for (const t of snap.service_queue) t.order = null;
+  assert.equal(trackerOf(await renderRoute('#/')), '', 'no lines and no orders → no card');
+  setParts(false);
+  await asFull('owner');
+});
+
+await check('D79: pipeline — "N ordered · M in transit" under Waiting on parts; tap opens the 📦 tracker on the board', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  const out = await renderRoute('#/service');
+  const want = snap.service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER' && t.stage === 'WAITING-ON-PARTS' && t.order);
+  assert.equal(want.length, 2, 'fixture: two orders waiting');
+  const row = out.indexOf('data-pipe="WAITING-ON-PARTS"');
+  const chipAt = out.indexOf('data-orders-jump="1"');
+  assert.ok(chipAt > row && chipAt < out.indexOf('data-pipe="READY-TO-SCHEDULE"'), 'right after the Waiting-on-parts row');
+  assert.ok(out.includes('>🔩 1 ordered · 1 in transit</button>'), 'the chip text');
+  assert.ok(out.slice(row, chipAt).includes('</button>'), 'its own button — the row\'s closes first, never nested');
+  assert.ok(!out.slice(out.indexOf('data-pipe="READY-TO-SCHEDULE"')).includes('data-orders-jump'), 'one chip only');
+  await fireOn('click', fakeTarget('[data-orders-jump]', {}));
+  await settle();
+  assert.equal(app.__ui().showTracker, true, 'tracker expanded');
+  assert.equal(window.location.hash, '#/', 'to the board');
+  // No orders → no chip.
+  for (const t of snap.service_queue) t.order = null;
+  assert.ok(!(await renderRoute('#/service')).includes('data-orders-jump'), 'no orders → no chip');
+  setParts(false);
+  await asFull('owner');
+});
+
+await check('D79: the WAITING-ON-PARTS stage sheet posts vendor / vendor_ref / order_note; Edit order posts them without a stage', async () => {
+  const { snapshot, posted } = await apiAs({ name: 'Josh', role: 'service' });
+  const t = snapshot.service_queue.find((x) => x.status === 'OPEN' && x.stage === 'IN-PROGRESS' && x.machine_owner === 'CUSTOMER');
+  await renderRoute(`#/ticket/${t.ticket}`);
+  await fireOn('click', fakeTarget('[data-stage]', { dataset: { stage: 'WAITING-ON-PARTS' } }));
+  await settle();
+  const sheet = view._html.slice(view._html.indexOf('data-mode="stage"'));
+  assert.ok(sheet.includes('name="vendor"') && sheet.includes('name="vendor_ref"') && sheet.includes('placeholder="order / confirmation #"'), 'vendor + ref');
+  assert.ok(sheet.includes('name="order_note"') && !/name="note"/.test(sheet.slice(0, sheet.indexOf('</form>'))), 'the note on THIS sheet is order_note');
+  const opts = [...sheet.slice(0, sheet.indexOf('</select>')).matchAll(/<option value="([A-Z-]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(opts, ['', 'RPS', 'NILFISK', 'IPC-EAGLE', 'MINUTEMAN', 'TENNANT', 'OTHER'], 'optional, spec order');
+  await submitForm({ action: 'ticket_update', id: t.ticket, mode: 'stage' }, { stage: 'WAITING-ON-PARTS', vendor: 'RPS', vendor_ref: 'SO1', order_note: '2 squeegees' });
+  assert.deepEqual(posted.pop(), { action: 'ticket_update', serial: null,
+    payload: { ticket: t.ticket, stage: 'WAITING-ON-PARTS', vendor: 'RPS', vendor_ref: 'SO1', order_note: '2 squeegees' } });
+  // Another stage keeps its plain note.
+  await fireOn('click', fakeTarget('[data-stage]', { dataset: { stage: 'SCHEDULED' } }));
+  await settle();
+  const other = view._html.slice(view._html.indexOf('data-mode="stage"'));
+  assert.ok(other.includes('name="note"') && !other.slice(0, other.indexOf('</form>')).includes('name="vendor"'), 'SCHEDULED: note, no vendor');
+
+  // Edit order on a ticket sitting in WAITING-ON-PARTS with an order.
+  const w = snapshot.service_queue.find((x) => x.status === 'OPEN' && x.stage === 'WAITING-ON-PARTS' && x.order && x.order.vendor_ref);
+  await renderRoute(`#/ticket/${w.ticket}`);
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'order', id: w.ticket } }));
+  await settle();
+  const ed = orderBlockOf(view._html);
+  assert.ok(ed.includes('data-mode="order"') && ed.includes(`value="${w.order.vendor_ref}"`) && ed.includes(`<option value="${w.order.vendor}" selected`), 'prefilled');
+  assert.ok(!ed.includes('name="stage"'), 'no stage on Edit order');
+  const n = posted.length;
+  await submitForm({ action: 'ticket_update', id: w.ticket, mode: 'order' }, { vendor: '', vendor_ref: '', order_note: '' });
+  assert.equal(posted.length, n, 'all blank → nothing posts');
+  assert.ok(view._html.includes('Pick a vendor or put in a ref or a note.'), 'and it says why');
+  await submitForm({ action: 'ticket_update', id: w.ticket, mode: 'order' }, { vendor: 'RPS', vendor_ref: 'SO0001235', order_note: '' });
+  assert.deepEqual(posted.pop().payload, { ticket: w.ticket, vendor: 'RPS', vendor_ref: 'SO0001235' });
+  const after = await renderRoute(`#/ticket/${w.ticket}`);
+  assert.ok(after.includes('order: RPS · SO0001235') && after.includes('>Undo<'), 'ordinary pending + undo');
+  globalThis.fetch = realFetch;
+  window.location.hostname = 'localhost';
+  window.location.protocol = 'http:';
+  await asFull('owner');
+});
+
+await check('D79: a pre-D79 snapshot (no `order` key anywhere) renders byte-identical to order: null, with no D79 markup', async () => {
+  const pages = async () => {
+    const snap = app.__state().snapshot;
+    const out = [];
+    for (const h of ['#/', '#/service', ...snap.service_queue.map((t) => `#/ticket/${t.ticket}`)]) out.push(await renderRoute(h));
+    return out.join('\n');
+  };
+  for (const open of [false, true]) {
+    const snap = await asFull('owner');
+    setParts(open);
+    for (const t of snap.service_queue) delete t.order;
+    const absent = await pages();
+    for (const t of snap.service_queue) t.order = null;
+    const nul = await pages();
+    assert.equal(absent, nul, `absent ≡ null (tracker ${open ? 'open' : 'folded'})`);
+    for (const m of ['Customer orders', 'order-block', 'data-orders-jump', '🔩 Parts order', 'Edit order']) assert.ok(!absent.includes(m), `no ${m}`);
+  }
+  setParts(false);
   await asFull('owner');
 });
 

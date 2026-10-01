@@ -378,6 +378,64 @@ export function cancelShown(wo, role, meName) {
   return !!meName && wo.opened_by === meName && partsOf(wo).every((p) => p.state === 'REQUESTED');
 }
 
+/* ---- D79: the customer parts order on a service ticket ----
+ * One order per ticket, the whole order — never lines. Born on the move to
+ * WAITING-ON-PARTS; the engine's AP sweep stamps tracking + IN-TRANSIT off the
+ * vendor invoice whose PO is the S-number; a forward stage move stamps
+ * DELIVERED. NO MONEY: cost_total / cost_source_inv are vault-only and nothing
+ * here reads one. Ages are the engine's (`age_in_stage_days`) — never a diff. */
+export const ORDER_STATES = ['ORDERED', 'IN-TRANSIT', 'DELIVERED'];
+/** The stage sheet's vendor order (D79 spec) — the same six keys as a part line's VENDORS. */
+export const ORDER_VENDORS = ['RPS', 'NILFISK', 'IPC-EAGLE', 'MINUTEMAN', 'TENNANT', 'OTHER'];
+/** A ticket's order, or null — absent on a pre-D79 snapshot, null on a ticket without one. */
+export const orderOf = (t) => (t && t.order && typeof t.order === 'object' && !Array.isArray(t.order) ? t.order : null);
+
+/**
+ * The tracker's customer-order rows: OPEN tickets only (a CLOSED ticket never
+ * draws in the strip).
+ *   active     ORDERED / IN-TRANSIT, oldest `ordered` first (nulls last), S-number ties
+ *   delivered  DELIVERED, newest `delivered` first — rides the Delivered (30d) fold
+ * Each row is { ticket, order }.
+ */
+export function customerOrders(queue) {
+  const rows = (Array.isArray(queue) ? queue : [])
+    .filter((t) => t && t.status === 'OPEN' && orderOf(t))
+    .map((t) => ({ ticket: t, order: orderOf(t) }));
+  const tie = (a, b) => String(a.ticket.ticket).localeCompare(String(b.ticket.ticket));
+  return {
+    active: rows.filter((r) => r.order.state === 'ORDERED' || r.order.state === 'IN-TRANSIT')
+      .sort((a, b) => byDateAsc(a.order.ordered, b.order.ordered) || tie(a, b)),
+    delivered: rows.filter((r) => r.order.state === 'DELIVERED')
+      .sort((a, b) => byDateAsc(b.order.delivered, a.order.delivered) || tie(a, b)),
+  };
+}
+
+/** Counts over customerOrders rows or tickets (both carry `.order`): { ordered, inTransit, delivered }. */
+export function orderCounts(rows) {
+  const out = { ordered: 0, inTransit: 0, delivered: 0 };
+  for (const r of Array.isArray(rows) ? rows : []) {
+    // A customerOrders row ({ticket, order}) or a ticket both carry `.order`.
+    const o = orderOf(r);
+    if (!o) continue;
+    if (o.state === 'ORDERED') out.ordered++;
+    else if (o.state === 'IN-TRANSIT') out.inTransit++;
+    else if (o.state === 'DELIVERED') out.delivered++;
+  }
+  return out;
+}
+
+/**
+ * The pipeline's Waiting-on-parts chip: "2 ordered · 1 in transit" (zeros
+ * dropped) over OPEN customer tickets in WAITING-ON-PARTS — the pipeline is
+ * customer machines only, so the chip counts what its row counts. '' when none.
+ */
+export function pipelineOrderChip(queue) {
+  const rows = (Array.isArray(queue) ? queue : []).filter((t) => t && t.status === 'OPEN'
+    && t.machine_owner === 'CUSTOMER' && t.stage === 'WAITING-ON-PARTS' && orderOf(t));
+  const c = orderCounts(rows);
+  return [[c.ordered, 'ordered'], [c.inTransit, 'in transit']].filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(' · ');
+}
+
 /* ---- the strip's headline (D69 §5) ----
  * "🔧 Work orders ▸ 2 open · 1 inspection pending · 3 parts open". The engine's
  * summary when it ships one; counted from the rows otherwise. */

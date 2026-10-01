@@ -197,6 +197,20 @@ try {
     for (const f of found) console.log(`         ${f}`);
   }
 
+  /* ------ D79: the customer parts order carries no cost, every role -------
+   * `cost_total` / `cost_source_inv` are vault-only (the Worker refuses them
+   * at publish, by name); no figure in the order block either. Ticket logs and
+   * `quote` stay unscanned — see the header. No order anywhere passes
+   * vacuously and says so. */
+  for (const [role, doc] of [['owner', owner], ['sales', sales], ['service', svc]]) {
+    const sq = Array.isArray(doc.snapshot.service_queue) ? doc.snapshot.service_queue : [];
+    const n = sq.filter((t) => t && t.order).length;
+    ok(!/"(cost_total|cost_source_inv)"\s*:/.test(JSON.stringify(sq)), `${role}: no cost_total / cost_source_inv on any ticket (${n} orders)`);
+    const bad = sq.filter((t) => t && t.order && MONEY_RE.test(JSON.stringify(t.order)));
+    ok(bad.length === 0, `${role}: no service_queue[].order text matches /\\$\\s?\\d/ (${n} orders)`);
+    for (const t of bad) console.log(`         ${t.ticket}`);
+  }
+
   /* ------ D78: the activity tape is money-free BY CONTRACT, every role ----
    * The engine's builder refuses to publish a figure in an activity line; this
    * holds it to that on the real file. Never role-gated, never stripped — so

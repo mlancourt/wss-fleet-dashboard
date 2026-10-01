@@ -39,6 +39,7 @@ import {
   openWorkOrders, isStockLine, sourceOf, pendingLineLabel,
   unitHistory, historyCaption, HISTORY_FIRST, laborWho, laborKindOf, LABOR_KIND_LABEL, travelHours,
   laborPayloads, laborProblem, trackerGroups, trackerCounts, inspectTone,
+  ORDER_VENDORS, orderOf, customerOrders, orderCounts, pipelineOrderChip,
 } from './workorders.js';
 import {
   CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
@@ -76,7 +77,7 @@ import { activityGroups, pendingActivityRows, activityRoute, activityTime, actor
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-09-30-d78';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-01-d79';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -620,21 +621,27 @@ function partsStrip() {
 function partsTracker() {
   const list = workOrders();
   const g = trackerGroups(list, PARTS_AMBER, PARTS_RED);
-  if (!g.active.length && !g.delivered.length) return '';
+  // D79: customer parts orders on OPEN tickets ride the same strip.
+  const co = customerOrders(serviceQueue());
+  if (!g.active.length && !g.delivered.length && !co.active.length && !co.delivered.length) return '';
   const c = trackerCounts(list);
+  const oc = orderCounts(co.active);
   const tone = requestedTone(list, PARTS_AMBER, PARTS_RED);
   const open = ui.showTracker;
-  const segs = [[c.ordered, 'ordered'], [c.inTransit, 'in transit'], [c.requested, 'requested']]
+  const segs = [[c.ordered + oc.ordered, 'ordered'], [c.inTransit + oc.inTransit, 'in transit'], [c.requested, 'requested']]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
   const pill = segs.length ? segs.join(' · ') : 'nothing open';
+  const nDelivered = g.delivered.length + co.delivered.length;
 
   const body = open ? html`
     <div class="parts-body" id="tracker-body">
-      ${raw(g.active.map((x) => trackerGroup(x, false)).join(''))}
-      ${g.delivered.length ? raw(html`
+      ${raw(g.active.map((x) => trackerGroup(x, false)).join(''))}${co.active.length ? raw(html`
+        <div class="parts-g">Customer orders</div>
+        ${raw(co.active.map((r) => orderStripRow(r, false)).join(''))}`) : ''}
+      ${nDelivered ? raw(html`
         <button type="button" class="parts-sub" data-parts-delivered-toggle="1" aria-expanded="${ui.showPartsDelivered ? 'true' : 'false'}">
-          Delivered (30d) <span class="count">${g.delivered.length}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
-        ${ui.showPartsDelivered ? raw(g.delivered.map((x) => trackerGroup(x, true)).join('')) : ''}`) : ''}
+          Delivered (30d) <span class="count">${nDelivered}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
+        ${ui.showPartsDelivered ? raw(g.delivered.map((x) => trackerGroup(x, true)).join('') + co.delivered.map((r) => orderStripRow(r, true)).join('')) : ''}`) : ''}
     </div>` : '';
 
   return html`
@@ -748,6 +755,81 @@ function trackerLine({ wo, part }) {
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
       </div>
     </div>`;
+}
+
+/**
+ * D79 — one customer parts order in the tracker: PO S1030 · customer · vendor ·
+ * ref · tracking ↗ · state · age (the engine's `age_in_stage_days`). In the
+ * Delivered (30d) fold the age gives way to "delivered <date>". The S-number
+ * IS the PO the vendor sees, as the W-number is for a fleet job. No money.
+ */
+const ORDER_STATE_CLS = { ORDERED: 'hold', 'IN-TRANSIT': 'rent', DELIVERED: 'ok' };
+const orderStateChip = (o) => chip((PART_STATE_LABEL[o.state] || o.state || '—').toLowerCase(), ORDER_STATE_CLS[o.state] || '');
+function orderStripRow({ ticket: t, order: o }, deliveredBand) {
+  const href = `#/ticket/${enc(t.ticket)}`;
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="${raw(href)}">
+        <span class="prow-po">PO <strong>${t.ticket}</strong></span>
+        ${t.equipment ? raw(html`<span class="prow-desc">${t.equipment}</span>`) : ''}
+      </a>
+      <div class="chips">
+        <a class="chip asset" href="${raw(href)}">${t.customer || '—'}</a>
+        ${o.vendor ? raw(chip(VENDOR_LABEL[o.vendor] || o.vendor, 'rig')) : ''}
+        ${o.vendor_ref ? raw(chip(o.vendor_ref, 'cal')) : ''}
+        ${raw(trackingChip(o))}
+        ${deliveredBand ? '' : raw(orderStateChip(o))}
+        ${deliveredBand
+          ? (o.delivered ? raw(chip(`delivered ${fmtDate(o.delivered)}`, 'ok')) : '')
+          : (typeof t.age_in_stage_days === 'number' ? raw(chip(ageText(t.age_in_stage_days), 'age')) : '')}
+      </div>
+    </div>`;
+}
+
+/**
+ * D79 — the order block on ticket detail, directly under the stage chip row,
+ * only when `order` is non-null: state, vendor · ref · ordered, the carrier
+ * link (only when the engine named a carrier), the note. Never a cost. While
+ * the ticket sits in WAITING-ON-PARTS, "Edit order" opens the same three
+ * fields and posts them without a stage.
+ */
+function orderBlock(t) {
+  const o = orderOf(t);
+  if (!o) return '';
+  const line2 = [o.vendor ? (VENDOR_LABEL[o.vendor] || o.vendor) : null, o.vendor_ref ? `ref ${o.vendor_ref}` : null,
+    o.ordered ? `ordered ${fmtDate(o.ordered)}` : null].filter(Boolean).join(' · ');
+  const editable = t.status === 'OPEN' && t.stage === 'WAITING-ON-PARTS';
+  const editing = editable && ui.form && ui.form.kind === 'order' && ui.form.id === t.ticket;
+  const trail = trackingChip(o) + (o.state === 'DELIVERED' && o.delivered ? chip(`delivered ${fmtDate(o.delivered)}`, 'ok') : '');
+  return html`
+    <section class="card order-block" aria-label="Parts order">
+      <div class="order-h">
+        <span class="order-t">🔩 Parts order · PO <strong class="unit-serial">${t.ticket}</strong></span>
+        ${raw(orderStateChip(o))}
+      </div>
+      ${line2 ? raw(html`<div class="order-l">${line2}</div>`) : ''}
+      ${trail ? raw(html`<div class="chips">${raw(trail)}</div>`) : ''}
+      ${o.note ? raw(html`<div class="order-note">${o.note}</div>`) : ''}
+      ${editable && !editing ? raw(html`<button type="button" class="linkish" data-sheet="order" data-id="${t.ticket}">Edit order</button>`) : ''}
+      ${editing ? raw(html`
+        <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="order">
+          ${raw(orderFields(o))}
+          ${raw(sheetButtons('Save the order'))}
+        </form>`) : ''}
+    </section>`;
+}
+
+/** Vendor · Vendor ref · Note — the WAITING-ON-PARTS sheet and Edit order share them. The note posts as `order_note`. */
+function orderFields(o) {
+  const cur = o && o.vendor ? o.vendor : '';
+  const vopt = (v) => html`<option value="${v}"${v === cur ? raw(' selected') : ''}>${VENDOR_LABEL[v] || v}</option>`;
+  return html`
+    <label for="of-vendor">Vendor</label>
+    <select id="of-vendor" name="vendor"><option value=""${cur ? '' : raw(' selected')}>— optional —</option>${raw(ORDER_VENDORS.map(vopt).join(''))}</select>
+    <label for="of-ref">Vendor ref</label>
+    <input id="of-ref" name="vendor_ref" maxlength="40" autocomplete="off" placeholder="order / confirmation #" value="${o && o.vendor_ref ? o.vendor_ref : ''}">
+    <label for="of-note">Note (optional)</label>
+    <textarea id="of-note" name="order_note" maxlength="140" placeholder="what's on order">${o && o.note ? o.note : ''}</textarea>`;
 }
 
 /** One OPEN work order in the strip (D69): PO · purpose · the 📋 chip · parts open · age. */
@@ -2041,13 +2123,17 @@ function completedRows(q, filter, summary) {
  */
 function pipelineView(withCaption) {
   const p = pipeline(serviceQueue());
+  // D79: "2 ordered · 1 in transit" under Waiting on parts — its own button
+  // (never nested in the row's), a door to the 📦 Parts tracker.
+  const orders = pipelineOrderChip(serviceQueue());
   const rows = p.rows.map((r) => html`
     <button type="button" class="brow pipe-${r.color}${r.count ? '' : ' zero'}" data-pipe="${r.stage}">
       <span class="brow-l">${r.label}</span>
       <span class="brow-n">${r.count}</span>
       <span class="brow-track"><span class="brow-fill" style="width:${r.pct}%"></span></span>
       <span class="brow-p">${r.pct}%</span>
-    </button>`);
+    </button>${r.stage === 'WAITING-ON-PARTS' && orders
+      ? raw(html`<button type="button" class="pipe-orders" data-orders-jump="1" aria-label="Customer parts orders: ${orders} — open the Parts tracker">🔩 ${orders}</button>`) : ''}`);
   return html`
     <section class="board pipe" aria-label="Service pipeline — customer machines">
       <div class="board-h">
@@ -2220,7 +2306,7 @@ function viewTicket(id) {
           raw(ticketWoChips(t, u))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
-    </div>
+    </div>${raw(orderBlock(t))}
 
     ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
       ${raw(pend.map((e) => html`<div class="pend-row"><span>${describeUpdate(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
@@ -2264,6 +2350,8 @@ function describeUpdate(e) {
   if (p.scheduled) bits.push(`scheduled ${fmtDate(p.scheduled)}`);
   if (p.intake_move) bits.push(`intake → ${MOVE_LABEL[p.intake_move] || p.intake_move}`);
   if (p.return_move) bits.push(`return → ${MOVE_LABEL[p.return_move] || p.return_move}`);
+  if (p.vendor || p.vendor_ref) bits.push(`order: ${[p.vendor ? (VENDOR_LABEL[p.vendor] || p.vendor) : null, p.vendor_ref].filter(Boolean).join(' · ')}`);
+  if (p.order_note) bits.push('order note');
   if (p.note) bits.push('note added');
   return bits.length ? bits.join(', ') : e.action;
 }
@@ -2286,11 +2374,15 @@ function stagePicker(t, canWork) {
 }
 
 function stageForm(t, stage) {
+  // D79: the WAITING-ON-PARTS move carries the customer parts order — vendor,
+  // ref, and THIS sheet's note goes out as `order_note`, not `note`.
+  const parts = stage === 'WAITING-ON-PARTS';
   return html`
     <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="stage">
       <input type="hidden" name="stage" value="${stage}">
+      ${parts ? raw(orderFields(orderOf(t))) : raw(html`
       <label for="sf-note">Move to ${STAGE_LABEL[stage] || stage} — note (optional)</label>
-      <textarea id="sf-note" name="note" placeholder="what you found, what you did"></textarea>
+      <textarea id="sf-note" name="note" placeholder="what you found, what you did"></textarea>`)}
       ${raw(sheetButtons(`Move to ${STAGE_LABEL[stage] || stage}`))}
     </form>`;
 }
@@ -5286,6 +5378,21 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
+  // D79: the pipeline's orders chip — to the landing, 📦 Parts tracker open.
+  if (ev.target.closest('[data-orders-jump]')) {
+    ui.showTracker = true;
+    try { sessionStorage.setItem(TRACKER_OPEN_KEY, '1'); } catch (_) { /* storage blocked */ }
+    const go = () => {
+      const el = document.querySelector('section[aria-label="Parts tracker"]');
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    if ((window.location.hash || '#/') === '#/') { render(); go(); }
+    else {
+      window.addEventListener('hashchange', () => setTimeout(go, 0), { once: true });
+      window.location.hash = '#/';
+    }
+    return;
+  }
   // A pipeline row scrolls the kanban to its column. It never changes the chip
   // — the widget is a way to read the board, not a way to re-filter it.
   const pipe = ev.target.closest('[data-pipe]');
@@ -5700,7 +5807,7 @@ function eventBody(action, form, fd) {
   if (action === 'ticket_update') {
     // Only the keys being changed travel (§6). `data-mode` says which sheet it was.
     const payload = { ticket: form.dataset.id };
-    for (const k of ['stage', 'note', 'assigned', 'scheduled', 'intake_move', 'return_move']) {
+    for (const k of ['stage', 'note', 'assigned', 'scheduled', 'intake_move', 'return_move', 'vendor', 'vendor_ref', 'order_note']) {
       const v = s(k);
       if (v) payload[k] = v;
     }
@@ -5975,6 +6082,13 @@ document.addEventListener('submit', async (ev) => {
       }
       return;
     }
+  }
+  // D79: Edit order with every field blank changes nothing — say so here, not as a Worker 400.
+  if (action === 'ticket_update' && form.dataset.mode === 'order'
+    && !['vendor', 'vendor_ref', 'order_note'].some((k) => String(fd.get(k) || '').trim())) {
+    ui.msg = { tone: 'bad', text: 'Pick a vendor or put in a ref or a note.' };
+    render();
+    return;
   }
   // A lead with no customer is a note to nobody.
   if (action === 'lead_open' && !String(fd.get('customer') || '').trim()) {

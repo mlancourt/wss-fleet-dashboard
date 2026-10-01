@@ -672,6 +672,8 @@ function build({ withServiceQueue }) {
         // schema 6: the ticket's paperwork. Most tickets have none — an empty
         // docs[] must render NOTHING at all, not an empty box.
         docs: [],
+        // D79: the customer parts order — null on every ticket without one (the engine ships the key).
+        order: null,
         ...t,
       };
       delete row.unit;
@@ -751,6 +753,10 @@ function build({ withServiceQueue }) {
       return_move: 'DELIVER', assigned: 'Zac', opened: -18, scheduled: d(4),
       quote: { number: 'Q-2198', amount: 1140, sent: d(-15), approved: d(-13) },
       parts: 'Pump assy 41-2207 — ETA Thursday, backordered once already',
+      // D79: IN-TRANSIT — the AP sweep matched the vendor invoice (PO = the S-number) and stamped UPS.
+      stage_since: -13, age_in_stage_days: 13,
+      order: { state: 'IN-TRANSIT', vendor: 'RPS', vendor_ref: 'SO0001234', ordered: d(-13), tracking: '1Z999AA10198765430',
+        carrier: 'UPS', delivered: null, note: 'Pump assy 41-2207, backordered once' },
       log: logOf([
         [ts(-13, '11:02'), 'Zac', 'Zac: Quote approved over the phone. Pump ordered.'],
         [ts(-4, '16:30'), null, 'supplier note: backordered a second time, new ETA Thursday.'],
@@ -768,6 +774,10 @@ function build({ withServiceQueue }) {
       intake_move: 'NONE', return_move: 'NONE', assigned: null, opened: -8,
       quote: { number: 'Q-2230', amount: 615, sent: d(-6), approved: d(-2) },
       parts: 'Vac motor 22-0410 — received',
+      // D79: DELIVERED but the ticket is still OPEN — the move out of WAITING-ON-PARTS stamped it.
+      stage_since: -2, age_in_stage_days: 2,
+      order: { state: 'DELIVERED', vendor: 'NILFISK', vendor_ref: 'NF-448120', ordered: d(-6), tracking: null,
+        carrier: null, delivered: d(-2), note: null },
       log: logOf([
         [ts(-2, '09:15'), 'Matt', 'Matt: approved by email. Motor came in this morning.'],
       ]),
@@ -893,6 +903,23 @@ function build({ withServiceQueue }) {
     closedOld(26, { unit: units.find((u) => u.unit_state === 'ON-RENT'), customer: 'WSS',
       issue: 'Field call — drive wheel drags, brake adjusted on site', assigned: 'Josh',
       location: 'AT-CUSTOMER', intake_move: 'NONE', return_move: 'NONE' });
+
+    // D79 — an ORDERED customer parts order, no tracking yet. Pushed by hand
+    // (not through ticket()) so it draws nothing from the RNG: every mock
+    // value after this point stays exactly what it was before D79.
+    {
+      const base = service_queue.find((t) => t.stage === 'WAITING-ON-PARTS');
+      service_queue.push({
+        ...base, ticket: `S${++seq}`, customer: 'Pinecrest Bottling', equipment: 'Halstead SC-2400 (customer owned)',
+        issue: 'Brush deck motor burnt — new motor on order', site: 'Watertown WI', location: 'IN-SHOP',
+        intake_move: 'CUSTOMER-DROP', return_move: 'CUSTOMER-PICKUP', assigned: 'Josh', scheduled: null,
+        opened: d(-5), stage_since: d(-1), age_days: 5, age_in_stage_days: 1, priority: 'MEDIUM',
+        quote: { number: 'Q-2236', amount: 905, sent: d(-4), approved: d(-2) },
+        parts: 'Brush motor 33-1180', log: [], docs: [], geo: null,
+        order: { state: 'ORDERED', vendor: 'TENNANT', vendor_ref: null, ordered: d(-1), tracking: null,
+          carrier: null, delivered: null, note: 'Brush motor 33-1180 x1' },
+      });
+    }
 
     // ------------------------------------------------------------- dispatch board
     const move = (m) => {

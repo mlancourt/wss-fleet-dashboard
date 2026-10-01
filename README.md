@@ -614,7 +614,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `release` | owner, sales | required | `hold_id` |
 | `readiness` | owner, service | required | `readiness`, `note` |
 | `ticket_open` | any | optional | `machine_owner`, `serial`, `equipment`, `customer`, `issue`, `priority`, `site`, `location`, `intake_move`, `return_move` |
-| `ticket_update` | any — **`stage` needs service/owner** | optional | `ticket` + only the keys being changed |
+| `ticket_update` | any — **`stage` needs service/owner** | optional | `ticket` + only the keys being changed. D79: optional `vendor` (RPS · IPC-EAGLE · NILFISK · MINUTEMAN · TENNANT · OTHER, case-insensitive, `IPC EAGLE` → `IPC-EAGLE`), `vendor_ref` (≤ 40), `order_note` (≤ 140) — only with stage WAITING-ON-PARTS or none (the engine referees "while in it") |
 | `dispatch_add` | any | optional | `kind`, `serial`, `ticket`, `what`, `customer`, `address`, `date`, `note` |
 | `dispatch_claim` | any | optional | `dispatch_id`, `rig`, `date`, `driver` |
 | `dispatch_done` | any | optional | `dispatch_id`, `note` |

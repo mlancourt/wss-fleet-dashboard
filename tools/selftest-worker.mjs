@@ -305,4 +305,48 @@ await check('D77: doc_detach — any role, {record, doc_id} only, no store check
   await refused('owner', { action: 'doc_delete', payload: { record: 'S1034', doc_id: '4f2a91c07be3d518' } }, 'unknown action', 400, 'unknown action');
 });
 
+await check('D79: ticket_update order keys — vendor normalised, ref/note trimmed, bad values 400 by name, wrong stage refused', async () => {
+  const T = (payload) => ({ action: 'ticket_update', payload: { ticket: 'S1030', ...payload } });
+  const born = await ok('service', T({ stage: 'WAITING-ON-PARTS', vendor: 'ipc eagle', vendor_ref: '  SO0001234 ', order_note: ' 2 squeegees ' }), 'birth');
+  assert.deepEqual(born.payload, { ticket: 'S1030', stage: 'WAITING-ON-PARTS', vendor: 'IPC-EAGLE', vendor_ref: 'SO0001234', order_note: '2 squeegees' });
+  assert.equal((await ok('owner', T({ vendor: 'rps' }), 'edit, no stage')).payload.vendor, 'RPS');
+  assert.equal((await ok('sales', T({ vendor_ref: 'X1' }), 'edit by sales — ticket_update is any role')).payload.vendor_ref, 'X1');
+  const bare = await ok('service', T({ stage: 'WAITING-ON-PARTS' }), 'stage alone');
+  assert.ok(!('vendor' in bare.payload) && !('order_note' in bare.payload), 'absent stays absent');
+  await refused('service', T({ vendor: 'GRAINGER' }), 'unknown vendor', 400, 'vendor');
+  await refused('service', T({ vendor: 7 }), 'numeric vendor', 400, 'vendor');
+  await refused('service', T({ vendor_ref: 'x'.repeat(41) }), 'ref 41', 400, 'vendor_ref');
+  await refused('service', T({ vendor_ref: 12345 }), 'numeric ref', 400, 'vendor_ref');
+  await refused('service', T({ order_note: 'x'.repeat(141) }), 'note 141', 400, 'order_note');
+  await refused('service', T({ order_note: ['a'] }), 'array note', 400, 'order_note');
+  await refused('service', T({ stage: 'SCHEDULED', vendor: 'RPS' }), 'vendor with another stage', 400, 'WAITING-ON-PARTS');
+  await refused('owner', T({ vendor: 'RPS', cost_total: 412 }), 'cost on the order', 400, 'cost_total');
+});
+
+await check('D79: publish refuses order cost on service_queue by name; a figure in a quote log still publishes', async () => {
+  const pub = async (doc) => {
+    const res = await worker.fetch(new Request('https://w.example/api/admin/publish', {
+      method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' }, body: JSON.stringify(doc),
+    }), env);
+    return { status: res.status, body: await res.json() };
+  };
+  const snap = (t) => ({ meta: { schema_version: 7 }, service_queue: [{ ticket: 'S1030', status: 'OPEN', log: [], ...t }] });
+  const order = { state: 'ORDERED', vendor: 'RPS', vendor_ref: 'SO1', ordered: '2026-09-30', tracking: null, carrier: null, delivered: null, note: null };
+  assert.equal((await pub(snap({ order }))).status, 200);
+  assert.equal((await pub(snap({ order: null }))).status, 200);
+  assert.equal((await pub({ meta: { schema_version: 7 } })).status, 200, 'pre-D79: no service_queue at all');
+  for (const k of ['cost_total', 'cost_source_inv', 'COST_TOTAL']) {
+    const r = await pub(snap({ order: { ...order, [k]: 1 } }));
+    assert.equal(r.status, 400, k);
+    assert.ok(r.body.error.includes(k) && r.body.error.includes('S1030'), r.body.error);
+  }
+  const top = await pub(snap({ cost_total: 5 }));
+  assert.equal(top.status, 400, 'the key anywhere on the row');
+  const fig = await pub(snap({ order: { ...order, note: 'came to $412' } }));
+  assert.equal(fig.status, 400);
+  assert.ok(fig.body.error.includes('dollar figure'), fig.body.error);
+  const quoteLog = await pub(snap({ order, log: [{ ts: 'x', who: 'Matt', text: 'quote sent $2,480' }] }));
+  assert.equal(quoteLog.status, 200, 'ticket logs carry quote amounts by design (money-gate.mjs) — not refused');
+});
+
 console.log(`${passed} checks passed.`);

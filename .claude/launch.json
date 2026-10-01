@@ -9,6 +9,19 @@
         "8787"
       ],
       "port": 8787
+    },
+    {
+      "name": "worker-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "--config",
+        "worker/wrangler.toml",
+        "--port",
+        "8788"
+      ],
+      "port": 8788
     }
   ]
 }

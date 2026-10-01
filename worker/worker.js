@@ -189,7 +189,7 @@ const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty
  * BY NAME, at any depth, before any other shape check — so the 400 always says
  * which key it was rather than "unknown key". Exact names, any case.
  */
-const MONEY_KEYS = new Set(['cost', 'rate', 'price']);
+const MONEY_KEYS = new Set(['cost', 'rate', 'price', 'cost_total', 'cost_source_inv']);   // D79: the order's vault-only cost keys too
 const MAX_LEAD_VALUE = 10000000;                        // a typed-in figure, not a computed one — catch a fat finger
 
 const SERIAL_RE = /^[A-Za-z0-9-]{1,32}$/;
@@ -498,6 +498,37 @@ async function crewEvent({ request, me, env }) {
   return json(event, 201);
 }
 
+/**
+ * D79: the customer parts order's cost (`cost_total`, `cost_source_inv`) is
+ * vault-only. A snapshot carrying either key anywhere in `service_queue`, or a
+ * dollar figure in the ORDER block, is refused at publish — by name, so the
+ * engine's log says which ticket. The figure scan is scoped to `order` on
+ * purpose: ticket logs and `quote` legitimately carry quote amounts (visible
+ * to every role since schema 3), and a refusal there would freeze the board.
+ */
+const TICKET_MONEY_KEY_RE = /^(cost_total|cost_source_inv)$/i;
+const FIGURE_RE = /\$\s?\d/;
+function refuseTicketMoney(queue) {
+  if (!Array.isArray(queue)) return;
+  const walk = (v, at, depth) => {
+    if (!v || typeof v !== 'object' || depth > 8) return;
+    for (const [k, x] of Object.entries(v)) {
+      const here = Array.isArray(v) ? `${at}[${k}]` : `${at}.${k}`;
+      if (!Array.isArray(v) && TICKET_MONEY_KEY_RE.test(k)) {
+        throw httpError(400, `refused: ${here} — order cost stays in the vault (D79)`);
+      }
+      walk(x, here, depth + 1);
+    }
+  };
+  queue.forEach((t, i) => {
+    const id = t && typeof t.ticket === 'string' ? t.ticket : String(i);
+    walk(t, `service_queue[${id}]`, 0);
+    if (t && t.order != null && FIGURE_RE.test(JSON.stringify(t.order))) {
+      throw httpError(400, `refused: service_queue[${id}].order carries a dollar figure (D79)`);
+    }
+  });
+}
+
 /** The D65 money refusal: walk the payload, 400 on the first money key, by name. */
 function refuseMoneyKeys(v, depth = 0) {
   if (!v || typeof v !== 'object' || depth > 6) return;
@@ -722,6 +753,23 @@ function cleanPayload(action, p, role, serial) {
     if (intake) out.intake_move = intake;
     const ret = optOneOf(obj.return_move, RETURN_MOVES, 'return_move');
     if (ret) out.return_move = ret;
+    // D79: the customer parts order rides on the WAITING-ON-PARTS move (or an
+    // edit while the ticket sits there — the engine referees "while"; a stage
+    // key naming any OTHER stage is a shape error we can see from here).
+    // Case-insensitive vendor, stored upper; "IPC EAGLE" -> "IPC-EAGLE".
+    let vendor = null;
+    if (obj.vendor != null && obj.vendor !== '') {
+      if (typeof obj.vendor !== 'string') throw httpError(400, 'vendor must be a string');
+      vendor = optOneOf(obj.vendor.trim().toUpperCase().replace(/[\s_]+/g, '-'), WO_VENDORS, 'vendor');
+    }
+    if (vendor) out.vendor = vendor;
+    const vref = optStr(obj.vendor_ref, 40, 'vendor_ref');
+    if (vref) out.vendor_ref = vref;
+    const onote = optStr(obj.order_note, 140, 'order_note');
+    if (onote) out.order_note = onote;
+    if ((vendor || vref || onote) && stage && stage !== 'WAITING-ON-PARTS') {
+      throw httpError(400, 'vendor / vendor_ref / order_note ride only with stage WAITING-ON-PARTS');
+    }
     if (Object.keys(out).length < 2) throw httpError(400, 'ticket_update needs at least one field to change');
     return out;
   }
@@ -1122,6 +1170,8 @@ async function adminPublish({ request, env }) {
   if (!doc || typeof doc !== 'object' || !doc.meta || !Number.isInteger(doc.meta.schema_version)) {
     throw httpError(400, 'snapshot needs meta.schema_version');
   }
+
+  refuseTicketMoney(doc.service_queue);
 
   const metadata = {
     published_at: new Date().toISOString(),

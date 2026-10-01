@@ -11,6 +11,7 @@ import {
   isStockLine, sourceOf, pendingLineLabel, PART_VERB_LABEL,
   PURPOSES, PURPOSE_LABEL, closeBlocker, readyOffered, stripCounts, stripTone, openWorkOrders, pendingBySerial, byTs,
   DELIVERED_DAYS, trackerGroups, trackerCounts, inspectTone, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
+  customerOrders, orderCounts, pipelineOrderChip, orderOf, ORDER_VENDORS, VENDORS,
 } from '../docs/workorders.js';
 
 let passed = 0;
@@ -421,6 +422,57 @@ check('D71: kind on a labor row — TRAVEL or Labor (legacy / missing → LABOR)
   assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'LABOR', hours: 0.5, who: 'Josh', kind: 'TRAVEL' } }), '0.5 h travel logged for Josh');
   assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'LABOR', hours: 1, who: 'Josh', kind: 'LABOR' } }), '1 h logged for Josh');
   assert.ok(!/cost|rate|price|\$/i.test(JSON.stringify(laborPayloads({ who: 'Josh', travel: 1, labor: 1 }))), 'no money');
+});
+
+/* ---- D79: the customer parts order on a ticket ---- */
+const ord = (state, ordered, extra = {}) => ({ state, vendor: 'RPS', vendor_ref: null, ordered, tracking: null, carrier: null, delivered: null, note: null, ...extra });
+const tk = (ticket, order, extra = {}) => ({ ticket, status: 'OPEN', machine_owner: 'CUSTOMER', stage: 'WAITING-ON-PARTS', order, ...extra });
+const Q = [
+  tk('S1005', ord('IN-TRANSIT', '2026-09-20')),
+  tk('S1003', ord('ORDERED', '2026-09-28')),
+  tk('S1004', ord('ORDERED', '2026-09-20')),          // same day as S1005 → S-number breaks the tie
+  tk('S1006', ord('ORDERED', null)),                  // no date → last
+  tk('S1007', ord('DELIVERED', '2026-09-10', { delivered: '2026-09-25' }), { stage: 'READY-TO-SCHEDULE' }),
+  tk('S1008', ord('DELIVERED', '2026-09-10', { delivered: '2026-09-29' }), { stage: 'SCHEDULED' }),
+  tk('S1009', ord('IN-TRANSIT', '2026-09-01'), { status: 'CLOSED' }),
+  tk('S1010', null),
+  tk('S1011', undefined),
+  tk('S1012', ord('IN-TRANSIT', '2026-09-22'), { machine_owner: 'WSS' }),
+  tk('S1013', ord('ORDERED', '2026-09-22'), { machine_owner: 'CUSTOMER', stage: 'SCHEDULED' }),
+  null,
+];
+
+check('D79: customerOrders — OPEN only, ORDERED/IN-TRANSIT oldest `ordered` first (nulls last, S-number ties), DELIVERED newest first', () => {
+  const c = customerOrders(Q);
+  assert.deepEqual(c.active.map((r) => r.ticket.ticket), ['S1004', 'S1005', 'S1012', 'S1013', 'S1003', 'S1006']);
+  assert.deepEqual(c.delivered.map((r) => r.ticket.ticket), ['S1008', 'S1007']);
+  assert.ok(![...c.active, ...c.delivered].some((r) => r.ticket.ticket === 'S1009'), 'a CLOSED ticket never draws');
+  assert.ok(c.active.every((r) => r.order === r.ticket.order));
+  assert.deepEqual(customerOrders(undefined), { active: [], delivered: [] }, 'pre-D79 / no queue');
+  assert.deepEqual(customerOrders([tk('S1', { state: 'CANCELLED' })]), { active: [], delivered: [] }, 'an unknown state is in neither band');
+  assert.equal(orderOf({ order: [] }), null, 'an array is not an order');
+});
+
+check('D79: orderCounts — over customerOrders rows or tickets', () => {
+  const c = customerOrders(Q);
+  assert.deepEqual(orderCounts(c.active), { ordered: 4, inTransit: 2, delivered: 0 });
+  assert.deepEqual(orderCounts(Q), { ordered: 4, inTransit: 3, delivered: 2 }, 'raw tickets count every order, the CLOSED one too — callers filter');
+  assert.deepEqual(orderCounts(null), { ordered: 0, inTransit: 0, delivered: 0 });
+});
+
+check('D79: pipelineOrderChip — OPEN customer tickets in WAITING-ON-PARTS, zeros dropped, "" when none', () => {
+  assert.equal(pipelineOrderChip(Q), '3 ordered · 1 in transit', 'S1003/4/6 + S1005; not WSS S1012, not SCHEDULED S1013, not CLOSED S1009');
+  assert.equal(pipelineOrderChip([tk('S1', ord('IN-TRANSIT', '2026-09-01'))]), '1 in transit', 'zero ordered dropped');
+  assert.equal(pipelineOrderChip([tk('S1', null), tk('S2', undefined)]), '');
+  assert.equal(pipelineOrderChip(undefined), '');
+});
+
+check('D79: the order vendor list is the part-line VENDORS in the sheet\'s order; no money key anywhere', () => {
+  assert.deepEqual([...ORDER_VENDORS].sort(), [...VENDORS].sort());
+  assert.deepEqual(ORDER_VENDORS, ['RPS', 'NILFISK', 'IPC-EAGLE', 'MINUTEMAN', 'TENNANT', 'OTHER']);
+  const withCost = [tk('S1', ord('ORDERED', '2026-09-01', { cost_total: 412, cost_source_inv: 'INV-1' }))];
+  const out = JSON.stringify([customerOrders(withCost).active.map((r) => ({ t: r.ticket.ticket })), orderCounts(withCost), pipelineOrderChip(withCost)]);
+  assert.ok(!/cost|\$/.test(out), 'nothing the helpers return carries the cost');
 });
 
 console.log(`${passed} checks passed.`);

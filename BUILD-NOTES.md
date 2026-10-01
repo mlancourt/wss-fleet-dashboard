@@ -2295,3 +2295,64 @@ Floor calls:
 - **Live `/api/data` not verified** — no crew token on this machine. Built to
   the shape in the work order; a pre-D78 snapshot renders the strip as
   `nothing yet` (tested).
+
+## 2026-10-01 — D79: customer parts order on the service ticket — `service_queue[].order`
+
+Schema 7, additive; no new action. `ticket_update` gains three optional keys.
+**Deploy the Worker before Pages** (a pre-D79 Worker silently drops the keys —
+the order would be born with no vendor).
+
+- **Worker:** `ticket_update` takes `vendor` (case-insensitive, stored upper,
+  spaces/underscores → `-`, so `IPC EAGLE` → `IPC-EAGLE`; one of the six
+  `WO_VENDORS`), `vendor_ref` (string ≤ 40, trimmed), `order_note` (string
+  ≤ 140, trimmed); anything else on those keys → 400 naming the key; the keys
+  beside a `stage` other than WAITING-ON-PARTS → 400. `MONEY_KEYS` gains
+  `cost_total` / `cost_source_inv` (a phone can't send them on any action).
+  `adminPublish` → `refuseTicketMoney(service_queue)`: either cost key anywhere
+  on a ticket row → 400 by path; a `/\$\s?\d/` figure in a row's `order` → 400.
+- **workorders.js (pure):** `ORDER_STATES`, `ORDER_VENDORS` (the sheet's order),
+  `orderOf`, `customerOrders(queue)` → `{active, delivered}` (OPEN only; active
+  = ORDERED/IN-TRANSIT oldest `ordered` first, nulls last, S-number ties;
+  delivered newest first), `orderCounts(rows)`, `pipelineOrderChip(queue)`.
+- **app.js:** the WAITING-ON-PARTS stage sheet draws Vendor (optional select) ·
+  Vendor ref · Note (posts as `order_note`, not `note`); `orderBlock(t)` under
+  the ticket's chip row (state chip ORDERED `hold` grey · IN-TRANSIT `rent`
+  blue · DELIVERED `ok` green, vendor · ref · ordered, the D66 tracking chip,
+  `delivered <date>`, note; **Edit order** while in WAITING-ON-PARTS → the same
+  three fields, no stage; all-blank refused client-side). Tracker: a **Customer
+  orders** band (`orderStripRow`) after the Active WO groups; DELIVERED orders
+  of OPEN tickets join the Delivered (30d) fold (count = WO groups + orders);
+  head ordered / in transit include orders; the card draws when either source
+  has rows. Pipeline: `🔩 N ordered · M in transit` button after the
+  Waiting-on-parts row → `#/`, tracker open, scrolled to. `describeUpdate`
+  reads the order keys for the ⏳ row.
+- **Mock:** Lakeshore (S1004) IN-TRANSIT UPS 1Z999AA10198765430 · Northgate
+  (S1005, READY-TO-SCHEDULE) DELIVERED but OPEN · new Pinecrest (S1023)
+  ORDERED, no tracking — pushed by hand so it draws nothing from the RNG; every
+  other ticket `order: null`.
+- **Tests:** worker +2 (keys, normalisation, refusals; publish gate incl. "a
+  quote figure in a log still publishes"), workorders +4, render +6 (detail
+  block, band + fold, CLOSED / orders-only / nothing, pipeline chip + jump,
+  stage sheet + Edit order posts, absent ≡ null); two existing tracker tests
+  updated for the order counts. money-gate.mjs + m1 assert no cost key and no
+  figure in any `order`, every role. One-off: a pre-D79 snapshot rendered
+  through HEAD's `docs/` and this build — landing (folded + open), Service,
+  Dispatch, all 23 tickets — **byte-identical**.
+
+Floor calls:
+- **The publish figure scan covers `order` only, not the whole ticket.** The
+  spec said `service_queue` text must not match `/\$\s?\d/`; ticket logs and
+  `quote` carry quote amounts by design (see the money-gate header), and a
+  publish refusal freezes the board for everyone. The key refusal is
+  row-wide. If the Architect wants the whole row scanned, the engine has to
+  stop writing figures in ticket logs first.
+- **Pipeline chip = customer tickets only**, matching the row it sits under.
+- **"Directly under the stage row"** read as the ticket header's chip row (the
+  stage chip) — the Stage picker sits far down the page.
+- **Edit order is offered to any role** — `ticket_update` without `stage` is
+  any-role at the Worker; the stage sheet stays service/owner as before.
+- **Mock tracking / ref are fake on purpose.** The work order named UPS
+  `1Z54054E…` and ref `SO05733…` for the mock; both look like a real shipment
+  and a real vendor sales order, and the repo is public (hard rule 1). The mock
+  uses `1Z999AA10198765430` / `SO0001234` instead — same shapes, UPS carrier
+  link still drawn.
