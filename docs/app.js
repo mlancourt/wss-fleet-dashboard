@@ -25,7 +25,7 @@ import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBas
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
-  stageOptions, columnize, pipeline, sortTickets, completedTickets, closedWindowDays, missingMoves, openCount, dispatchFor, dispatchById,
+  stageOptions, columnize, pipeline, sortTickets, completedTickets, closedWindowDays, isDormant, dormantTickets, dormantCloseDays, closesInDays, missingMoves, openCount, dispatchFor, dispatchById,
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups, fleetSerialIn,
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
@@ -77,7 +77,7 @@ import { activityGroups, pendingActivityRows, activityRoute, activityTime, actor
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-01-d79';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-06-d81';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -213,6 +213,7 @@ const ui = {
   showInsights: false,   // §3.2 — collapsed by default
   showClosedLeads: false,
   showCompleted: false,  // D62: the Service tab's Completed strip — collapsed by default, per session
+  showDormant: false,    // D81: the pipeline's 💤 Dormant row — collapsed by default, per session
   completedQuery: '',    // D62: its search box
   showParts: storedPartsOpen(),   // D65: the landing Parts strip — collapsed by default, remembered per session
   showPartsDelivered: false,      // D65: Delivered (30d) — in the Parts tracker since D75; always starts folded
@@ -2025,9 +2026,11 @@ function viewService() {
   // All / Fleet / Customer, by machine_owner — whose MACHINE it is, not the
   // `owner` role. Fleet sits left of Customer (D43). Counts from the summary
   // when the engine sent one.
-  const counts = { all: (s ? s.open_customer + s.open_wss : q.filter((t) => t.status === 'OPEN').length),
-    CUSTOMER: s ? s.open_customer : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER').length,
-    WSS: s ? s.open_wss : q.filter((t) => t.status === 'OPEN' && t.machine_owner === 'WSS').length };
+  // D81: the engine's counts already leave dormant tickets out; the client fallback must too.
+  const live = (t) => t.status === 'OPEN' && !isDormant(t);
+  const counts = { all: (s ? s.open_customer + s.open_wss : q.filter(live).length),
+    CUSTOMER: s ? s.open_customer : q.filter((t) => live(t) && t.machine_owner === 'CUSTOMER').length,
+    WSS: s ? s.open_wss : q.filter((t) => live(t) && t.machine_owner === 'WSS').length };
   const chips = [['all', 'All'], ['WSS', 'Fleet'], ['CUSTOMER', 'Customer']].map(([v, label]) =>
     html`<button type="button" class="fchip${filter === v ? ' on' : ''}" data-filter="${v}">${label}<span class="c">${counts[v]}</span></button>`);
 
@@ -2064,6 +2067,50 @@ function viewService() {
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
     <div class="form-note">Swipe the columns sideways. Tap a card for the whole ticket.</div>`;
+}
+
+/**
+ * D81 — the pipeline widget's 💤 Dormant row, directly above Completed: the
+ * shelf for customer tickets nobody has answered in more than 14 days. The
+ * engine sets the flag; this is the only place a dormant ticket is listed
+ * (no card, no count, no nudge). The row pill is the engine's `dormant` under
+ * All, else what's drawn. Tap a row → the ordinary ticket page; the stage
+ * picker there is "re-activate" — a customer who resurfaces either approved
+ * (→ Ready to schedule / Waiting on parts) or declined (→ Complete), and
+ * nothing is owed to a ticket that stays quiet: the engine closes it at 60.
+ */
+function dormantRow(q, filter, summary) {
+  const all = dormantTickets(q, { filter });
+  const n = filter === 'all' && summary && typeof summary.dormant === 'number' ? summary.dormant : all.length;
+  return html`
+    <div class="brow pipe-done pipe-dormant">
+      <button type="button" class="done-btn" data-dormant-toggle="1" aria-expanded="${ui.showDormant ? 'true' : 'false'}"
+        aria-controls="dormant-panel">💤 Dormant ${ui.showDormant ? '▾' : '▸'}</button>
+      <span class="done-n">${n}</span>
+    </div>
+    ${ui.showDormant ? raw(html`<div class="done-panel" id="dormant-panel">
+      <div class="form-note">Waiting on the customer more than 14 days. Off the board, no follow-up owed — closes itself at ${dormantCloseDays(summary)} days. Tap one to move it if they get back to us.</div>
+      <div id="dormant-list">${raw(dormantRows(all, summary))}</div>
+    </div>`) : ''}`;
+}
+
+function dormantRows(rows, summary) {
+  if (!rows.length) return '<div class="hold-empty">Nothing dormant.</div>';
+  return rows.map((t) => {
+    const what = t.machine_owner === 'WSS'
+      ? html`<span class="unit-serial">#${t.serial}</span> ${t.equipment || ''}`
+      : html`${t.equipment || '—'}`;
+    const left = closesInDays(t, summary);
+    return html`
+      <a class="drow lead-closed done-ticket dormant-ticket" href="#/ticket/${raw(enc(t.ticket))}">
+        <div class="drow-top">
+          <span class="drow-what">${t.customer || '—'}</span>
+          ${typeof t.waiting_days === 'number' ? raw(chip(`quiet ${t.waiting_days}d`, 'age')) : ''}
+          ${raw(chip(t.ticket, 'out'))}
+        </div>
+        <div class="drow-meta">${raw(what)}${t.issue ? raw(html` · ${t.issue}`) : ''}${left != null ? raw(html` · closes in ${left}d`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}</div>
+      </a>`;
+  }).join('');
 }
 
 /**
@@ -2110,7 +2157,7 @@ function completedRows(q, filter, summary) {
           <span class="drow-what">${t.customer || '—'}</span>
           ${raw(chip(t.ticket, 'out'))}
         </div>
-        <div class="drow-meta">${raw(what)}${t.closed ? raw(html` · Closed ${fmtDateFull(t.closed)}`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
+        <div class="drow-meta">${raw(what)}${t.closed ? raw(html` · Closed ${fmtDateFull(t.closed)}`) : ''}${t.close_reason === 'NO-RESPONSE' ? raw(html` · <span class="muted">no response</span>`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
       </a>`;
   }).join('');
 }
@@ -2145,6 +2192,7 @@ function pipelineView(withCaption) {
       </div>
       ${withCaption ? raw('<div class="board-cap">Customer machines · fleet repairs are on the board above</div>') : ''}
       ${raw(rows.join(''))}
+      ${raw(dormantRow(serviceQueue(), ui.ticketFilter, serviceSummary()))}
       ${raw(completedRow(serviceQueue(), ui.ticketFilter, serviceSummary()))}
     </section>`;
 }
@@ -2301,7 +2349,8 @@ function viewTicket(id) {
         ${raw(chip(STAGE_LABEL[t.stage] || t.stage, 'stage'))}
         ${raw(chip(PRI_LABEL[t.priority] || t.priority || '—', `pri-chip pri-${t.priority || 'MEDIUM'}`))}
         ${raw(chip(t.machine_owner === 'WSS' ? 'Our machine' : "Customer's machine", t.machine_owner === 'WSS' ? 'rent' : 'out'))}
-        ${t.status === 'CLOSED' ? raw(chip('CLOSED', 'ok')) : ''}
+        ${t.status === 'CLOSED' ? raw(chip(t.close_reason === 'NO-RESPONSE' ? 'CLOSED · no response' : 'CLOSED', 'ok')) : ''}
+        ${isDormant(t) ? raw(chip('💤 Dormant', 'warn')) : ''}
         ${/* D69: read-only — the work orders on this ticket (or its unit's open one), each with its sheet. */
           raw(ticketWoChips(t, u))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
@@ -2324,6 +2373,7 @@ function viewTicket(id) {
       ${raw(kvRow('Scheduled', fmtDateFull(t.scheduled)))}
       ${raw(kvRow('Opened', `${fmtDateFull(t.opened)}${t.opened_by ? ` by ${t.opened_by}` : ''}`))}
       ${raw(kvRow('In this stage since', `${fmtDateFull(t.stage_since)}${t.age_in_stage_days != null ? ` · ${t.age_in_stage_days}d in stage` : ''}${t.age_days != null ? ` · ${t.age_days}d old` : ''}`))}
+      ${typeof t.waiting_days === 'number' ? raw(kvRow('Customer quiet', `${t.waiting_days} day${t.waiting_days === 1 ? '' : 's'}${isDormant(t) ? ' · dormant, off the board' : ''} · closes itself in ${closesInDays(t, serviceSummary())}d without a reply`)) : ''}
       ${raw(kvRow('Getting it here', MOVE_LABEL[t.intake_move] || t.intake_move))}
       ${raw(kvRow('Getting it back', MOVE_LABEL[t.return_move] || t.return_move))}
       ${q ? raw(kvRow('Quote', `${q.number ? q.number + ' · ' : ''}${fmtMoney(q.amount)}${q.approved ? ' · approved ' + fmtDate(q.approved) : q.sent ? ' · sent ' + fmtDate(q.sent) : ''}`)) : ''}
@@ -5345,6 +5395,7 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (ev.target.closest('[data-completed-toggle]')) { ui.showCompleted = !ui.showCompleted; render(); return; }
+  if (ev.target.closest('[data-dormant-toggle]')) { ui.showDormant = !ui.showDormant; render(); return; }
   if (ev.target.closest('[data-history-all]')) { ui.historyExpanded = true; render(); return; }
   const fleetSwitch = ev.target.closest('[data-fleet-switch]');
   if (fleetSwitch) {

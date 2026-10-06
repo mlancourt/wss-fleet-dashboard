@@ -95,8 +95,41 @@ export const closedAge = (t) => (t && typeof t.closed_age_days === 'number' ? t.
 /** CLOSED inside the last 7 days — what the COMPLETE column and "closed this week" count. */
 export const closedThisWeek = (t) => !!t && t.status === 'CLOSED' && closedAge(t) <= WEEK_DAYS;
 
-/** Does a ticket draw a kanban card? Every OPEN one, and only this week's CLOSED ones. */
-export const onBoard = (t) => !!t && (t.status !== 'CLOSED' || closedThisWeek(t));
+/* ------------------------------------------------------------- dormant --
+ * D81 (2026-10-06). A customer who hasn't answered in more than 14 CALENDAR
+ * days is telling us something, and Matt stopped wanting to see it. The
+ * engine flags the row (`dormant: true`, `waiting_days` = calendar days in
+ * WAITING-ON-CUSTOMER) and closes it NO-RESPONSE at 60. Here: dormant rows
+ * draw no card, count in no pill, and live in the pipeline's 💤 Dormant row.
+ * Not a stage — the ticket is still OPEN and still WAITING-ON-CUSTOMER; the
+ * stage picker IS the way back. Never diff `stage_since` against the phone's
+ * clock (CLAUDE.md rule 7): a row without the flag is simply not dormant. */
+
+export const DORMANT_AFTER = 14;
+export const DORMANT_CLOSE = 60;
+
+/** The engine's flag, and only the engine's. A pre-D81 snapshot has none → nothing is dormant. */
+export const isDormant = (t) => !!t && t.status === 'OPEN' && t.dormant === true;
+
+/** The shelf threshold / the auto-close threshold, from the summary; fallbacks for a pre-D81 publish. */
+export const dormantAfterDays = (s) => (s && typeof s.dormant_after_days === 'number' && s.dormant_after_days > 0 ? s.dormant_after_days : DORMANT_AFTER);
+export const dormantCloseDays = (s) => (s && typeof s.dormant_close_days === 'number' && s.dormant_close_days > 0 ? s.dormant_close_days : DORMANT_CLOSE);
+
+/** Days until the engine closes it NO-RESPONSE — null when the ticket carries no customer clock. */
+export function closesInDays(t, summary) {
+  if (!t || typeof t.waiting_days !== 'number') return null;
+  return Math.max(0, dormantCloseDays(summary) - t.waiting_days);
+}
+
+/** The 💤 Dormant row's list: OPEN + dormant under the chip filter, quietest first, ticket id asc on a tie. */
+export function dormantTickets(queue, { filter = 'all' } = {}) {
+  return filterTickets(queue, filter).filter(isDormant)
+    .sort((a, b) => (Number(b.waiting_days) || 0) - (Number(a.waiting_days) || 0)
+      || String(a.ticket || '').localeCompare(String(b.ticket || ''), undefined, { numeric: true }));
+}
+
+/** Does a ticket draw a kanban card? Every OPEN one that isn't dormant (D81), and only this week's CLOSED ones. */
+export const onBoard = (t) => !!t && (t.status !== 'CLOSED' ? !isDormant(t) : closedThisWeek(t));
 
 /** How far back the snapshot's closed tickets reach. Missing (pre-D62) = 7. */
 export function closedWindowDays(summary) {
@@ -152,7 +185,7 @@ export const PIPELINE_COLOR = {
 
 /**
  * Customer-machine repair pipeline.
- *   open             open customer tickets
+ *   open             open customer tickets (dormant ones excluded — D81)
  *   closedThisWeek   customer tickets CLOSED within 7 days, by the engine's
  *                    `closed_age_days` (D62 — the snapshot now carries 90 days
  *                    of them), never date arithmetic (CLAUDE.md rule 7).
@@ -162,7 +195,7 @@ export const PIPELINE_COLOR = {
  */
 export function pipeline(queue) {
   const customer = (Array.isArray(queue) ? queue : []).filter((t) => t && t.machine_owner === 'CUSTOMER');
-  const open = customer.filter((t) => t.status === 'OPEN');
+  const open = customer.filter((t) => t.status === 'OPEN' && !isDormant(t));   // D81: the shelf is not the pipeline
   const rows = PIPELINE_STAGES.map((stage) => {
     const count = open.filter((t) => t.stage === stage).length;
     return {

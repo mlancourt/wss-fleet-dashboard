@@ -447,13 +447,60 @@ await check('the pipeline draws nine tappable rows and a live open pill', async 
   assert.ok(out.includes('>Needs quote<'), 'and reads in shop-floor words');
   assert.ok(!rows.includes('COMPLETE'), 'COMPLETE is the header pill, not a row');
   const q = app.__state().snapshot.service_queue;
-  const open = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN').length;
+  const open = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN' && !t.dormant).length;   // D81: the shelf is not the pipeline
   // D62: the snapshot carries 90 days of closed tickets; the pill is this week's only.
   const closed = q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'CLOSED' && t.closed_age_days <= 7).length;
   assert.ok(q.some((t) => t.machine_owner === 'CUSTOMER' && t.status === 'CLOSED' && t.closed_age_days > 7), 'the mock carries older closes');
   assert.ok(out.includes(`${open} open`), `header pill should read "${open} open"`);
   assert.equal(out.includes('closed this week'), closed > 0, 'the closed pill hides at zero');
   if (closed) assert.ok(out.includes(`${closed} closed this week`), `closed pill should read ${closed}, not the 90-day total`);
+});
+
+await check('D81: a dormant ticket draws no card and no count; the 💤 Dormant row sits above Completed, opens, lists it; detail says so', async () => {
+  const snap = app.__state().snapshot;
+  const q = snap.service_queue;
+  const dorm = q.filter((t) => t.status === 'OPEN' && t.dormant === true);
+  assert.ok(dorm.length >= 1, 'the mock carries a dormant ticket');
+  const noResp = q.find((t) => t.status === 'CLOSED' && t.close_reason === 'NO-RESPONSE');
+  assert.ok(noResp, 'and one the engine closed NO-RESPONSE');
+  const out = await serviceUnder('all');
+  const kan = out.split('class="kan-wrap"')[1];
+  for (const t of dorm) assert.ok(!kan.includes(`>${t.ticket}<`), `${t.ticket} must not draw a card`);
+  const col = out.split('id="kan-WAITING-ON-CUSTOMER"')[1].split('</section>')[0];
+  const drawn = [...col.matchAll(/href="#\/ticket\/(S\d+)"/g)].length;
+  assert.ok(col.includes(`<span class="c">${drawn}</span>`), 'the column count matches the cards (summary excludes dormant)');
+  assert.equal(snap.service_summary.open_by_stage['WAITING-ON-CUSTOMER'], drawn);
+  const live = q.filter((t) => t.status === 'OPEN' && !t.dormant).length;
+  assert.ok(out.includes(`data-filter="all">All<span class="c">${live}</span>`), 'the All chip leaves dormant out');
+  // The row: above Completed, inside the pipeline card, no bar, collapsed by default, engine pill.
+  const pipe = out.split('aria-label="Service pipeline')[1].split('</section>')[0];
+  const di = pipe.indexOf('data-dormant-toggle'); const ci = pipe.indexOf('data-completed-toggle'); const ri = pipe.indexOf('data-pipe="READY-TO-INVOICE"');
+  assert.ok(di > ri && ci > di, 'Ready to invoice → Dormant → Completed');
+  assert.ok(pipe.includes('data-dormant-toggle="1" aria-expanded="false"'), 'collapsed by default');
+  assert.ok(pipe.includes(`💤 Dormant ▸</button>\n      <span class="done-n">${snap.service_summary.dormant}</span>`), 'pill = summary.dormant');
+  assert.ok(!pipe.includes('id="dormant-list"'), 'no list while collapsed');
+  assert.ok(out.includes(`${q.filter((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN' && !t.dormant).length} open`), 'the open pill leaves the shelf out');
+  const toggle = async () => {
+    for (const fn of listeners.get('click') || []) await fn({ target: { closest: (sel) => (sel === '[data-dormant-toggle]' ? {} : null) } });
+    return view._html;
+  };
+  const open = await toggle();
+  const list = open.split('id="dormant-list">')[1].split('</section>')[0];
+  const ids = [...list.matchAll(/href="#\/ticket\/(S\d+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids, dorm.slice().sort((a, b) => b.waiting_days - a.waiting_days || a.ticket.localeCompare(b.ticket)).map((t) => t.ticket), 'every dormant ticket, quietest first');
+  assert.ok(list.includes(`quiet ${dorm[0].waiting_days}d`) && list.includes(`closes in ${60 - dorm[0].waiting_days}d`), 'quiet / closes-in on the row');
+  assert.ok(open.includes('closes itself at 60 days'), 'the caption names the auto-close');
+  assert.ok(!list.includes(noResp.ticket), 'a closed ticket is never on the shelf');
+  await toggle();
+  // Fleet chip: no pipeline, so no Dormant row either (same as Completed).
+  assert.ok(!(await serviceUnder('WSS')).includes('data-dormant-toggle'));
+  // Ticket detail: the chip + the customer clock; the stage picker is the way back (unchanged).
+  const det = await renderRoute(`#/ticket/${dorm[0].ticket}`);
+  assert.ok(det.includes('💤 Dormant'), 'dormant chip');
+  assert.ok(det.includes(`${dorm[0].waiting_days} days · dormant, off the board · closes itself in ${60 - dorm[0].waiting_days}d without a reply`), 'the Customer quiet row');
+  assert.ok(det.includes('data-stage="READY-TO-SCHEDULE"'), 'the stage picker still draws — it is the way back');
+  assert.ok((await renderRoute(`#/ticket/${noResp.ticket}`)).includes('CLOSED · no response'), 'a NO-RESPONSE close says so');
+  await renderRoute('#/service');
 });
 
 await check('D62b: COMPLETE is this week only; the pipeline\'s Completed row is collapsed, counts the window, opens, and searches', async () => {

@@ -674,6 +674,9 @@ function build({ withServiceQueue }) {
         docs: [],
         // D79: the customer parts order — null on every ticket without one (the engine ships the key).
         order: null,
+        // D81: the customer clock. waiting_days = calendar days in WAITING-ON-CUSTOMER (null elsewhere),
+        // dormant = more than 14 of them, close_reason = "NO-RESPONSE" on an engine-closed dormant ticket.
+        waiting_days: null, dormant: false, close_reason: null,
         ...t,
       };
       delete row.unit;
@@ -691,6 +694,11 @@ function build({ withServiceQueue }) {
       }
       delete row.closedDays;
       row.closed_age_days = row.status === 'CLOSED' ? (t.closedDays != null ? t.closedDays : 0) : null;
+      // D81: derived the engine's way — from stage_since, calendar days, only while OPEN in WAITING-ON-CUSTOMER.
+      if (row.status === 'OPEN' && row.stage === 'WAITING-ON-CUSTOMER') {
+        row.waiting_days = t.waiting_days != null ? t.waiting_days : -stage_since;
+        row.dormant = row.waiting_days > 14;
+      }
       // schema 7 (D52): geocoded from `site`. A machine already on our bench
       // has nowhere to send a truck, so an IN-SHOP ticket carries geo: null
       // however good its address is — the engine ships it that way too.
@@ -921,6 +929,32 @@ function build({ withServiceQueue }) {
       });
     }
 
+    // D81 — one dormant ticket (quiet 23 days: off the board, in the 💤 Dormant
+    // row) and one the engine closed NO-RESPONSE (in the Completed strip). Both
+    // pushed by hand so nothing after this point moves on the RNG.
+    {
+      const base = service_queue.find((t) => t.stage === 'WAITING-ON-CUSTOMER' && t.status === 'OPEN');
+      service_queue.push({
+        ...base, ticket: `S${++seq}`, customer: 'Ridgeway Storage', equipment: 'Nordvale SC-1500 (customer owned)',
+        issue: 'Vac motor + squeegee — quote sent, no answer', site: 'Hartland WI', location: 'AT-CUSTOMER',
+        intake_move: 'NONE', return_move: 'NONE', assigned: null, scheduled: null,
+        opened: d(-31), stage_since: d(-23), age_days: 31, age_in_stage_days: 17, priority: 'LOW',
+        quote: { number: 'Q-2204', amount: 740, sent: d(-23), approved: null },
+        parts: null, log: [], docs: [], geo: geoFor('Hartland WI'), order: null,
+        waiting_days: 23, dormant: true, close_reason: null,
+      });
+      const done = service_queue.find((t) => t.status === 'CLOSED' && t.machine_owner === 'CUSTOMER');
+      service_queue.push({
+        ...done, ticket: `S${++seq}`, customer: 'Grafton Pallet Co', equipment: 'Ironline BX-20 (customer owned)',
+        issue: 'Charger fault — quote sent, never heard back', site: 'Grafton WI', location: 'AT-CUSTOMER',
+        intake_move: 'NONE', return_move: 'NONE', assigned: null, scheduled: null,
+        opened: d(-78), stage_since: d(-9), age_days: 78, closed: d(-9), closed_age_days: 9,
+        quote: { number: 'Q-2150', amount: 310, sent: d(-69), approved: null },
+        parts: null, log: [], docs: [], geo: null, order: null,
+        waiting_days: null, dormant: false, close_reason: 'NO-RESPONSE',
+      });
+    }
+
     // ------------------------------------------------------------- dispatch board
     const move = (m) => {
       dispatch.push({
@@ -1004,12 +1038,16 @@ function build({ withServiceQueue }) {
   const SERVICE_STAGES = ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS', 'READY-TO-SCHEDULE', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE', 'COMPLETE'];
   const service_summary = {
     // COMPLETE still means closed <= 7 days (D62), whatever the window carries.
+    // D81: every count leaves dormant tickets out; `dormant` carries them on their own.
     open_by_stage: Object.fromEntries(SERVICE_STAGES.map((s) => [s, service_queue.filter(
-      (t) => t.stage === s && (s === 'COMPLETE' ? t.status === 'CLOSED' && t.closed_age_days <= 7 : t.status === 'OPEN')).length])),
-    open_customer: service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER').length,
-    open_wss: service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'WSS').length,
+      (t) => t.stage === s && (s === 'COMPLETE' ? t.status === 'CLOSED' && t.closed_age_days <= 7 : t.status === 'OPEN' && !t.dormant)).length])),
+    open_customer: service_queue.filter((t) => t.status === 'OPEN' && !t.dormant && t.machine_owner === 'CUSTOMER').length,
+    open_wss: service_queue.filter((t) => t.status === 'OPEN' && !t.dormant && t.machine_owner === 'WSS').length,
     closed_window_days: 90,                                                       // D62
     closed_in_window: service_queue.filter((t) => t.status === 'CLOSED').length,  // D62
+    dormant: service_queue.filter((t) => t.status === 'OPEN' && t.dormant).length, // D81
+    dormant_after_days: 14,                                                       // D81
+    dormant_close_days: 60,                                                       // D81
   };
 
   // -------------------------------------------------------------------- billing

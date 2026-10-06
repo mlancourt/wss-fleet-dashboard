@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   STAGES, PIPELINE_STAGES, stagesFor, canStage, stageOptions, filterTickets, columnize, columnsFor, pipeline, sortTickets,
   completedTickets, closedWindowDays, closedAge, WEEK_DAYS,
+  isDormant, dormantTickets, dormantAfterDays, dormantCloseDays, closesInDays, onBoard, DORMANT_AFTER, DORMANT_CLOSE,
   missingMoves, openCount, dispatchFor, sortOpen, sortByKind, groupByDate, sections, rigClash,
   driverChoices, defaultDriver, canCancel, unbookedPickups, fleetSerialIn,
 } from '../docs/service.js';
@@ -349,6 +350,55 @@ check('unbookedPickups: a released unit with no live RENTAL-RETURN row is never 
   // in pickups[] the engine will say so next run).
   assert.equal(unbookedPickups(pickups, [D('m1', 'DONE', { source: 'RENTAL-RETURN', serial: '900107' })]).length, 2);
   assert.deepEqual(unbookedPickups([], dispatch), []);
+});
+
+/* ------------------------------------------------- D81: dormant tickets -- */
+
+const W = (ticket, waiting_days, extra = {}) =>
+  T(ticket, 'WAITING-ON-CUSTOMER', 'CUSTOMER', { waiting_days, dormant: waiting_days > 14, ...extra });
+
+check('D81: dormant is the engine\'s flag alone — never derived from the clock here', () => {
+  assert.equal(isDormant(W('S1', 23)), true);
+  assert.equal(isDormant(W('S2', 9)), false);
+  // The flag is the truth even if the number disagrees; and only OPEN rows can be dormant.
+  assert.equal(isDormant(T('S3', 'WAITING-ON-CUSTOMER', 'CUSTOMER', { dormant: true, waiting_days: 2 })), true);
+  assert.equal(isDormant(T('S4', 'WAITING-ON-CUSTOMER', 'CUSTOMER', { stage_since: '2026-01-01' })), false, 'pre-D81 snapshot: nothing dormant');
+  assert.equal(isDormant(T('S5', 'COMPLETE', 'CUSTOMER', { status: 'CLOSED', dormant: true })), false);
+  assert.equal(isDormant(null), false);
+});
+
+check('D81: a dormant ticket draws no card, counts in no column, and leaves the pipeline', () => {
+  const q = [W('S1', 23), W('S2', 9), T('S3', 'NEEDS-QUOTE'), T('S4', 'COMPLETE', 'CUSTOMER', { status: 'CLOSED', closed_age_days: 2 })];
+  assert.equal(onBoard(q[0]), false); assert.equal(onBoard(q[1]), true); assert.equal(onBoard(q[3]), true);
+  const col = columnize(q).find((c) => c.stage === 'WAITING-ON-CUSTOMER');
+  assert.deepEqual(col.tickets.map((t) => t.ticket), ['S2']);
+  assert.equal(col.count, 1, 'no summary → count is what is drawn');
+  const p = pipeline(q);
+  assert.equal(p.open, 2, 'S1 is on the shelf, not in the pipeline');
+  assert.equal(p.rows.find((r) => r.stage === 'WAITING-ON-CUSTOMER').count, 1);
+  assert.equal(p.rows.find((r) => r.stage === 'NEEDS-QUOTE').pct, 50);
+});
+
+check('D81: the Dormant row lists OPEN dormant rows only, quietest first, under the chip filter', () => {
+  const q = [W('S1', 23), W('S2', 40), W('S3', 9), W('S4', 23, { ticket: 'S10' }),
+    T('S5', 'WAITING-ON-CUSTOMER', 'WSS', { dormant: true, waiting_days: 30 }),
+    T('S6', 'COMPLETE', 'CUSTOMER', { status: 'CLOSED', dormant: true, waiting_days: 70 })];
+  assert.deepEqual(dormantTickets(q).map((t) => t.ticket), ['S2', 'S5', 'S1', 'S10']);
+  assert.deepEqual(dormantTickets(q, { filter: 'CUSTOMER' }).map((t) => t.ticket), ['S2', 'S1', 'S10']);
+  assert.deepEqual(dormantTickets(q, { filter: 'WSS' }).map((t) => t.ticket), ['S5']);
+  assert.deepEqual(dormantTickets([]), []); assert.deepEqual(dormantTickets(null), []);
+});
+
+check('D81: thresholds come from the summary, fall back to 14 / 60, and "closes in" never goes negative', () => {
+  assert.equal(DORMANT_AFTER, 14); assert.equal(DORMANT_CLOSE, 60);
+  assert.equal(dormantAfterDays(null), 14); assert.equal(dormantCloseDays(undefined), 60);
+  assert.equal(dormantAfterDays({ dormant_after_days: 21 }), 21); assert.equal(dormantCloseDays({ dormant_close_days: 90 }), 90);
+  assert.equal(dormantCloseDays({ dormant_close_days: 0 }), 60, 'zero is not a threshold');
+  assert.equal(closesInDays(W('S1', 23), null), 37);
+  assert.equal(closesInDays(W('S1', 23), { dormant_close_days: 30 }), 7);
+  assert.equal(closesInDays(W('S1', 75), null), 0);
+  assert.equal(closesInDays(T('S2', 'NEEDS-QUOTE'), null), null, 'no customer clock outside WAITING-ON-CUSTOMER');
+  assert.equal(closesInDays(T('S3', 'WAITING-ON-CUSTOMER'), null), null, 'pre-D81 row: no number, no caption');
 });
 
 /* ------------------------------------------------- D62: closed history -- */

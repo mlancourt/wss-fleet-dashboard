@@ -2356,3 +2356,13 @@ Floor calls:
   and a real vendor sales order, and the repo is public (hard rule 1). The mock
   uses `1Z999AA10198765430` / `SO0001234` instead — same shapes, UPS carrier
   link still drawn.
+
+## D81 (2026-10-06) — dormant tickets
+
+- Page only. The engine flags `dormant` / `waiting_days` / `close_reason`; the page never
+  touches `stage_since` (rule 7). `onBoard` and `pipeline()` drop dormant rows; the 💤
+  Dormant row reuses the Completed row's classes so no CSS shipped.
+- Mock: one dormant ticket + one NO-RESPONSE close, pushed by hand after the D79 order
+  so nothing after them moves on the RNG; `service_summary` counts exclude dormant rows
+  exactly as the engine's do.
+- Tests: service +4, render +1 (the "N open" pill expectation now excludes dormant).
