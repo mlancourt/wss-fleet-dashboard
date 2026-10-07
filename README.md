@@ -599,6 +599,9 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `GET /api/admin/events` | secret | `{count, events:[{id, key, event}]}` oldest first |
 | `POST /api/admin/events/ack` | secret | `{ids:[…]}` → deletes only those; `{deleted:n}` |
 | `POST /api/admin/tokens` | secret | replaces the map; echoes names + roles only |
+
+**D82 (2026-10-07) — role `intake`.** A write-only token for the website's WSS Chat (`{"name":"Website-Chat","role":"intake"}`): `POST /api/event` with `lead_open` or `ticket_open` only; every other action, `GET /api/data`, `/api/health`, `/api/doc` (both directions) and undo answer 403. `LEAD_SOURCES` gains `WEB-CHAT` (engine `wss_leads.py SOURCES` too). Tests: `selftest-worker.mjs` "D82 intake".
+
 | `POST /api/doc` | token (any role) | **S2 — a phone uploads.** Body = raw bytes; headers `Content-Type`, `X-Doc-Name`, `X-Doc-Record` (`^[SL]\d{4}$`), `X-Doc-Kind` (`WORKORDER · PARTS-LIST · PHOTO · OTHER` only). No id is sent — the Worker hashes the body. `201 {id, bytes, existed:false}` / `200 {id, existed:true}` / `415` / `413` / `400` |
 | `GET /api/doc/<id>` | token (`?t=` **or** Bearer) | the bytes, `Content-Type` from the stored meta, `Content-Disposition: inline`, `Cache-Control: private, max-age=31536000, immutable`, `nosniff`. `404` unknown, `400` malformed id. `?t=` must work — a new tab cannot send a header. |
 | `PUT /api/admin/doc/<id>` | secret | body = raw bytes. `201 {id, bytes}`; `200 {id, existed:true}` if already cached; `409 {error:"hash mismatch", expected}` if `sha256(body)[0:16] != id` (**nothing is stored**); `415` bad type; `413` over 10 MB; `400` bad/missing `X-Doc-Name` |

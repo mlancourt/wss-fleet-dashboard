@@ -27,8 +27,13 @@
  *     logged.
  */
 
-const ROLES = new Set(['owner', 'sales', 'service']);
+// D82 (2026-10-07) — `intake`: a write-only token for an unattended web surface (the
+// site's WSS Chat, token name "Website-Chat"). It may OPEN a lead or a ticket and do
+// nothing else: no other action, no GET /api/data, /api/health or /api/doc, no undo.
+// A compromised chat path can add rows to the board; it can never read, edit or close one.
+const ROLES = new Set(['owner', 'sales', 'service', 'intake']);
 const ALL_ROLES = new Set(['owner', 'sales', 'service']);
+const OPEN_ROLES = new Set([...ALL_ROLES, 'intake']);   // D82: the two actions intake may take
 const ACTION_ROLES = {
   reserve: new Set(['owner', 'sales']),
   release: new Set(['owner', 'sales']),
@@ -36,7 +41,7 @@ const ACTION_ROLES = {
   // schema 3. Anyone may open a ticket, note/assign/schedule it, or work the
   // dispatch board. Stage changes are narrowed inside cleanPayload (a
   // ticket_update carrying `stage` needs service/owner); cancel is Matt's.
-  ticket_open: ALL_ROLES,
+  ticket_open: OPEN_ROLES,
   ticket_update: ALL_ROLES,
   dispatch_add: ALL_ROLES,
   dispatch_claim: ALL_ROLES,
@@ -46,7 +51,7 @@ const ACTION_ROLES = {
   // the call is the person who has the customer on the line. Working it is
   // Kevin's and Matt's: a `lead_update` from `service` may carry a note and
   // nothing else (narrowed inside cleanPayload), and closing is theirs alone.
-  lead_open: ALL_ROLES,
+  lead_open: OPEN_ROLES,
   lead_update: ALL_ROLES,
   lead_close: new Set(['owner', 'sales']),
   // schema 6 / S2 (approved 2026-09-08). The TENTH action, and open to
@@ -101,7 +106,7 @@ const DRIVERS = new Set(['Matt', 'Kevin', 'Josh', 'Zac']);
 // schema 5 — leads. Same rule as every list above: membership only. Whether a
 // lead may legally move to this stage today is the vault's call, never ours.
 const LEAD_STAGES = new Set(['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED']);   // +PO-RECEIVED, D55
-const LEAD_SOURCES = new Set(['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO']);
+const LEAD_SOURCES = new Set(['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO', 'WEB-CHAT']);   // WEB-CHAT: D82
 const LEAD_INTERESTS = new Set(['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS']);
 const LOST_REASONS = new Set(['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER']);
 const LEAD_OUTCOMES = new Set(['LOST', 'DEAD']);        // WON is reached by moving to INVOICED, not by closing
@@ -299,6 +304,7 @@ async function route(request, env, url) {
     }
     const me = await crewAuth(request, url, env);
     if (!me) return json({ error: 'unauthorized' }, 401);
+    if (me.role === 'intake') return json({ error: 'role intake cannot undo' }, 403);   // D82
     return crewUndoEvent({ env, me, rawId: withId[1] });
   }
 
@@ -331,7 +337,8 @@ async function route(request, env, url) {
     }
     const me = await crewAuth(request, url, env);
     if (!me) return json({ error: 'unauthorized' }, 401);
-    // No role gate. Docs are never stripped and never role-gated (schema 6): a
+    if (me.role === 'intake') return json({ error: 'role intake cannot read' }, 403);   // D82 — the one role gate
+    // No role gate (for crew roles). Docs are never stripped and never role-gated (schema 6): a
     // QUOTE on a lead carries a customer-facing price the customer already has.
     return docGet(env, docId(crewDoc[1]));
   }
@@ -354,6 +361,8 @@ async function route(request, env, url) {
   } else {
     ctx.me = await crewAuth(request, url, env);
     if (!ctx.me) return json({ error: 'unauthorized' }, 401);
+    // D82: intake writes events and nothing else — never the snapshot, health or docs.
+    if (ctx.me.role === 'intake' && handler !== crewEvent) return json({ error: `role intake cannot ${method} ${path}` }, 403);
   }
   return handler(ctx);
 }

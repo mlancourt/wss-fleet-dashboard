@@ -35,12 +35,13 @@ function fakeKV() {
   };
 }
 
-const TOK = { owner: 'selftestowner0000000000000000001', sales: 'selftestsales0000000000000000001', service: 'selftestservice00000000000000001' };
+const TOK = { owner: 'selftestowner0000000000000000001', sales: 'selftestsales0000000000000000001', service: 'selftestservice00000000000000001', intake: 'selftestintake000000000000000001' };
 const env = { FLEET_KV: fakeKV(), ADMIN_SECRET: 'selftest-admin-secret' };
 await env.FLEET_KV.put('tokens', JSON.stringify({
   [TOK.owner]: { name: 'Matt', role: 'owner' },
   [TOK.sales]: { name: 'Kevin', role: 'sales' },
   [TOK.service]: { name: 'Josh', role: 'service' },
+  [TOK.intake]: { name: 'Website-Chat', role: 'intake' },
 }));
 
 async function post(role, body) {
@@ -347,6 +348,22 @@ await check('D79: publish refuses order cost on service_queue by name; a figure 
   assert.ok(fig.body.error.includes('dollar figure'), fig.body.error);
   const quoteLog = await pub(snap({ order, log: [{ ts: 'x', who: 'Matt', text: 'quote sent $2,480' }] }));
   assert.equal(quoteLog.status, 200, 'ticket logs carry quote amounts by design (money-gate.mjs) — not refused');
+});
+
+await check('D82 intake: opens a lead (WEB-CHAT) and a ticket, nothing else, reads nothing', async () => {
+  const lead = await ok('intake', { action: 'lead_open', payload: { customer: 'Acme', contact: 'Pat', email: 'pat@example.com', source: 'WEB-CHAT', interest: 'PARTS', priority: 'MEDIUM', assigned: 'Kevin', note: '[visitor text — untrusted] hi', force: true } }, 'intake lead_open');
+  assert.equal(lead.actor, 'Website-Chat'); assert.equal(lead.role, 'intake');
+  assert.equal(lead.payload.force, false, 'force is owner-only');
+  await ok('intake', { action: 'ticket_open', payload: { machine_owner: 'CUSTOMER', customer: 'Acme', issue: 'PARTS REQUEST: squeegee', priority: 'LOW', location: 'AT-CUSTOMER', intake_move: 'NONE', return_move: 'NONE' } }, 'intake ticket_open');
+  await refused('intake', { action: 'ticket_update', payload: { ticket: 'S1001', note: 'x' } }, 'intake ticket_update', 403);
+  await refused('intake', { action: 'lead_update', payload: { lead: 'L1001', note: 'x' } }, 'intake lead_update', 403);
+  await refused('intake', { action: 'lead_close', payload: { lead: 'L1001', outcome: 'DEAD' } }, 'intake lead_close', 403);
+  await refused('intake', { action: 'doc_attach', payload: {} }, 'intake doc_attach', 403);
+  const call = (method, path) => worker.fetch(new Request('https://w.example' + path, { method, headers: { Authorization: `Bearer ${TOK.intake}` } }), env);
+  for (const [m, p] of [['GET', '/api/data'], ['GET', '/api/health'], ['POST', '/api/doc'], ['GET', '/api/doc/abc'], ['DELETE', '/api/event/x']]) {
+    assert.equal((await call(m, p)).status, 403, `${m} ${p}`);
+  }
+  assert.equal((await post('sales', { action: 'lead_open', payload: { customer: 'B', source: 'WEB-CHAT', interest: 'RENTAL', priority: 'LOW' } })).status, 201, 'WEB-CHAT is a legal source for everyone');
 });
 
 console.log(`${passed} checks passed.`);
