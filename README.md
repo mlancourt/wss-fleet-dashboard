@@ -22,7 +22,7 @@ the hard rules — read it before changing anything here.
 ## Status
 
 **Live** at `fleet.wisconsinscrubandsweep.com` since Sep 2, 2026 (M0–M3 done; the
-crew writes from their phones daily). Sixteen write actions, schema 7. Every
+crew writes from their phones daily). Seventeen write actions (D83 `quote_send` is the one the Worker acts on), schema 7. Every
 increment since is a `D<n>` row in `CLAUDE.md`'s version log; the milestone
 table that used to live here stopped being useful once shipping became weekly.
 
@@ -608,6 +608,57 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `GET /api/admin/doc/<id>` | secret | same bytes as the token GET (the engine's down-leg) |
 | `DELETE /api/admin/doc/<id>` | secret | `200 {id, deleted:true}`, `404` if unknown. Drops both keys. |
 | `GET /api/admin/docs` | secret | `{count, docs:[…docmeta…]}` oldest first |
+| `GET /api/catalog` | token (sales/owner) | D83: the quote composer's catalog + `tax_rate`, `valid_days`, your own `sender`. `403` service/intake, `401` no token, `503` before the engine's first push |
+| `POST /api/admin/catalog` | secret | D83: the engine's push (only when its hash moves). `400` on a `net`/`disc` key anywhere, by path |
+| `GET /api/admin/quotepdf/<token>` | secret | D83: a sent quote's PDF bytes (the engine files it beside the Q file) |
+| `GET /q/<token>.pdf` · `GET /q/<token>/o.gif` | **none** (the token is the auth) | D83: what the customer's email links to — the PDF (stamps Viewed, counted) and the open pixel (Opened, first only). Mint `quote_view` events as actor `customer`. 30/min/IP → `429`. HEAD and a crew `?t=` never stamp. Unknown token → `404` plain text |
+| `POST /api/resend/webhook` | Svix signature | D83: Resend's delivered / bounced / complained → the quote's stamps + a `quote_view`. `401` bad/stale signature, `503` until `RESEND_WEBHOOK_SECRET` is set, `200` for anything it can't match |
+
+#### D83 — machine quotes (the one action the Worker acts on)
+
+`quote_send` (sales/owner) is rendered and **sent by the Worker the moment it is
+posted** — PDF (pdf-lib) → Resend → only then the `evt:` key, with a `result`
+block (`number`, `token`, totals, `expires`, `pdf`). A Resend refusal is a `500`
+carrying Resend's message, and **nothing** is stored: the number is released, no
+event, no email. There is no Undo (`DELETE` 403s it). Spec: vault
+`Quotes-Site-Spec.md`.
+
+**Secrets (the Architect loads them; never in this repo or a chat):**
+
+```bash
+npx wrangler secret put RESEND_API_KEY --config worker/wrangler.toml          # the key from ~/.config/wss-site/resend-api-key
+npx wrangler secret put SENDERS --config worker/wrangler.toml                 # JSON, below
+npx wrangler secret put RESEND_WEBHOOK_SECRET --config worker/wrangler.toml   # whsec_… from the Resend dashboard, after registering the webhook
+```
+
+`SENDERS` is one line of JSON — token **name** → the mailbox that sends as them
+(also Reply-To and the Bcc copy):
+
+```json
+{"Kevin":{"mailbox":"kevin@<domain>","name":"Kevin <Last>","phone":"(262) …"},"Matt":{"mailbox":"matt@<domain>","name":"Matt <Last>","phone":"(262) …"}}
+```
+
+A token whose name is not in it gets `403 no sending mailbox` before anything is
+minted. Until `RESEND_API_KEY` is set, `quote_send` answers `503` — the safe
+default right after a deploy. `WSS_TAX_RATE` (`0.055`) is a plain `[vars]` line in
+`worker/wrangler.toml`.
+
+**Register the webhook (Resend dashboard → Webhooks → Add endpoint):**
+`https://wss-fleet-worker.mlancourt.workers.dev/api/resend/webhook`, events
+`email.delivered`, `email.bounced`, `email.complained`. Copy its signing secret
+into `RESEND_WEBHOOK_SECRET`. Leave Resend's own open/click tracking **off** — it
+rewrites links; the PDF link and the pixel already carry the two signals.
+
+**Local test send** (`worker/.dev.vars`, gitignored): `RESEND_API_KEY=…`,
+`SENDERS='{"Matt":{…}}'`, `RESEND_WEBHOOK_SECRET=whsec_<base64>`. The links in a
+local send point at `http://localhost:8788` (set `PUBLIC_ORIGIN` to override) —
+they open on this Mac, not on a phone, and Gmail's image proxy can't reach the
+pixel.
+
+**Dashboard paste-deploy** is no longer a single file: since D83 the Worker
+imports pdf-lib and two `docs/` modules. Build the bundle with
+`npx wrangler deploy --dry-run --outdir dist --config worker/wrangler.toml` and
+paste `dist/worker.js`.
 
 #### The write actions
 

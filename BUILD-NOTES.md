@@ -2366,3 +2366,35 @@ Floor calls:
   so nothing after them moves on the RNG; `service_summary` counts exclude dormant rows
   exactly as the engine's do.
 - Tests: service +4, render +1 (the "N open" pill expectation now excludes dormant).
+
+## D83 (2026-10-08) — machine quotes from the lead card
+
+Built from the vault's `Quotes-Site-Spec.md` v1.0 + `Quotes-Work-Order.md`, in the
+work order's order. Commits: catalog + Worker (`89c064e`), page (`0e68c6d`), docs + deploy.
+
+- **The one Worker exception.** `quote_send` is rendered (pdf-lib) and sent (Resend)
+  by the Worker before the event is stored. The number is reserved in `quote:seq`
+  before the render and released on any failure, so a refused send consumes
+  nothing; both failure paths (Resend 4xx, network throw) are in the tests.
+- **One template, two callers.** `docs/quote-email.js` renders the email for the
+  Worker's send and the composer's preview; totals are integer cents there. The
+  selftest drives a composer draft through the real Worker and asserts the
+  preview's subtotal/tax/total equal the Worker's to the cent.
+- **The live overlay reads KV metadata.** `quoteview:<token>` carries its stamps as
+  metadata too, so `/api/data` overlays every live quote from one `list()` — and
+  pays for a snapshot parse only when a stamp exists (or for service, as before).
+- **A customer view event carries the stamp's instant**, not its own — found in the
+  local end-to-end run: the engine's `viewed_at` was 1 ms off the overlay's.
+- **Crew looks don't count.** The 📄 link on the lead is the customer's URL plus
+  `?t=`; a valid crew token, or a HEAD, serves the PDF without stamping.
+- **Pending money for service.** A service token's pending `quote_send` keeps
+  `{lead, to}` and the result's number/token/dates only. While there, a pending
+  `lead_open` / `lead_update` `value` is dropped for service too — it was being
+  shipped to service tokens in `pending[]` since schema 5 (the snapshot strip never
+  covered pending).
+- **Mock:** `quotes: []` on every lead; L1006 expired Q2001 + viewed Q2002, L1007
+  bounced Q2003, a pending `quote_send` Q2004 on L1005; `docs/mock/mock-catalog.json`
+  is invented models and prices. Applied after `build()` — no RNG drift (verified:
+  only clock-relative timestamps moved).
+- **Baseline was red** before this work: the committed mock was dated 10/6 and the
+  D64 "future out date" render check had drifted. `npm run mock` fixed it.

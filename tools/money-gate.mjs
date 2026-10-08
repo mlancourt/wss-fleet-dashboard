@@ -133,6 +133,11 @@ try {
   const leads = svc.snapshot.leads || [];
   ok(leads.every((l) => !('value' in l) && !('potential_commission' in l)),
     `no money field on any of the ${leads.length} leads`);
+  // D83: a sent quote's total is money too — the strip walks the dotted paths.
+  ok(leads.every((l) => !(l.quote && typeof l.quote === 'object' && 'total' in l.quote)
+    && (l.quotes || []).every((q) => !(q && 'total' in q))), 'no quote.total / quotes[].total on any lead (D83)');
+  ok((svc.pending || []).filter((e) => e.action === 'quote_send').every((e) => !e.payload.lines && !('total' in (e.result || {})) && !('subtotal' in (e.result || {}))),
+    'a pending quote_send carries no lines or totals for service (D83)');
   ok(!('money' in (svc.snapshot.scoreboard || {})), 'scoreboard.money is gone');
   ok(!('commission_rates' in (svc.snapshot.leads_summary || {})), 'leads_summary.commission_rates is gone');
   ok(!('money_fields' in (svc.snapshot.leads_summary || {})), 'leads_summary.money_fields is gone');
