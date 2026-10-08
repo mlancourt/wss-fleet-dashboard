@@ -19,18 +19,26 @@ const check = async (name, fn) => { await fn(); passed++; console.log(`  ok  ${n
 /** A KV namespace with just the surface worker.js uses. */
 function fakeKV() {
   const m = new Map();
+  const meta = new Map();
   return {
     _m: m,
+    _meta: meta,
     async get(key, opt) {
       if (!m.has(key)) return null;
       const v = m.get(key);
       const type = typeof opt === 'string' ? opt : opt && opt.type;
+      if (type === 'arrayBuffer') return v instanceof Uint8Array ? v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength) : new TextEncoder().encode(v).buffer;
+      if (v instanceof Uint8Array) return v;
       return type === 'json' ? JSON.parse(v) : v;
     },
-    async put(key, v) { m.set(key, typeof v === 'string' ? v : String(v)); },
-    async delete(key) { m.delete(key); },
+    async put(key, v, opts) {
+      if (v instanceof ArrayBuffer) v = new Uint8Array(v);
+      m.set(key, typeof v === 'string' || v instanceof Uint8Array ? v : String(v));
+      if (opts && opts.metadata) meta.set(key, structuredClone(opts.metadata)); else meta.delete(key);
+    },
+    async delete(key) { m.delete(key); meta.delete(key); },
     async list({ prefix = '' } = {}) {
-      return { keys: [...m.keys()].filter((k) => k.startsWith(prefix)).sort().map((name) => ({ name })), list_complete: true, cursor: null };
+      return { keys: [...m.keys()].filter((k) => k.startsWith(prefix)).sort().map((name) => (meta.has(name) ? { name, metadata: meta.get(name) } : { name })), list_complete: true, cursor: null };
     },
   };
 }

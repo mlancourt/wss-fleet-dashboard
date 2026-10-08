@@ -13,3 +13,10 @@ id = "b420e982edde467dbae09a04c8e41634"
 
 # Secrets are NOT here. `npx wrangler secret put ADMIN_SECRET --config worker/wrangler.toml`
 # for production; worker/.dev.vars (gitignored) for local dev.
+
+# D83 — machine quotes. Not secret, so it lives here. The three quote secrets do
+# NOT: RESEND_API_KEY, RESEND_WEBHOOK_SECRET and SENDERS (JSON: token name ->
+# {mailbox, name, phone}) go in with `npx wrangler secret put <NAME> --config
+# worker/wrangler.toml` — SENDERS names real people, and this repo is public.
+[vars]
+WSS_TAX_RATE = "0.055"

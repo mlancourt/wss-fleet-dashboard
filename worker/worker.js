@@ -25,7 +25,24 @@
  *     mismatch — the id in the URL is never trusted. Docs are immutable; no
  *     client ever sees a storage key, only /api/doc/<id>. Doc bytes are never
  *     logged.
+ *
+ * D83 (2026-10-08) — machine quotes. Three things here are new in kind:
+ *   - `quote_send` is the ONE action this Worker ACTS on rather than only
+ *     storing (ruled 10/8): it renders the PDF, sends the email through Resend,
+ *     and only then writes the event. The engine is hourly; a quote that leaves
+ *     50 minutes after the tap is slower than Machinio. It still holds no
+ *     business rules — it renders what it was handed and records what it did.
+ *   - /q/<token>.pdf and /q/<token>/o.gif are the first routes with NO auth:
+ *     the 32-hex token is the auth. They mint `quote_view` events as actor
+ *     `customer`; that action is never accepted on POST /api/event.
+ *   - this file now imports: pdf-lib (via quote-pdf.js) and the email template
+ *     shared with the page (../docs/quote-email.js). A dashboard paste-deploy
+ *     needs the bundle: `npx wrangler deploy --dry-run --outdir dist`.
  */
+
+import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS } from '../docs/quote-email.js';
+import { overlayLeads } from '../docs/quotes.js';
+import { renderQuotePdf } from './quote-pdf.js';
 
 // D82 (2026-10-07) — `intake`: a write-only token for an unattended web surface (the
 // site's WSS Chat, token name "Website-Chat"). It may OPEN a lead or a ticket and do
@@ -79,6 +96,10 @@ const ACTION_ROLES = {
   // stale phone posting `inspection` gets "unknown action" (400) from here and
   // a pointer from the engine if one ever slipped through. D77 adds doc_detach
   // above: sixteen.
+  // D83 (2026-10-08) — the SEVENTEENTH action, and the only one acted on here:
+  // see quoteSend(). Kevin's and Matt's — a quote names a price. (`quote_view`
+  // is NOT here on purpose: only this Worker mints it, from the customer routes.)
+  quote_send: new Set(['owner', 'sales']),
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -241,6 +262,32 @@ const MAX_EVENT_BYTES = 32 * 1024;
 const MAX_ACK_IDS = 1000;
 const MAX_SNAPSHOT_BYTES = 24 * 1024 * 1024;    // KV value limit is 25 MiB
 
+/* ------------------------------------------------------- quotes (D83) -- */
+
+const QUOTE_SEQ_START = 2001;                     // the first Q number (spec §3 step 2)
+const QUOTE_TOKEN_RE = /^[0-9a-f]{32}$/;
+const Q_PDF_RE = /^\/q\/([0-9a-f]{32})\.pdf$/;
+const Q_GIF_RE = /^\/q\/([0-9a-f]{32})\/o\.gif$/;
+const ADMIN_QPDF_RE = /^\/api\/admin\/quotepdf\/(.+)$/;
+const QUOTE_TTL = 400 * 86400;                    // quotepdf / quote / quoteview live 400 days
+const LEAD_ID_RE = /^L\d{4,6}$/;
+const EMAIL_RE = /^[^\s@<>,;"()[\]]{1,64}@[^\s@<>,;"()[\]]+\.[A-Za-z]{2,}$/;
+const MAX_QUOTE_LINES = 25;
+const MAX_QUOTE_OPTIONS = 40;                     // per machine line
+const MAX_QUOTE_UNIT = 10000000;
+const MAX_CC = 5;
+const QUOTE_KEYS = new Set(['lead', 'to', 'cc', 'subject', 'lines', 'tax', 'note', 'valid_days']);
+const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options']);
+const QUOTE_OPTION_KEYS = new Set(['part', 'description', 'unit']);
+const CATALOG_KEY_RE = /^[a-z0-9][a-z0-9-]{0,159}$/;
+const CATALOG_NEVER = /^(net|disc)$/i;            // dealer cost + discount never leave the vault
+const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
+const RATE_LIMIT_PER_MIN = 30;                    // per IP on the customer routes
+// A 1×1 transparent GIF — the "Opened" pixel.
+const PIXEL_GIF = Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), (c) => c.charCodeAt(0));
+const WEBHOOK_KINDS = { 'email.delivered': 'delivered', 'email.bounced': 'bounced', 'email.complained': 'complained' };
+const WEBHOOK_TOLERANCE_S = 300;
+
 const STATIC_ORIGINS = new Set([
   'https://fleet.wisconsinscrubandsweep.com',
   'https://mlancourt.github.io',              // pre-DNS testing
@@ -259,6 +306,11 @@ const ROUTES = [
   ['POST', '/api/admin/events/ack', 'admin', adminAck],
   ['POST', '/api/admin/tokens',     'admin', adminTokens],
   ['GET',  '/api/admin/docs',       'admin', adminDocs],
+  // D83 — the composer's catalog, the engine's push of it, and Resend's webhook
+  // (Svix-signed — its own auth, checked in the handler; no token, no secret header).
+  ['GET',  '/api/catalog',          'crew',  crewCatalog],
+  ['POST', '/api/admin/catalog',    'admin', adminCatalog],
+  ['POST', '/api/resend/webhook',   'public', resendWebhook],
 ];
 
 export default {
@@ -292,6 +344,27 @@ async function route(request, env, url) {
   const method = request.method;
 
   if (path === '/') return json({ ok: true, service: 'wss-fleet-worker' });
+
+  // D83 — the customer side of a quote. No auth: the 32-hex token in the path IS
+  // the auth (unguessable), and these two are what the customer's email links to.
+  const qPdf = Q_PDF_RE.exec(path);
+  const qGif = qPdf ? null : Q_GIF_RE.exec(path);
+  if (qPdf || qGif) {
+    if (method !== 'GET' && method !== 'HEAD') return text('method not allowed', 405);
+    return customerQuote({ request, env, url, token: (qPdf || qGif)[1], kind: qPdf ? 'pdf' : 'gif' });
+  }
+  if (path.startsWith('/q/')) return text('not found', 404);
+
+  // D83 — the engine fetches a sent quote's PDF to file it beside the Q file.
+  const adminQ = ADMIN_QPDF_RE.exec(path);
+  if (adminQ) {
+    if (!adminAuth(request, env)) return json({ error: 'unauthorized' }, 401);
+    if (method !== 'GET') return json({ error: 'method not allowed' }, 405);
+    if (!QUOTE_TOKEN_RE.test(adminQ[1])) return json({ error: 'bad token' }, 400);
+    const bytes = await env.FLEET_KV.get(`quotepdf:${adminQ[1]}`, 'arrayBuffer');
+    if (!bytes) return json({ error: 'not found' }, 404);
+    return new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store' } });
+  }
 
   // /api/event/<id> — the only path with a variable segment, so it is matched
   // before the exact-path table rather than complicating every row of it.
@@ -358,6 +431,8 @@ async function route(request, env, url) {
 
   if (kind === 'admin') {
     if (!adminAuth(request, env)) return json({ error: 'unauthorized' }, 401);
+  } else if (kind === 'public') {
+    // D83: the Resend webhook verifies its own Svix signature.
   } else {
     ctx.me = await crewAuth(request, url, env);
     if (!ctx.me) return json({ error: 'unauthorized' }, 401);
@@ -400,17 +475,66 @@ function safeEqual(a, b) {
 /* ------------------------------------------------------------------- crew */
 
 async function crewData({ me, env }) {
-  const [snapshot, events] = await Promise.all([env.FLEET_KV.get('snapshot'), listEvents(env)]);
+  const [snapshot, events, stamps] = await Promise.all([env.FLEET_KV.get('snapshot'), listEvents(env), quoteStamps(env)]);
   if (!snapshot) return json({ error: 'no snapshot published yet' }, 503);
 
   // The snapshot was validated as JSON at publish time, so splice the raw text
-  // in rather than parse + re-stringify a large document on every read. A
-  // `service` token is the one case that has to pay for a parse: its copy has
-  // the lead money removed here, at the edge, before the bytes leave.
-  const doc = me.role === 'service' ? stripLeadMoney(snapshot) : snapshot;
-  const pending = JSON.stringify(events.map((e) => e.event));
+  // in rather than parse + re-stringify a large document on every read. Two
+  // cases pay for a parse: a `service` token (its copy has the lead money
+  // removed here, at the edge, before the bytes leave) and — D83 — any read
+  // while a quote has live stamps the engine hasn't written back yet, so
+  // "Viewed" shows within a minute rather than at the next run (spec §2.2).
+  let doc = snapshot;
+  if (me.role === 'service' || stamps) {
+    doc = parseSnapshot(snapshot);
+    if (stamps) overlayLeads(doc.leads, stamps);
+    if (me.role === 'service') stripLeadMoney(doc);
+    doc = JSON.stringify(doc);
+  }
+  // `quote_view` is the customer's, minted here — it is not a crew proposal and
+  // never badges anything as pending. A service token's copy of a pending
+  // quote_send / lead value loses its figures for the same reason the snapshot does.
+  const pend = events.map((e) => e.event).filter((e) => e && e.action !== 'quote_view');
+  const pending = JSON.stringify(me.role === 'service' ? pend.map(stripPendingMoney) : pend);
   const body = `{"me":${JSON.stringify(me)},"snapshot":${doc},"pending":${pending}}`;
   return new Response(body, { status: 200, headers: jsonHeaders() });
+}
+
+function parseSnapshot(text) {
+  let doc;
+  try { doc = JSON.parse(text); } catch { throw httpError(500, 'snapshot unreadable'); }
+  if (!doc || typeof doc !== 'object') throw httpError(500, 'snapshot unreadable');
+  return doc;
+}
+
+/** {token: stamps} for every live quote, off KV list METADATA (one list call, no gets) — or null when none. */
+async function quoteStamps(env) {
+  const out = {};
+  let n = 0;
+  let cursor;
+  do {
+    const page = await env.FLEET_KV.list({ prefix: 'quoteview:', cursor });
+    for (const k of page.keys) {
+      if (k.metadata && typeof k.metadata === 'object') { out[k.name.slice(10)] = k.metadata; n++; }
+    }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+  return n ? out : null;
+}
+
+/** A service token's copy of a pending event: no quote prices, no lead value. */
+function stripPendingMoney(e) {
+  if (e.action === 'quote_send') {
+    const p = e.payload || {};
+    const r = e.result || {};
+    return { ...e, payload: { lead: p.lead, to: p.to },
+      result: { number: r.number, token: r.token, sent_at: r.sent_at, by: r.by, to: r.to, expires: r.expires } };
+  }
+  if ((e.action === 'lead_update' || e.action === 'lead_open') && e.payload && 'value' in e.payload) {
+    const { value, ...rest } = e.payload;   // eslint-disable-line no-unused-vars
+    return { ...e, payload: rest };
+  }
+  return e;
 }
 
 /**
@@ -434,20 +558,36 @@ async function crewData({ me, env }) {
  * than fall back to shipping the raw text — the raw text is the thing we are
  * trying not to send.
  */
-function stripLeadMoney(text) {
-  let doc;
-  try { doc = JSON.parse(text); } catch { throw httpError(500, 'snapshot unreadable'); }
-  if (!doc || typeof doc !== 'object') throw httpError(500, 'snapshot unreadable');
+// D83: the quote's total is money too. Dotted paths, `[]` = every element.
+const LEAD_MONEY_DEFAULT = ['value', 'potential_commission', 'quote.total', 'quotes[].total'];
+
+/** Delete a dotted path ("quote.total", "quotes[].total") from one object. Missing hops are fine. */
+function deletePath(obj, path) {
+  const segs = String(path).split('.');
+  const walk = (o, i) => {
+    if (!o || typeof o !== 'object') return;
+    let seg = segs[i];
+    const each = seg.endsWith('[]');
+    if (each) seg = seg.slice(0, -2);
+    if (i === segs.length - 1) { delete o[seg]; return; }
+    const next = o[seg];
+    if (each) { if (Array.isArray(next)) for (const x of next) walk(x, i + 1); } else walk(next, i + 1);
+  };
+  walk(obj, 0);
+}
+
+function stripLeadMoney(doc) {
+  if (typeof doc === 'string') doc = parseSnapshot(doc);
 
   const summary = doc.leads_summary && typeof doc.leads_summary === 'object' ? doc.leads_summary : null;
   const declared = summary && Array.isArray(summary.money_fields) ? summary.money_fields : [];
-  const fields = new Set(['value', 'potential_commission']);
+  const fields = new Set(LEAD_MONEY_DEFAULT);
   for (const f of declared) if (typeof f === 'string') fields.add(f);
 
   if (Array.isArray(doc.leads)) {
     for (const lead of doc.leads) {
       if (!lead || typeof lead !== 'object') continue;
-      for (const f of fields) delete lead[f];
+      for (const f of fields) deletePath(lead, f);
       // NOT `log`. v2.4 stripped it here because the engine was writing figures
       // into that free text ("… value → $…"), which would have handed back the
       // number the line above deletes. v2.5 fixed it upstream instead: a lead
@@ -464,7 +604,7 @@ function stripLeadMoney(text) {
   }
   if (doc.scoreboard && typeof doc.scoreboard === 'object') delete doc.scoreboard.money;
 
-  return JSON.stringify(doc);
+  return doc;   // D83: the caller stringifies — the quote overlay may already have touched it
 }
 
 async function crewEvent({ request, me, env }) {
@@ -486,6 +626,8 @@ async function crewEvent({ request, me, env }) {
   }
 
   refuseMoneyKeys(body.payload);
+  // D83: the one action acted on here — it sends an email, and only then is stored.
+  if (action === 'quote_send') return quoteSend({ request, env, me, raw: body.payload });
   const payload = cleanPayload(action, body.payload, me.role, serial);
 
   // THE ONE BUSINESS-STATE CHECK IN THIS FILE, and it is deliberate (S2).
@@ -1153,6 +1295,9 @@ async function crewUndoEvent({ env, me, rawId }) {
   if (!stored) return json({ error: 'event not found' }, 404);
 
   if (stored.actor !== me.name) throw httpError(403, 'you can only undo your own events');
+  // D83: the email already went. Deleting the event would only hide a quote the
+  // customer is holding — the confirm sheet before Send is the valve.
+  if (stored.action === 'quote_send') throw httpError(403, 'a sent quote cannot be undone — the email already went');
 
   await env.FLEET_KV.delete(key);
   return json({ ok: true, id: bare });
@@ -1243,6 +1388,447 @@ async function adminTokens({ request, env }) {
   await env.FLEET_KV.put('tokens', JSON.stringify(clean));
   // Names and roles only — token values never go back out.
   return json({ ok: true, count: people.length, people });
+}
+
+/* ---------------------------------------------------------- quotes (D83) */
+
+/**
+ * GET /api/catalog — the composer's machine + option list (spec §2.3). Sales
+ * and owner only: Factory Cat `list` here is the dealer price list's base
+ * price, never shown on the website. The Worker adds the two numbers the page
+ * needs to preview totals exactly as the send will compute them.
+ */
+async function crewCatalog({ me, env }) {
+  if (me.role !== 'sales' && me.role !== 'owner') return json({ error: `role ${me.role} cannot read the quote catalog` }, 403);
+  const raw = await env.FLEET_KV.get('catalog');
+  if (!raw) return json({ error: 'catalog not published yet' }, 503);
+  const cat = JSON.parse(raw);
+  return json({ ...cat, tax_rate: taxRate(env), valid_days: DEFAULT_VALID_DAYS });
+}
+
+/** POST /api/admin/catalog — the engine's push. Refuses a dealer-cost key anywhere, by path. */
+async function adminCatalog({ request, env }) {
+  const textBody = await request.text();
+  if (textBody.length > MAX_CATALOG_BYTES) throw httpError(413, 'catalog too large');
+  let cat;
+  try { cat = JSON.parse(textBody); } catch { throw httpError(400, 'catalog is not valid JSON'); }
+  if (!cat || typeof cat !== 'object' || !Array.isArray(cat.machines) || !cat.series || typeof cat.series !== 'object') {
+    throw httpError(400, 'catalog needs machines[] and series{}');
+  }
+  const walk = (v, at, depth) => {
+    if (!v || typeof v !== 'object' || depth > 10) return;
+    for (const [k, x] of Object.entries(v)) {
+      const here = Array.isArray(v) ? `${at}[${k}]` : `${at}.${k}`;
+      if (!Array.isArray(v) && CATALOG_NEVER.test(k)) throw httpError(400, `refused: ${here} — dealer cost never leaves the vault (D83)`);
+      walk(x, here, depth + 1);
+    }
+  };
+  walk(cat, 'catalog', 0);
+  await env.FLEET_KV.put('catalog', textBody);
+  return json({ ok: true, built: typeof cat.built === 'string' ? cat.built : null, machines: cat.machines.length, series: Object.keys(cat.series).length });
+}
+
+function taxRate(env) {
+  const r = Number(env.WSS_TAX_RATE);
+  return isFinite(r) && r >= 0 && r < 0.2 && env.WSS_TAX_RATE != null && env.WSS_TAX_RATE !== '' ? r : DEFAULT_TAX_RATE;
+}
+
+/** The token's sender block from SENDERS (a JSON secret: name → {mailbox, name, phone}). */
+function senderFor(env, name) {
+  let map = null;
+  try { map = env.SENDERS ? (typeof env.SENDERS === 'string' ? JSON.parse(env.SENDERS) : env.SENDERS) : null; } catch { map = null; }
+  const s = map && Object.prototype.hasOwnProperty.call(map, name) ? map[name] : null;
+  if (!s || typeof s.mailbox !== 'string' || !EMAIL_RE.test(s.mailbox)) return null;
+  return { mailbox: s.mailbox, name: typeof s.name === 'string' && s.name.trim() ? s.name.trim() : name, phone: typeof s.phone === 'string' ? s.phone : null };
+}
+
+/** Today in Central, YYYY-MM-DD, plus N calendar days — Date.UTC parts, never a date-only string parse. */
+function centralDate(offsetDays = 0, now = new Date()) {
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + offsetDays)).toISOString().slice(0, 10);
+}
+
+/**
+ * The payload, cleaned. Shape + bounds only, plus the one catalog lookup the
+ * spec asks for: a machine line naming a `key` gets its title / model / list
+ * price from the catalog when it didn't type its own, and a key the catalog
+ * doesn't know is refused unless the line carries its own description + price.
+ * Unknown keys anywhere → 400 (a new shape: no old client to be lenient with).
+ */
+function cleanQuote(p, catalog) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) throw httpError(400, 'payload must be an object');
+  for (const k of Object.keys(p)) if (!QUOTE_KEYS.has(k)) throw httpError(400, `quote_send does not take ${k}`);
+  const str = (v, max, field, required) => {
+    if (v == null || v === '') { if (required) throw httpError(400, `${field} is required`); return null; }
+    if (typeof v !== 'string') throw httpError(400, `${field} must be a string`);
+    const t = v.trim();
+    if (!t && required) throw httpError(400, `${field} is required`);
+    if (t.length > max) throw httpError(400, `${field} is too long (max ${max})`);
+    return t || null;
+  };
+  const money = (v, field) => {
+    if (typeof v !== 'number' || !isFinite(v)) throw httpError(400, `${field} must be a number`);
+    if (v < 0) throw httpError(400, `${field} can't be negative`);
+    if (v > MAX_QUOTE_UNIT) throw httpError(400, `${field} is out of range`);
+    return Math.round(v * 100) / 100;
+  };
+  const email = (v, field) => {
+    const t = str(v, 200, field, true);
+    if (!EMAIL_RE.test(t)) throw httpError(400, `${field} is not an email address`);
+    return t;
+  };
+
+  const lead = str(p.lead, 16, 'lead', true).toUpperCase();
+  if (!LEAD_ID_RE.test(lead)) throw httpError(400, 'bad lead');
+  const to = email(p.to, 'to');
+  const ccIn = p.cc == null ? [] : p.cc;
+  if (!Array.isArray(ccIn)) throw httpError(400, 'cc must be a list');
+  if (ccIn.length > MAX_CC) throw httpError(400, `cc is limited to ${MAX_CC}`);
+  const cc = ccIn.map((c, i) => email(c, `cc[${i}]`));
+  const subject = str(p.subject, 200, 'subject', false);
+  const note = str(p.note, 4000, 'note', false);
+  if (p.tax != null && typeof p.tax !== 'boolean') throw httpError(400, 'tax must be true or false');
+  const tax = p.tax !== false;
+  let valid_days = DEFAULT_VALID_DAYS;
+  if (p.valid_days != null) {
+    if (!Number.isInteger(p.valid_days) || p.valid_days < 1 || p.valid_days > 90) throw httpError(400, 'valid_days must be 1–90');
+    valid_days = p.valid_days;
+  }
+
+  if (!Array.isArray(p.lines) || !p.lines.length) throw httpError(400, 'a quote needs at least one line');
+  if (p.lines.length > MAX_QUOTE_LINES) throw httpError(400, `a quote is limited to ${MAX_QUOTE_LINES} lines`);
+  const byKey = new Map(((catalog && catalog.machines) || []).map((m) => [m.key, m]));
+  const lines = p.lines.map((l, i) => {
+    const at = `lines[${i}]`;
+    if (!l || typeof l !== 'object' || Array.isArray(l)) throw httpError(400, `${at} must be an object`);
+    for (const k of Object.keys(l)) if (!QUOTE_LINE_KEYS.has(k)) throw httpError(400, `${at} does not take ${k}`);
+    if (!QUOTE_LINE_KINDS.includes(l.kind)) throw httpError(400, `${at}.kind must be one of ${QUOTE_LINE_KINDS.join(', ')}`);
+    if (l.options != null && l.kind !== 'machine') throw httpError(400, `${at}: options ride only on a machine line`);
+    let qty = 1;
+    if (l.qty != null) {
+      if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 99) throw httpError(400, `${at}.qty must be 1–99`);
+      qty = l.qty;
+    }
+    let description = str(l.description, 200, `${at}.description`, false);
+    let model = str(l.model, 80, `${at}.model`, false);
+    let unit = l.unit == null || l.unit === '' ? null : money(l.unit, `${at}.unit`);
+    const out = { kind: l.kind };
+    if (l.kind === 'machine') {
+      const key = str(l.key, 160, `${at}.key`, false);
+      if (key) {
+        if (!CATALOG_KEY_RE.test(key)) throw httpError(400, `${at}.key is malformed`);
+        const m = byKey.get(key);
+        if (m) {
+          description = description || m.title || null;
+          model = model || m.model || null;
+          if (unit == null && typeof m.list === 'number') unit = Math.round(m.list * 100) / 100;
+          out.key = key;
+        } else if (!description || unit == null) {
+          throw httpError(400, `${at}: ${key} is not in the catalog — give it a description and a price, or pick it again`);
+        } else {
+          out.key = key;
+        }
+      }
+      if (!description) throw httpError(400, `${at}.description is required`);
+      if (unit == null) throw httpError(400, `${at}.unit is required — this machine has no list price, type one`);
+      const opts = l.options == null ? [] : l.options;
+      if (!Array.isArray(opts)) throw httpError(400, `${at}.options must be a list`);
+      if (opts.length > MAX_QUOTE_OPTIONS) throw httpError(400, `${at}.options is limited to ${MAX_QUOTE_OPTIONS}`);
+      Object.assign(out, { description, model, qty, unit });
+      out.options = opts.map((o, j) => {
+        const oat = `${at}.options[${j}]`;
+        if (!o || typeof o !== 'object' || Array.isArray(o)) throw httpError(400, `${oat} must be an object`);
+        for (const k of Object.keys(o)) if (!QUOTE_OPTION_KEYS.has(k)) throw httpError(400, `${oat} does not take ${k}`);
+        return { part: str(o.part, 40, `${oat}.part`, false), description: str(o.description, 200, `${oat}.description`, true), unit: money(o.unit, `${oat}.unit`) };
+      });
+      return out;
+    }
+    if (l.kind === 'freight') description = description || 'Freight';
+    if (!description) throw httpError(400, `${at}.description is required`);
+    if (unit == null) throw httpError(400, `${at}.unit is required`);
+    return Object.assign(out, { description, qty, unit });
+  });
+  return { lead, to, cc, subject, lines, tax, note, valid_days };
+}
+
+/** The lead row from the CURRENT snapshot (spec §3 rejects): it must exist and be OPEN. */
+async function quoteLead(env, id) {
+  const raw = await env.FLEET_KV.get('snapshot');
+  if (!raw) throw httpError(503, 'no snapshot published yet');
+  const doc = parseSnapshot(raw);
+  const l = Array.isArray(doc.leads) ? doc.leads.find((x) => x && x.lead === id) : null;
+  if (!l) throw httpError(400, `lead ${id} is not on the board`);
+  if (l.status !== 'OPEN') throw httpError(400, `lead ${id} is ${l.status} — quote an open lead`);
+  return l;
+}
+
+/**
+ * POST /api/event {action: quote_send} — render, send, THEN store (spec §3).
+ *
+ * Order, and why:
+ *   1. every refusal that needs no side effect (role, sender, shape, lead, catalog);
+ *   2. RESERVE the number (the email carries it), then render + send;
+ *   3. on any failure RELEASE it — nothing stored, nothing sent, no event, and the
+ *      next send gets the same number (the "seq is not consumed" rule);
+ *   4. on success store the PDF + the quote record + the event, and return it.
+ * Single-writer in practice (two people, a confirm sheet each), so the KV
+ * read-then-write on `quote:seq` is atomic enough — the spec says so.
+ */
+async function quoteSend({ request, env, me, raw }) {
+  const sender = senderFor(env, me.name);
+  if (!sender) throw httpError(403, `no sending mailbox set up for ${me.name} — ask Matt (SENDERS)`);
+  if (!env.RESEND_API_KEY) throw httpError(503, 'quotes are not configured on this Worker yet (RESEND_API_KEY)');
+  const catalog = await env.FLEET_KV.get('catalog', 'json');
+  const p = cleanQuote(raw, catalog);
+  const lead = await quoteLead(env, p.lead);
+  const rate = taxRate(env);
+  const totals = quoteTotals(p.lines, p.tax, rate);
+
+  const prev = await env.FLEET_KV.get('quote:seq');
+  const n = Math.max(QUOTE_SEQ_START - 1, parseInt(prev, 10) || 0) + 1;
+  const number = `Q${n}`;
+  await env.FLEET_KV.put('quote:seq', String(n));
+
+  const token = hex(16);
+  const origin = String(env.PUBLIC_ORIGIN || new URL(request.url).origin).replace(/\/+$/, '');
+  const date = centralDate(0);
+  const expires = centralDate(p.valid_days);
+  const sent_at = new Date().toISOString();
+  const firstMachine = p.lines.find((l) => l.kind === 'machine');
+  const subject = (p.subject || defaultSubject(number, firstMachine && firstMachine.description)).split(NUMBER_PLACEHOLDER).join(number);
+  const business = (catalog && catalog.business) || null;
+  const q = {
+    number, date, expires, valid_days: p.valid_days, customer: lead.customer || null, contact: lead.contact || null,
+    to: p.to, sender, lines: p.lines, tax: p.tax, tax_rate: rate, note: p.note, business,
+    pdf_url: `${origin}/q/${token}.pdf`, pixel_url: `${origin}/q/${token}/o.gif`,
+  };
+
+  let pdf;
+  let resendId;
+  try {
+    pdf = await renderQuotePdf(q);
+    const mail = renderQuoteEmail(q);
+    resendId = await sendViaResend(env, {
+      from: `${sender.name} <${sender.mailbox}>`,
+      to: [p.to],
+      cc: p.cc.length ? p.cc : undefined,
+      bcc: [sender.mailbox],
+      reply_to: sender.mailbox,
+      subject,
+      html: mail.html,
+      text: mail.text,
+      headers: { 'X-WSS-Quote': number },
+      tags: [{ name: 'quote', value: number }],
+    }, token);
+  } catch (err) {
+    // Release the number — but only if nobody took the next one meanwhile.
+    const cur = await env.FLEET_KV.get('quote:seq');
+    if (cur === String(n)) {
+      if (prev == null) await env.FLEET_KV.delete('quote:seq');
+      else await env.FLEET_KV.put('quote:seq', prev);
+    }
+    if (err && err.status) throw err;
+    throw httpError(500, `quote not sent: ${(err && err.message) || 'render failed'}`);
+  }
+
+  const record = {
+    number, token, lead: p.lead, customer: lead.customer || null, contact: lead.contact || null,
+    to: p.to, cc: p.cc, subject, by: me.name, mailbox: sender.mailbox, sent_at, date, expires,
+    lines: p.lines, tax: p.tax, tax_rate: rate, subtotal: totals.subtotal, tax_amount: totals.tax, total: totals.total,
+    valid_days: p.valid_days, resend_id: resendId,
+  };
+  const ttl = { expirationTtl: QUOTE_TTL };
+  await env.FLEET_KV.put(`quotepdf:${token}`, pdf, ttl);
+  await env.FLEET_KV.put(`quote:${token}`, JSON.stringify(record), ttl);
+  await env.FLEET_KV.put(`quotenum:${number}`, token, ttl);
+  if (resendId) await env.FLEET_KV.put(`quoteemail:${resendId}`, token, ttl);
+
+  const ts = sent_at;
+  const id = `${ts}:${rand6()}`;
+  const event = {
+    id, ts, actor: me.name, role: me.role, action: 'quote_send', serial: null,
+    payload: p,
+    result: { number, token, sent_at, by: me.name, to: p.to, subtotal: totals.subtotal, tax: totals.tax, total: totals.total,
+      tax_rate: rate, expires, pdf: `/q/${token}.pdf` },
+  };
+  await env.FLEET_KV.put(`evt:${id}`, JSON.stringify(event));
+  return json(event, 201);
+}
+
+/** POST https://api.resend.com/emails → the Resend id, or a 500 carrying Resend's own message. */
+async function sendViaResend(env, mail, token) {
+  let res;
+  try {
+    res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `quote-${token}`,       // a retried request is one email, not two
+      },
+      body: JSON.stringify(mail),
+    });
+  } catch (err) {
+    throw httpError(500, `Resend unreachable: ${(err && err.message) || 'network error'}`);
+  }
+  let body = null;
+  try { body = await res.json(); } catch { body = null; }
+  if (!res.ok) {
+    const why = body && (body.message || body.error || body.name);
+    throw httpError(500, `Resend refused the send (${res.status}): ${typeof why === 'string' ? why : 'no reason given'}`);
+  }
+  return body && typeof body.id === 'string' ? body.id : null;
+}
+
+/** Read-modify-write the live stamps. Value AND metadata, so /api/data reads them off one list call. */
+async function stampQuote(env, token, fn) {
+  const key = `quoteview:${token}`;
+  const cur = (await env.FLEET_KV.get(key, 'json')) || {};
+  const next = fn({ ...cur });
+  if (!next) return cur;
+  await env.FLEET_KV.put(key, JSON.stringify(next), { metadata: next, expirationTtl: QUOTE_TTL });
+  return next;
+}
+
+/** A `quote_view` event — minted here only, actor `customer`. The engine accepts exactly this from that actor. */
+async function customerEvent(env, rec, kind, extra = {}) {
+  const ts = new Date().toISOString();
+  const id = `${ts}:${rand6()}`;
+  const event = {
+    id, ts, actor: 'customer', role: 'customer', action: 'quote_view', serial: null,
+    payload: { lead: rec.lead, number: rec.number, token: rec.token, kind, at: ts, ...extra },
+  };
+  await env.FLEET_KV.put(`evt:${id}`, JSON.stringify(event));
+}
+
+/** 30/min/IP on the customer routes, so a scanner can't burn KV. KV TTLs bottom out at 60 s. */
+async function rateLimited(env, request) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'local';
+  const key = `rl:${ip}:${Math.floor(Date.now() / 60000)}`;
+  const n = parseInt(await env.FLEET_KV.get(key), 10) || 0;
+  if (n >= RATE_LIMIT_PER_MIN) return true;
+  await env.FLEET_KV.put(key, String(n + 1), { expirationTtl: 120 });
+  return false;
+}
+
+/**
+ * GET /q/<token>.pdf and /q/<token>/o.gif — what the customer's email links to.
+ * PDF = Viewed (reliable), pixel = Opened (best effort). An expired quote still
+ * serves: it says valid-through on its face. A HEAD never stamps (link
+ * scanners), and neither does a crew read (`?t=` a valid token — Kevin opening
+ * his own quote from the lead card is not the customer looking at it).
+ */
+async function customerQuote({ request, env, url, token, kind }) {
+  if (await rateLimited(env, request)) return text('slow down', 429);
+  const rec = await env.FLEET_KV.get(`quote:${token}`, 'json');
+  if (!rec) return text('not found', 404);
+  const head = request.method === 'HEAD';
+  const crew = url.searchParams.has('t') ? await crewAuth(request, url, env) : null;
+
+  if (kind === 'gif') {
+    if (!head && !crew) {
+      let first = false;
+      await stampQuote(env, token, (s) => {
+        if (s.opened_at) return null;
+        first = true;
+        s.opened_at = new Date().toISOString();
+        return s;
+      });
+      if (first) await customerEvent(env, rec, 'opened');
+    }
+    return new Response(head ? null : PIXEL_GIF, { status: 200, headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store, private' } });
+  }
+
+  const bytes = await env.FLEET_KV.get(`quotepdf:${token}`, 'arrayBuffer');
+  if (!bytes) return text('not found', 404);
+  if (!head && !crew) {
+    const now = new Date().toISOString();
+    const s = await stampQuote(env, token, (x) => {
+      x.viewed_at = x.viewed_at || now;
+      x.viewed_count = (Number(x.viewed_count) || 0) + 1;
+      x.last_viewed_at = now;
+      return x;
+    });
+    await customerEvent(env, rec, 'viewed', { viewed_count: s.viewed_count });
+  }
+  return new Response(head ? null : bytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="WSS-Quote-${headerSafeName(rec.number)}.pdf"`,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
+/**
+ * POST /api/resend/webhook — Resend (Svix-signed) says delivered / bounced /
+ * complained. Matched to the quote by the `quote` tag, the X-WSS-Quote header,
+ * or the Resend email id. A bounce is the one state Kevin has to act on (wrong
+ * address) and it shows where he already looks. Anything we can't match is a
+ * 200 (so Resend stops retrying), never an error.
+ */
+async function resendWebhook({ request, env }) {
+  const secret = env.RESEND_WEBHOOK_SECRET;
+  if (!secret) return json({ error: 'webhook not configured' }, 503);
+  const body = await request.text();
+  if (body.length > 256 * 1024) throw httpError(413, 'body too large');
+  if (!(await svixValid(secret, request.headers, body))) return json({ error: 'bad signature' }, 401);
+
+  let evt;
+  try { evt = JSON.parse(body); } catch { return json({ error: 'body is not valid JSON' }, 400); }
+  const kind = WEBHOOK_KINDS[evt && evt.type];
+  if (!kind) return json({ ok: true, ignored: evt && evt.type });
+
+  const svixId = request.headers.get('svix-id');
+  if (svixId && await env.FLEET_KV.get(`whk:${svixId}`)) return json({ ok: true, duplicate: true });
+
+  const d = (evt && evt.data) || {};
+  const tag = (() => {
+    const t = d.tags;
+    if (Array.isArray(t)) { const x = t.find((y) => y && y.name === 'quote'); return x ? x.value : null; }
+    return t && typeof t === 'object' ? t.quote : null;
+  })();
+  const hdr = Array.isArray(d.headers) ? (d.headers.find((h) => h && String(h.name).toLowerCase() === 'x-wss-quote') || {}).value : null;
+  const number = typeof (tag || hdr) === 'string' && /^Q\d+$/.test(tag || hdr) ? (tag || hdr) : null;
+  let token = number ? await env.FLEET_KV.get(`quotenum:${number}`) : null;
+  if (!token && typeof d.email_id === 'string') token = await env.FLEET_KV.get(`quoteemail:${d.email_id}`);
+  const rec = token ? await env.FLEET_KV.get(`quote:${token}`, 'json') : null;
+  if (!rec) return json({ ok: true, ignored: 'not a quote' });
+
+  const at = typeof evt.created_at === 'string' ? evt.created_at : new Date().toISOString();
+  const reason = kind === 'bounced'
+    ? String((d.bounce && (d.bounce.message || d.bounce.subType || d.bounce.type)) || 'bounced').slice(0, 120) : null;
+  await stampQuote(env, token, (s) => {
+    if (kind === 'delivered') s.delivered_at = s.delivered_at || at;
+    if (kind === 'bounced') { s.bounced_at = s.bounced_at || at; s.bounce_reason = s.bounce_reason || reason; }
+    if (kind === 'complained') s.complained_at = s.complained_at || at;
+    return s;
+  });
+  await customerEvent(env, rec, kind, reason ? { reason } : {});
+  if (svixId) await env.FLEET_KV.put(`whk:${svixId}`, '1', { expirationTtl: 86400 });
+  return json({ ok: true, quote: rec.number, kind });
+}
+
+/** Svix: base64 HMAC-SHA256 of "<id>.<timestamp>.<body>" under the base64 secret after "whsec_". */
+async function svixValid(secret, headers, body) {
+  const id = headers.get('svix-id');
+  const ts = headers.get('svix-timestamp');
+  const sigs = headers.get('svix-signature');
+  if (!id || !ts || !sigs || !/^\d+$/.test(ts)) return false;
+  if (Math.abs(Date.now() / 1000 - Number(ts)) > WEBHOOK_TOLERANCE_S) return false;
+  let keyBytes;
+  try { keyBytes = Uint8Array.from(atob(secret.startsWith('whsec_') ? secret.slice(6) : secret), (c) => c.charCodeAt(0)); } catch { return false; }
+  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${id}.${ts}.${body}`)));
+  const want = btoa(String.fromCharCode(...mac));
+  return sigs.split(' ').some((s) => { const [v, sig] = s.split(','); return v === 'v1' && sig && safeEqual(sig, want); });
+}
+
+function hex(nBytes) {
+  return Array.from(crypto.getRandomValues(new Uint8Array(nBytes)), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /* ------------------------------------------------------- docs (schema 6) */
@@ -1523,6 +2109,11 @@ function jsonHeaders() {
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: jsonHeaders() });
+}
+
+/** Plain text — what a customer's browser sees on a dead quote link. */
+function text(body, status = 200) {
+  return new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
 function httpError(status, message) {
