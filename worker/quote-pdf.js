@@ -2,7 +2,7 @@
  * D83 — the quote PDF, rendered in the Worker with pdf-lib (pure JS: no
  * browser rendering, no paid add-on). Letter, one page typical, more when the
  * line list runs long. The numbers come from docs/quote-email.js — the same
- * lineRows / quoteTotals the email uses, so the PDF and the email agree to the
+ * lineBlocks / quoteTotals the email uses, so the PDF and the email agree to the
  * cent by construction (acceptance B).
  *
  * Standard Helvetica only (WinAnsi): anything outside that set — an emoji a
@@ -10,7 +10,7 @@
  * throwing mid-send.
  */
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { lineRows, quoteTotals, fmtCents, fmtUsd, longDate, quoteTerms, taxLabel, TAX_EXEMPT_LINE, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS } from '../docs/quote-email.js';
+import { lineBlocks, signatureLines, quoteTotals, fmtCents, fmtUsd, longDate, quoteTerms, taxLabel, TAX_EXEMPT_LINE, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS } from '../docs/quote-email.js';
 import { LOGO_JPEG_B64 } from './quote-logo.js';
 
 const RED = rgb(0xB7 / 255, 0x1C / 255, 0x1C / 255);
@@ -21,7 +21,8 @@ const PAGE = [612, 792];             // US Letter, points
 const M = 48;                        // margin
 
 const WIN_EXTRA = new Set(Array.from('€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ'));
-export const winAnsi = (s) => Array.from(String(s == null ? '' : s)).map((ch) => {
+// U+2212 (the "Discount applied: −$543" minus) isn't in WinAnsi; an en dash reads the same on paper.
+export const winAnsi = (s) => Array.from(String(s == null ? '' : s).replace(/\u2212/g, '\u2013')).map((ch) => {
   const c = ch.codePointAt(0);
   if (ch === '\t') return ' ';
   return (c >= 0x20 && c <= 0x7e) || (c >= 0xa0 && c <= 0xff) || WIN_EXTRA.has(ch) ? ch : '?';
@@ -94,9 +95,9 @@ export async function renderQuotePdf(q) {
 
   const tableHead = () => {
     page.drawRectangle({ x: M, y: y - 4, width: W, height: 18, color: RED });
-    text('Item', M + 6, y + 1, 9, bold, rgb(1, 1, 1));
+    text('Description', M + 6, y + 1, 9, bold, rgb(1, 1, 1));
     right('Qty', X_QTY, y + 1, 9, bold, rgb(1, 1, 1));
-    right('Unit', X_UNIT, y + 1, 9, bold, rgb(1, 1, 1));
+    right('Rate', X_UNIT, y + 1, 9, bold, rgb(1, 1, 1));
     right('Amount', X_AMT - 6, y + 1, 9, bold, rgb(1, 1, 1));
     y -= 22;
   };
@@ -136,28 +137,29 @@ export async function renderQuotePdf(q) {
     return yy;
   };
   const yTo = col('PREPARED FOR', [[q.customer, bold], [q.contact, font], [q.to, font]], M);
-  const yFrom = col('FROM', [[sender.name, bold], [biz.name, font], [sender.phone, font], [sender.mailbox, font],
+  const yFrom = col('QUOTED BY', [[sender.name, bold], [sender.title, font], [biz.name, font], [sender.phone, font], [sender.mailbox, font],
     [biz.street, font], [biz.city_line, font]], M + W / 2 + 8);
   y = Math.min(yTo, yFrom) - 12;
 
   // ---- the lines.
   tableHead();
-  for (const r of lineRows(q.lines)) {
-    const indent = r.level ? 14 : 0;
-    const f = r.level ? font : bold;
-    const size = r.level ? 9.5 : 10;
-    const desc = wrap(r.level && r.part ? `+ ${r.description} (${r.part})` : r.description, f, size, ITEM_W - indent);
-    const sub = r.model ? wrap(`Model ${r.model}`, font, 8.5, ITEM_W) : [];
-    const h = desc.length * 12.5 + sub.length * 11 + 8;
+  const TONE = { sub: [font, 8.5, GREY, 0], plain: [font, 9.5, rgb(0.2, 0.2, 0.2), 0], opt: [font, 9.5, rgb(0.2, 0.2, 0.2), 10],
+    strong: [bold, 9.5, INK, 0], note: [font, 9, GREY, 0] };
+  for (const r of lineBlocks(q.lines)) {
+    // The title in bold, then the Machinio-worded detail lines (MSRP, discount, options, per-unit subtotal, note).
+    const rows = wrap(r.title, bold, 10, ITEM_W).map((t) => ({ t, f: bold, size: 10, color: INK, indent: 0, lh: 12.5 }));
+    for (const d of r.detail) {
+      const [f, size, color, indent] = TONE[d.tone];
+      for (const t of wrap(d.text, f, size, ITEM_W - indent)) rows.push({ t, f, size, color, indent, lh: 11.5 });
+    }
+    const h = rows.reduce((n, x) => n + x.lh, 0) + 8;
     ensure(h);
     const top = y;
-    desc.forEach((ln, i) => text(ln, M + 6 + indent, top - i * 12.5, size, f, r.level ? rgb(0.2, 0.2, 0.2) : INK));
-    sub.forEach((ln, i) => text(ln, M + 6, top - desc.length * 12.5 - i * 11, 8.5, font, GREY));
-    if (r.level === 0) {
-      right(String(r.qty), X_QTY, top, 10);
-      right(fmtCents(r.unit), X_UNIT, top, 10);
-    }
-    right(r.nc ? 'N/C' : fmtCents(r.amount), X_AMT - 6, top, size);
+    let yy = top;
+    for (const x of rows) { text(x.t, M + 6 + x.indent, yy, x.size, x.f, x.color); yy -= x.lh; }
+    right(String(r.qty), X_QTY, top, 10);
+    right(fmtCents(r.rate), X_UNIT, top, 10);
+    right(fmtCents(r.amount), X_AMT - 6, top, 10);
     y -= h;
     rule(y + 10);           // between rows: under this one's descenders, over the next one's caps
   }
@@ -183,7 +185,7 @@ export async function renderQuotePdf(q) {
   text('Thank you for the opportunity.', M, y, 10);
   y -= 26;
   page.drawLine({ start: { x: M, y: y + 10 }, end: { x: M + 200, y: y + 10 }, thickness: 0.75, color: INK });
-  text([sender.name, sender.phone, sender.mailbox].filter(Boolean).join('  ·  '), M, y - 2, 9.5);
+  text(signatureLines(sender, biz).join('  ·  '), M, y - 2, 9.5);
   y -= 26;
   rule(y + 8);
   for (const ln of terms) { text(ln, M, y - 2, 8, font, GREY); y -= 10; }

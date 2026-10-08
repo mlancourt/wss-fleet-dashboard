@@ -2115,7 +2115,7 @@ const mockCatalog = {
   },
   business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', street: '1 Example Way', city_line: 'Ixonia, WI 53036', city: 'Ixonia', region: 'WI' },
   tax_rate: 0.055, valid_days: 30,
-  sender: { mailbox: 'kevin@example.com', name: 'Kevin Example', phone: '(555) 010-0001' },
+  sender: { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' },
 };
 fs.writeFileSync(path.join(outdir, 'mock-catalog.json'), JSON.stringify(mockCatalog, null, 2) + '\n');
 console.log(`mock-catalog.json: ${mockCatalog.machines.length} fake machines, ${Object.keys(mockCatalog.series).length} series`);

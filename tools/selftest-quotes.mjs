@@ -9,12 +9,12 @@
 import assert from 'node:assert/strict';
 import worker from '../worker/worker.js';
 import {
-  quoteTotals, fmtCents, fmtUsd, longDate, lineRows, renderQuoteEmail, defaultSubject, quoteTerms, NUMBER_PLACEHOLDER,
+  quoteTotals, fmtCents, fmtUsd, longDate, lineBlocks, signatureLines, renderQuoteEmail, defaultSubject, quoteTerms, NUMBER_PLACEHOLDER,
 } from '../docs/quote-email.js';
 import { overlayQuote, overlayLeads, quoteState, quoteChipText, mdOf, tokenOf, statusRank, quoteStateLong, isTracked } from '../docs/quotes.js';
 import {
   searchMachines, groupsFor, noteTemplate, parseMoney, newDraft, addMachine, addText, toggleOption, removeLine,
-  draftPayload, draftProblem, draftTotals, previewInput, subjectOf,
+  draftPayload, draftProblem, draftTotals, previewInput, subjectOf, parseDiscount, syncPrice,
 } from '../docs/composer.js';
 
 let passed = 0;
@@ -51,8 +51,8 @@ const env = {
   FLEET_KV: fakeKV(), ADMIN_SECRET: 'qtest-admin-secret', RESEND_API_KEY: 're_fake_test_key', RESEND_WEBHOOK_SECRET: WEBHOOK_SECRET,
   WSS_TAX_RATE: '0.055',
   SENDERS: JSON.stringify({
-    Kevin: { mailbox: 'kevin@example.com', name: 'Kevin Example', phone: '(555) 010-0001' },
-    Matt: { mailbox: 'matt@example.com', name: 'Matt Example', phone: '(555) 010-0002' },
+    Kevin: { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' },
+    Matt: { mailbox: 'matt@example.com', name: 'Matt Example', title: '', phone: '(555) 010-0002' },
   }),
 };
 await env.FLEET_KV.put('tokens', JSON.stringify({
@@ -126,14 +126,14 @@ await check('totals in cents: Σ qty·unit + Σ options, tax 5.5% on the lot, ro
   assert.equal(t.subtotal, 5737);                 // 5433 + 54 + 0 + 250 + 0
   assert.equal(t.tax, 315.54);                    // 315.535 → .54
   assert.equal(t.total, 6052.54);
-  assert.deepEqual(quoteTotals([{ kind: 'machine', qty: 2, unit: 0.1, options: [{ unit: 0.2 }] }], false), { subtotal: 0.4, tax: 0, total: 0.4, tax_rate: 0.055 }, 'no float drift; options ride once, not per qty');
+  assert.deepEqual(quoteTotals([{ kind: 'machine', qty: 2, unit: 0.1, options: [{ unit: 0.2 }] }], false), { subtotal: 0.6, tax: 0, total: 0.6, tax_rate: 0.055 }, 'no float drift; v1.1: options multiply by qty');
   assert.equal(fmtCents(1299540), '$12,995.40');
   assert.equal(fmtUsd(0), '$0.00');
   assert.equal(longDate('2026-10-08'), 'October 8, 2026');
-  const rows = lineRows(LINES);
-  assert.equal(rows.length, 5);
-  assert.deepEqual(rows.map((r) => r.level), [0, 1, 1, 0, 0]);
-  assert.equal(rows[2].nc, true, 'a $0 option is N/C');
+  const blocks = lineBlocks(LINES);
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[0].rate, 548700, 'per-unit = unit + options');
+  assert.ok(blocks[0].detail.some((d) => d.text === 'X-020 33" Squeegee (included)'), 'a $0 option reads (included)');
 });
 
 await check('the email: one template, escaped, PDF button, pixel only when given (a preview never fires Opened)', () => {
@@ -144,7 +144,7 @@ await check('the email: one template, escaped, PDF button, pixel only when given
   assert.ok(html.includes('Hi &lt;b&gt;Pat&lt;/b&gt;'), 'the note is escaped');
   assert.ok(html.includes('href="https://w.example/q/abc.pdf"') && html.includes('View / download quote (PDF)'));
   assert.ok(html.trim().endsWith('</body></html>') && html.lastIndexOf('o.gif') > html.lastIndexOf('View / download'), 'the pixel goes last');
-  assert.ok(html.includes('$6,052.54') && html.includes('N/C') && html.includes('Sales tax (5.5%)'));
+  assert.ok(html.includes('$6,052.54') && html.includes('(included)') && html.includes('Sales tax (5.5%)'));
   assert.ok(html.includes('Prices are valid for 30 days from the quote date'), 'terms block');
   assert.ok(html.includes('(555) 010-0000'), 'terms phone from the catalog business block, never hard-coded');
   assert.ok(text.includes('https://w.example/q/abc.pdf') && text.includes('$6,052.54'), 'plain-text alternative carries the link and the total');
@@ -188,7 +188,7 @@ await check('GET /api/catalog: 503 before a push; the push refuses net/disc by p
   assert.equal(ok.status, 200); assert.equal(ok.body.machines, 3);
   const got = await asJson(await call('GET', '/api/catalog', { role: 'sales' }));
   assert.equal(got.status, 200); assert.equal(got.body.machines[1].list, 9139); assert.equal(got.body.tax_rate, 0.055); assert.equal(got.body.valid_days, 30);
-  assert.deepEqual(got.body.sender, { mailbox: 'kevin@example.com', name: 'Kevin Example', phone: '(555) 010-0001' }, 'the caller’s own From block, for an exact preview');
+  assert.deepEqual(got.body.sender, { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' }, 'the caller’s own From block, for an exact preview');
   assert.equal((await call('GET', '/api/catalog', { role: 'owner' })).status, 200);
   assert.equal((await call('GET', '/api/catalog', { role: 'service' })).status, 403, 'E: service 403');
   assert.equal((await call('GET', '/api/catalog', { role: 'intake' })).status, 403);
@@ -232,7 +232,7 @@ await check('a catalog key alone fills title, model and list from the catalog; a
   const r = await send('owner', PAYLOAD({ lines: [{ kind: 'machine', key: 'zeta-micro-20-disk' }] }));
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.result.number, 'Q2002');
-  assert.deepEqual(r.body.payload.lines[0], { kind: 'machine', key: 'zeta-micro-20-disk', description: 'Zeta Micro (20" Disk)', model: 'ZM-20', qty: 1, unit: 9139, options: [] });
+  assert.deepEqual(r.body.payload.lines[0], { kind: 'machine', key: 'zeta-micro-20-disk', description: 'Zeta Micro (20" Disk)', model: 'ZM-20', qty: 1, unit: 9139, list: 9139, discount: 0, options: [] }, 'v1.1: the MSRP rides along');
   assert.equal(sent.at(-1).body.from, 'Matt Example <matt@example.com>', "Matt's token sends as Matt");
   const unknown = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: 'not-in-catalog' }] }));
   assert.equal(unknown.status, 400); assert.ok(unknown.body.error.includes('not in the catalog'));
@@ -486,7 +486,7 @@ await check('composer: the payload — catalog key + list price, ticked options,
   toggleOption(d, line.id, CATALOG.series['X Series'].groups[0].items[0]);
   let p = draftPayload(d);
   assert.deepEqual(p.lines, [{ kind: 'machine', key: CATALOG.machines[0].key, description: CATALOG.machines[0].title, model: 'X20-PA', qty: 1, unit: 5433,
-    options: [{ part: 'X-035', description: '130ah WET (2x)', unit: 54 }] }]);
+    options: [{ part: 'X-035', description: '130ah WET (2x)', unit: 54 }], list: 5433, discount: 0 }]);
   assert.equal(p.subject, `Wisconsin Scrub & Sweep — Quote ${NUMBER_PLACEHOLDER} · ${CATALOG.machines[0].title}`);
   assert.deepEqual(p.cc, []); assert.equal(p.tax, true); assert.equal(p.valid_days, 30);
   d.freight = '250'; d.cc = 'a@example.com; b@example.com';
@@ -513,11 +513,96 @@ await check('A (preview matches Send): the composer’s payload through the real
   assert.deepEqual([r.body.result.subtotal, r.body.result.tax, r.body.result.total], [preview.subtotal, preview.tax, preview.total]);
   const mail = sent.at(-1).body;
   const { html } = renderQuoteEmail({ ...previewInput(d, lead, CATALOG, { today: '2026-10-08', expires: '2026-11-07' }), tax_rate: 0.055 });
-  for (const fig of [fmtUsd(preview.subtotal), fmtUsd(preview.tax), fmtUsd(preview.total), 'N/C']) {
+  for (const fig of [fmtUsd(preview.subtotal), fmtUsd(preview.tax), fmtUsd(preview.total), '(included)']) {
     assert.ok(html.includes(fig) && mail.html.includes(fig), `${fig} in both the preview and the sent email`);
   }
   assert.ok(!mail.html.includes(NUMBER_PLACEHOLDER) && mail.subject.includes(r.body.result.number));
   assert.ok(isTracked({ pdf: r.body.result.pdf }) && quoteStateLong({ status: 'SENT', pdf: r.body.result.pdf }) === 'not viewed');
+});
+
+/* ======================================================= v1.1 follow-up */
+
+const MLINE = (extra = {}) => ({ kind: 'machine', key: 'acme-x20-walk-behind-scrubber-20-disk', description: 'Acme X20 Walk-Behind Scrubber (20" Disk)', model: 'X20-PA',
+  qty: 2, list: 5433, discount: 543, unit: 4890, note: 'Delivery included. Approx. lead time 15 business days.',
+  options: [{ part: 'X-010', description: '115ah AGM (2x)', unit: 135 }, { part: 'X-020', description: '33" Squeegee', unit: 0 }], ...extra });
+
+await check('v1.1 #1: Discount takes "543" or "10%", stores the amount, keeps MSRP − discount = unit both ways; a line note rides', () => {
+  assert.equal(parseDiscount('543', 5433), 543); assert.equal(parseDiscount('10%', 5433), 543.3); assert.equal(parseDiscount('', 5433), null);
+  assert.ok(Number.isNaN(parseDiscount('10%', null)), 'a percent needs an MSRP'); assert.ok(Number.isNaN(parseDiscount('lots', 5433)));
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com' };
+  const d = newDraft(lead);
+  const l = addMachine(d, CATALOG.machines[0], lead);
+  l.discount = '10%'; assert.deepEqual(syncPrice(l, 'discount'), { field: 'unit', value: '4889.70' });
+  l.unit = '4890'; assert.deepEqual(syncPrice(l, 'unit'), { field: 'discount', value: '543' }, 'editing unit back-computes the discount');
+  l.note = 'Delivery included.';
+  const p = draftPayload(d).lines[0];
+  assert.equal(p.list, 5433); assert.equal(p.discount, 543); assert.equal(p.unit, 4890); assert.equal(p.note, 'Delivery included.');
+  l.discount = '6000'; assert.ok(draftProblem(d).includes('more than its MSRP'));
+  l.discount = 'x'; assert.ok(draftProblem(d).includes('543 or 10%'));
+});
+
+await check('v1.1 #2: the Worker takes list/discount/note, refuses list − discount ≠ unit (±0.01), and options multiply by qty', async () => {
+  const r = await send('sales', PAYLOAD({ lines: [MLINE()] }));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.result.subtotal, 10050, '(4890 + 135 + 0) × 2');
+  assert.deepEqual([r.body.payload.lines[0].list, r.body.payload.lines[0].discount, r.body.payload.lines[0].note], [5433, 543, 'Delivery included. Approx. lead time 15 business days.']);
+  assert.equal((await send('sales', PAYLOAD({ lines: [MLINE({ unit: 4890.01 })] }))).status, 201, 'a cent of rounding is fine');
+  const bad = await send('sales', PAYLOAD({ lines: [MLINE({ unit: 4900 })] }));
+  assert.equal(bad.status, 400); assert.ok(bad.body.error.includes("doesn't match unit"), bad.body.error);
+  assert.equal((await send('sales', PAYLOAD({ lines: [MLINE({ key: undefined, list: undefined })] }))).status, 400, 'a discount needs its MSRP');
+  assert.equal((await send('sales', PAYLOAD({ lines: [{ kind: 'text', description: 'x', unit: 1, discount: 1 }] }))).status, 400, 'discount is a machine-line key');
+  assert.equal((await send('sales', PAYLOAD({ lines: [MLINE({ note: 'x'.repeat(301) })] }))).status, 400);
+  const keyOnly = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: 'acme-x20-walk-behind-scrubber-20-disk', discount: 433 }] }));
+  assert.equal(keyOnly.status, 201, JSON.stringify(keyOnly.body));
+  assert.deepEqual([keyOnly.body.payload.lines[0].list, keyOnly.body.payload.lines[0].unit], [5433, 5000], 'a key + discount fills MSRP and unit');
+});
+
+await check('v1.1 #3: email + PDF word it the Machinio way — MSRP, discount (only > 0), options (+$)/(included), per-unit Subtotal, the line note', async () => {
+  const q = { number: 'Q2001', date: '2026-10-08', expires: '2026-11-07', lines: [MLINE(), MLINE({ discount: 0, unit: 5433, note: undefined })], tax: true, tax_rate: 0.055,
+    sender: { name: 'Kevin Example', title: 'Territory Manager', mailbox: 'kevin@example.com', phone: '(555) 010-0001' }, business: CATALOG.business };
+  const { html, text } = renderQuoteEmail(q);
+  for (const w of ['#X20-PA (NEW)', '($5,433 MSRP)', 'Discount applied: −$543', 'Options:', 'X-010 115ah AGM (2x) (+$135)', 'X-020 33&quot; Squeegee (included)', 'Subtotal: $5,025', 'Delivery included. Approx. lead time 15 business days.']) {
+    assert.ok(html.includes(w), `email: ${w}`);
+  }
+  assert.equal((html.match(/Discount applied/g) || []).length, 1, 'no discount line at $0');
+  assert.ok(text.includes('Discount applied: −$543') && text.includes('Subtotal: $5,025'), 'the plain-text alternative words it the same');
+  const { renderQuotePdf, winAnsi } = await import('../worker/quote-pdf.js');
+  assert.equal(winAnsi('Discount applied: −$543'), 'Discount applied: –$543', 'the PDF font has no U+2212 — it must not print "?"');
+  const bytes = await renderQuotePdf(q);
+  assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
+  const b = lineBlocks(q.lines);
+  assert.deepEqual([b[0].rate, b[0].amount], [502500, 1005000], 'rate = per-unit subtotal, amount = qty × it');
+});
+
+await check('v1.1 #4: the signature carries the title when there is one (Kevin), and skips it when empty (Matt)', async () => {
+  assert.deepEqual(signatureLines({ name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001', mailbox: 'kevin@example.com' }, CATALOG.business),
+    ['Kevin Example', 'Territory Manager', 'Wisconsin Scrub & Sweep', '(555) 010-0001', 'kevin@example.com']);
+  assert.deepEqual(signatureLines({ name: 'Matt Example', title: '', phone: '(555) 010-0002', mailbox: 'matt@example.com' }), ['Matt Example', 'Wisconsin Scrub & Sweep', '(555) 010-0002', 'matt@example.com']);
+  await send('sales', PAYLOAD());
+  assert.ok(sent.at(-1).body.html.includes('Territory Manager') && sent.at(-1).body.text.includes('Territory Manager'));
+  await send('owner', PAYLOAD());
+  assert.ok(!sent.at(-1).body.html.includes('Territory Manager'));
+});
+
+await check('v1.1 #5a: the stored event carries the subject AS SENT — the number, never "Q----"', async () => {
+  const r = await send('sales', PAYLOAD());
+  assert.ok(!r.body.payload.subject.includes(NUMBER_PLACEHOLDER) && r.body.payload.subject.includes(r.body.result.number), r.body.payload.subject);
+  assert.equal(r.body.result.subject, r.body.payload.subject);
+  const stored = await env.FLEET_KV.get(`evt:${r.body.id}`, 'json');
+  assert.equal(stored.payload.subject, sent.at(-1).body.subject, 'event == the email that went');
+});
+
+await check('v1.1 #5b: the note names the picked machine once there is one, the lead’s machine before; an edited note is never rewritten', () => {
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', machine: 'a rider for the warehouse' };
+  const d = newDraft(lead);
+  assert.ok(d.note.includes('about a rider for the warehouse'), 'before a pick');
+  const l = addMachine(d, CATALOG.machines[1], lead);
+  assert.ok(d.note.includes('about Zeta Micro (20" Disk)') && !d.note.includes('rider'), d.note);
+  removeLine(d, l.id, lead);
+  assert.ok(d.note.includes('about a rider for the warehouse'), 'back to the lead machine when the pick goes');
+  d.note = 'My own words'; d.noteTouched = true;
+  addMachine(d, CATALOG.machines[0], lead);
+  assert.equal(d.note, 'My own words');
 });
 
 globalThis.fetch = realFetch;

@@ -24,7 +24,7 @@ import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWi
 import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog } from './api.js';
 import {
   composerView, newDraft, addMachine, addText, removeLine, toggleOption, groupsFor, draftPayload, draftProblem,
-  resultsHtml, totalsHtml,
+  resultsHtml, totalsHtml, syncPrice,
 } from './composer.js';
 import { quoteState, quoteChipText, quoteStateLong, monDayOf, tokenOf, isTracked } from './quotes.js';
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
@@ -82,7 +82,7 @@ import { activityGroups, pendingActivityRows, activityRoute, activityTime, actor
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-08-d83';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-08-d83b';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -4536,7 +4536,7 @@ function onComposerClick(el) {
     if (m) addMachine(d, m, l);
   } else if (act === 'brand') d.brand = d.brand === el.dataset.brand ? null : el.dataset.brand;
   else if (act === 'add-text') addText(d);
-  else if (act === 'remove' && line) removeLine(d, line.id);
+  else if (act === 'remove' && line) removeLine(d, line.id, l);
   else if (act === 'group' && line) {
     const k = `${line.id}|${el.dataset.group}`;
     if (d.open.has(k)) d.open.delete(k); else d.open.add(k);
@@ -4575,7 +4575,16 @@ function onComposerInput(t) {
     else if (['to', 'cc', 'freight'].includes(f)) d[f] = v;
   } else if (t.dataset.qcLine) {
     const l = d.lines.find((x) => x.id === Number(t.dataset.line));
-    if (l && ['qty', 'unit', 'description'].includes(t.dataset.qcLine)) l[t.dataset.qcLine] = v;
+    const f = t.dataset.qcLine;
+    if (l && ['qty', 'unit', 'description', 'discount', 'note'].includes(f)) {
+      l[f] = v;
+      // v1.1: MSRP − discount = unit. Write the OTHER field's new value straight into its input.
+      const moved = syncPrice(l, f);
+      if (moved) {
+        const other = document.querySelector(`[data-qc-line="${moved.field}"][data-line="${l.id}"]`);
+        if (other) other.value = moved.value;
+      }
+    }
   } else if (t.dataset.qcOpt) {
     const l = d.lines.find((x) => x.id === Number(t.dataset.line));
     const o = l && l.options.find((x) => x.part === t.dataset.part);

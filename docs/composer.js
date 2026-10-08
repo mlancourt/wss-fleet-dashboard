@@ -72,10 +72,24 @@ export function groupsFor(catalog, machine) {
 export function noteTemplate(lead, pickedTitle = null) {
   const l = lead || {};
   const first = String(l.contact || '').trim().split(/\s+/)[0] || 'there';
-  const about = l.machine || pickedTitle || 'the machine';
-  const what = l.machine || pickedTitle || 'it';
+  // The picked machine wins once there is one (the lead's free-text `machine` is what they asked about,
+  // not necessarily what Kevin is quoting); before a pick, the lead's machine is the best guess.
+  const about = pickedTitle || l.machine || 'the machine';
+  const what = pickedTitle || l.machine || 'it';
   const ask = typeof l.note === 'string' && l.note.trim() ? ` You asked about: "${l.note.trim().split('\n')[0].slice(0, 160)}".` : '';
   return `Hi ${first},\n\nThanks for reaching out about ${about}. Here's the quote for ${what} for ${l.customer || 'you'}.${ask}\n\nHappy to set up a demo — just reply or call me.`;
+}
+
+/**
+ * The Discount field (spec v1.1 §1): "543" is dollars, "10%" is a percent of the MSRP. → the AMOUNT
+ * (number), null when empty, NaN when it isn't either. A percent needs an MSRP to come off.
+ */
+export function parseDiscount(v, list) {
+  const s = String(v == null ? '' : v).replace(/[$,\s]/g, '');
+  if (!s) return null;
+  const pct = /^(\d+(?:\.\d+)?)%$/.exec(s);
+  if (pct) return typeof list === 'number' && Number(pct[1]) <= 100 ? Math.round(list * Number(pct[1])) / 100 : NaN;
+  return parseMoney(s);
 }
 
 /** "$5,433" / "5433.00" / "" → number | null (empty) | NaN (garbage). */
@@ -86,7 +100,7 @@ export function parseMoney(v) {
   return Number(s);
 }
 
-const money2 = (n) => (typeof n === 'number' && isFinite(n) ? String(Math.round(n * 100) / 100) : '');
+const money2 = (n) => { if (typeof n !== 'number' || !isFinite(n)) return ''; const r = Math.round(n * 100) / 100; return Number.isInteger(r) ? String(r) : r.toFixed(2); };
 
 export function newDraft(lead) {
   return {
@@ -101,24 +115,54 @@ export function addMachine(draft, m, lead) {
   if (draft.lines.length >= MAX_LINES) return null;
   const line = {
     id: ++draft.seq, kind: 'machine', key: m.key, description: m.title || '', model: m.model || '', stock: m.stock || '',
-    qty: '1', unit: money2(m.list), list: typeof m.list === 'number' ? m.list : null,
+    qty: '1', unit: money2(m.list), list: typeof m.list === 'number' ? m.list : null, discount: '', note: '',
     series: m.series || null, deck_in: m.deck_in == null ? null : m.deck_in, deck_type: m.deck_type || null, options: [],
   };
   draft.lines.push(line);
-  if (!draft.noteTouched && lead) draft.note = noteTemplate(lead, firstTitle(draft));
+  retemplate(draft, lead);
   draft.query = '';
   return line;
 }
 
 export function addText(draft) {
   if (draft.lines.length >= MAX_LINES) return null;
-  const line = { id: ++draft.seq, kind: 'text', description: '', qty: '1', unit: '' };
+  const line = { id: ++draft.seq, kind: 'text', description: '', qty: '1', unit: '', note: '' };
   draft.lines.push(line);
   return line;
 }
 
-export function removeLine(draft, id) {
+export function removeLine(draft, id, lead = null) {
   draft.lines = draft.lines.filter((l) => l.id !== id);
+  retemplate(draft, lead);
+}
+
+/** Re-write the note for the current first machine — only while Kevin hasn't touched it. */
+export function retemplate(draft, lead) {
+  if (!draft.noteTouched && lead) draft.note = noteTemplate(lead, firstTitle(draft));
+}
+
+/**
+ * Keep MSRP − discount = unit (v1.1 §1). Editing the discount moves the unit; editing the unit
+ * back-computes the discount. → the field that moved and its new text, for app.js to write into
+ * the OTHER input without re-rendering the one under the thumb.
+ */
+export function syncPrice(line, edited) {
+  if (!line || line.kind !== 'machine' || typeof line.list !== 'number') return null;
+  if (edited === 'discount') {
+    const d = parseDiscount(line.discount, line.list);
+    if (d == null) { line.unit = money2(line.list); return { field: 'unit', value: line.unit }; }
+    if (Number.isNaN(d)) return null;
+    line.unit = money2(Math.round((line.list - d) * 100) / 100);
+    return { field: 'unit', value: line.unit };
+  }
+  if (edited === 'unit') {
+    const u = parseMoney(line.unit);
+    if (u == null || Number.isNaN(u)) return null;
+    const d = Math.round((line.list - u) * 100) / 100;
+    line.discount = d > 0 ? money2(d) : '';
+    return { field: 'discount', value: line.discount };
+  }
+  return null;
 }
 
 /** Tick / untick an option on a machine line. A tick starts at list price. */
@@ -144,13 +188,25 @@ export function draftPayload(draft) {
     const qty = Number.parseInt(l.qty, 10);
     const unit = parseMoney(l.unit);
     if (l.kind === 'machine') {
-      return {
+      const out = {
         kind: 'machine', key: l.key || undefined, description: l.description, model: l.model || undefined,
         qty: Number.isInteger(qty) ? qty : 1, unit,
         options: l.options.map((o) => ({ part: o.part || undefined, description: o.description, unit: parseMoney(o.unit) })),
       };
+      // MSRP + discount travel whenever there is an MSRP and the price is at or under it; the discount
+      // is derived from the two so list − discount = unit holds to the cent (the Worker refuses otherwise).
+      if (typeof l.list === 'number' && typeof unit === 'number' && !Number.isNaN(unit) && unit <= l.list) {
+        out.list = l.list;
+        out.discount = Math.round((l.list - unit) * 100) / 100;
+      }
+      const n = String(l.note || '').trim();
+      if (n) out.note = n;
+      return out;
     }
-    return { kind: 'text', description: String(l.description || '').trim(), qty: Number.isInteger(qty) ? qty : 1, unit };
+    const t = { kind: 'text', description: String(l.description || '').trim(), qty: Number.isInteger(qty) ? qty : 1, unit };
+    const n = String(l.note || '').trim();
+    if (n) t.note = n;
+    return t;
   });
   const f = parseMoney(draft.freight);
   if (f != null) lines.push({ kind: 'freight', description: 'Freight', qty: 1, unit: f });
@@ -171,6 +227,12 @@ export function draftProblem(draft) {
     if (l.kind === 'text' && !String(l.description || '').trim()) return 'Say what the extra line is for.';
     const u = parseMoney(l.unit);
     if (u == null || Number.isNaN(u)) return `Put a price on ${what}.`;
+    if (l.kind === 'machine' && typeof l.list === 'number') {
+      const d = parseDiscount(l.discount, l.list);
+      if (Number.isNaN(d)) return `Discount on ${what} is a dollar amount or a percent (543 or 10%).`;
+      if (d != null && d > l.list) return `The discount on ${what} is more than its MSRP.`;
+    }
+    if (String(l.note || '').length > 300) return `The note on ${what} is over 300 characters.`;
     const q = Number.parseInt(l.qty, 10);
     if (!(q >= 1 && q <= 99) || String(q) !== String(l.qty).trim()) return `Qty on ${what} is 1–99.`;
     for (const o of l.options || []) {
@@ -215,16 +277,20 @@ const priceText = (n) => (n == null ? 'no list price' : n === 0 ? 'N/C' : fmtUsd
 function lineCard(draft, catalog, l) {
   const head = html => `<div class="qc-line card" data-line="${l.id}">${html}</div>`;
   const rm = `<button type="button" class="qc-x" data-qc="remove" data-line="${l.id}" aria-label="Remove this line">✕</button>`;
+  const msrp = l.kind === 'machine' && typeof l.list === 'number';
   const qtyUnit = `
     <div class="qc-2">
       <label>Qty<input data-qc-line="qty" data-line="${l.id}" inputmode="numeric" value="${attr(l.qty)}"></label>
       <label>Unit price<input data-qc-line="unit" data-line="${l.id}" inputmode="decimal" value="${attr(l.unit)}" placeholder="0.00"></label>
-    </div>`;
+    </div>
+    ${msrp ? `<label>Discount off ${esc(fmtUsd(l.list))} MSRP<input data-qc-line="discount" data-line="${l.id}" inputmode="decimal" value="${attr(l.discount)}" placeholder="543 or 10%"></label>` : ''}`;
+  const noteField = `<label>Line note<input data-qc-line="note" data-line="${l.id}" maxlength="300" value="${attr(l.note || '')}" placeholder="Delivery included · approx. lead time 15 business days"></label>`;
   if (l.kind === 'text') {
     return head(`
       <div class="qc-line-h"><strong>Extra line</strong>${rm}</div>
       <label>What it is<input data-qc-line="description" data-line="${l.id}" maxlength="200" value="${attr(l.description)}" placeholder="Delivery + setup, Mequon"></label>
-      ${qtyUnit}`);
+      ${qtyUnit}
+      ${noteField}`);
   }
   const groups = groupsFor(catalog, l);
   const ticked = new Set(l.options.map((o) => o.part));
@@ -252,9 +318,10 @@ function lineCard(draft, catalog, l) {
   }).join('');
   return head(`
     <div class="qc-line-h"><strong>${esc(l.description)}</strong>${rm}</div>
-    <div class="qc-sub">${[l.model && `Model ${esc(l.model)}`, l.stock && `Stock ${esc(l.stock)}`, l.list != null ? `list ${esc(fmtUsd(l.list))}` : 'no list price — type one'].filter(Boolean).join(' · ')}</div>
+    <div class="qc-sub">${[l.model && `Model ${esc(l.model)}`, l.stock && `Stock ${esc(l.stock)}`, l.list != null ? `MSRP ${esc(fmtUsd(l.list))}` : 'no list price — type one'].filter(Boolean).join(' · ')}</div>
     ${qtyUnit}
-    ${groups.length ? `<div class="qc-opts-h">Options</div>${grp}` : ''}`);
+    ${groups.length ? `<div class="qc-opts-h">Options</div>${grp}` : ''}
+    ${noteField}`);
 }
 
 export function resultsHtml(draft, catalog) {

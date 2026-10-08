@@ -277,7 +277,8 @@ const MAX_QUOTE_OPTIONS = 40;                     // per machine line
 const MAX_QUOTE_UNIT = 10000000;
 const MAX_CC = 5;
 const QUOTE_KEYS = new Set(['lead', 'to', 'cc', 'subject', 'lines', 'tax', 'note', 'valid_days']);
-const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options']);
+const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options', 'list', 'discount', 'note']);   // v1.1: list/discount/note
+const MAX_LINE_NOTE = 300;
 const QUOTE_OPTION_KEYS = new Set(['part', 'description', 'unit']);
 const CATALOG_KEY_RE = /^[a-z0-9][a-z0-9-]{0,159}$/;
 const CATALOG_NEVER = /^(net|disc)$/i;            // dealer cost + discount never leave the vault
@@ -1440,7 +1441,11 @@ function senderFor(env, name) {
   try { map = env.SENDERS ? (typeof env.SENDERS === 'string' ? JSON.parse(env.SENDERS) : env.SENDERS) : null; } catch { map = null; }
   const s = map && Object.prototype.hasOwnProperty.call(map, name) ? map[name] : null;
   if (!s || typeof s.mailbox !== 'string' || !EMAIL_RE.test(s.mailbox)) return null;
-  return { mailbox: s.mailbox, name: typeof s.name === 'string' && s.name.trim() ? s.name.trim() : name, phone: typeof s.phone === 'string' ? s.phone : null };
+  return {
+    mailbox: s.mailbox, name: typeof s.name === 'string' && s.name.trim() ? s.name.trim() : name,
+    title: typeof s.title === 'string' && s.title.trim() ? s.title.trim() : null,   // v1.1 §6b: "Territory Manager" for Kevin, "" for Matt
+    phone: typeof s.phone === 'string' ? s.phone : null,
+  };
 }
 
 /** Today in Central, YYYY-MM-DD, plus N calendar days — Date.UTC parts, never a date-only string parse. */
@@ -1514,6 +1519,10 @@ function cleanQuote(p, catalog) {
     let description = str(l.description, 200, `${at}.description`, false);
     let model = str(l.model, 80, `${at}.model`, false);
     let unit = l.unit == null || l.unit === '' ? null : money(l.unit, `${at}.unit`);
+    const lineNote = str(l.note, MAX_LINE_NOTE, `${at}.note`, false);
+    if ((l.list != null || l.discount != null) && l.kind !== 'machine') throw httpError(400, `${at}: list / discount ride only on a machine line`);
+    let list = l.list == null || l.list === '' ? null : money(l.list, `${at}.list`);
+    const discount = l.discount == null || l.discount === '' ? null : money(l.discount, `${at}.discount`);
     const out = { kind: l.kind };
     if (l.kind === 'machine') {
       const key = str(l.key, 160, `${at}.key`, false);
@@ -1523,7 +1532,8 @@ function cleanQuote(p, catalog) {
         if (m) {
           description = description || m.title || null;
           model = model || m.model || null;
-          if (unit == null && typeof m.list === 'number') unit = Math.round(m.list * 100) / 100;
+          if (list == null && typeof m.list === 'number' && (unit == null || discount != null)) list = Math.round(m.list * 100) / 100;
+          if (unit == null && list != null) unit = Math.round((list - (discount || 0)) * 100) / 100;
           out.key = key;
         } else if (!description || unit == null) {
           throw httpError(400, `${at}: ${key} is not in the catalog — give it a description and a price, or pick it again`);
@@ -1532,11 +1542,20 @@ function cleanQuote(p, catalog) {
         }
       }
       if (!description) throw httpError(400, `${at}.description is required`);
+      if (unit == null && list != null) unit = Math.round((list - (discount || 0)) * 100) / 100;
       if (unit == null) throw httpError(400, `${at}.unit is required — this machine has no list price, type one`);
+      // v1.1 §3 step 1: MSRP − discount = unit, to the cent (±0.01). The discount can't exceed the MSRP either.
+      if (discount != null && list == null) throw httpError(400, `${at}: a discount needs the MSRP (list) it comes off`);
+      if (list != null && Math.abs(list - (discount || 0) - unit) > 0.0101) {
+        throw httpError(400, `${at}: list − discount (${(list - (discount || 0)).toFixed(2)}) doesn't match unit (${unit.toFixed(2)})`);
+      }
+      if (unit < 0) throw httpError(400, `${at}: the discount is bigger than the MSRP`);
       const opts = l.options == null ? [] : l.options;
       if (!Array.isArray(opts)) throw httpError(400, `${at}.options must be a list`);
       if (opts.length > MAX_QUOTE_OPTIONS) throw httpError(400, `${at}.options is limited to ${MAX_QUOTE_OPTIONS}`);
       Object.assign(out, { description, model, qty, unit });
+      if (list != null) { out.list = list; out.discount = discount || 0; }
+      if (lineNote) out.note = lineNote;
       out.options = opts.map((o, j) => {
         const oat = `${at}.options[${j}]`;
         if (!o || typeof o !== 'object' || Array.isArray(o)) throw httpError(400, `${oat} must be an object`);
@@ -1548,7 +1567,9 @@ function cleanQuote(p, catalog) {
     if (l.kind === 'freight') description = description || 'Freight';
     if (!description) throw httpError(400, `${at}.description is required`);
     if (unit == null) throw httpError(400, `${at}.unit is required`);
-    return Object.assign(out, { description, qty, unit });
+    Object.assign(out, { description, qty, unit });
+    if (lineNote) out.note = lineNote;
+    return out;
   });
   return { lead, to, cc, subject, lines, tax, note, valid_days };
 }
@@ -1649,8 +1670,8 @@ async function quoteSend({ request, env, me, raw }) {
   const id = `${ts}:${rand6()}`;
   const event = {
     id, ts, actor: me.name, role: me.role, action: 'quote_send', serial: null,
-    payload: p,
-    result: { number, token, sent_at, by: me.name, to: p.to, subtotal: totals.subtotal, tax: totals.tax, total: totals.total,
+    payload: { ...p, subject },      // the subject AS SENT — "Q----" already replaced by the number
+    result: { number, token, sent_at, by: me.name, to: p.to, subject, subtotal: totals.subtotal, tax: totals.tax, total: totals.total,
       tax_rate: rate, expires, pdf: `/q/${token}.pdf` },
   };
   await env.FLEET_KV.put(`evt:${id}`, JSON.stringify(event));

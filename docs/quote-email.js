@@ -42,42 +42,69 @@ export function longDate(ymd) {
 }
 
 /**
- * Totals, server-side truth (spec §3 step 1): subtotal = Σ qty·unit + Σ option
- * units (an option rides once on its machine line, not per qty); tax is the
- * rate on that whole subtotal when on (machine + options + freight are all
- * taxable in WI), rounded to the cent.
+ * Totals, server-side truth (spec v1.1 §3 step 1): a machine line's per-unit
+ * price is `unit` + Σ option units — options are per machine, so they multiply
+ * by qty too; subtotal = Σ qty·line_unit. Tax is the rate on that whole
+ * subtotal when on (machine + options + freight are all taxable in WI),
+ * rounded to the cent.
  */
+export const lineUnitCents = (l) => toCents(l && l.unit) + ((l && l.options) || []).reduce((n, o) => n + toCents(o && o.unit), 0);
+
 export function quoteTotals(lines, taxOn, rate = DEFAULT_TAX_RATE) {
   let sub = 0;
   for (const l of lines || []) {
     const qty = Number.isInteger(l && l.qty) ? l.qty : 1;
-    sub += qty * toCents(l && l.unit);
-    for (const o of (l && l.options) || []) sub += toCents(o && o.unit);
+    sub += qty * lineUnitCents(l);
   }
   const tax = taxOn ? Math.round(sub * rate) : 0;
   return { subtotal: sub / 100, tax: tax / 100, total: (sub + tax) / 100, tax_rate: rate };
 }
 
+/** "$5,433" when whole dollars, "$5,433.50" otherwise — the Machinio wording inside a line. */
+export function fmtWhole(c) {
+  return Math.round(c) % 100 === 0 ? fmtCents(c).replace(/\.00$/, '') : fmtCents(c);
+}
+
 /**
- * The display rows, in order: each machine line with its options indented
- * beneath it, then text and freight lines. A $0 option reads "N/C" — it's
- * included, not free-floating.
+ * One block per line, worded the way WSS has quoted on Machinio for five years
+ * (spec v1.1 §3 step 3, Machinio-Quote-Example-300160):
+ *
+ *   Kodiak K12 Walk-Behind Floor Scrubber (20" Disk)          (title, bold)
+ *   #K12-20PA (NEW)
+ *   ($5,433 MSRP)
+ *   Discount applied: −$543                                   (only when > 0)
+ *   Options:
+ *   K12-010 115ah AGM (2x) / Onboard Charger (+$135)          ((included) at $0)
+ *   Subtotal: $5,025                                          (per unit)
+ *   Delivery included.                                        (the line note)
+ *
+ * → [{ kind, title, detail: [{text, tone}], qty, rate (cents, per unit), amount (cents) }]
+ * The email, the PDF and the composer's preview all draw from this, so they cannot disagree.
  */
-export function lineRows(lines) {
-  const out = [];
-  for (const l of lines || []) {
+export function lineBlocks(lines) {
+  return (lines || []).map((l) => {
     const qty = Number.isInteger(l && l.qty) ? l.qty : 1;
-    const unitC = toCents(l.unit);
-    out.push({
-      level: 0, kind: l.kind, description: l.description || '', model: l.kind === 'machine' ? (l.model || '') : '',
-      qty, unit: unitC, amount: qty * unitC,
-    });
-    for (const o of l.options || []) {
-      const c = toCents(o.unit);
-      out.push({ level: 1, kind: 'option', description: o.description || '', part: o.part || '', qty: 1, unit: c, amount: c, nc: c === 0 });
+    const each = lineUnitCents(l);
+    const detail = [];
+    if (l.kind === 'machine') {
+      if (l.model) detail.push({ text: `#${l.model} (NEW)`, tone: 'sub' });
+      const list = typeof l.list === 'number' ? toCents(l.list) : null;
+      const disc = typeof l.discount === 'number' ? toCents(l.discount) : 0;
+      if (list != null) detail.push({ text: `(${fmtWhole(list)} MSRP)`, tone: 'plain' });
+      if (disc > 0) detail.push({ text: `Discount applied: −${fmtWhole(disc)}`, tone: 'plain' });
+      const opts = l.options || [];
+      if (opts.length) {
+        detail.push({ text: 'Options:', tone: 'plain' });
+        for (const o of opts) {
+          const c = toCents(o.unit);
+          detail.push({ text: `${o.part ? `${o.part} ` : ''}${o.description || ''} (${c === 0 ? 'included' : `+${fmtWhole(c)}`})`, tone: 'opt' });
+        }
+      }
+      detail.push({ text: `Subtotal: ${fmtWhole(each)}`, tone: 'strong' });
     }
-  }
-  return out;
+    if (l.note) detail.push({ text: String(l.note), tone: 'note' });
+    return { kind: l.kind, title: l.description || '', detail, qty, rate: each, amount: qty * each };
+  });
 }
 
 export const defaultSubject = (number, title) =>
@@ -96,6 +123,12 @@ export function quoteTerms(validDays = DEFAULT_VALID_DAYS, business = null) {
 export const taxLabel = (rate) => `Sales tax (${Math.round(rate * 1000) / 10}%)`;
 export const TAX_EXEMPT_LINE = 'Tax not included — exempt certificate on file';
 
+/** The signature block (spec v1.1 §6b): name · title (if any) · Wisconsin Scrub & Sweep · phone · email. */
+export function signatureLines(sender, business = null) {
+  const s = sender || {};
+  return [s.name, s.title, (business && business.name) || 'Wisconsin Scrub & Sweep', s.phone, s.mailbox].filter((x) => typeof x === 'string' && x.trim());
+}
+
 /** Plain-text note → paragraphs. Blank lines split; single newlines become <br>. */
 function noteHtml(note) {
   return String(note || '').trim().split(/\n\s*\n/).filter(Boolean)
@@ -113,7 +146,7 @@ function noteHtml(note) {
 export function renderQuoteEmail(q) {
   const rate = typeof q.tax_rate === 'number' ? q.tax_rate : DEFAULT_TAX_RATE;
   const t = quoteTotals(q.lines, !!q.tax, rate);
-  const rows = lineRows(q.lines);
+  const blocks = lineBlocks(q.lines);
   const number = q.number || NUMBER_PLACEHOLDER;
   const sender = q.sender || {};
   const pdf = q.pdf_url || '#';
@@ -121,19 +154,15 @@ export function renderQuoteEmail(q) {
   const cell = 'padding:8px 6px;border-bottom:1px solid #e6e6e6;font-size:14px;vertical-align:top';
   const num = `${cell};text-align:right;white-space:nowrap`;
 
-  const lineHtml = rows.map((r) => (r.level === 0 ? `
+  const toneCss = { sub: 'color:#666;font-size:12px', plain: 'color:#333;font-size:13px', opt: 'color:#333;font-size:13px;padding-left:10px',
+    strong: 'color:#1a1a1a;font-size:13px;font-weight:bold', note: 'color:#555;font-size:13px;font-style:italic' };
+  const lineHtml = blocks.map((r) => `
       <tr>
-        <td style="${cell}"><strong>${esc(r.description)}</strong>${r.model ? `<br><span style="color:#666;font-size:12px">Model ${esc(r.model)}</span>` : ''}</td>
+        <td style="${cell}"><strong>${esc(r.title)}</strong>${r.detail.map((d) => `<div style="${toneCss[d.tone]};margin-top:2px">${esc(d.text)}</div>`).join('')}</td>
         <td style="${num}">${r.qty}</td>
-        <td style="${num}">${fmtCents(r.unit)}</td>
+        <td style="${num}">${fmtCents(r.rate)}</td>
         <td style="${num}">${fmtCents(r.amount)}</td>
-      </tr>` : `
-      <tr>
-        <td style="${cell};padding-left:22px;color:#333">${esc(r.description)}${r.part ? ` <span style="color:#888;font-size:12px">(${esc(r.part)})</span>` : ''}</td>
-        <td style="${num}"></td>
-        <td style="${num}"></td>
-        <td style="${num}">${r.nc ? 'N/C' : fmtCents(r.amount)}</td>
-      </tr>`)).join('');
+      </tr>`).join('');
 
   const totRow = (label, value, strong) => `
       <tr>
@@ -153,9 +182,9 @@ export function renderQuoteEmail(q) {
   <tr><td style="padding:4px 12px 0 12px">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
       <tr>
-        <th align="left" style="padding:6px;font-size:12px;color:#666;border-bottom:2px solid ${red}">Item</th>
+        <th align="left" style="padding:6px;font-size:12px;color:#666;border-bottom:2px solid ${red}">Description</th>
         <th align="right" style="padding:6px;font-size:12px;color:#666;border-bottom:2px solid ${red}">Qty</th>
-        <th align="right" style="padding:6px;font-size:12px;color:#666;border-bottom:2px solid ${red}">Unit</th>
+        <th align="right" style="padding:6px;font-size:12px;color:#666;border-bottom:2px solid ${red}">Rate</th>
         <th align="right" style="padding:6px;font-size:12px;color:#666;border-bottom:2px solid ${red}">Amount</th>
       </tr>${lineHtml}
       ${totRow('Subtotal', fmtUsd(t.subtotal))}
@@ -167,8 +196,7 @@ export function renderQuoteEmail(q) {
     <a href="${esc(pdf)}" style="display:inline-block;background:${red};color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;padding:14px 22px;border-radius:6px">View / download quote (PDF)</a>
   </td></tr>
   <tr><td style="padding:0 18px 16px 18px;font-size:15px;line-height:1.5">
-    ${esc(sender.name || '')}<br>
-    ${sender.phone ? `${esc(sender.phone)}<br>` : ''}${sender.mailbox ? `<a href="mailto:${esc(sender.mailbox)}" style="color:${red}">${esc(sender.mailbox)}</a>` : ''}
+    ${signatureLines(sender, q.business).map((x, i) => (i === 0 ? `<strong>${esc(x)}</strong>` : x === sender.mailbox ? `<a href="mailto:${esc(x)}" style="color:${red}">${esc(x)}</a>` : esc(x))).join('<br>')}
   </td></tr>
   <tr><td style="padding:12px 18px 18px 18px;font-size:11px;line-height:1.5;color:#777;border-top:1px solid #e6e6e6">${esc(quoteTerms(q.valid_days || DEFAULT_VALID_DAYS, q.business))}</td></tr>
 </table>
@@ -177,9 +205,7 @@ ${q.pixel_url ? `<img src="${esc(q.pixel_url)}" width="1" height="1" alt="" styl
 </body></html>`;
 
   const pad = (s, n) => (s.length >= n ? s : s + ' '.repeat(n - s.length));
-  const textLines = rows.map((r) => (r.level === 0
-    ? `${r.description}${r.model ? ` (Model ${r.model})` : ''}\n  ${r.qty} x ${fmtCents(r.unit)} = ${fmtCents(r.amount)}`
-    : `  + ${r.description}${r.part ? ` (${r.part})` : ''}: ${r.nc ? 'N/C' : fmtCents(r.amount)}`));
+  const textLines = blocks.map((r) => [r.title, ...r.detail.map((d) => `  ${d.text}`), `  ${r.qty} x ${fmtCents(r.rate)} = ${fmtCents(r.amount)}`].join('\n'));
   const text = [
     `QUOTE ${number} · ${longDate(q.date)} · valid through ${longDate(q.expires)}`,
     '',
@@ -193,7 +219,7 @@ ${q.pixel_url ? `<img src="${esc(q.pixel_url)}" width="1" height="1" alt="" styl
     '',
     `View / download the quote (PDF): ${pdf}`,
     '',
-    [sender.name, sender.phone, sender.mailbox].filter(Boolean).join('\n'),
+    signatureLines(sender, q.business).join('\n'),
     '',
     quoteTerms(q.valid_days || DEFAULT_VALID_DAYS, q.business),
   ].join('\n');
