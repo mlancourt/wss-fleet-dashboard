@@ -455,6 +455,23 @@ await check('composer: option groups filtered to the machine’s deck (range + t
   assert.deepEqual(groupsFor(cat, { series: null }), []);
 });
 
+await check('composer: `fits` per-deck groups (one per fit, same name) merge back into one group with the generic rows', () => {
+  // The engine's shape for an rps-options row with fits "26D;25C" — one group per deck, deck_min = deck_max.
+  const cat = { series: { S: { groups: [
+    { name: 'HEAVY DUTY', deck_min: 26, deck_max: 26, deck_type: 'D', items: [{ part: 'SD26', description: 'Side doors 26', list: 9 }] },
+    { name: 'HEAVY DUTY', deck_min: 25, deck_max: 25, deck_type: 'C', items: [{ part: 'SD26', description: 'Side doors 26', list: 9 }] },
+    { name: 'HEAVY DUTY', deck_min: 30, deck_max: 30, deck_type: 'D', items: [{ part: 'SD30', description: 'Side doors 30', list: 9 }] },
+    { name: 'HEAVY DUTY', deck_min: null, deck_max: null, deck_type: null, items: [{ part: 'HD1', description: 'Bumper', list: 5 }] },
+    { name: 'SQUEEGEE', deck_min: 26, deck_max: 26, deck_type: 'D', items: [{ part: 'Q37', description: '37"', list: 0 }] },
+    { name: 'SQUEEGEE', deck_min: 30, deck_max: 30, deck_type: 'D', items: [{ part: 'Q41', description: '41"', list: 0 }] },
+  ] } } };
+  const parts = (m) => groupsFor(cat, { series: 'S', ...m }).map((g) => `${g.name}:${g.items.map((i) => i.part).join('+')}`);
+  assert.deepEqual(parts({ deck_in: 26, deck_type: 'D' }), ['HEAVY DUTY:SD26+HD1', 'SQUEEGEE:Q37']);
+  assert.deepEqual(parts({ deck_in: 25, deck_type: 'C' }), ['HEAVY DUTY:SD26+HD1']);
+  assert.deepEqual(parts({ deck_in: 30, deck_type: 'D' }), ['HEAVY DUTY:SD30+HD1', 'SQUEEGEE:Q41']);
+  assert.deepEqual(parts({ deck_in: 26, deck_type: 'R' }), ['HEAVY DUTY:HD1'], 'the fit carries the deck letter');
+});
+
 await check('composer: the note template, the money parser, and what stops Send', () => {
   const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com', machine: null, note: 'Need a 20" for the dock\nsecond line' };
   const n = noteTemplate(lead, 'Acme X20');
