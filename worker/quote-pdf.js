@@ -10,7 +10,7 @@
  * throwing mid-send.
  */
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { lineBlocks, signatureLines, quoteTotals, fmtCents, fmtUsd, longDate, quoteTerms, taxLabel, TAX_EXEMPT_LINE, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS } from '../docs/quote-email.js';
+import { lineBlocks, quoteTotals, fmtCents, fmtUsd, quoteTerms, TAX_EXEMPT_LINE, DEFAULT_TAX_RATE, FOOTER_LINE } from '../docs/quote-email.js';
 import { LOGO_JPEG_B64 } from './quote-logo.js';
 
 const RED = rgb(0xB7 / 255, 0x1C / 255, 0x1C / 255);
@@ -57,9 +57,22 @@ function wrap(text, font, size, width) {
   return out;
 }
 
+/** "2026-10-08" → "10/08/2026" — the Machinio quotes' header date. String surgery. */
+const numDate = (ymd) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : String(ymd || '');
+};
+const TINT = rgb(0xF6 / 255, 0xD9 / 255, 0xD9 / 255);   // the red-tinted header band
+
 /**
- * q = { number, date, expires, valid_days, customer, contact, to, sender:{name, mailbox, phone},
+ * q = { number, date, expires, valid_days, customer, contact, to, sender:{name, title, mailbox, phone},
  *       lines, tax, tax_rate, business }  →  Uint8Array (the PDF bytes)
+ *
+ * Laid out like the Machinio quotes WSS has sent for five years (spec v1.1 §3 step 3,
+ * Reference/Machinio-Quote-Example-300160.pdf): company block top-left, the mark top-right,
+ * a red "Quote", QUOTE # / DATE / VALID THROUGH, ADDRESS + QUOTED BY, the tinted
+ * DESCRIPTION · QTY · RATE · AMOUNT band, the lines, terms bottom-left beside the totals,
+ * Accepted By / Accepted Date, and the veteran-owned footer.
  */
 export async function renderQuotePdf(q) {
   const doc = await PDFDocument.create();
@@ -70,8 +83,7 @@ export async function renderQuotePdf(q) {
   const sender = q.sender || {};
   const rate = typeof q.tax_rate === 'number' ? q.tax_rate : DEFAULT_TAX_RATE;
   const totals = quoteTotals(q.lines, !!q.tax, rate);
-  const title = `WSS Quote ${q.number}`;
-  doc.setTitle(title);
+  doc.setTitle(`WSS Quote ${q.number}`);
   doc.setAuthor(winAnsi(biz.name || 'Wisconsin Scrub & Sweep'));
   doc.setSubject(winAnsi(`Quote ${q.number} for ${q.customer || ''}`));
   doc.setCreator('WSS Fleet');
@@ -85,118 +97,138 @@ export async function renderQuotePdf(q) {
     const t = winAnsi(s);
     page.drawText(t, { x: xr - f.widthOfTextAtSize(t, size), y: yy, size, font: f, color });
   };
-  const rule = (yy, color = RULE, thick = 0.75) => page.drawLine({ start: { x: M, y: yy }, end: { x: M + W, y: yy }, thickness: thick, color });
+  const center = (s, yy, size = 10, f = font, color = INK) => {
+    const t = winAnsi(s);
+    page.drawText(t, { x: (PAGE[0] - f.widthOfTextAtSize(t, size)) / 2, y: yy, size, font: f, color });
+  };
+  const dotted = (yy) => page.drawLine({ start: { x: M, y: yy }, end: { x: M + W, y: yy }, thickness: 0.6, color: RULE, dashArray: [1.5, 2] });
 
-  // Columns: item | qty | unit | amount (right edges for the numbers).
+  // Columns: description | qty | rate | amount (right edges for the numbers).
   const X_QTY = M + W - 190;
   const X_UNIT = M + W - 95;
   const X_AMT = M + W;
   const ITEM_W = X_QTY - 40 - M;
 
   const tableHead = () => {
-    page.drawRectangle({ x: M, y: y - 4, width: W, height: 18, color: RED });
-    text('Description', M + 6, y + 1, 9, bold, rgb(1, 1, 1));
-    right('Qty', X_QTY, y + 1, 9, bold, rgb(1, 1, 1));
-    right('Rate', X_UNIT, y + 1, 9, bold, rgb(1, 1, 1));
-    right('Amount', X_AMT - 6, y + 1, 9, bold, rgb(1, 1, 1));
-    y -= 22;
+    page.drawRectangle({ x: M - 6, y: y - 5, width: W + 12, height: 18, color: TINT });
+    text('DESCRIPTION', M, y + 1, 8.5, font, RED);
+    right('QTY', X_QTY, y + 1, 8.5, font, RED);
+    right('RATE', X_UNIT, y + 1, 8.5, font, RED);
+    right('AMOUNT', X_AMT, y + 1, 8.5, font, RED);
+    y -= 24;
   };
+  const FOOT = M + 4;                          // the footer line's baseline
   const newPage = (first) => {
     page = doc.addPage(PAGE);
+    center(FOOTER_LINE, FOOT, 9.5);
     y = PAGE[1] - M;
     if (!first) {
-      text(`QUOTE ${q.number} (continued)`, M, y - 10, 10, bold, GREY);
+      text(`QUOTE # ${q.number} (continued)`, M, y - 10, 10, bold, GREY);
       y -= 30;
       tableHead();
     }
   };
-  const ensure = (h) => { if (y - h < M + 24) newPage(false); };
+  const ensure = (h) => { if (y - h < FOOT + 30) newPage(false); };
 
   newPage(true);
-  // ---- header: the mark left, the quote's identity right.
-  const lh = 58;
-  const lw = (logo.width / logo.height) * lh;
-  page.drawImage(logo, { x: M, y: y - lh, width: lw, height: lh });
-  right('QUOTE', M + W, y - 18, 22, bold, RED);
-  right(q.number, M + W, y - 36, 13, bold);
-  right(`Date: ${longDate(q.date)}`, M + W, y - 51, 9.5, font, GREY);
-  right(`Valid through: ${longDate(q.expires)}`, M + W, y - 63, 9.5, font, GREY);
-  y -= lh + 22;
-  rule(y, RED, 1.5);
-  y -= 18;
 
-  // ---- To / From.
+  // ---- top: company block left, the mark right.
+  const company = [[biz.name || 'Wisconsin Scrub & Sweep', bold], [biz.street, font], [biz.city_line, font],
+    [biz.phone, font], [biz.email, font], [biz.url, font]].filter(([s]) => s);
+  let yy = y - 8;
+  for (const [s, f] of company) { text(s, M, yy, f === bold ? 9.5 : 9, f); yy -= 12.5; }
+  const lh = 34;
+  const lw = (logo.width / logo.height) * lh;
+  page.drawImage(logo, { x: M + W - lw, y: y - lh - 2, width: lw, height: lh });
+
+  // ---- "Quote" + QUOTE # / DATE / VALID THROUGH.
+  y = yy - 22;
+  text('Quote', M, y, 26, font, RED);
+  const meta = [['QUOTE #', q.number], ['DATE', numDate(q.date)], ['VALID THROUGH', numDate(q.expires)]];
+  let my = y + 22;
+  for (const [k, v] of meta) {
+    right(k, M + W - 82, my, 9, bold);
+    text(v, M + W - 76, my, 9);
+    my -= 12.5;
+  }
+  y = Math.min(y, my) - 22;
+
+  // ---- ADDRESS + QUOTED BY.
   const col = (label, rows, x) => {
-    let yy = y;
-    text(label, x, yy, 8.5, bold, GREY);
-    yy -= 13;
-    for (const [s, f] of rows) {
+    let cy = y;
+    text(label, x, cy, 9, bold);
+    cy -= 13;
+    for (const s of rows) {
       if (!s) continue;
-      for (const ln of wrap(s, f, 10, W / 2 - 16)) { text(ln, x, yy, 10, f); yy -= 13; }
+      for (const ln of wrap(s, font, 9.5, W / 2 - 40)) { text(ln, x, cy, 9.5); cy -= 12.5; }
     }
-    return yy;
+    return cy;
   };
-  const yTo = col('PREPARED FOR', [[q.customer, bold], [q.contact, font], [q.to, font]], M);
-  const yFrom = col('QUOTED BY', [[sender.name, bold], [sender.title, font], [biz.name, font], [sender.phone, font], [sender.mailbox, font],
-    [biz.street, font], [biz.city_line, font]], M + W / 2 + 8);
-  y = Math.min(yTo, yFrom) - 12;
+  const yA = col('ADDRESS', [q.customer, q.contact, q.street, q.to], M + 30);
+  const yB = col('QUOTED BY', [sender.name, sender.title, sender.phone, sender.mailbox], M + W / 2 + 10);
+  y = Math.min(yA, yB) - 14;
+  dotted(y);
+  y -= 26;
 
   // ---- the lines.
   tableHead();
-  const TONE = { sub: [font, 8.5, GREY, 0], plain: [font, 9.5, rgb(0.2, 0.2, 0.2), 0], opt: [font, 9.5, rgb(0.2, 0.2, 0.2), 10],
-    strong: [bold, 9.5, INK, 0], note: [font, 9, GREY, 0] };
+  const TONE = { sub: [font, 9.5, INK, 0], plain: [font, 9.5, INK, 0], opt: [font, 9.5, INK, 0],
+    strong: [font, 9.5, INK, 0], note: [font, 9.5, INK, 0] };
   for (const r of lineBlocks(q.lines)) {
     // The title in bold, then the Machinio-worded detail lines (MSRP, discount, options, per-unit subtotal, note).
-    const rows = wrap(r.title, bold, 10, ITEM_W).map((t) => ({ t, f: bold, size: 10, color: INK, indent: 0, lh: 12.5 }));
+    const rows = wrap(r.title, bold, 10, ITEM_W).map((t) => ({ t, f: bold, size: 10, color: INK, indent: 0, lh: 12.5, gap: 0 }));
     for (const d of r.detail) {
       const [f, size, color, indent] = TONE[d.tone];
-      for (const t of wrap(d.text, f, size, ITEM_W - indent)) rows.push({ t, f, size, color, indent, lh: 11.5 });
+      // Machinio's rhythm (300160): a blank line before the discount, the Options block and the per-unit subtotal.
+      const gap = /^(Discount applied|Options:|Subtotal:)/.test(d.text) ? 8 : 0;
+      wrap(d.text, f, size, ITEM_W - indent).forEach((t, i) => rows.push({ t, f, size, color, indent, lh: 11.5, gap: i ? 0 : gap }));
     }
-    const h = rows.reduce((n, x) => n + x.lh, 0) + 8;
+    const h = rows.reduce((n, x) => n + x.lh + x.gap, 0) + 10;
     ensure(h);
     const top = y;
-    let yy = top;
-    for (const x of rows) { text(x.t, M + 6 + x.indent, yy, x.size, x.f, x.color); yy -= x.lh; }
+    let ry = top;
+    for (const x of rows) { ry -= x.gap; text(x.t, M + x.indent, ry, x.size, x.f, x.color); ry -= x.lh; }
     right(String(r.qty), X_QTY, top, 10);
-    right(fmtCents(r.rate), X_UNIT, top, 10);
-    right(fmtCents(r.amount), X_AMT - 6, top, 10);
+    right(fmtCents(r.rate).replace('$', ''), X_UNIT, top, 10);
+    right(fmtCents(r.amount).replace('$', ''), X_AMT, top, 10);
     y -= h;
-    rule(y + 10);           // between rows: under this one's descenders, over the next one's caps
   }
 
-  // ---- totals.
-  ensure(70);
-  y -= 8;
-  const tot = (label, value, strong) => {
-    right(label, X_UNIT, y, strong ? 11 : 10, strong ? bold : font);
-    right(value, X_AMT - 6, y, strong ? 11 : 10, strong ? bold : font);
-    y -= strong ? 18 : 15;
-  };
-  tot('Subtotal', fmtUsd(totals.subtotal));
-  if (q.tax) tot(taxLabel(rate), fmtUsd(totals.tax));
-  else tot(TAX_EXEMPT_LINE, '—');
-  page.drawLine({ start: { x: X_QTY, y: y + 12 }, end: { x: X_AMT, y: y + 12 }, thickness: 1, color: INK });
-  tot('Total', fmtUsd(totals.total), true);
+  // ---- terms bottom-left, totals right (the Machinio footer block).
+  const TERMS_W = W / 2 + 20;
+  const terms = quoteTerms(biz).flatMap((p, i, all) => [...wrap(p, font, 7.5, TERMS_W), ...(i === all.length - 2 ? [''] : [])]);
+  const block = Math.max(terms.length * 9.5, 60);
+  ensure(block + 70);
+  dotted(y + 4);
+  y -= 14;
+  const top = y;
+  for (const ln of terms) { if (ln) text(ln, M, y, 7.5); y -= 9.5; }
+  let ty = top;
+  const TX = M + TERMS_W + 30;
+  const tot = (label, value) => { text(label, TX, ty, 10); right(value, X_AMT, ty, 10); ty -= 13; };
+  tot('SUBTOTAL', fmtCents(toC(totals.subtotal)).replace('$', ''));
+  if (q.tax) tot('TAX', fmtCents(toC(totals.tax)).replace('$', ''));
+  else { text(TAX_EXEMPT_LINE, TX, ty, 7.5, font, GREY); ty -= 13; }
+  text('TOTAL', TX, ty, 10);
+  right(fmtUsd(totals.total), X_AMT, ty - 4, 16, bold);
+  y = Math.min(y, ty - 20) - 30;
 
-  // ---- signature + terms.
-  const terms = wrap(quoteTerms(q.valid_days || DEFAULT_VALID_DAYS, biz), font, 8, W);
-  ensure(60 + terms.length * 10);
-  y -= 16;
-  text('Thank you for the opportunity.', M, y, 10);
-  y -= 26;
-  page.drawLine({ start: { x: M, y: y + 10 }, end: { x: M + 200, y: y + 10 }, thickness: 0.75, color: INK });
-  text(signatureLines(sender, biz).join('  ·  '), M, y - 2, 9.5);
-  y -= 26;
-  rule(y + 8);
-  for (const ln of terms) { text(ln, M, y - 2, 8, font, GREY); y -= 10; }
+  // ---- Accepted By / Accepted Date (customers sign these and send them back as a PO).
+  ensure(40);
+  text('Accepted By', M, y, 10);
+  page.drawLine({ start: { x: M + 62, y: y - 2 }, end: { x: M + W / 2 - 20, y: y - 2 }, thickness: 0.6, color: GREY });
+  text('Accepted Date', M + W / 2 + 10, y, 10);
+  page.drawLine({ start: { x: M + W / 2 + 82, y: y - 2 }, end: { x: M + W, y: y - 2 }, thickness: 0.6, color: GREY });
 
   // Page x of n, once we know n.
   const pages = doc.getPages();
   if (pages.length > 1) {
     pages.forEach((p, i) => {
       const s = `${q.number} · page ${i + 1} of ${pages.length}`;
-      p.drawText(s, { x: PAGE[0] - M - font.widthOfTextAtSize(s, 8), y: M - 20, size: 8, font, color: GREY });
+      p.drawText(s, { x: PAGE[0] - M - font.widthOfTextAtSize(s, 8), y: FOOT, size: 8, font, color: GREY });
     });
   }
   return doc.save();
 }
+
+const toC = (n) => Math.round(n * 100);

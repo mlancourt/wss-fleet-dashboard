@@ -145,6 +145,7 @@
     "name": "Wisconsin Scrub & Sweep",
     "phone": "(555) 010-0000",
     "email": "info@example.com",
+    "url": "https://example.com",
     "street": "1 Example Way",
     "city_line": "Ixonia, WI 53036",
     "city": "Ixonia",

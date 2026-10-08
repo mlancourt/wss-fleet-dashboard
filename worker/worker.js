@@ -40,7 +40,7 @@
  *     needs the bundle: `npx wrangler deploy --dry-run --outdir dist`.
  */
 
-import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS } from '../docs/quote-email.js';
+import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS, BANNER_PATH } from '../docs/quote-email.js';
 import { overlayLeads } from '../docs/quotes.js';
 import { renderQuotePdf } from './quote-pdf.js';
 
@@ -1624,6 +1624,8 @@ async function quoteSend({ request, env, me, raw }) {
     number, date, expires, valid_days: p.valid_days, customer: lead.customer || null, contact: lead.contact || null,
     to: p.to, sender, lines: p.lines, tax: p.tax, tax_rate: rate, note: p.note, business,
     pdf_url: `${origin}/q/${token}.pdf`, pixel_url: `${origin}/q/${token}/o.gif`,
+    // v1.1 §3 step 4: the banner is served by the Tracker's Pages origin (the Worker hosts no static assets).
+    banner_url: `${String(env.PAGES_ORIGIN || 'https://fleet.wisconsinscrubandsweep.com').replace(/\/+$/, '')}/${BANNER_PATH}`,
   };
 
   let pdf;

@@ -2113,7 +2113,7 @@ const mockCatalog = {
       { name: 'Brushes - 20 Inch Disk', deck_min: 20, deck_max: 20, deck_type: 'D', items: [{ part: 'KX-B20', description: 'Pad driver 20"', list: 95 }] },
     ] },
   },
-  business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', street: '1 Example Way', city_line: 'Ixonia, WI 53036', city: 'Ixonia', region: 'WI' },
+  business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', url: 'https://example.com', street: '1 Example Way', city_line: 'Ixonia, WI 53036', city: 'Ixonia', region: 'WI' },
   tax_rate: 0.055, valid_days: 30,
   sender: { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' },
 };

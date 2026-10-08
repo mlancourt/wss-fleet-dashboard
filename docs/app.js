@@ -82,7 +82,7 @@ import { activityGroups, pendingActivityRows, activityRoute, activityTime, actor
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-08-d83b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-08-d83c';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.

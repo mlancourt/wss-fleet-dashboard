@@ -110,15 +110,31 @@ export function lineBlocks(lines) {
 export const defaultSubject = (number, title) =>
   `Wisconsin Scrub & Sweep — Quote ${number || NUMBER_PLACEHOLDER}${title ? ` · ${title}` : ''}`;
 
-/** The terms block, verbatim (spec §6); the contact tail comes from the catalog's `business` block. */
-export function quoteTerms(validDays = DEFAULT_VALID_DAYS, business = null) {
+/**
+ * The terms block (spec v1.1 §6) — WSS's own footer text from the Machinio quotes, word for word,
+ * plus one validity sentence. The sentences are constants here; the address / phone / email come from
+ * the catalog's `business` block (the same _Site-Settings.md values the website renders — never hard-coded).
+ * → paragraphs, in order.
+ */
+export function quoteTerms(business = null) {
   const b = business || {};
-  const tail = [b.name || 'Wisconsin Scrub & Sweep', [b.city, b.region].filter(Boolean).join(', ') || 'Ixonia, WI', b.phone, b.email]
-    .filter(Boolean).join(' · ');
-  return `Prices are valid for ${validDays} days from the quote date and do not include applicable sales tax unless shown. `
-    + 'Freight is FOB Ixonia, WI unless quoted. This quote is confidential and intended for the addressee. '
-    + tail;
+  const name = b.name || 'Wisconsin Scrub & Sweep';
+  const where = [b.street, b.city_line].filter(Boolean).join(', ');
+  return [
+    'Thank you for your business! We accept credit cards and ACH payments for most transactions. '
+      + `For account customers, checks can be mailed to ${name}${where ? `, ${where}` : ''}, within specified billing terms.`,
+    'Thank you for the opportunity to provide you with a quote! If you approve of this estimate, please respond directly to this email, '
+      + 'and we will process your order.'
+      + (b.phone || b.email ? ` If you have any questions, please give us a call${b.phone ? ` at ${b.phone}` : ''}${b.email ? ` or email us: ${b.email}` : ''}` : ''),
+    'Prices are valid through the date shown above and do not include sales tax unless shown.',
+    `The ${name} Team`,
+  ];
 }
+
+/** The PDF + email footer line (spec v1.1 §3 step 3). */
+export const FOOTER_LINE = 'A Local, Veteran-Owned Company';
+/** Where the email banner lives (spec v1.1 §3 step 4): the Tracker's Pages origin. */
+export const BANNER_PATH = 'assets/wss-banner-1200.png';
 
 export const taxLabel = (rate) => `Sales tax (${Math.round(rate * 1000) / 10}%)`;
 export const TAX_EXEMPT_LINE = 'Tax not included — exempt certificate on file';
@@ -174,7 +190,9 @@ export function renderQuoteEmail(q) {
 <html><body style="margin:0;padding:0;background:#f4f4f4">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4"><tr><td align="center" style="padding:16px 8px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;font-family:Helvetica,Arial,sans-serif;color:#1a1a1a">
-  <tr><td style="background:${red};color:#ffffff;padding:14px 18px;font-size:18px;font-weight:bold">${esc((q.business && q.business.name) || 'Wisconsin Scrub & Sweep')}</td></tr>
+  <tr><td style="padding:0;background:${red}">${q.banner_url
+    ? `<img src="${esc(q.banner_url)}" width="600" alt="${esc((q.business && q.business.name) || 'Wisconsin Scrub & Sweep')}" style="display:block;width:100%;max-width:600px;height:auto;border:0;color:#ffffff;font-size:18px;font-weight:bold">`
+    : `<div style="color:#ffffff;padding:14px 18px;font-size:18px;font-weight:bold">${esc((q.business && q.business.name) || 'Wisconsin Scrub & Sweep')}</div>`}</td></tr>
   <tr><td style="padding:18px 18px 4px 18px;font-size:13px;color:#555">
     QUOTE <strong style="color:#1a1a1a">${esc(number)}</strong> · ${esc(longDate(q.date))} · valid through ${esc(longDate(q.expires))}
   </td></tr>
@@ -198,7 +216,8 @@ export function renderQuoteEmail(q) {
   <tr><td style="padding:0 18px 16px 18px;font-size:15px;line-height:1.5">
     ${signatureLines(sender, q.business).map((x, i) => (i === 0 ? `<strong>${esc(x)}</strong>` : x === sender.mailbox ? `<a href="mailto:${esc(x)}" style="color:${red}">${esc(x)}</a>` : esc(x))).join('<br>')}
   </td></tr>
-  <tr><td style="padding:12px 18px 18px 18px;font-size:11px;line-height:1.5;color:#777;border-top:1px solid #e6e6e6">${esc(quoteTerms(q.valid_days || DEFAULT_VALID_DAYS, q.business))}</td></tr>
+  <tr><td style="padding:12px 18px 6px 18px;font-size:11px;line-height:1.5;color:#777;border-top:1px solid #e6e6e6">${quoteTerms(q.business).map((p) => `<p style="margin:0 0 8px 0">${esc(p)}</p>`).join('')}</td></tr>
+  <tr><td align="center" style="padding:4px 18px 18px 18px;font-size:12px;color:#555">${esc(FOOTER_LINE)}</td></tr>
 </table>
 </td></tr></table>
 ${q.pixel_url ? `<img src="${esc(q.pixel_url)}" width="1" height="1" alt="" style="display:block;border:0;width:1px;height:1px">` : ''}
@@ -221,7 +240,8 @@ ${q.pixel_url ? `<img src="${esc(q.pixel_url)}" width="1" height="1" alt="" styl
     '',
     signatureLines(sender, q.business).join('\n'),
     '',
-    quoteTerms(q.valid_days || DEFAULT_VALID_DAYS, q.business),
+    ...quoteTerms(q.business).flatMap((p) => [p, '']),
+    FOOTER_LINE,
   ].join('\n');
 
   return { html, text, totals: t };

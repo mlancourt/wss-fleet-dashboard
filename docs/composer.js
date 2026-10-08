@@ -14,7 +14,7 @@
  * with. Numbers here are only a preview: the Worker recomputes every total.
  */
 import {
-  renderQuoteEmail, quoteTotals, fmtUsd, defaultSubject, NUMBER_PLACEHOLDER, esc,
+  renderQuoteEmail, quoteTotals, fmtUsd, defaultSubject, NUMBER_PLACEHOLDER, esc, BANNER_PATH,
   DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS, taxLabel, TAX_EXEMPT_LINE,
 } from './quote-email.js';
 
@@ -265,7 +265,7 @@ export function previewInput(draft, lead, catalog, { today, expires, me } = {}) 
     customer: lead.customer, contact: lead.contact, to: p.to,
     sender: (catalog && catalog.sender) || { name: (me && me.name) || '' },
     lines, tax: p.tax, tax_rate: (catalog && catalog.tax_rate) || DEFAULT_TAX_RATE,
-    note: p.note, business: (catalog && catalog.business) || null, pdf_url: null, pixel_url: null,
+    note: p.note, business: (catalog && catalog.business) || null, pdf_url: null, pixel_url: null, banner_url: BANNER_PATH,
   };
 }
 

@@ -145,7 +145,7 @@ await check('the email: one template, escaped, PDF button, pixel only when given
   assert.ok(html.includes('href="https://w.example/q/abc.pdf"') && html.includes('View / download quote (PDF)'));
   assert.ok(html.trim().endsWith('</body></html>') && html.lastIndexOf('o.gif') > html.lastIndexOf('View / download'), 'the pixel goes last');
   assert.ok(html.includes('$6,052.54') && html.includes('(included)') && html.includes('Sales tax (5.5%)'));
-  assert.ok(html.includes('Prices are valid for 30 days from the quote date'), 'terms block');
+  assert.ok(html.includes('Prices are valid through the date shown above and do not include sales tax unless shown.'), 'the §6 terms');
   assert.ok(html.includes('(555) 010-0000'), 'terms phone from the catalog business block, never hard-coded');
   assert.ok(text.includes('https://w.example/q/abc.pdf') && text.includes('$6,052.54'), 'plain-text alternative carries the link and the total');
   const preview = renderQuoteEmail({ ...q, number: null, pixel_url: null, pdf_url: null });
@@ -154,7 +154,7 @@ await check('the email: one template, escaped, PDF button, pixel only when given
   const exempt = renderQuoteEmail({ ...q, tax: false });
   assert.ok(exempt.html.includes('Tax not included — exempt certificate on file') && exempt.html.includes('$5,737.00'));
   assert.equal(defaultSubject(null, 'Acme X20'), `Wisconsin Scrub & Sweep — Quote ${NUMBER_PLACEHOLDER} · Acme X20`);
-  assert.ok(quoteTerms(30, null).includes('Ixonia, WI'));
+  assert.ok(quoteTerms(null).join(' ').includes('Prices are valid through the date shown above'));
 });
 
 await check('status: VIEWED outranks DELIVERED, EXPIRED outranks both; the chip reads the spec’s words', () => {
@@ -603,6 +603,60 @@ await check('v1.1 #5b: the note names the picked machine once there is one, the 
   d.note = 'My own words'; d.noteTouched = true;
   addMachine(d, CATALOG.machines[0], lead);
   assert.equal(d.note, 'My own words');
+});
+
+/* ================================================= v1.1 layout pass (§3.3, §3.4, §6) */
+
+/** The PDF's drawn text: inflate every content stream and decode pdf-lib's <hex> strings. */
+async function pdfText(bytes) {
+  const zlib = await import('node:zlib');
+  const raw = Buffer.from(bytes).toString('latin1');
+  let out = '';
+  for (const m of raw.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let body;
+    try { body = zlib.inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1'); } catch { body = m[1]; }
+    for (const h of body.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) out += Buffer.from(h[1], 'hex').toString('latin1') + '\n';
+  }
+  return out;
+}
+
+await check('v1.1 layout: the §6 terms verbatim — WSS’s own Machinio footer text, the contact parts from the business block', () => {
+  const t = quoteTerms(CATALOG.business);
+  assert.deepEqual(t, [
+    'Thank you for your business! We accept credit cards and ACH payments for most transactions. For account customers, checks can be mailed to Wisconsin Scrub & Sweep, 1 Fake St, Ixonia, WI 53036, within specified billing terms.',
+    'Thank you for the opportunity to provide you with a quote! If you approve of this estimate, please respond directly to this email, and we will process your order. If you have any questions, please give us a call at (555) 010-0000 or email us: info@example.com',
+    'Prices are valid through the date shown above and do not include sales tax unless shown.',
+    'The Wisconsin Scrub & Sweep Team',
+  ]);
+  assert.ok(!quoteTerms(CATALOG.business).join(' ').includes('FOB'), 'the v1.0 sentence is gone');
+});
+
+await check('v1.1 layout: the email leads with the banner (Pages origin, 600 px, alt text) and ends on the veteran-owned line', async () => {
+  const r = await send('sales', PAYLOAD());
+  assert.equal(r.status, 201);
+  const html = sent.at(-1).body.html;
+  assert.ok(/<img src="https:\/\/fleet\.wisconsinscrubandsweep\.com\/assets\/wss-banner-1200\.png" width="600" alt="Wisconsin Scrub &amp; Sweep"/.test(html), 'banner from the Pages origin');
+  assert.ok(html.indexOf('wss-banner-1200.png') < html.indexOf('QUOTE <strong'), 'at the top');
+  assert.ok(html.includes('A Local, Veteran-Owned Company') && sent.at(-1).body.text.includes('A Local, Veteran-Owned Company'));
+  assert.ok(html.includes('Thank you for your business! We accept credit cards'), 'terms in the email');
+  const prev = renderQuoteEmail(previewInput(newDraft({ lead: 'L1034', customer: 'A' }), { customer: 'A' }, CATALOG, {}));
+  assert.ok(prev.html.includes('src="assets/wss-banner-1200.png"'), 'the preview loads the same banner off the page');
+});
+
+await check('v1.1 layout: the PDF — company block, QUOTE # / DATE / VALID THROUGH, ADDRESS + QUOTED BY, the band, terms, Accepted By/Date, footer', async () => {
+  const { renderQuotePdf } = await import('../worker/quote-pdf.js');
+  const biz = { ...CATALOG.business, url: 'https://example.com' };
+  const q = { number: 'Q2001', date: '2026-10-08', expires: '2026-11-07', customer: 'Acme Foods', contact: 'Pat Example', to: 'pat@example.com',
+    lines: [MLINE()], tax: true, tax_rate: 0.055, business: biz,
+    sender: { name: 'Kevin Example', title: 'Territory Manager', mailbox: 'kevin@example.com', phone: '(555) 010-0001' } };
+  const t = await pdfText(await renderQuotePdf(q));
+  for (const w of ['Wisconsin Scrub & Sweep', '1 Fake St', 'Ixonia, WI 53036', '(555) 010-0000', 'info@example.com', 'https://example.com',
+    'Quote', 'QUOTE #', 'Q2001', 'DATE', '10/08/2026', 'VALID THROUGH', '11/07/2026', 'ADDRESS', 'Acme Foods', 'QUOTED BY', 'Territory Manager',
+    'DESCRIPTION', 'QTY', 'RATE', 'AMOUNT', '($5,433 MSRP)', 'Subtotal: $5,025', 'SUBTOTAL', 'TAX', 'TOTAL',
+    'Accepted By', 'Accepted Date', 'A Local, Veteran-Owned Company', 'The Wisconsin Scrub & Sweep Team']) {
+    assert.ok(t.includes(w), `PDF draws "${w}"`);
+  }
+  assert.ok(!t.includes('FOB'), 'no v1.0 terms in the PDF');
 });
 
 globalThis.fetch = realFetch;
