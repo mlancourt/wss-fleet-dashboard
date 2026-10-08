@@ -1391,3 +1391,77 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
   font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
 }
 .pipe .pipe-orders:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+
+/* ------------------------------------------------------ D83: machine quotes */
+
+/* The chip states (spec §1): not viewed → Delivered / Opened (muted) · Viewed (bold) · Bounced (red) · Expired. */
+.chip.qchip { text-transform: none; letter-spacing: 0; background: var(--slate-100); color: var(--slate-700); }
+.chip.qchip.qs-strong { background: var(--ok-bg); color: var(--ok); font-weight: 800; }
+.chip.qchip.qs-bad { background: var(--bad-bg); color: var(--bad); }
+.chip.qchip.qs-expired { background: var(--slate-200); color: var(--slate-500); text-decoration: line-through; }
+.qs-quiet { color: var(--ink-3); }
+.qs-muted { color: var(--slate-500); }
+.qs-strong { color: var(--ok); font-weight: 800; }
+.qs-bad { color: var(--bad); font-weight: 700; }
+.qs-expired { color: var(--slate-500); }
+.qhalf { margin-right: 6px; font-size: 12px; }
+.qlist { padding: 4px 16px; }
+.qrow { padding: 10px 0; border-bottom: 1px solid var(--slate-100); position: relative; padding-right: 64px; }
+.qrow:last-child { border-bottom: 0; }
+.qrow-t { font-size: 14.5px; font-variant-numeric: tabular-nums; }
+.qrow-s { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; overflow-wrap: anywhere; }
+.qrow-pdf { position: absolute; right: 0; top: 50%; transform: translateY(-50%); min-height: var(--tap); display: flex; align-items: center; font-weight: 700; color: var(--red); }
+.qbtn-row { margin-top: 18px; }
+.qbtn-row .btn { display: flex; align-items: center; justify-content: center; }
+
+/* The composer: one column, 44 px targets, the total pinned to the bottom. */
+.qc { padding-bottom: 8px; }
+.qc .card.qc-sec, .qc .qc-line { padding: 14px 16px; margin-top: 12px; }
+.qc label { display: block; font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); margin: 10px 0 0; }
+.qc label:first-child { margin-top: 0; }
+.qc input[type=text], .qc input[type=email], .qc input[type=search], .qc input:not([type]), .qc textarea {
+  display: block; width: 100%; min-height: var(--tap); margin-top: 6px; padding: 10px 12px; font: inherit;
+  text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 400;
+  border: 1px solid var(--slate-300); border-radius: var(--radius-sm); background: var(--white);
+}
+.qc input:focus, .qc textarea:focus { outline: 2px solid var(--red); outline-offset: -1px; border-color: var(--red); }
+.qc textarea { min-height: 170px; resize: vertical; line-height: 1.45; }
+.qc-2 { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; }
+.qc-line-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; font-size: 15px; }
+.qc-x { flex: 0 0 auto; width: var(--tap); height: var(--tap); margin: -10px -10px 0 0; border: 0; background: none; color: var(--ink-3); font-size: 18px; }
+.qc-sub { font-size: 12.5px; color: var(--ink-3); margin: 2px 0 6px; }
+.qc-opts-h { margin-top: 14px; font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); }
+.qc-grp { border-top: 1px solid var(--slate-100); }
+.qc-grp-h { display: flex; width: 100%; min-height: var(--tap); align-items: center; justify-content: space-between; gap: 8px;
+  border: 0; background: none; padding: 6px 0; text-align: left; font-weight: 650; color: var(--slate-800); }
+.qc .qc-chk { display: flex; align-items: flex-start; gap: 10px; min-height: var(--tap); padding: 8px 0; margin: 0;
+  font-size: 14px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink); }
+.qc-chk input { flex: 0 0 auto; width: 22px; height: 22px; margin: 0; accent-color: var(--red); }
+.qc-chk > span:first-of-type { flex: 1 1 auto; }
+.qc-part { color: var(--ink-3); font-size: 12px; }
+.qc-list { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--slate-600); }
+.qc-opt.on { background: var(--slate-50); margin: 0 -8px; padding: 0 8px; border-radius: 8px; }
+.qc .qc-optp { margin: 0 0 8px 32px; }
+.qc-brands { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.qc-brands button { min-height: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--slate-300); background: var(--white); font-size: 13.5px; color: var(--slate-700); }
+.qc-brands button.on { background: var(--slate-800); border-color: var(--slate-800); color: var(--white); }
+.qc-results { margin-top: 6px; }
+.qc-hit { display: block; width: 100%; min-height: var(--tap); text-align: left; padding: 10px 0; border: 0; border-bottom: 1px solid var(--slate-100); background: none; }
+.qc-hit-t { display: block; font-weight: 650; color: var(--slate-900); }
+.qc-hit-s { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--ink-3); }
+.qc-hit-p { font-variant-numeric: tabular-nums; color: var(--slate-700); }
+.qc-addtext { margin-top: 12px; }
+.qc .qc-tax { margin-top: 10px; }
+.qc-bar { position: sticky; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); z-index: 5; margin-top: 14px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-up); padding: 10px 14px 12px; }
+.qc-sum-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--slate-700); font-variant-numeric: tabular-nums; }
+.qc-sum-row.qc-total { font-size: 17px; font-weight: 800; color: var(--slate-900); margin: 2px 0 8px; }
+.qc-bar .actions.row { display: flex; gap: 10px; }
+.qc-bar .actions.row .btn { flex: 1 1 0; }
+.qc-subj { font-size: 13.5px; margin-top: 8px; overflow-wrap: anywhere; }
+.qc-subj span { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--ink-3); margin-right: 6px; }
+.qc-preview { margin-top: 12px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #f4f4f4; }
+.qc-preview table { max-width: 100%; }
+.btn.ghost[disabled] { background: var(--white); color: var(--slate-400); border-color: var(--slate-200); }
+.qc-sum-row:first-child { font-size: 12.5px; color: var(--ink-3); }
+.qc .qc-2 label { margin-top: 10px; }

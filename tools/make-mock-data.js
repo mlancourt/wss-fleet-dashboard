@@ -2057,6 +2057,69 @@ fs.mkdirSync(outdir, { recursive: true });
 const full = build({ withServiceQueue: true });
 const empty = build({ withServiceQueue: false });
 
+/* D83 — machine quotes. Applied AFTER build() so nothing moves on the RNG.
+ * Every lead carries `quotes: []` (always present, the engine's shape); L1006
+ * gets an expired Q2001 + a viewed Q2002 (re-quote history), L1007 a bounced
+ * Q2003. L1005 keeps its pre-D83 linked quote (untracked — no chip state).
+ * Tokens are fake hex; totals are fake. The money_fields gain the dotted paths. */
+const FAKE_TOKEN = { Q2001: '1'.repeat(32), Q2002: 'a1b2c3d4e5f60718293a4b5c6d7e8f90', Q2003: '3'.repeat(32), Q2004: '4'.repeat(32) };
+function addQuotes(snapshot) {
+  if (!Array.isArray(snapshot.leads)) return;
+  const q = (number, o) => ({
+    number, file: `01-WSS/Quotes/2026-10/${number}-Mock.md`, sent: o.sent, sent_at: `${o.sent}T15:42:11.000Z`, by: o.by || 'Kevin',
+    to: o.to, total: o.total, status: o.status, delivered_at: o.delivered_at || null, bounced_at: o.bounced_at || null,
+    bounce_reason: o.bounce_reason || null, opened_at: o.opened_at || null, viewed_at: o.viewed_at || null,
+    viewed_count: o.viewed_count || 0, expires: o.expires, pdf: `/q/${FAKE_TOKEN[number]}.pdf`,
+  });
+  for (const l of snapshot.leads) l.quotes = [];
+  const l6 = snapshot.leads.find((l) => l.lead === 'L1006');
+  if (l6) {
+    const old = q('Q2001', { sent: d(-40), to: 'lena.faust@quarryroad.example', total: 39870.25, status: 'EXPIRED', delivered_at: `${d(-40)}T15:43:00.000Z`, expires: d(-10) });
+    const now = q('Q2002', { sent: d(-2), to: 'lena.faust@quarryroad.example', total: 43466, status: 'VIEWED', delivered_at: `${d(-2)}T15:43:00.000Z`,
+      opened_at: `${d(-1)}T13:05:00.000Z`, viewed_at: `${d(-1)}T13:06:00.000Z`, viewed_count: 2, expires: d(28) });
+    l6.quotes = [old, now];
+    l6.quote = { ...now };
+  }
+  const l7 = snapshot.leads.find((l) => l.lead === 'L1007');
+  if (l7) {
+    const b = q('Q2003', { sent: d(-3), to: 'dana@cedarridge.example', total: 12118.4, status: 'BOUNCED', bounced_at: `${d(-3)}T15:44:00.000Z`, bounce_reason: 'mailbox does not exist', expires: d(27) });
+    l7.quotes = [b];
+    l7.quote = { ...b };
+  }
+  if (snapshot.leads_summary) snapshot.leads_summary.money_fields = ['value', 'potential_commission', 'quote.total', 'quotes[].total'];
+}
+addQuotes(full.snapshot);
+addQuotes(empty.snapshot);
+
+/* D83 — the composer's FAKE catalog (GET /api/catalog in mock mode reads this file).
+ * Invented models and prices; brand names only so the brand chips have something to narrow. */
+const mockCatalog = {
+  built: `${d(0)}T10:00:00-05:00`,
+  machines: [
+    { key: 'kodiak-kx20-walk-behind-scrubber-20-disk', title: 'Kodiak KX20 Walk-Behind Scrubber (20" Disk)', manufacturer: 'Kodiak', model: 'KX20-PA', stock: 'KX20-001', category: 'Floor Scrubbers', condition: 'new', list: 5400, series: 'KX Series', deck_in: 20, deck_type: 'D', image: null },
+    { key: 'kodiak-kx20-walk-behind-scrubber-17-disk', title: 'Kodiak KX20 Walk-Behind Scrubber (17" Disk)', manufacturer: 'Kodiak', model: 'KX17-PA', stock: 'KX17-001', category: 'Floor Scrubbers', condition: 'new', list: 5250, series: 'KX Series', deck_in: 17, deck_type: 'D', image: null },
+    { key: 'factory-cat-mx-20-disk', title: 'Factory Cat MX Scrubber (20" Disk)', manufacturer: 'Factory Cat', model: 'MX-20D', stock: 'MX20D', category: 'Floor Scrubbers', condition: 'new', list: 9100, series: null, deck_in: 20, deck_type: 'D', image: null },
+    { key: 'tomcat-rx-rider-28', title: 'Tomcat RX Rider Scrubber (28" Cylindrical)', manufacturer: 'Tomcat', model: 'RX-28C', stock: 'RX28', category: 'Floor Scrubbers', condition: 'new', list: 21500, series: null, deck_in: 28, deck_type: 'C', image: null },
+    { key: 'nordvale-sw-36-sweeper', title: 'Nordvale SW-36 Walk-Behind Sweeper', manufacturer: 'Nordvale', model: 'SW-36', stock: null, category: 'Sweepers', condition: 'new', list: null, series: null, deck_in: null, deck_type: null, image: null },
+  ],
+  series: {
+    'KX Series': { brand: 'Kodiak', groups: [
+      { name: 'Battery & Charger Options', deck_min: null, deck_max: null, deck_type: null, items: [
+        { part: 'KX-054', description: '85ah WET (2x) / Onboard Charger', list: 0 },
+        { part: 'KX-035', description: '130ah WET (2x) / Onboard Charger', list: 55 },
+        { part: 'KX-010', description: '115ah AGM (2x) / Onboard Charger', list: 150 } ] },
+      { name: 'Squeegees - 17 Inch Deck', deck_min: 17, deck_max: 17, deck_type: null, items: [{ part: 'KX-019', description: '31" Squeegee', list: 0 }] },
+      { name: 'Squeegees - 20 Inch Deck', deck_min: 20, deck_max: 20, deck_type: null, items: [{ part: 'KX-020', description: '33" Squeegee', list: 0 }] },
+      { name: 'Brushes - 20 Inch Disk', deck_min: 20, deck_max: 20, deck_type: 'D', items: [{ part: 'KX-B20', description: 'Pad driver 20"', list: 95 }] },
+    ] },
+  },
+  business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', street: '1 Example Way', city_line: 'Ixonia, WI 53036', city: 'Ixonia', region: 'WI' },
+  tax_rate: 0.055, valid_days: 30,
+  sender: { mailbox: 'kevin@example.com', name: 'Kevin Example', phone: '(555) 010-0001' },
+};
+fs.writeFileSync(path.join(outdir, 'mock-catalog.json'), JSON.stringify(mockCatalog, null, 2) + '\n');
+console.log(`mock-catalog.json: ${mockCatalog.machines.length} fake machines, ${Object.keys(mockCatalog.series).length} series`);
+
 for (const [name, snapshot] of [
   ['mock-full.json', full.snapshot],
   ['mock-empty.json', empty.snapshot],
@@ -2218,6 +2281,19 @@ const pending = [
     actor: 'Kevin', role: 'sales',
     action: 'doc_detach', serial: null,
     payload: { record: 'L1005', doc_id: '3b9e5d20c4a17f86' },
+  },
+  // D83: a quote the Worker already SENT, not yet on the lead — "Q2004 · sending…", and no Undo.
+  {
+    id: 'evt-mock-16',
+    ts: ago(3),
+    actor: 'Kevin', role: 'sales',
+    action: 'quote_send', serial: null,
+    payload: { lead: 'L1005', to: 'm.idle@harborline.example', cc: [], subject: 'Wisconsin Scrub & Sweep — Quote Q---- · Kodiak KX20', tax: true, valid_days: 30,
+      note: 'Hi Marcus,\n\nHere it is.',
+      lines: [{ kind: 'machine', key: 'kodiak-kx20-walk-behind-scrubber-20-disk', description: 'Kodiak KX20 Walk-Behind Scrubber (20" Disk)', model: 'KX20-PA', qty: 1, unit: 5400,
+        options: [{ part: 'KX-035', description: '130ah WET (2x) / Onboard Charger', unit: 55 }] }] },
+    result: { number: 'Q2004', token: FAKE_TOKEN.Q2004, sent_at: ago(3), by: 'Kevin', to: 'm.idle@harborline.example',
+      subtotal: 5455, tax: 300.03, total: 5755.03, tax_rate: 0.055, expires: d(30), pdf: `/q/${FAKE_TOKEN.Q2004}.pdf` },
   },
   // A close proposal on a lead that is still OPEN on the board.
   {

@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-10-08T12:00:06.437Z",
+    "ts": "2026-10-08T12:32:50.926Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-10-08T14:20:06.437Z",
+    "ts": "2026-10-08T14:52:50.926Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-10-08T14:48:06.437Z",
+    "ts": "2026-10-08T15:20:50.926Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-10-08T14:54:06.437Z",
+    "ts": "2026-10-08T15:26:50.926Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-10-08T14:57:06.437Z",
+    "ts": "2026-10-08T15:29:50.926Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-10-08T14:58:06.437Z",
+    "ts": "2026-10-08T15:30:50.926Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-10-08T14:35:06.437Z",
+    "ts": "2026-10-08T15:07:50.926Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-10-08T14:51:06.437Z",
+    "ts": "2026-10-08T15:23:50.926Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -128,7 +128,7 @@
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-10-08T14:53:06.437Z",
+    "ts": "2026-10-08T15:25:50.926Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -142,7 +142,7 @@
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-10-08T14:55:06.437Z",
+    "ts": "2026-10-08T15:27:50.926Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-10-08T14:57:06.437Z",
+    "ts": "2026-10-08T15:29:50.926Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-10-08T14:56:06.437Z",
+    "ts": "2026-10-08T15:28:50.926Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-10-08T14:58:06.437Z",
+    "ts": "2026-10-08T15:30:50.926Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -221,7 +221,7 @@
   },
   {
     "id": "evt-mock-15",
-    "ts": "2026-10-08T14:59:06.437Z",
+    "ts": "2026-10-08T15:31:50.926Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "doc_detach",
@@ -232,8 +232,55 @@
     }
   },
   {
+    "id": "evt-mock-16",
+    "ts": "2026-10-08T15:29:50.926Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "quote_send",
+    "serial": null,
+    "payload": {
+      "lead": "L1005",
+      "to": "m.idle@harborline.example",
+      "cc": [],
+      "subject": "Wisconsin Scrub & Sweep — Quote Q---- · Kodiak KX20",
+      "tax": true,
+      "valid_days": 30,
+      "note": "Hi Marcus,\n\nHere it is.",
+      "lines": [
+        {
+          "kind": "machine",
+          "key": "kodiak-kx20-walk-behind-scrubber-20-disk",
+          "description": "Kodiak KX20 Walk-Behind Scrubber (20\" Disk)",
+          "model": "KX20-PA",
+          "qty": 1,
+          "unit": 5400,
+          "options": [
+            {
+              "part": "KX-035",
+              "description": "130ah WET (2x) / Onboard Charger",
+              "unit": 55
+            }
+          ]
+        }
+      ]
+    },
+    "result": {
+      "number": "Q2004",
+      "token": "44444444444444444444444444444444",
+      "sent_at": "2026-10-08T15:29:50.926Z",
+      "by": "Kevin",
+      "to": "m.idle@harborline.example",
+      "subtotal": 5455,
+      "tax": 300.03,
+      "total": 5755.03,
+      "tax_rate": 0.055,
+      "expires": "2026-11-07",
+      "pdf": "/q/44444444444444444444444444444444.pdf"
+    }
+  },
+  {
     "id": "evt-mock-9",
-    "ts": "2026-10-08T14:56:06.437Z",
+    "ts": "2026-10-08T15:28:50.926Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",

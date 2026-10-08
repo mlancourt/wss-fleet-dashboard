@@ -21,7 +21,12 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney, isDateStr, fmtDateDow, fmtMD, addDays,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
-import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase } from './api.js';
+import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog } from './api.js';
+import {
+  composerView, newDraft, addMachine, addText, removeLine, toggleOption, groupsFor, draftPayload, draftProblem,
+  resultsHtml, totalsHtml,
+} from './composer.js';
+import { quoteState, quoteChipText, quoteStateLong, monDayOf, tokenOf, isTracked } from './quotes.js';
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
@@ -77,7 +82,7 @@ import { activityGroups, pendingActivityRows, activityRoute, activityTime, actor
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-06-d81';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-08-d83';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -269,6 +274,11 @@ let mapOuter = null;             // the whole-state viewBox — the pan/zoom cla
 let mapHome = null;              // meta.geo.default_view, projected
 let mapView = null;
 let uploadSeq = 0;
+// D83: the quote composer. Drafts live in this page's memory only (no server
+// draft state in v1) — keyed by lead, gone on Send or Discard. The catalog is
+// fetched once per page (api.js caches it for a day by its `built` stamp).
+const quoteDrafts = new Map();
+let quoteCat = { state: 'idle', data: null, error: null };
 // The file chosen but not yet given a kind. Held here rather than in `ui` so a
 // File object never lands in something we might one day serialise.
 let pendingPick = null;
@@ -381,7 +391,9 @@ const pendingDispatchAdds = () => state.pending.filter((e) => e.action === 'disp
 // schema 5: keyed on `lead`, and — like ticket_open — a pending lead_open has no
 // number of its own until the engine assigns one.
 const pendingForLead = (id) => (id ? state.pending.filter((e) =>
-  ((e.action === 'lead_update' || e.action === 'lead_close') && pl(e).lead === id) || isDetachOn(e, id)) : []);
+  ((e.action === 'lead_update' || e.action === 'lead_close' || e.action === 'quote_send') && pl(e).lead === id) || isDetachOn(e, id)) : []);
+// D83: a quote the Worker already SENT, waiting for the engine to write it to the lead.
+const pendingQuoteSends = (id) => state.pending.filter((e) => e.action === 'quote_send' && pl(e).lead === id && e.result && e.result.number);
 const pendingLeadOpens = () => state.pending.filter((e) => e.action === 'lead_open');
 // schema 6 / S2: keyed on `record`, which is a ticket id OR a lead id — the one
 // action whose key spans both boards. Deliberately NOT folded into
@@ -1779,6 +1791,8 @@ function msgBlock() {
   // A document says "Attached", not "Submitted": the bytes really did land, and
   // it is only the filing that waits for the run.
   if (m.tone === 'doc') return html`<div class="note"><strong>Attached ✓</strong>${m.text}</div>`;
+  // D83: a quote is not a proposal waiting on the run — the email really went.
+  if (m.tone === 'sent') return html`<div class="note"><strong>Sent ✓</strong>${m.text}</div>`;
   return html`<div class="note"><strong>Submitted</strong>${m.text}</div>`;
 }
 
@@ -1988,7 +2002,8 @@ function notesSection(entity, pending) {
  * exactly as it did before, with no control at all. The Worker enforces the
  * same rule — this is only about which buttons get drawn. */
 
-const canUndo = (e) => !!e && !!e.id && !!state.me && e.actor === state.me.name;
+// D83: never a quote_send — the email already went; the confirm sheet before Send is the valve.
+const canUndo = (e) => !!e && !!e.id && !!state.me && e.actor === state.me.name && e.action !== 'quote_send';
 
 /** The Undo button, or the confirm sheet when it is armed. '' for others' events. */
 function undoControl(e) {
@@ -4068,7 +4083,7 @@ function leadCard(l) {
     <a class="kan-card lead-card pri-${l.priority || 'MEDIUM'}${l.status !== 'OPEN' ? ' closed' : ''}" href="#/lead/${raw(enc(l.lead))}">
       <div class="kan-row">
         <span class="kan-t">${l.customer || '—'}</span>
-        <span class="kan-age${l.stale ? ` stale-${l.stale}` : ''}">${stale}${l.age_in_stage_days != null ? `${l.age_in_stage_days}d` : ''}</span>
+        <span class="kan-age${l.stale ? ` stale-${l.stale}` : ''}">${raw(quoteHalfHtml(l))}${stale}${l.age_in_stage_days != null ? `${l.age_in_stage_days}d` : ''}</span>
       </div>
       <div class="kan-eq">${l.machine || INTEREST_LABEL[l.interest] || '—'}</div>
       ${raw(money)}
@@ -4375,6 +4390,201 @@ function newLeadForm() {
 
 /* ---- lead detail (§3.5) ---- */
 
+/* ---- D83: machine quotes on the lead ---------------------------------- */
+
+const QUOTE_TONE = { quiet: 'qs-quiet', muted: 'qs-muted', strong: 'qs-strong', bad: 'qs-bad', expired: 'qs-expired' };
+
+/** The lead-head chip: "Q2001 · sent 10/8 · Viewed 10/9", or "Q2003 · sending…" while the engine catches up. */
+function quoteChipHtml(l) {
+  const sending = pendingQuoteSends(l.lead);
+  if (sending.length) return html`<span class="chip qchip qs-quiet">${sending[sending.length - 1].result.number} · sending…</span>`;
+  const q = l.quote && typeof l.quote === 'object' ? l.quote : null;
+  if (!isTracked(q)) return '';
+  return html`<span class="chip qchip ${QUOTE_TONE[quoteState(q).tone]}">${quoteChipText(q)}</span>`;
+}
+
+/** The kanban card's half-chip, QUOTED column only: "not viewed" / "Viewed 10/9" / "Expired". */
+function quoteHalfHtml(l) {
+  if (l.stage !== 'QUOTED') return '';
+  if (pendingQuoteSends(l.lead).length) return html`<span class="qhalf qs-quiet">sending…</span>`;
+  const q = l.quote && typeof l.quote === 'object' ? l.quote : null;
+  if (!isTracked(q)) return '';
+  const st = quoteState(q);
+  return html`<span class="qhalf ${QUOTE_TONE[st.tone]}">${st.text}</span>`;
+}
+
+/** The PDF link Kevin sees — the customer's URL plus his token, so his own look never counts as Viewed. */
+function quotePdfHref(q) {
+  const t = tokenOf(q);
+  if (!t) return null;
+  const c = ctx();
+  return `${c.apiBase}/q/${t}.pdf${c.token ? `?t=${encodeURIComponent(c.token)}` : ''}`;
+}
+
+/** Quotes: every quote sent on the lead, newest first; "sending…" rows on top. Money omitted for service. */
+function quotesSection(l) {
+  const sending = pendingQuoteSends(l.lead).slice().reverse();
+  const qs = (Array.isArray(l.quotes) ? l.quotes : []).filter((q) => q && q.number).slice().reverse();
+  if (!sending.length && !qs.length) return '';
+  const showMoney = role() !== 'service';
+  const row = (q) => {
+    const href = quotePdfHref(q);
+    const total = showMoney && typeof q.total === 'number' ? fmtMoney(q.total) : '';
+    const st = quoteStateLong(q);
+    const tone = isTracked(q) ? QUOTE_TONE[quoteState(q).tone] : '';
+    return html`<div class="qrow">
+      <div class="qrow-t"><strong>${q.number}</strong>${total ? ` · ${total}` : ''}${q.sent ? ` · sent ${monDayOf(q.sent)}` : ''}${q.by ? ` by ${q.by}` : ''}${st ? raw(html` · <span class="${tone}">${st}</span>`) : ''}</div>
+      ${q.to ? raw(html`<div class="qrow-s">to ${q.to}${q.expires ? ` · valid through ${fmtDate(q.expires)}` : ''}</div>`) : ''}
+      ${href ? raw(html`<a class="qrow-pdf" href="${href}" target="_blank" rel="noopener noreferrer">📄 PDF</a>`) : ''}
+    </div>`;
+  };
+  const sendingRow = (e) => {
+    const r = e.result;
+    const total = showMoney && typeof r.total === 'number' ? fmtMoney(r.total) : '';
+    return html`<div class="qrow"><div class="qrow-t"><strong>${r.number}</strong>${total ? ` · ${total}` : ''} · sent by ${e.actor || 'someone'} · <span class="qs-quiet">sending…</span></div>
+      <div class="qrow-s">to ${r.to || ''} — the email went; it lands on the lead at the next run</div></div>`;
+  };
+  return html`<h2>Quotes</h2><div class="card qlist">${raw(sending.map(sendingRow).join(''))}${raw(qs.map(row).join(''))}</div>`;
+}
+
+/** Quote — sales + owner, next to the stage picker; disabled once the lead is closed. */
+function quoteButton(l) {
+  if (!canEditLead(role())) return '';
+  const open = l.status === 'OPEN';
+  return html`<div class="actions qbtn-row">
+    ${open
+      ? raw(html`<a class="btn" href="#/lead/${raw(enc(l.lead))}/quote">${l.quote && isTracked(l.quote) ? 'Quote again' : 'Quote'}</a>`)
+      : raw(html`<button class="btn" type="button" disabled>Quote</button>`)}
+  </div>${open ? '' : raw('<div class="form-note">A closed lead takes no quotes.</div>')}`;
+}
+
+function startQuoteCatalog(force = false) {
+  quoteCat = { state: 'loading', data: null, error: null };
+  loadCatalog(ctx(), { force })
+    .then((data) => { quoteCat = { state: 'ready', data, error: null }; render(); })
+    .catch((err) => { quoteCat = { state: 'error', data: null, error: err.message }; render(); });
+}
+
+function viewComposer(id) {
+  const l = leadById(leads(), id);
+  if (!l) {
+    return html`<a class="crumb" href="#/leads">‹ Leads</a>${raw(emptyState('Lead not found.', 'It may have closed and left the snapshot.'))}`;
+  }
+  if (!canEditLead(role())) {
+    return html`<a class="crumb" href="#/lead/${raw(enc(l.lead))}">‹ ${l.lead}</a><div class="info">Quotes are Kevin's and Matt's.</div>`;
+  }
+  if (l.status !== 'OPEN') {
+    return html`<a class="crumb" href="#/lead/${raw(enc(l.lead))}">‹ ${l.lead}</a><div class="info">This lead is ${LEAD_STATUS_LABEL[l.status] || l.status} — a closed lead takes no quotes.</div>`;
+  }
+  if (quoteCat.state === 'idle') startQuoteCatalog();
+  if (!quoteDrafts.has(id)) quoteDrafts.set(id, newDraft(l));
+  const today = todayCentral();
+  return msgBlock() + composerView(quoteDrafts.get(id), l, quoteCat, { today, expires: addDays(today, 30), me: state.me });
+}
+
+/** The composer's id from the hash ("#/lead/L1034/quote" → "L1034"). */
+const composerLead = () => {
+  const m = /^#\/lead\/([^/]+)\/quote$/.exec(window.location.hash || '');
+  return m ? decodeURIComponent(m[1]) : null;
+};
+
+/** The parts of the bar a keystroke can move — totals, the why-not line, the two buttons. Never the fields. */
+function refreshComposerBar(d) {
+  const sum = $('#qc-sum');
+  if (sum && quoteCat.data) sum.innerHTML = totalsHtml(d, quoteCat.data);
+  const problem = draftProblem(d);
+  const why = $('#qc-why');
+  if (why) { why.textContent = problem || ''; why.hidden = !problem; }
+  for (const sel of ['[data-qc="preview"]', '[data-qc="send"]']) {
+    const b = $(sel);
+    if (b) b.disabled = !!problem;
+  }
+}
+
+async function sendQuote(id) {
+  const d = quoteDrafts.get(id);
+  if (!d || d.sending) return;
+  d.sending = true; d.error = null;
+  render();
+  try {
+    const ev = await postEvent(ctx(), 'quote_send', null, draftPayload(d));
+    state.pending.push(ev);
+    quoteDrafts.delete(id);
+    const r = ev.result || {};
+    ui.nextMsg = { tone: 'sent', text: `${r.number} sent to ${r.to}. It lands on the lead at the next run.` };
+    window.location.hash = `#/lead/${enc(id)}`;
+  } catch (err) {
+    d.sending = false; d.confirm = false;
+    d.error = `Not sent — ${err.message}`;
+    render();
+  }
+}
+
+/** A tap inside the composer. → true when handled. */
+function onComposerClick(el) {
+  const act = el.dataset.qc;
+  if (act === 'reload') { startQuoteCatalog(true); render(); return true; }
+  const id = composerLead();
+  const d = id ? quoteDrafts.get(id) : null;
+  const l = id ? leadById(leads(), id) : null;
+  if (!d || !l) return false;
+  const lineId = el.dataset.line ? Number(el.dataset.line) : null;
+  const line = lineId != null ? d.lines.find((x) => x.id === lineId) : null;
+  const cat = quoteCat.data;
+  if (act === 'pick') {
+    const m = cat && cat.machines.find((x) => x.key === el.dataset.key);
+    if (m) addMachine(d, m, l);
+  } else if (act === 'brand') d.brand = d.brand === el.dataset.brand ? null : el.dataset.brand;
+  else if (act === 'add-text') addText(d);
+  else if (act === 'remove' && line) removeLine(d, line.id);
+  else if (act === 'group' && line) {
+    const k = `${line.id}|${el.dataset.group}`;
+    if (d.open.has(k)) d.open.delete(k); else d.open.add(k);
+  } else if (act === 'opt' && line) {
+    const item = groupsFor(cat, line).flatMap((g) => g.items).find((i) => i.part === el.dataset.part);
+    toggleOption(d, line.id, item);
+  } else if (act === 'tax') d.tax = !d.tax;
+  else if (act === 'preview') { if (!draftProblem(d)) d.view = 'preview'; }
+  else if (act === 'edit') d.view = 'edit';
+  else if (act === 'send') { if (!draftProblem(d)) d.confirm = true; }
+  else if (act === 'confirm-no') d.confirm = false;
+  else if (act === 'send-go') { sendQuote(id); return true; }
+  else if (act === 'discard') { quoteDrafts.delete(id); window.location.hash = `#/lead/${enc(id)}`; return true; }
+  else return false;
+  d.error = act === 'send' || act === 'preview' ? d.error : null;
+  render();
+  return true;
+}
+
+/** A keystroke in a composer field: update the draft, redraw only what it moves. → true when handled. */
+function onComposerInput(t) {
+  const id = composerLead();
+  const d = id ? quoteDrafts.get(id) : null;
+  if (!d) return false;
+  const v = t.value;
+  if (t.dataset.qcField) {
+    const f = t.dataset.qcField;
+    if (f === 'query') {
+      d.query = v;
+      const box = $('#qc-results');
+      if (box && quoteCat.data) box.innerHTML = resultsHtml(d, quoteCat.data);
+      return true;
+    }
+    if (f === 'subject') d.subject = v;
+    else if (f === 'note') { d.note = v; d.noteTouched = true; }
+    else if (['to', 'cc', 'freight'].includes(f)) d[f] = v;
+  } else if (t.dataset.qcLine) {
+    const l = d.lines.find((x) => x.id === Number(t.dataset.line));
+    if (l && ['qty', 'unit', 'description'].includes(t.dataset.qcLine)) l[t.dataset.qcLine] = v;
+  } else if (t.dataset.qcOpt) {
+    const l = d.lines.find((x) => x.id === Number(t.dataset.line));
+    const o = l && l.options.find((x) => x.part === t.dataset.part);
+    if (o) o.unit = v;
+  } else return false;
+  refreshComposerBar(d);
+  return true;
+}
+
 function viewLead(id) {
   const l = leadById(leads(), id);
   if (!l) {
@@ -4406,6 +4616,7 @@ function viewLead(id) {
         ${raw(chip(SOURCE_LABEL[l.source] || l.source || '—', 'out'))}
         ${l.status !== 'OPEN' ? raw(chip(LEAD_STATUS_LABEL[l.status] || l.status, l.status === 'WON' ? 'ok' : 'bad')) : ''}
         ${l.stale ? raw(chip(l.stale === 'red' ? '🔴 stale' : '🟡 going stale', l.stale === 'red' ? 'bad' : 'warn')) : ''}
+        ${raw(quoteChipHtml(l))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
     </div>
@@ -4461,8 +4672,10 @@ function viewLead(id) {
       ${l.close_note ? raw(kvRow('Close note', l.close_note)) : ''}
     </dl></div>
 
+    ${raw(quotesSection(l))}
     ${raw(docsSection(l, l.lead))}
     ${raw(notesSection(l, pend))}
+    ${raw(quoteButton(l))}
     ${raw(leadStagePicker(l))}
     ${raw(leadActions(l))}`;
 }
@@ -4470,6 +4683,10 @@ function viewLead(id) {
 /** One-line English for a pending lead write, whatever it carried. */
 function describeLead(e) {
   if (e.action === 'doc_detach') return describeDetach(e);
+  if (e.action === 'quote_send') {
+    const r = e.result || {};
+    return `quote ${r.number || ''} sent to ${r.to || pl(e).to || 'the customer'} — on the lead at the next run`;
+  }
   const p = pl(e);
   if (e.action === 'lead_close') {
     return `closing as ${p.outcome}${p.reason ? ` — ${REASON_LABEL[p.reason] || p.reason}` : ''}`;
@@ -4745,7 +4962,11 @@ function render() {
   else if (section === 'service') out = viewService();
   else if (section === 'ticket') out = viewTicket(decodeURIComponent(arg || ''));
   else if (section === 'leads') out = viewLeads();
-  else if (section === 'lead') out = viewLead(decodeURIComponent(arg || ''));
+  else if (section === 'lead') {
+    // D83: #/lead/<L>/quote is the composer.
+    const [lid, sub] = decodeURIComponent(arg || '').split('/');
+    out = sub === 'quote' ? viewComposer(lid) : viewLead(lid);
+  }
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
   else if (section === 'wo') out = viewWorkOrder(arg || '');
@@ -5185,6 +5406,9 @@ document.addEventListener('keydown', (ev) => {
 });
 
 document.addEventListener('click', async (ev) => {
+  // D83: the quote composer handles its own taps (data-qc); nothing else uses the attribute.
+  const qcEl = ev.target.closest('[data-qc]');
+  if (qcEl && onComposerClick(qcEl)) return;
   // Segmented control: set the hidden input, then re-evaluate the form's
   // conditional blocks. No re-render — the typed-in fields must survive.
   const tg = ev.target.closest('.toggle .tg');
@@ -5737,6 +5961,9 @@ document.addEventListener('click', async (ev) => {
 });
 
 document.addEventListener('input', (ev) => {
+  // D83: a keystroke in the quote composer — kept in the draft, the field never redrawn.
+  const qcIn = ev.target.closest && ev.target.closest('[data-qc-field],[data-qc-line],[data-qc-opt]');
+  if (qcIn && onComposerInput(qcIn)) return;
   // D67: a typed field on the inspection sheet — kept, and saved a moment later.
   const ifield = ev.target.closest && ev.target.closest('[data-ifield]');
   if (ifield) { onInspField(ifield, false); return; }
@@ -6210,7 +6437,7 @@ window.addEventListener('pagehide', flushAllSheets);
 
 window.addEventListener('hashchange', () => {
   flushAllSheets();
-  ui.form = null; ui.msg = null; pendingPick = null;
+  ui.form = null; ui.msg = ui.nextMsg || null; ui.nextMsg = null; pendingPick = null;   // D83: a message may ride a navigation
   // The sheet is about one pin and does not survive a navigation. The VIEWPORT
   // does: coming back to the map should land where you left it, not re-home.
   ui.mapSheet = null;
@@ -6243,3 +6470,4 @@ export const __state = () => state;
 export const __ui = () => ui;
 export const __flushSheets = async () => { flushAllSheets(); for (const l of sheetLocal.values()) await l.chain; };
 export const __sheetLocal = () => sheetLocal;
+export const __quoteDrafts = () => quoteDrafts;

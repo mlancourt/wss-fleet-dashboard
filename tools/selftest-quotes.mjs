@@ -11,7 +11,11 @@ import worker from '../worker/worker.js';
 import {
   quoteTotals, fmtCents, fmtUsd, longDate, lineRows, renderQuoteEmail, defaultSubject, quoteTerms, NUMBER_PLACEHOLDER,
 } from '../docs/quote-email.js';
-import { overlayQuote, overlayLeads, quoteState, quoteChipText, mdOf, tokenOf, statusRank } from '../docs/quotes.js';
+import { overlayQuote, overlayLeads, quoteState, quoteChipText, mdOf, tokenOf, statusRank, quoteStateLong, isTracked } from '../docs/quotes.js';
+import {
+  searchMachines, groupsFor, noteTemplate, parseMoney, newDraft, addMachine, addText, toggleOption, removeLine,
+  draftPayload, draftProblem, draftTotals, previewInput, subjectOf,
+} from '../docs/composer.js';
 
 let passed = 0;
 const check = async (name, fn) => { await fn(); passed++; console.log(`  ok  ${name}`); };
@@ -184,6 +188,7 @@ await check('GET /api/catalog: 503 before a push; the push refuses net/disc by p
   assert.equal(ok.status, 200); assert.equal(ok.body.machines, 3);
   const got = await asJson(await call('GET', '/api/catalog', { role: 'sales' }));
   assert.equal(got.status, 200); assert.equal(got.body.machines[1].list, 9139); assert.equal(got.body.tax_rate, 0.055); assert.equal(got.body.valid_days, 30);
+  assert.deepEqual(got.body.sender, { mailbox: 'kevin@example.com', name: 'Kevin Example', phone: '(555) 010-0001' }, 'the caller’s own From block, for an exact preview');
   assert.equal((await call('GET', '/api/catalog', { role: 'owner' })).status, 200);
   assert.equal((await call('GET', '/api/catalog', { role: 'service' })).status, 403, 'E: service 403');
   assert.equal((await call('GET', '/api/catalog', { role: 'intake' })).status, 403);
@@ -314,6 +319,7 @@ await check('GET /q/<token>.pdf: the PDF inline as WSS-Quote-Q2001.pdf, Viewed s
   const ev = (await qEvents()).filter((e) => e.payload.kind === 'viewed');
   assert.equal(ev.length, 2);
   assert.equal(ev[0].actor, 'customer'); assert.equal(ev[0].role, 'customer');
+  assert.ok(ev.some((e) => e.payload.at === st.viewed_at), 'C: the event carries the stamp’s own instant — the engine writes what the overlay showed');
   assert.deepEqual([ev[0].payload.lead, ev[0].payload.number, ev[0].payload.token], ['L1034', 'Q2001', t]);
   assert.deepEqual(ev.map((e) => e.payload.viewed_count).sort(), [1, 2], 'each view carries its running count (same-ms events may list in either order — the engine takes the max)');
   // HEAD (a link scanner) and a crew read (?t=) serve without stamping.
@@ -418,6 +424,100 @@ await check('admin: the engine fetches a sent quote’s PDF by token; nobody els
   assert.equal(res.status, 200); assert.equal(res.headers.get('Content-Type'), 'application/pdf');
   assert.equal((await call('GET', `/api/admin/quotepdf/${t}`, { role: 'owner' })).status, 401);
   assert.equal((await call('GET', `/api/admin/quotepdf/${'f'.repeat(32)}`, { admin: true })).status, 404);
+});
+
+/* ================================================================ composer */
+
+await check('composer: search is every-word substring over title + model + stock, brand chips narrow, top 20', () => {
+  assert.deepEqual(searchMachines(CATALOG, 'x20 disk').map((m) => m.key), ['acme-x20-walk-behind-scrubber-20-disk']);
+  assert.deepEqual(searchMachines(CATALOG, 'ZM-20').map((m) => m.key), ['zeta-micro-20-disk'], 'model');
+  assert.deepEqual(searchMachines(CATALOG, 'x20-001').map((m) => m.key), ['acme-x20-walk-behind-scrubber-20-disk'], 'stock #');
+  assert.equal(searchMachines(CATALOG, '', 'other').length, 3, '"other" = not Factory Cat / Kodiak / Tomcat');
+  assert.equal(searchMachines(CATALOG, '', 'Kodiak').length, 0);
+  const many = { machines: Array.from({ length: 30 }, (_, i) => ({ key: `m${i}`, title: `Scrubber ${i}`, manufacturer: 'Kodiak' })) };
+  assert.equal(searchMachines(many, 'scrubber').length, 20);
+});
+
+await check('composer: option groups filtered to the machine’s deck (range + type), same-named groups merged', () => {
+  const cat = { series: { S: { groups: [
+    { name: 'Batteries', deck_min: null, deck_max: null, deck_type: null, items: [{ part: 'B1', description: 'b', list: 1 }] },
+    { name: 'Squeegee', deck_min: 17, deck_max: 17, deck_type: null, items: [{ part: 'Q17', description: '31"', list: 0 }] },
+    { name: 'Squeegee', deck_min: 20, deck_max: 24, deck_type: null, items: [{ part: 'Q20', description: '33"', list: 0 }] },
+    { name: 'Brushes', deck_min: 20, deck_max: 20, deck_type: 'D', items: [{ part: 'BD', description: 'disk', list: 9 }] },
+    { name: 'Brushes', deck_min: 20, deck_max: 20, deck_type: 'R', items: [{ part: 'BR', description: 'orbital', list: 9 }] },
+    { name: 'Drivers', deck_min: null, deck_max: null, deck_type: 'D', items: [{ part: 'PD', description: 'pad driver', list: 5 }] },
+  ] } } };
+  const parts = (m) => groupsFor(cat, { series: 'S', ...m }).map((g) => `${g.name}:${g.items.map((i) => i.part).join('+')}`);
+  assert.deepEqual(parts({ deck_in: 20, deck_type: 'D' }), ['Batteries:B1', 'Squeegee:Q20', 'Brushes:BD', 'Drivers:PD']);
+  assert.deepEqual(parts({ deck_in: 17, deck_type: 'D' }), ['Batteries:B1', 'Squeegee:Q17', 'Drivers:PD']);
+  assert.deepEqual(parts({ deck_in: 22, deck_type: 'R' }), ['Batteries:B1', 'Squeegee:Q20']);
+  assert.deepEqual(parts({ deck_in: null, deck_type: null }), ['Batteries:B1'], 'no deck on the machine = only the groups that name none');
+  assert.deepEqual(groupsFor(cat, { series: null }), []);
+});
+
+await check('composer: the note template, the money parser, and what stops Send', () => {
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com', machine: null, note: 'Need a 20" for the dock\nsecond line' };
+  const n = noteTemplate(lead, 'Acme X20');
+  assert.ok(n.startsWith('Hi Pat,\n\nThanks for reaching out about Acme X20. Here\'s the quote for Acme X20 for Acme Foods.'));
+  assert.ok(n.includes('You asked about: "Need a 20" for the dock".') && n.endsWith('Happy to set up a demo — just reply or call me.'));
+  assert.ok(noteTemplate({ customer: 'B' }).startsWith('Hi there,'));
+  assert.equal(parseMoney('$5,433.50'), 5433.5); assert.equal(parseMoney(''), null); assert.ok(Number.isNaN(parseMoney('12.345'))); assert.ok(Number.isNaN(parseMoney('-1')));
+  const d = newDraft(lead);
+  assert.equal(d.to, 'pat@example.com');
+  assert.equal(draftProblem(d), 'Pick a machine (or add a line) first.');
+  const line = addMachine(d, CATALOG.machines[2], lead);
+  assert.equal(line.unit, '', 'no list price → empty, Kevin types one');
+  assert.equal(draftProblem(d), 'Put a price on No-List Machine.');
+  line.unit = '1200';
+  assert.equal(draftProblem(d), null);
+  d.to = 'nope'; assert.ok(draftProblem(d).includes('email'));
+  d.to = 'pat@example.com'; d.cc = 'a@example.com, bad'; assert.ok(draftProblem(d).includes('"bad"'));
+  d.cc = ''; line.qty = '0'; assert.ok(draftProblem(d).includes('1–99'));
+  line.qty = '1'; d.freight = 'lots'; assert.ok(draftProblem(d).includes('Freight'));
+  d.freight = ''; const t = addText(d); assert.ok(draftProblem(d).includes('extra line'));
+  removeLine(d, t.id); assert.equal(draftProblem(d), null);
+});
+
+await check('composer: the payload — catalog key + list price, ticked options, freight only when typed, the Q---- subject', () => {
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com' };
+  const d = newDraft(lead);
+  const line = addMachine(d, CATALOG.machines[0], lead);
+  assert.ok(d.note.includes('Acme X20 Walk-Behind Scrubber'), 'an untouched note re-templates with the pick');
+  toggleOption(d, line.id, CATALOG.series['X Series'].groups[0].items[0]);
+  let p = draftPayload(d);
+  assert.deepEqual(p.lines, [{ kind: 'machine', key: CATALOG.machines[0].key, description: CATALOG.machines[0].title, model: 'X20-PA', qty: 1, unit: 5433,
+    options: [{ part: 'X-035', description: '130ah WET (2x)', unit: 54 }] }]);
+  assert.equal(p.subject, `Wisconsin Scrub & Sweep — Quote ${NUMBER_PLACEHOLDER} · ${CATALOG.machines[0].title}`);
+  assert.deepEqual(p.cc, []); assert.equal(p.tax, true); assert.equal(p.valid_days, 30);
+  d.freight = '250'; d.cc = 'a@example.com; b@example.com';
+  p = draftPayload(d);
+  assert.deepEqual(p.lines.at(-1), { kind: 'freight', description: 'Freight', qty: 1, unit: 250 });
+  assert.deepEqual(p.cc, ['a@example.com', 'b@example.com']);
+  d.subject = 'My own subject'; assert.equal(subjectOf(d), 'My own subject');
+  toggleOption(d, line.id, CATALOG.series['X Series'].groups[0].items[0]);
+  assert.equal(draftPayload(d).lines[0].options.length, 0, 'a second tick unticks');
+  const pi = previewInput(d, lead, { ...CATALOG, sender: { name: 'Kevin Example' } }, { today: '2026-10-08', expires: '2026-11-07' });
+  assert.equal(pi.number, null); assert.equal(pi.pixel_url, null); assert.equal(pi.pdf_url, null);
+});
+
+await check('A (preview matches Send): the composer’s payload through the real Worker totals exactly what the preview showed', async () => {
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com' };
+  const d = newDraft(lead);
+  const line = addMachine(d, CATALOG.machines[0], lead);
+  for (const it of [{ part: 'X-035', description: '130ah WET (2x)', list: 54 }, { part: 'X-020', description: '33" Squeegee', list: 0 }]) toggleOption(d, line.id, it);
+  line.unit = '5,199.99';
+  d.freight = '185.50';
+  const preview = draftTotals(d, 0.055);
+  const r = await send('sales', draftPayload(d));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual([r.body.result.subtotal, r.body.result.tax, r.body.result.total], [preview.subtotal, preview.tax, preview.total]);
+  const mail = sent.at(-1).body;
+  const { html } = renderQuoteEmail({ ...previewInput(d, lead, CATALOG, { today: '2026-10-08', expires: '2026-11-07' }), tax_rate: 0.055 });
+  for (const fig of [fmtUsd(preview.subtotal), fmtUsd(preview.tax), fmtUsd(preview.total), 'N/C']) {
+    assert.ok(html.includes(fig) && mail.html.includes(fig), `${fig} in both the preview and the sent email`);
+  }
+  assert.ok(!mail.html.includes(NUMBER_PLACEHOLDER) && mail.subject.includes(r.body.result.number));
+  assert.ok(isTracked({ pdf: r.body.result.pdf }) && quoteStateLong({ status: 'SENT', pdf: r.body.result.pdf }) === 'not viewed');
 });
 
 globalThis.fetch = realFetch;

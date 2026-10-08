@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-10-08T15:00:06.432Z",
+    "generated_at": "2026-10-08T15:32:50.920Z",
     "run_id": "mock-empty-2026-10-08",
     "fleet_totals": {
       "units": 39
@@ -2522,7 +2522,9 @@
     },
     "money_fields": [
       "value",
-      "potential_commission"
+      "potential_commission",
+      "quote.total",
+      "quotes[].total"
     ],
     "stages": [
       "RECEIVED",

@@ -197,8 +197,9 @@ export async function postEvent({ url, token, apiBase = API_BASE, fetch = defaul
   });
   if (!res.ok) {
     // D77: a 4xx carries the Worker's own reason — say it, don't just say "400".
+    // D83: so does a 5xx from quote_send ("Resend refused the send: …").
     let why = '';
-    if (res.status >= 400 && res.status < 500 && typeof res.json === 'function') {
+    if (res.status >= 400 && res.status < 600 && typeof res.json === 'function') {
       try { const b = await res.json(); why = b && typeof b.error === 'string' ? b.error : ''; } catch (_) { /* no body */ }
     }
     const e = fail('error', why ? `Event rejected (${res.status}): ${why}` : `Event rejected (${res.status})`);
@@ -207,3 +208,37 @@ export async function postEvent({ url, token, apiBase = API_BASE, fetch = defaul
   }
   return res.json();
 }
+
+/* ---- D83: the quote composer's catalog ----------------------------------
+ * GET /api/catalog (sales/owner). Cached in memory for the page, and for 24 h
+ * in localStorage keyed by its `built` stamp — a phone on one bar should not
+ * pull 180 KB every time Kevin opens a quote. Mock mode reads the FAKE file.
+ */
+export const CATALOG_KEY = 'wss.quote.catalog';
+export const CATALOG_TTL_MS = 24 * 3600 * 1000;
+let catalogMem = null;
+
+export async function loadCatalog({ url, token, apiBase = API_BASE, fetch = defaultFetch, storage = globalThis.localStorage, now = Date.now() }, { force = false } = {}) {
+  if (catalogMem && !force) return catalogMem;
+  if (mockVariant(url, apiBase)) {
+    const res = await fetch('mock/mock-catalog.json', { cache: 'no-store' });
+    if (!res.ok) throw fail('error', `mock catalog ${res.status} — run: npm run mock`);
+    catalogMem = await res.json();
+    return catalogMem;
+  }
+  if (!force) {
+    try {
+      const hit = JSON.parse(storage.getItem(CATALOG_KEY) || 'null');
+      if (hit && hit.data && hit.built === hit.data.built && now - hit.at < CATALOG_TTL_MS) { catalogMem = hit.data; return catalogMem; }
+    } catch (_) { /* storage blocked or junk — fetch */ }
+  }
+  if (!token) throw fail('no-token', 'No token.');
+  const res = await fetch(`${apiBase}/api/catalog`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+  if (res.status === 403) throw fail('forbidden', 'Quotes are Kevin\'s and Matt\'s.');
+  if (res.status === 503) throw fail('no-catalog', 'the catalog has not been published yet');
+  if (!res.ok) throw fail('error', `catalog ${res.status}`);
+  catalogMem = await res.json();
+  try { storage.setItem(CATALOG_KEY, JSON.stringify({ at: now, built: catalogMem.built, data: catalogMem })); } catch (_) { /* full or blocked */ }
+  return catalogMem;
+}
+export const __resetCatalog = () => { catalogMem = null; };

@@ -72,13 +72,44 @@ export function mdOf(v) {
   return MD_CT.format(new Date(t));
 }
 
+const MON_DAY_CT = typeof Intl !== 'undefined'
+  ? new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' }) : null;
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Oct 9" — an instant in Central, a date-only string by surgery. */
+export function monDayOf(v) {
+  const s = String(v || '');
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (d) return `${MON[Number(d[2]) - 1]} ${Number(d[3])}`;
+  const t = Date.parse(s);
+  if (!s || !isFinite(t) || !MON_DAY_CT) return '';
+  return MON_DAY_CT.format(new Date(t));
+}
+
+/** The Quotes-section state words, longer form: "Viewed Oct 9 (2×)", "Bounced (mailbox full)". */
+export function quoteStateLong(q) {
+  if (!isTracked(q)) return '';
+  if (q.status === 'EXPIRED') return 'Expired';
+  if (q.status === 'VIEWED' || q.viewed_at) {
+    const n = Number(q.viewed_count) || 0;
+    return `Viewed ${monDayOf(q.viewed_at)}${n > 1 ? ` (${n}×)` : ''}`.replace(/\s+\(/, ' (').trim();
+  }
+  if (q.status === 'BOUNCED') return `Bounced${q.bounce_reason ? ` (${q.bounce_reason})` : ''}`;
+  if (q.opened_at) return `Opened ${monDayOf(q.opened_at)}`;
+  if (q.status === 'DELIVERED') return 'Delivered';
+  return 'not viewed';
+}
+
 /**
  * The chip's second half, and how loud: `not viewed` → `Delivered` (muted) /
  * `Opened 10/9` (muted) / `Viewed 10/9` (bold) / `Bounced` (red) / `Expired`.
  * → { text, tone } with tone ∈ quiet | muted | strong | bad | expired.
  */
+export const isTracked = (q) => !!q && (QUOTE_STATUSES.includes(q.status) || !!tokenOf(q));
+
 export function quoteState(q) {
-  if (!q) return { text: '', tone: 'quiet' };
+  // A pre-D83 quote (Mission Control's {number, file, sent}) was never tracked — say nothing rather than "not viewed".
+  if (!isTracked(q)) return { text: '', tone: 'quiet' };
   const s = q.status;
   if (s === 'EXPIRED') return { text: 'Expired', tone: 'expired' };
   if (s === 'VIEWED' || q.viewed_at) return { text: `Viewed ${mdOf(q.viewed_at)}`.trim(), tone: 'strong' };

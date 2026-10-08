@@ -669,7 +669,8 @@ await check('mock identity is a real person per role, so "is this mine?" is answ
 await check('Undo appears on my own pending taps and on nobody else\'s', async () => {
   for (const role of ['owner', 'sales', 'service']) {
     const { me, ids, pending } = await undoableIds(role);
-    const mine = pending.filter((e) => e.actor === me.name).map((e) => e.id);
+    // D83: a quote_send is the one tap with no Undo — the email already went.
+    const mine = pending.filter((e) => e.actor === me.name && e.action !== 'quote_send').map((e) => e.id);
     const theirs = pending.filter((e) => e.actor !== me.name).map((e) => e.id);
 
     assert.ok(mine.length, `${role} (${me.name}) should have at least one pending tap in the fixture`);
@@ -1056,8 +1057,9 @@ await check('the lead detail carries the whole record and its pending writes', a
   assert.ok(out.includes('Potential commission'));
   assert.ok(out.includes('Who') && out.includes('The deal') && out.includes('Timing'));
   // evt-mock-8 is Kevin's pending stage move on this lead; evt-mock-15 (D77)
-  // his photo coming off it — both ride the same pending list.
-  assert.ok(out.includes('⏳ 2 pending changes'), 'the pending writes are badged');
+  // his photo coming off it; evt-mock-16 (D83) the quote he already sent —
+  // all three ride the same pending list.
+  assert.ok(out.includes('⏳ 3 pending changes'), 'the pending writes are badged');
   assert.ok(out.includes('stage → Demo booked'), 'and described in English');
   assert.ok(out.includes('data-sheet="undo"'), 'and Kevin may take his own tap back');
 });
@@ -4176,6 +4178,98 @@ await check('every module app.js imports is in the service worker’s shell (an 
   const mods = [...appSrc.matchAll(/from '\.\/([a-z-]+\.js)'/g)].map((m) => m[1]);
   assert.ok(mods.includes('inspections.js'), 'the scan finds the D67 / D69 sheet module');
   for (const m of mods) assert.ok(shell.includes(`'${m}'`), `${m} is imported but not precached in sw.js`);
+});
+
+/* ============================================== D83: machine quotes ===== */
+
+await check('D83: the lead card chip reads the spec — Viewed (bold), Bounced (red), "sending…" while the engine catches up', async () => {
+  const l6 = await leadsAs('sales', '#/lead/L1006');
+  assert.ok(/class="chip qchip qs-strong">Q2002 · sent \d+\/\d+ · Viewed \d+\/\d+</.test(l6), 'Q2002 viewed, bold');
+  const l7 = await leadsAs('sales', '#/lead/L1007');
+  assert.ok(/class="chip qchip qs-bad">Q2003 · sent \d+\/\d+ · Bounced</.test(l7), 'bounced, red');
+  const l5 = await leadsAs('sales', '#/lead/L1005');
+  assert.ok(l5.includes('class="chip qchip qs-quiet">Q2004 · sending…<'), 'a sent-but-not-applied quote reads sending…');
+  assert.ok(!/qchip[^>]*>990142/.test(l5), 'a pre-D83 linked quote gets no tracking chip');
+  assert.ok(l5.includes('quote Q2004 sent to m.idle@harborline.example'), 'it rides the pending list');
+  assert.ok(!l5.includes('data-sheet="undo" data-id="evt-mock-16"'), 'no Undo on a quote_send — the email already went');
+});
+
+await check('D83: the Quotes section — newest first, money, sent by, state, the 📄 link that never counts as Viewed', async () => {
+  const out = await leadsAs('sales', '#/lead/L1006');
+  const sec = out.slice(out.indexOf('<h2>Quotes</h2>'), out.indexOf('<h2>Documents</h2>') > 0 ? out.indexOf('<h2>Documents</h2>') : undefined);
+  assert.ok(sec.indexOf('Q2002') < sec.indexOf('Q2001'), 'newest first');
+  assert.ok(/<strong>Q2002<\/strong> · \$43,466 · sent [A-Z][a-z]{2} \d+ by Kevin · <span class="qs-strong">Viewed [A-Z][a-z]{2} \d+ \(2×\)<\/span>/.test(sec), sec.slice(0, 400));
+  assert.ok(sec.includes('<span class="qs-expired">Expired</span>'), 'the old one reads Expired');
+  assert.ok(sec.includes('/q/a1b2c3d4e5f60718293a4b5c6d7e8f90.pdf') && sec.includes('📄 PDF'), 'the same URL the customer got');
+  const l5 = await leadsAs('sales', '#/lead/L1005');
+  assert.ok(/<strong>Q2004<\/strong> · \$5,755 · sent by Kevin · <span class="qs-quiet">sending…/.test(l5), 'the pending send has a row too');
+});
+
+await check('D83: Quote button for sales + owner on an open lead; none for service; the kanban QUOTED card carries the half-chip', async () => {
+  for (const role of ['sales', 'owner']) {
+    const out = await leadsAs(role, '#/lead/L1006');
+    assert.ok(out.includes('href="#/lead/L1006/quote">Quote again</a>'), `${role}: re-quote`);
+  }
+  const fresh = await leadsAs('sales', '#/lead/L1004');
+  assert.ok(fresh.includes('href="#/lead/L1004/quote">Quote</a>'));
+  const svc = await leadsAs('service', '#/lead/L1006');
+  assert.ok(!svc.includes('/quote"') && !svc.includes('qbtn-row'), 'E: no Quote button for service');
+  const board = await leadsAs('sales', '#/leads');
+  const card = board.slice(board.indexOf('href="#/lead/L1006"'), board.indexOf('</a>', board.indexOf('href="#/lead/L1006"')));
+  assert.ok(/<span class="qhalf qs-strong">Viewed \d+\/\d+<\/span>/.test(card), 'Viewed in the age-chip row');
+  const c5 = board.slice(board.indexOf('href="#/lead/L1005"'), board.indexOf('</a>', board.indexOf('href="#/lead/L1005"')));
+  assert.ok(c5.includes('<span class="qhalf qs-quiet">sending…</span>'));
+});
+
+await check('D83: service sees the chips with no money (the Worker strips quote.total + quotes[].total and the pending figures)', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=service&pending=1';
+  window.location.search = '?mock=full&role=service&pending=1';
+  await app.__refresh();
+  const st = app.__state();
+  for (const l of st.snapshot.leads) {
+    delete l.value; delete l.potential_commission;
+    if (l.quote && typeof l.quote === 'object') delete l.quote.total;
+    for (const q of l.quotes || []) delete q.total;
+  }
+  st.pending = st.pending.map((e) => (e.action === 'quote_send'
+    ? { ...e, payload: { lead: e.payload.lead, to: e.payload.to }, result: { number: e.result.number, token: e.result.token, sent_at: e.result.sent_at, by: e.result.by, to: e.result.to, expires: e.result.expires } } : e));
+  const out = await renderRoute('#/lead/L1006');
+  assert.ok(out.includes('Q2002 · sent') && out.includes('Viewed'), 'the chip still reads');
+  assert.ok(!/\$\s?\d/.test(out.slice(out.indexOf('<h2>Quotes</h2>'), out.indexOf('<h2>Quotes</h2>') + 2000)), 'no figure in the Quotes section');
+  const l5 = await renderRoute('#/lead/L1005');
+  assert.ok(l5.includes('Q2004 · sending…') && !l5.includes('$5,755'));
+  const comp = await renderRoute('#/lead/L1006/quote');
+  assert.ok(comp.includes("Quotes are Kevin's and Matt's.") && !comp.includes('id="qc"'), 'no composer for service');
+});
+
+await check('D83: the composer renders from the catalog — To prefilled, note templated, search, totals bar, no pixel in the preview', async () => {
+  const first = await leadsAs('sales', '#/lead/L1005/quote');
+  const out = first.includes('Loading the catalog') ? (await settle(), await renderRoute('#/lead/L1005/quote')) : first;
+  assert.ok(out.includes('id="qc"'), out.slice(0, 300));
+  assert.ok(out.includes('Quote <span class="unit-serial">Q----</span>'), 'the number is minted at send');
+  assert.ok(out.includes('data-qc-field="to"') && out.includes('value="m.idle@harborline.example"'), 'To = the lead email');
+  assert.ok(out.includes('Hi Marcus,'), 'the note is pre-filled for the contact');
+  assert.ok(out.includes('data-qc="brand" data-brand="Factory Cat"') && out.includes('data-brand="other"'), 'brand chips');
+  assert.ok(out.includes('id="qc-sum"') && out.includes('$0.00'), 'the running total is pinned');
+  assert.ok(/data-qc="send" disabled/.test(out), 'Send waits for a machine');
+  // Pick a machine through the real click handler's state functions, then preview.
+  const { addMachine, toggleOption, groupsFor, previewHtml } = await import('../docs/composer.js');
+  const d = app.__quoteDrafts().get('L1005');
+  const cat = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-catalog.json'), 'utf8'));
+  const lead = app.__state().snapshot.leads.find((l) => l.lead === 'L1005');
+  const line = addMachine(d, cat.machines[0], lead);
+  toggleOption(d, line.id, groupsFor(cat, line)[0].items[1]);
+  const edit = await renderRoute('#/lead/L1005/quote');
+  assert.ok(edit.includes('Kodiak KX20 Walk-Behind Scrubber (20&quot; Disk)') || edit.includes('Kodiak KX20 Walk-Behind Scrubber (20" Disk)'));
+  assert.ok(edit.includes('Squeegees - 20 Inch Deck') && !edit.includes('Squeegees - 17 Inch Deck'), 'options filtered to the 20" deck');
+  assert.ok(edit.includes('$5,455.00') && edit.includes('$300.03') && edit.includes('$5,755.03'), 'totals: 5400 + 55, tax 5.5%');
+  assert.ok(!/data-qc="send" disabled/.test(edit), 'Send is live once the quote is whole');
+  d.view = 'preview';
+  const pv = await renderRoute('#/lead/L1005/quote');
+  assert.ok(pv.includes('View / download quote (PDF)') && pv.includes('Q----') && !pv.includes('o.gif'), 'the email as it sends — minus the number and the pixel');
+  assert.ok(pv.includes('Kevin Example'), 'the sender block from the catalog response');
+  void previewHtml;
+  app.__quoteDrafts().delete('L1005');
 });
 
 console.log(`\n${passed} checks passed.`);

@@ -1,0 +1,160 @@
+{
+  "built": "2026-10-08T10:00:00-05:00",
+  "machines": [
+    {
+      "key": "kodiak-kx20-walk-behind-scrubber-20-disk",
+      "title": "Kodiak KX20 Walk-Behind Scrubber (20\" Disk)",
+      "manufacturer": "Kodiak",
+      "model": "KX20-PA",
+      "stock": "KX20-001",
+      "category": "Floor Scrubbers",
+      "condition": "new",
+      "list": 5400,
+      "series": "KX Series",
+      "deck_in": 20,
+      "deck_type": "D",
+      "image": null
+    },
+    {
+      "key": "kodiak-kx20-walk-behind-scrubber-17-disk",
+      "title": "Kodiak KX20 Walk-Behind Scrubber (17\" Disk)",
+      "manufacturer": "Kodiak",
+      "model": "KX17-PA",
+      "stock": "KX17-001",
+      "category": "Floor Scrubbers",
+      "condition": "new",
+      "list": 5250,
+      "series": "KX Series",
+      "deck_in": 17,
+      "deck_type": "D",
+      "image": null
+    },
+    {
+      "key": "factory-cat-mx-20-disk",
+      "title": "Factory Cat MX Scrubber (20\" Disk)",
+      "manufacturer": "Factory Cat",
+      "model": "MX-20D",
+      "stock": "MX20D",
+      "category": "Floor Scrubbers",
+      "condition": "new",
+      "list": 9100,
+      "series": null,
+      "deck_in": 20,
+      "deck_type": "D",
+      "image": null
+    },
+    {
+      "key": "tomcat-rx-rider-28",
+      "title": "Tomcat RX Rider Scrubber (28\" Cylindrical)",
+      "manufacturer": "Tomcat",
+      "model": "RX-28C",
+      "stock": "RX28",
+      "category": "Floor Scrubbers",
+      "condition": "new",
+      "list": 21500,
+      "series": null,
+      "deck_in": 28,
+      "deck_type": "C",
+      "image": null
+    },
+    {
+      "key": "nordvale-sw-36-sweeper",
+      "title": "Nordvale SW-36 Walk-Behind Sweeper",
+      "manufacturer": "Nordvale",
+      "model": "SW-36",
+      "stock": null,
+      "category": "Sweepers",
+      "condition": "new",
+      "list": null,
+      "series": null,
+      "deck_in": null,
+      "deck_type": null,
+      "image": null
+    }
+  ],
+  "series": {
+    "KX Series": {
+      "brand": "Kodiak",
+      "groups": [
+        {
+          "name": "Battery & Charger Options",
+          "deck_min": null,
+          "deck_max": null,
+          "deck_type": null,
+          "items": [
+            {
+              "part": "KX-054",
+              "description": "85ah WET (2x) / Onboard Charger",
+              "list": 0
+            },
+            {
+              "part": "KX-035",
+              "description": "130ah WET (2x) / Onboard Charger",
+              "list": 55
+            },
+            {
+              "part": "KX-010",
+              "description": "115ah AGM (2x) / Onboard Charger",
+              "list": 150
+            }
+          ]
+        },
+        {
+          "name": "Squeegees - 17 Inch Deck",
+          "deck_min": 17,
+          "deck_max": 17,
+          "deck_type": null,
+          "items": [
+            {
+              "part": "KX-019",
+              "description": "31\" Squeegee",
+              "list": 0
+            }
+          ]
+        },
+        {
+          "name": "Squeegees - 20 Inch Deck",
+          "deck_min": 20,
+          "deck_max": 20,
+          "deck_type": null,
+          "items": [
+            {
+              "part": "KX-020",
+              "description": "33\" Squeegee",
+              "list": 0
+            }
+          ]
+        },
+        {
+          "name": "Brushes - 20 Inch Disk",
+          "deck_min": 20,
+          "deck_max": 20,
+          "deck_type": "D",
+          "items": [
+            {
+              "part": "KX-B20",
+              "description": "Pad driver 20\"",
+              "list": 95
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "business": {
+    "name": "Wisconsin Scrub & Sweep",
+    "phone": "(555) 010-0000",
+    "email": "info@example.com",
+    "street": "1 Example Way",
+    "city_line": "Ixonia, WI 53036",
+    "city": "Ixonia",
+    "region": "WI"
+  },
+  "tax_rate": 0.055,
+  "valid_days": 30,
+  "sender": {
+    "mailbox": "kevin@example.com",
+    "name": "Kevin Example",
+    "phone": "(555) 010-0001"
+  }
+}

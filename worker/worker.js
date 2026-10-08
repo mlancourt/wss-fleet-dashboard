@@ -1403,7 +1403,8 @@ async function crewCatalog({ me, env }) {
   const raw = await env.FLEET_KV.get('catalog');
   if (!raw) return json({ error: 'catalog not published yet' }, 503);
   const cat = JSON.parse(raw);
-  return json({ ...cat, tax_rate: taxRate(env), valid_days: DEFAULT_VALID_DAYS });
+  // `sender` = the caller's own From block, so the preview's signature is the one that sends.
+  return json({ ...cat, tax_rate: taxRate(env), valid_days: DEFAULT_VALID_DAYS, sender: senderFor(env, me.name) });
 }
 
 /** POST /api/admin/catalog — the engine's push. Refuses a dealer-cost key anywhere, by path. */
@@ -1728,14 +1729,14 @@ async function customerQuote({ request, env, url, token, kind }) {
 
   if (kind === 'gif') {
     if (!head && !crew) {
-      let first = false;
+      let first = null;
       await stampQuote(env, token, (s) => {
         if (s.opened_at) return null;
-        first = true;
-        s.opened_at = new Date().toISOString();
+        first = s.opened_at = new Date().toISOString();
         return s;
       });
-      if (first) await customerEvent(env, rec, 'opened');
+      // The event carries the stamp's own instant, so the engine writes exactly what the overlay showed.
+      if (first) await customerEvent(env, rec, 'opened', { at: first });
     }
     return new Response(head ? null : PIXEL_GIF, { status: 200, headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store, private' } });
   }
@@ -1750,7 +1751,7 @@ async function customerQuote({ request, env, url, token, kind }) {
       x.last_viewed_at = now;
       return x;
     });
-    await customerEvent(env, rec, 'viewed', { viewed_count: s.viewed_count });
+    await customerEvent(env, rec, 'viewed', { viewed_count: s.viewed_count, at: now });
   }
   return new Response(head ? null : bytes, {
     status: 200,
@@ -1807,7 +1808,7 @@ async function resendWebhook({ request, env }) {
     if (kind === 'complained') s.complained_at = s.complained_at || at;
     return s;
   });
-  await customerEvent(env, rec, kind, reason ? { reason } : {});
+  await customerEvent(env, rec, kind, reason ? { reason, at } : { at });
   if (svixId) await env.FLEET_KV.put(`whk:${svixId}`, '1', { expirationTtl: 86400 });
   return json({ ok: true, quote: rec.number, kind });
 }

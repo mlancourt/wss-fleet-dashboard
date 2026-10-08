@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-10-08T15:00:06.432Z",
+    "generated_at": "2026-10-08T15:32:50.920Z",
     "run_id": "mock-full-2026-10-08",
     "fleet_totals": {
       "units": 39
@@ -3966,7 +3966,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1002",
@@ -4012,7 +4013,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1003",
@@ -4058,7 +4060,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1004",
@@ -4120,7 +4123,8 @@
           "text": "Matt: Second voicemail. No callback."
         }
       ],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1005",
@@ -4208,7 +4212,8 @@
           "added": "2026-10-04",
           "crew": true
         }
-      ]
+      ],
+      "quotes": []
     },
     {
       "lead": "L1006",
@@ -4232,9 +4237,22 @@
       "value": 41200,
       "potential_commission": 2884,
       "quote": {
-        "number": "990139",
-        "file": null,
-        "sent": "2026-10-06"
+        "number": "Q2002",
+        "file": "01-WSS/Quotes/2026-10/Q2002-Mock.md",
+        "sent": "2026-10-06",
+        "sent_at": "2026-10-06T15:42:11.000Z",
+        "by": "Kevin",
+        "to": "lena.faust@quarryroad.example",
+        "total": 43466,
+        "status": "VIEWED",
+        "delivered_at": "2026-10-06T15:43:00.000Z",
+        "bounced_at": null,
+        "bounce_reason": null,
+        "opened_at": "2026-10-07T13:05:00.000Z",
+        "viewed_at": "2026-10-07T13:06:00.000Z",
+        "viewed_count": 2,
+        "expires": "2026-11-05",
+        "pdf": "/q/a1b2c3d4e5f60718293a4b5c6d7e8f90.pdf"
       },
       "demo": null,
       "assigned": "Kevin",
@@ -4258,7 +4276,45 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": [
+        {
+          "number": "Q2001",
+          "file": "01-WSS/Quotes/2026-10/Q2001-Mock.md",
+          "sent": "2026-08-29",
+          "sent_at": "2026-08-29T15:42:11.000Z",
+          "by": "Kevin",
+          "to": "lena.faust@quarryroad.example",
+          "total": 39870.25,
+          "status": "EXPIRED",
+          "delivered_at": "2026-08-29T15:43:00.000Z",
+          "bounced_at": null,
+          "bounce_reason": null,
+          "opened_at": null,
+          "viewed_at": null,
+          "viewed_count": 0,
+          "expires": "2026-09-28",
+          "pdf": "/q/11111111111111111111111111111111.pdf"
+        },
+        {
+          "number": "Q2002",
+          "file": "01-WSS/Quotes/2026-10/Q2002-Mock.md",
+          "sent": "2026-10-06",
+          "sent_at": "2026-10-06T15:42:11.000Z",
+          "by": "Kevin",
+          "to": "lena.faust@quarryroad.example",
+          "total": 43466,
+          "status": "VIEWED",
+          "delivered_at": "2026-10-06T15:43:00.000Z",
+          "bounced_at": null,
+          "bounce_reason": null,
+          "opened_at": "2026-10-07T13:05:00.000Z",
+          "viewed_at": "2026-10-07T13:06:00.000Z",
+          "viewed_count": 2,
+          "expires": "2026-11-05",
+          "pdf": "/q/a1b2c3d4e5f60718293a4b5c6d7e8f90.pdf"
+        }
+      ]
     },
     {
       "lead": "L1007",
@@ -4281,7 +4337,24 @@
       "serial": "900114",
       "value": 24600,
       "potential_commission": 1107,
-      "quote": null,
+      "quote": {
+        "number": "Q2003",
+        "file": "01-WSS/Quotes/2026-10/Q2003-Mock.md",
+        "sent": "2026-10-05",
+        "sent_at": "2026-10-05T15:42:11.000Z",
+        "by": "Kevin",
+        "to": "dana@cedarridge.example",
+        "total": 12118.4,
+        "status": "BOUNCED",
+        "delivered_at": null,
+        "bounced_at": "2026-10-05T15:44:00.000Z",
+        "bounce_reason": "mailbox does not exist",
+        "opened_at": null,
+        "viewed_at": null,
+        "viewed_count": 0,
+        "expires": "2026-11-04",
+        "pdf": "/q/33333333333333333333333333333333.pdf"
+      },
       "demo": {
         "date": "2026-10-11",
         "serial": "900114",
@@ -4308,7 +4381,27 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": [
+        {
+          "number": "Q2003",
+          "file": "01-WSS/Quotes/2026-10/Q2003-Mock.md",
+          "sent": "2026-10-05",
+          "sent_at": "2026-10-05T15:42:11.000Z",
+          "by": "Kevin",
+          "to": "dana@cedarridge.example",
+          "total": 12118.4,
+          "status": "BOUNCED",
+          "delivered_at": null,
+          "bounced_at": "2026-10-05T15:44:00.000Z",
+          "bounce_reason": "mailbox does not exist",
+          "opened_at": null,
+          "viewed_at": null,
+          "viewed_count": 0,
+          "expires": "2026-11-04",
+          "pdf": "/q/33333333333333333333333333333333.pdf"
+        }
+      ]
     },
     {
       "lead": "L1008",
@@ -4362,7 +4455,8 @@
           "bytes": 96410,
           "added": "2026-10-05"
         }
-      ]
+      ],
+      "quotes": []
     },
     {
       "lead": "L1015",
@@ -4419,7 +4513,8 @@
           "text": "Kevin QUOTED → PO-RECEIVED: PO 48812; order submitted to the factory."
         }
       ],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1009",
@@ -4465,7 +4560,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1010",
@@ -4510,7 +4606,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1011",
@@ -4556,7 +4653,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1012",
@@ -4602,7 +4700,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1014",
@@ -4648,7 +4747,8 @@
       "machinio_ref": null,
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     },
     {
       "lead": "L1013",
@@ -4689,7 +4789,8 @@
       "machinio_ref": "MCH-88109",
       "related_ticket": null,
       "log": [],
-      "docs": []
+      "docs": [],
+      "quotes": []
     }
   ],
   "leads_summary": {
@@ -4710,7 +4811,9 @@
     },
     "money_fields": [
       "value",
-      "potential_commission"
+      "potential_commission",
+      "quote.total",
+      "quotes[].total"
     ],
     "stages": [
       "RECEIVED",
@@ -6049,7 +6152,7 @@
   },
   "activity": [
     {
-      "ts": "2026-10-08T14:52:06.432Z",
+      "ts": "2026-10-08T15:24:50.920Z",
       "actor": "Josh",
       "role": "service",
       "action": "work_order",
@@ -6059,7 +6162,7 @@
       "evt": "mock-act-1"
     },
     {
-      "ts": "2026-10-08T14:35:06.432Z",
+      "ts": "2026-10-08T15:07:50.920Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "lead_update",
@@ -6069,7 +6172,7 @@
       "evt": "mock-act-2"
     },
     {
-      "ts": "2026-10-08T14:05:06.432Z",
+      "ts": "2026-10-08T14:37:50.920Z",
       "actor": "Matt",
       "role": "owner",
       "action": "dispatch_done",
@@ -6079,7 +6182,7 @@
       "evt": "evt-mock-6"
     },
     {
-      "ts": "2026-10-08T13:25:06.432Z",
+      "ts": "2026-10-08T13:57:50.920Z",
       "actor": "Zac",
       "role": "service",
       "action": "readiness",
@@ -6089,7 +6192,7 @@
       "evt": "mock-act-3"
     },
     {
-      "ts": "2026-10-08T12:40:06.432Z",
+      "ts": "2026-10-08T13:12:50.920Z",
       "actor": "Josh",
       "role": "service",
       "action": "doc_attach",
@@ -6099,7 +6202,7 @@
       "evt": "mock-act-4"
     },
     {
-      "ts": "2026-10-08T11:40:06.432Z",
+      "ts": "2026-10-08T12:12:50.920Z",
       "actor": "Architect",
       "role": null,
       "action": "ticket_update",
@@ -6109,7 +6212,7 @@
       "evt": "mock-act-5"
     },
     {
-      "ts": "2026-10-07T19:00:06.432Z",
+      "ts": "2026-10-07T19:32:50.920Z",
       "actor": "Matt",
       "role": "owner",
       "action": "work_order",
@@ -6119,7 +6222,7 @@
       "evt": "mock-act-6"
     },
     {
-      "ts": "2026-10-07T17:00:06.432Z",
+      "ts": "2026-10-07T17:32:50.920Z",
       "actor": "Zac",
       "role": "service",
       "action": "work_order",
@@ -6129,7 +6232,7 @@
       "evt": "mock-act-7"
     },
     {
-      "ts": "2026-10-07T13:00:06.432Z",
+      "ts": "2026-10-07T13:32:50.920Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "rental_update",
@@ -6139,7 +6242,7 @@
       "evt": "mock-act-8"
     },
     {
-      "ts": "2026-10-07T09:00:06.432Z",
+      "ts": "2026-10-07T09:32:50.920Z",
       "actor": "Josh",
       "role": "service",
       "action": "ticket_update",
@@ -6149,7 +6252,7 @@
       "evt": "mock-act-9"
     },
     {
-      "ts": "2026-10-05T13:00:06.432Z",
+      "ts": "2026-10-05T13:32:50.920Z",
       "actor": "Matt",
       "role": "owner",
       "action": "lead_open",
@@ -6159,7 +6262,7 @@
       "evt": "mock-act-10"
     },
     {
-      "ts": "2026-10-05T11:00:06.432Z",
+      "ts": "2026-10-05T11:32:50.920Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "reserve",
