@@ -82,7 +82,7 @@ import { activityGroups, pendingActivityRows, activityRoute, activityTime, actor
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-08-d83c';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-13-d84';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -4698,6 +4698,7 @@ function describeLead(e) {
   }
   const p = pl(e);
   if (e.action === 'lead_close') {
+    if (p.outcome === 'SPAM') return 'marked as spam — off the board at the next run';
     return `closing as ${p.outcome}${p.reason ? ` — ${REASON_LABEL[p.reason] || p.reason}` : ''}`;
   }
   const bits = [];
@@ -4820,9 +4821,26 @@ function leadActions(l) {
 
     ${canCloseLead(role()) && l.status === 'OPEN' ? raw(html`
       <h2>Close it out</h2>
-      <div class="actions"><button class="btn ghost danger-btn" type="button" data-sheet="lead-close" data-id="${l.lead}">Lost or dead</button></div>
+      <div class="actions">
+        <button class="btn ghost danger-btn" type="button" data-sheet="lead-close" data-id="${l.lead}">Lost or dead</button>
+        <button class="btn ghost" type="button" data-sheet="lead-spam" data-id="${l.lead}">🚫 Spam</button>
+      </div>
       ${open === 'lead-close' ? raw(closeLeadForm(l, o)) : ''}
+      ${open === 'lead-spam' ? raw(spamLeadForm(l)) : ''}
       <div class="form-note">A win is not closed here — move the stage to Invoiced and the engine marks it won.</div>`) : ''}`;
+}
+
+/** D84 — a bot in the web form is not a lead that went nowhere; it was never a lead.
+ *  One confirm, no reason: the engine drops it from the board, the scoreboard and
+ *  every conversion number. The file stays in the vault (ids never reuse). */
+function spamLeadForm(l) {
+  return html`
+    <form class="write sheet" data-action="lead_close" data-id="${l.lead}" data-mode="spam">
+      <input type="hidden" name="outcome" value="SPAM">
+      <p>Mark <strong>${l.customer || l.lead}</strong> as spam? It comes off the board and never counts against conversion.</p>
+      ${raw(sheetButtons('Mark as spam'))}
+      <div class="form-note">A proposal — it stays on the board until the next run.</div>
+    </form>`;
 }
 
 function closeLeadForm(l, o) {
@@ -6423,7 +6441,7 @@ document.addEventListener('submit', async (ev) => {
       ui.form = null;
       ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb])
         || (verb === 'INSPECT' && INSPECT_MSG[form.dataset.step])
-        || (action === 'work_order' && WO_MSG[form.dataset.verb]) || SUBMIT_MSG[action] || 'Applies at the next run.' };
+        || (action === 'work_order' && WO_MSG[form.dataset.verb]) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.') || SUBMIT_MSG[action] || 'Applies at the next run.' };
       render();
     }
   } catch (err) {

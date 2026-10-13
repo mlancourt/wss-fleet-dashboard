@@ -130,7 +130,7 @@ const LEAD_STAGES = new Set(['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED'
 const LEAD_SOURCES = new Set(['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO', 'WEB-CHAT']);   // WEB-CHAT: D82
 const LEAD_INTERESTS = new Set(['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS']);
 const LOST_REASONS = new Set(['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER']);
-const LEAD_OUTCOMES = new Set(['LOST', 'DEAD']);        // WON is reached by moving to INVOICED, not by closing
+const LEAD_OUTCOMES = new Set(['LOST', 'DEAD', 'SPAM']);  // WON is reached by moving to INVOICED, not by closing; SPAM (D84) = never a lead
 const ASSIGNEES = new Set(['Kevin', 'Matt']);
 // D64 — the three rental verbs. Membership only: whether THIS agreement may go
 // OFF-RENT today (is it ACTIVE? is the date after it went out?) is the vault's.

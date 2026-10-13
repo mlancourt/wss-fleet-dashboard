@@ -366,6 +366,12 @@ await check('D82 intake: opens a lead (WEB-CHAT) and a ticket, nothing else, rea
   await refused('intake', { action: 'ticket_update', payload: { ticket: 'S1001', note: 'x' } }, 'intake ticket_update', 403);
   await refused('intake', { action: 'lead_update', payload: { lead: 'L1001', note: 'x' } }, 'intake lead_update', 403);
   await refused('intake', { action: 'lead_close', payload: { lead: 'L1001', outcome: 'DEAD' } }, 'intake lead_close', 403);
+  // D84: SPAM is a legal outcome for sales/owner, no reason; intake still can't close anything
+  await refused('intake', { action: 'lead_close', payload: { lead: 'L1001', outcome: 'SPAM' } }, 'intake lead_close SPAM', 403);
+  const spam = await ok('sales', { action: 'lead_close', payload: { lead: 'L1001', outcome: 'SPAM', reason: null, note: null } }, 'sales lead_close SPAM');
+  assert.equal(spam.payload.outcome, 'SPAM');
+  assert.equal(spam.payload.reason, null, 'no reason rides with SPAM');
+  await refused('sales', { action: 'lead_close', payload: { lead: 'L1001', outcome: 'JUNK' } }, 'unknown outcome', 400);
   await refused('intake', { action: 'doc_attach', payload: {} }, 'intake doc_attach', 403);
   const call = (method, path) => worker.fetch(new Request('https://w.example' + path, { method, headers: { Authorization: `Bearer ${TOK.intake}` } }), env);
   for (const [m, p] of [['GET', '/api/data'], ['GET', '/api/health'], ['POST', '/api/doc'], ['GET', '/api/doc/abc'], ['DELETE', '/api/event/x']]) {

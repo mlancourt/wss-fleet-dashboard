@@ -22,7 +22,7 @@
  * doesn't need a site deploy; these are the fallback and the Worker's copy. */
 
 export const LEAD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED'];
-export const LEAD_STATUSES = ['OPEN', 'WON', 'LOST', 'DEAD'];
+export const LEAD_STATUSES = ['OPEN', 'WON', 'LOST', 'DEAD', 'SPAM'];   // SPAM (D84): the engine never ships one; tolerated, never drawn
 export const LEAD_SOURCES = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO'];
 export const LEAD_INTERESTS = ['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS'];
 export const LOST_REASONS = ['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER'];
@@ -190,7 +190,8 @@ export function boardColumns(leads, { filter = 'all', me = null, summary = null 
   return cols;
 }
 
-/** The collapsed strip under the board: LOST + DEAD, most recently closed first. */
+/** The collapsed strip under the board: LOST + DEAD, most recently closed first.
+ *  SPAM never draws anywhere (D84) — the engine drops it before publish; this is the belt to that suspender. */
 export function closedLeads(leads, filter = 'all', meName = null) {
   return filterLeads(leads, filter, meName)
     .filter((l) => l.status === 'LOST' || l.status === 'DEAD')

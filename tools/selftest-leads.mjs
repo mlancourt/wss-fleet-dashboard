@@ -178,6 +178,14 @@ check('LOST and DEAD are never on the board — they are the closed strip', () =
   assert.deepEqual(closedLeads(FIXTURE).map((l) => l.lead), ['L7', 'L6'], 'most recently closed first');
 });
 
+check('D84: a SPAM lead draws nowhere — not the board, not the closed strip', () => {
+  const spam = lead({ lead: 'L99', stage: 'RECEIVED', status: 'SPAM', closed: '2026-09-09', close_reason: 'SPAM' });
+  const all = FIXTURE.concat([spam]);
+  const onBoard = boardColumns(all, { me: null }).flatMap((c) => c.leads.map((l) => l.lead));
+  assert.ok(!onBoard.includes('L99'));
+  assert.ok(!closedLeads(all).some((l) => l.lead === 'L99'));
+});
+
 check('an OPEN lead at an off-board stage gets its own column, before WON', () => {
   const cols = boardColumns(FIXTURE, { me: null });
   const keys = cols.map((c) => c.key);
