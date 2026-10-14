@@ -470,7 +470,7 @@ form.write textarea { min-height: 80px; resize: vertical; }
    header. Wide screens: the wrapper breaks out of the 760px column so as many
    as will fit sit side by side. Shared with the Leads board. */
 
-.kan-wrap { margin: 0 -16px; }
+.kan-wrap { margin: 18px -16px 0; }
 .kanban {
   display: flex; gap: 12px; overflow-x: auto; padding: 2px 16px 10px;
   scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
