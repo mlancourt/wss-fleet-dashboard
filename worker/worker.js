@@ -663,23 +663,27 @@ function stripPartsMoney(doc) {
 }
 
 /**
- * D87 (2026-10-13): wake the engine the moment an event lands. Until today the
- * only thing that ever APPLIED an event was the mini's hourly launchd tick, so a
- * crew tap sat in KV for up to an hour. Now every `evt:` put is followed by one
- * publish to a private ntfy topic; the mini holds a listener that kickstarts
- * com.lannyai.wss-fleet. Fire-and-forget: a failed poke costs nothing but the
- * hour the tick was always going to cost. FLEET_POKE_URL is a secret (the repo
- * is public; the topic IS the credential) — unset = no poke, same as before.
+ * D87 (2026-10-13, v2 2026-10-14): wake the engine the moment an event lands. Until
+ * 10/13 the only thing that ever APPLIED an event was the mini's hourly launchd
+ * tick, so a crew tap sat in KV for up to an hour. Now every `evt:` put is
+ * followed by one POST to the mini's own door (fleet-poke.lannyai.com, a
+ * Cloudflare tunnel to a loopback listener that kickstarts com.lannyai.wss-fleet).
+ * v1 published to an ntfy.sh topic instead and died the same night: ntfy limits
+ * by source IP and a Worker's egress IP is shared — 429 after the first hour.
+ * Fire-and-forget: a failed poke costs nothing but the hour the tick was always
+ * going to cost. FLEET_POKE_URL + FLEET_POKE_SECRET are secrets (the repo is
+ * public); either unset = no poke, same as before.
  */
 async function pokeEngine(env, why) {
-  if (!env.FLEET_POKE_URL) return;
+  if (!env.FLEET_POKE_URL || !env.FLEET_POKE_SECRET) { console.log('poke: not configured'); return; }
   try {
-    await fetch(env.FLEET_POKE_URL, {
+    const r = await fetch(env.FLEET_POKE_URL, {
       method: 'POST',
-      headers: { Title: 'fleet', Tags: 'zap' },
+      headers: { 'X-Poke-Secret': env.FLEET_POKE_SECRET, 'Content-Type': 'text/plain' },
       body: why || 'event',
       signal: AbortSignal.timeout(3000),
     });
+    if (r.status !== 204) console.log('poke:', why, r.status);
   } catch (e) { console.log('poke failed:', e && e.message); }
 }
 
