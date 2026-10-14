@@ -1214,6 +1214,13 @@ function build({ withServiceQueue }) {
     inspection_checklist: CHECKLIST_FIXTURE,
     // D78 (schema 7, additive): the activity tape. Newest first, <= 40, money-free.
     activity,
+    // A74 (schema 7, additive): rejected taps, last 24 h, newest first. The page shows each actor their own.
+    rejections: [
+      { id: 'rej-mock-1', ts: new Date().toISOString(), actor: 'Matt', role: 'owner', action: 'parts_update', record: 'P1001',
+        reason: 'APPROVED → DELIVERED skips a stage — one step at a time (the sweeps do IN-TRANSIT / DELIVERED for you)' },
+      { id: 'rej-mock-2', ts: new Date().toISOString(), actor: 'Zac', role: 'service', action: 'ticket_update', record: 'S1030',
+        reason: 'COMPLETE on a customer ticket is the owner\'s call' },
+    ],
     // D88 (schema 7, additive): parts sales. OPEN + closed <= 14 days.
     parts_orders,
     parts_summary,

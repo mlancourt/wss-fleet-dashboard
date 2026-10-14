@@ -1482,3 +1482,8 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
 .h1-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .h1-row .h1-link { font-size: 14px; color: var(--slate-500); text-decoration: none; font-weight: 600; }
 a.alert.expired-holds { display: block; text-decoration: none; margin: 0 0 12px; }
+
+/* A74: a rejected tap's notice — red like .alert, with the OK inline. */
+.alert.rej { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-weight: 500; }
+.alert.rej strong { white-space: nowrap; }
+.alert.rej .btn { margin-left: auto; }

@@ -121,7 +121,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-14-d88';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-14-a74';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -1862,6 +1862,35 @@ function boardView() {
 /* ====================================== service: kanban + ticket detail ==== */
 
 const enc = (s) => encodeURIComponent(String(s == null ? '' : s));
+
+/* ---- A74: rejected taps get told -----------------------------------------
+ * Until 2026-10-14 a tap the engine REJECTED was acked and gone: the ⏳ row
+ * vanished, the card did not change, and nothing said why (Matt tapped
+ * DELIVERED on a vendor-ladder parts order at 04:43 and stared at it). The
+ * engine now ships `rejections[]` (last 24 h, reasons money-scrubbed) and this
+ * shows each actor THEIR OWN, on every view, until they tap OK. Dismissals live
+ * in localStorage — per phone, which is right: the reason is for the person who
+ * tapped. Nobody else's rejections ever draw. */
+const REJ_SEEN_KEY = 'wss-fleet-rej-seen';
+function rejSeen() {
+  try { const v = JSON.parse(localStorage.getItem(REJ_SEEN_KEY) || '[]'); return new Set(Array.isArray(v) ? v : []); }
+  catch (_) { return new Set(); }
+}
+function rejDismiss(id) {
+  try { const v = [...rejSeen(), id].slice(-100); localStorage.setItem(REJ_SEEN_KEY, JSON.stringify(v)); } catch (_) { /* private mode: it just comes back */ }
+}
+function myRejections() {
+  const me = meName();
+  const rows = (state.snapshot && Array.isArray(state.snapshot.rejections)) ? state.snapshot.rejections : [];
+  if (!me || !rows.length) return [];
+  const seen = rejSeen();
+  return rows.filter((r) => r && r.id && r.actor === me && !seen.has(r.id));
+}
+function rejectBlock() {
+  const mine = myRejections();
+  if (!mine.length) return '';
+  return mine.map((r) => html`<div class="alert rej" data-rej="${r.id}"><strong>✕ Not applied</strong>${r.action || 'tap'}${r.record ? ` on ${r.record}` : ''} — ${r.reason || 'the engine refused it'} <button class="btn sm ghost" type="button" data-rej-dismiss="${r.id}">OK</button></div>`).join('');
+}
 
 /** The one-shot confirmation line after a write. Cleared on the next navigation. */
 function msgBlock() {
@@ -5518,7 +5547,7 @@ function render() {
   const keepY = sameView ? window.scrollY : 0;
   const keepTop = sameView ? view.scrollTop : 0;
 
-  view.innerHTML = out;
+  view.innerHTML = rejectBlock() + out;   // A74: my rejected taps ride on top of every view until dismissed
   ui.msg = null;                 // the confirmation line shows once, then clears
   renderHeader();
   lastRenderedHash = hash;
@@ -5945,6 +5974,9 @@ document.addEventListener('keydown', (ev) => {
 });
 
 document.addEventListener('click', async (ev) => {
+  // A74: dismiss one of my rejected-tap notices.
+  const rejBtn = ev.target.closest('[data-rej-dismiss]');
+  if (rejBtn) { rejDismiss(rejBtn.dataset.rejDismiss); render(); return; }
   // D83: the quote composer handles its own taps (data-qc); nothing else uses the attribute.
   const qcEl = ev.target.closest('[data-qc]');
   if (qcEl && onComposerClick(qcEl)) return;
@@ -7070,4 +7102,5 @@ export const __state = () => state;
 export const __ui = () => ui;
 export const __flushSheets = async () => { flushAllSheets(); for (const l of sheetLocal.values()) await l.chain; };
 export const __sheetLocal = () => sheetLocal;
+export const __rejDismiss = (id) => rejDismiss(id);   // A74: the stub DOM has no click()
 export const __quoteDrafts = () => quoteDrafts;

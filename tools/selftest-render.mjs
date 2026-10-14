@@ -668,6 +668,27 @@ await check('mock identity is a real person per role, so "is this mine?" is answ
   }
 });
 
+await check('A74: a rejected tap shows its reason to the actor, on every view, until dismissed — and to nobody else', async () => {
+  try { localStorage.removeItem('wss-fleet-rej-seen'); } catch (_) {}
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner';
+  window.location.search = '?mock=full&role=owner';
+  await app.__refresh();
+  for (const route of ['#/', '#/parts', '#/service']) {
+    window.location.hash = route; app.__render();
+    const out = document.querySelector('#view').innerHTML;
+    assert.ok(out.includes('data-rej="rej-mock-1"'), `Matt must see his own rejection on ${route}`);
+    assert.ok(out.includes('skips a stage'), 'the reason is on the notice');
+    assert.ok(!out.includes('data-rej="rej-mock-2"'), `Zac's rejection must not draw for Matt on ${route}`);
+  }
+  app.__rejDismiss('rej-mock-1'); app.__render();       // the OK button's handler, minus the stub DOM's missing click()
+  assert.ok(!document.querySelector('#view').innerHTML.includes('data-rej="rej-mock-1"'), 'OK dismisses it');
+  window.location.href = 'http://localhost:8787/?mock=full&role=service';
+  window.location.search = '?mock=full&role=service';
+  await app.__refresh(); window.location.hash = '#/'; app.__render();
+  const svc = document.querySelector('#view').innerHTML;
+  assert.ok(!svc.includes('data-rej='), 'Josh sees no rejection — Zac\'s is Zac\'s, Matt\'s is Matt\'s');
+});
+
 await check('Undo appears on my own pending taps and on nobody else\'s', async () => {
   for (const role of ['owner', 'sales', 'service']) {
     const { me, ids, pending } = await undoableIds(role);
