@@ -4351,10 +4351,10 @@ const partsCardOf = (out, id) => {
   return out.slice(start, out.indexOf('<div class="kan-card', i) > 0 ? out.indexOf('<div class="kan-card', i) : out.indexOf('</section>', i));
 };
 
-await check('D88 nav: Parts takes Holds\' slot (Fleet · Rentals · Parts · Dispatch · Service · Leads); badge = requested_unquoted', async () => {
+await check('D88 nav: Parts takes Holds\' slot; D96 order (Fleet · Rentals · Dispatch · Parts · Service · Leads); badge = requested_unquoted', async () => {
   const idx = fs.readFileSync(path.join(DOCS, 'index.html'), 'utf8');
   const tabs = [...idx.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tabs, ['fleet', 'rentals', 'parts', 'dispatch', 'service', 'leads']);
+  assert.deepEqual(tabs, ['fleet', 'rentals', 'dispatch', 'parts', 'service', 'leads']);
   assert.ok(!idx.includes('href="#/holds"'), 'no Holds tab');
   assert.ok(idx.includes('id="tab-parts-badge"'), 'the Parts badge');
   const snap = await asFull('owner');
