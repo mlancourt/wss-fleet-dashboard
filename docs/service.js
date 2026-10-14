@@ -215,7 +215,38 @@ export function pipeline(queue) {
  * `count` prefers service_summary.open_by_stage when it is trustworthy (no
  * filter applied); otherwise it is what's actually rendered.
  */
-export function columnize(queue, { summary = null, filter = 'all' } = {}) {
+/* ------------------------------------------------------ D92: fleet work orders on the board --
+ * A fleet job with no ticket (a PM on a rental, a rent-ready prep) was invisible
+ * here — the board drew only service_queue[]. Open work orders now draw as
+ * outlined cards in a DERIVED column. The engine ships `stage` (wss_work_orders
+ * .stage_of); the client mirror below is for a snapshot built before D92 and
+ * must say the same thing:
+ *   parts open                          → WAITING-ON-PARTS
+ *   hours logged, or the sheet DONE     → IN-PROGRESS
+ *   scheduled date                      → SCHEDULED
+ *   else                                → READY-TO-SCHEDULE   (D48: nothing owed but a date)
+ * A work order that HAS a ticket rides that ticket's card (a 🔧 chip) — never a
+ * second card for the same machine. */
+export const WO_STAGES = ['WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-SCHEDULE'];
+export function woStage(w) {
+  if (!w || w.status !== 'OPEN') return null;
+  if (WO_STAGES.includes(w.stage)) return w.stage;
+  if ((Number(w.parts_open) || 0) > 0) return 'WAITING-ON-PARTS';
+  if ((Number(w.hours_total) || 0) > 0 || (w.inspection && w.inspection.status === 'DONE')) return 'IN-PROGRESS';
+  if (w.scheduled) return 'SCHEDULED';
+  return 'READY-TO-SCHEDULE';
+}
+/** The work orders a filter draws: OPEN, un-ticketed, never under the Customer chip. */
+export function boardWorkOrders(workOrders, filter = 'all') {
+  if (filter === 'CUSTOMER') return [];
+  return (Array.isArray(workOrders) ? workOrders : []).filter((w) => w && w.status === 'OPEN' && !w.ticket);
+}
+/** Oldest first, like sortTickets — the column is a queue. */
+export function sortWorkOrders(list) {
+  return (list || []).slice().sort((a, b) => (Number(b.age_days) || 0) - (Number(a.age_days) || 0) || String(a.id).localeCompare(String(b.id)));
+}
+
+export function columnize(queue, { summary = null, filter = 'all', workOrders = null } = {}) {
   // D62: a ticket closed more than a week ago draws in NO column — it lives in
   // the Completed strip. open_by_stage.COMPLETE is still "closed ≤ 7 days", so
   // the summary count and the drawn cards keep agreeing.
@@ -225,13 +256,16 @@ export function columnize(queue, { summary = null, filter = 'all' } = {}) {
   // this filter would otherwise hide (a WSS ticket the engine parked in
   // WAITING-ON-CUSTOMER) or one we've never heard of. Hiding a column is a
   // display choice; dropping a ticket is data loss.
-  const extra = [...new Set(list.map((t) => t && t.stage).filter((s) => s && !base.includes(s)))];
+  const wos = boardWorkOrders(workOrders, filter);   // D92
+  const extra = [...new Set(list.map((t) => t && t.stage).concat(wos.map(woStage)).filter((s) => s && !base.includes(s)))];
   const byStage = base.concat(extra);
   const open = summary && summary.open_by_stage;
   return byStage.map((stage) => {
     const tickets = list.filter((t) => t.stage === stage);
     const fromSummary = filter === 'all' && open && typeof open[stage] === 'number' ? open[stage] : null;
-    return { stage, label: STAGE_LABEL[stage] || stage, tickets, count: fromSummary == null ? tickets.length : fromSummary };
+    const workOrdersHere = sortWorkOrders(wos.filter((w) => woStage(w) === stage));
+    return { stage, label: STAGE_LABEL[stage] || stage, tickets, workOrders: workOrdersHere,
+      count: (fromSummary == null ? tickets.length : fromSummary) + workOrdersHere.length };
   });
 }
 

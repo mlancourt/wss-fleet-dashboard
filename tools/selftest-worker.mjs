@@ -128,7 +128,7 @@ await check('D69: every verb but OPEN — exactly one of work_order or the top-l
     ['INSPECT', { step: 'SAVE', comments: 'x' }], ['INSPECT', { step: 'DONE', tech: 'Zac' }], ['INSPECT', { step: 'SKIP', reason: 'x' }],
     ['INSPECT', { step: 'REOPEN' }], ['ADD-PARTS', { parts: [{ manufacturer: 'KODIAK', part_number: '1', qty: 1 }] }],
     ['PART-STATE', { line: 1, state: 'DELIVERED' }], ['PART-STATE', { line: 1, source: 'SHOP-STOCK' }],
-    ['LABOR', { who: 'Zac', hours: 1.5 }], ['CLOSE', { ready: true }], ['CANCEL', {}],
+    ['LABOR', { who: 'Zac', hours: 1.5 }], ['SCHEDULE', { date: '2026-10-21' }], ['SCHEDULE', { clear: true }], ['CLOSE', { ready: true }], ['CANCEL', {}],
   ];
   for (const [verb, extra] of verbs) {
     const what = `${verb}${extra.step ? ` ${extra.step}` : ''}`;
@@ -294,6 +294,21 @@ await check('D71: LABOR takes kind (LABOR | TRAVEL, case-insensitive); absent st
   await refused('owner', L({ kind: 'TRAVEL', rate: 75 }), 'a rate beside kind', 400, '"rate"');
   await refused('owner', L({ kind: 'LABOR', cost: 75 }), 'a cost beside kind', 400, '"cost"');
   await refused('owner', wo({ action: 'CLOSE', work_order: 'W1003', kind: 'TRAVEL' }), 'kind on CLOSE', 400, 'kind');
+});
+
+await check('D92: SCHEDULE — any role; date (+ tech from the crew) or clear: true, never both; shape refused; money refused', async () => {
+  const S = (extra) => wo({ action: 'SCHEDULE', work_order: 'W1003', ...extra });
+  assert.deepEqual((await ok('service', S({ date: '2026-10-21', tech: 'Zac', note: 'PM on site' }), 'date + tech')).payload,
+    { action: 'SCHEDULE', work_order: 'W1003', note: 'PM on site', date: '2026-10-21', tech: 'Zac' });
+  assert.ok(!('tech' in (await ok('owner', S({ date: '2026-10-21' }), 'date only')).payload));
+  assert.deepEqual((await ok('sales', S({ clear: true }), 'clear')).payload, { action: 'SCHEDULE', work_order: 'W1003', note: null, clear: true });
+  await refused('owner', S({}), 'neither', 400, 'needs a date');
+  await refused('owner', S({ date: 'next tuesday' }), 'a bad date', 400, 'date');
+  await refused('owner', S({ date: '2026-10-21', clear: true }), 'date and clear', 400, 'clear takes no');
+  await refused('owner', S({ clear: false }), 'clear false', 400, 'clear must be true');
+  await refused('owner', S({ date: '2026-10-21', tech: 'Bob' }), 'a stranger', 400, 'tech');
+  await refused('owner', S({ date: '2026-10-21', who: 'Zac' }), 'who instead of tech', 400, 'who');
+  await refused('owner', S({ date: '2026-10-21', price: 5 }), 'money', 400, '"price"');
 });
 
 await check('D77: doc_detach — any role, {record, doc_id} only, no store check; shape refused; unknown action still 400', async () => {

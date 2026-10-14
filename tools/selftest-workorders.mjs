@@ -475,4 +475,12 @@ check('D79: the order vendor list is the part-line VENDORS in the sheet\'s order
   assert.ok(!/cost|\$/.test(out), 'nothing the helpers return carries the cost');
 });
 
+check('D92: SCHEDULE describes itself; the chip carries the date', () => {
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'SCHEDULE', date: '2026-10-21', tech: 'Zac' } }), 'scheduled for 2026-10-21 (Zac)');
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'SCHEDULE', date: '2026-10-21' } }), 'scheduled for 2026-10-21');
+  assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'SCHEDULE', clear: true } }), 'clear the scheduled date');
+  assert.ok(woChipText(wo('W1006', { purpose: 'PM', inspection: { status: 'PENDING' }, scheduled: '2026-10-21' })).endsWith('📅 2026-10-21'));
+  assert.ok(!woChipText(wo('W1006', { purpose: 'PM', inspection: { status: 'PENDING' } })).includes('📅'));
+});
+
 console.log(`${passed} checks passed.`);

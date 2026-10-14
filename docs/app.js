@@ -64,6 +64,7 @@ import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
 import {
   KINDS, RIGS, DRIVERS, STAGE_LABEL, MOVE_LABEL, SOURCE_GLYPH,
   stageOptions, columnize, pipeline, sortTickets, completedTickets, closedWindowDays, isDormant, dormantTickets, dormantCloseDays, closesInDays, missingMoves, openCount, dispatchFor, dispatchById,
+  boardWorkOrders, woStage,
   sections as dispatchSections, rigClash, driverChoices, defaultDriver, canCancel, unbookedPickups, fleetSerialIn,
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
@@ -121,7 +122,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-14-d91';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-14-d92';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -2156,9 +2157,11 @@ function viewService() {
   // when the engine sent one.
   // D81: the engine's counts already leave dormant tickets out; the client fallback must too.
   const live = (t) => t.status === 'OPEN' && !isDormant(t);
-  const counts = { all: (s ? s.open_customer + s.open_wss : q.filter(live).length),
+  // D92: un-ticketed fleet work orders count as open jobs under All and Fleet.
+  const nWo = boardWorkOrders(workOrders(), 'WSS').length;
+  const counts = { all: (s ? s.open_customer + s.open_wss : q.filter(live).length) + nWo,
     CUSTOMER: s ? s.open_customer : q.filter((t) => live(t) && t.machine_owner === 'CUSTOMER').length,
-    WSS: s ? s.open_wss : q.filter((t) => live(t) && t.machine_owner === 'WSS').length };
+    WSS: (s ? s.open_wss : q.filter((t) => live(t) && t.machine_owner === 'WSS').length) + nWo };
   const chips = [['all', 'All'], ['WSS', 'Fleet'], ['CUSTOMER', 'Customer']].map(([v, label]) =>
     html`<button type="button" class="fchip${filter === v ? ' on' : ''}" data-filter="${v}">${label}<span class="c">${counts[v]}</span></button>`);
 
@@ -2174,18 +2177,23 @@ function viewService() {
 
   // The widgets stand on their own — an empty queue still shows the shop's
   // shape, so only the kanban is replaced by the empty state.
-  if (!q.length && !opens.length) {
+  if (!q.length && !opens.length && !nWo) {
     return head + emptyState('Nothing in the shop.',
       'Open a ticket above — it shows here as pending until the next run picks it up.');
   }
 
-  const cols = columnize(q, { summary: s, filter }).map((c) => {
+  const cols = columnize(q, { summary: s, filter, workOrders: workOrders() }).map((c) => {
     // A pending ticket_open has no number yet (§3.1) — it sits at the head of
     // RECEIVED as a synthetic card and never invents an id.
     const synth = c.stage === 'RECEIVED'
       ? opens.filter((e) => filter === 'all' || pl(e).machine_owner === filter).map(pendingTicketCard)
       : [];
-    const cards = synth.concat(sortTickets(c.tickets).map(ticketCard));
+    // D92: tickets and fleet work orders share the column, oldest first — one
+    // queue, two record types. A card's age is the only thing that orders it.
+    const queue = sortTickets(c.tickets).map((t) => ({ age: Number(t.age_days) || 0, h: ticketCard(t) }))
+      .concat((c.workOrders || []).map((w) => ({ age: Number(w.age_days) || 0, h: woCard(w) })))
+      .sort((a, b) => b.age - a.age);
+    const cards = synth.concat(queue.map((x) => x.h));
     return html`<section class="kan-col" id="kan-${c.stage}">
       <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
       <div class="kan-body">${cards.length ? raw(cards.join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
@@ -2352,6 +2360,10 @@ function ticketCard(t) {
   const what = t.machine_owner === 'WSS'
     ? html`<span class="unit-serial">#${t.serial}</span> ${t.equipment || ''}`
     : html`${t.equipment || '—'}`;
+  // D92: a fleet ticket with a work order on its serial carries the W-number —
+  // the work order never gets a card of its own while it has a ticket.
+  const fu = t.machine_owner === 'WSS' && t.serial ? unitBySerial(t.serial) : null;
+  const woId = fu && fu.work_order ? fu.work_order : null;
   return html`
     <a class="kan-card pri-${t.priority || 'MEDIUM'}${closed ? ' closed' : ''}" href="#/ticket/${raw(enc(t.ticket))}">
       <div class="kan-row">
@@ -2364,7 +2376,39 @@ function ticketCard(t) {
         <span class="kan-id">${t.ticket}</span>
         ${t.assigned ? raw(html`<span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}
         ${hasMove ? raw('<span class="truck" title="has a truck move">🚚</span>') : ''}
+        ${woId ? raw(html`<span class="kan-wo" title="work order ${woId}">🔧 ${woId}</span>`) : ''}
         ${siteCity(t.site) ? raw(html`<span class="kan-city" title="${t.site}">${siteCity(t.site)}</span>`) : ''}
+        ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
+      </div>
+    </a>`;
+}
+
+/**
+ * D92 — a fleet work order with no ticket, drawn as an OUTLINED card so it
+ * reads as "ours, nobody gets billed" beside the solid ticket cards. The
+ * column it sits in is derived (service.js woStage); there is no stage picker
+ * because there is no stage to pick — order a part, log hours, set a date, or
+ * close it, and it moves by itself. Tap → the work order.
+ */
+function woCard(w) {
+  const u = unitBySerial(w.serial);
+  const pend = pendingForWo(state.pending, w.id);
+  const onRent = u && u.unit_state === 'ON-RENT' && u.customer;
+  const ins = w.inspection && w.inspection.status;
+  const late = typeof w.scheduled_in_days === 'number' && w.scheduled_in_days < 0;
+  return html`
+    <a class="kan-card wo-card" href="#/wo/${raw(enc(w.id))}">
+      <div class="kan-row">
+        <span class="kan-t">${onRent ? u.customer : 'WSS shop'}</span>
+        <span class="kan-age">${typeof w.age_days === 'number' ? ageText(w.age_days) : ''}</span>
+      </div>
+      <div class="kan-eq"><span class="unit-serial">#${w.serial}</span> ${u ? unitName(u) : w.asset_item || ''}</div>
+      <div class="kan-issue">${PURPOSE_LABEL[w.purpose] || w.purpose || 'Work order'}${onRent ? ' · on rent' : ''}${w.note ? ` — ${w.note}` : ''}</div>
+      <div class="kan-foot">
+        <span class="kan-id">🔧 ${w.id}</span>
+        ${w.scheduled ? raw(html`<span class="kan-sched${late ? ' late' : ''}" title="scheduled">📅 ${fmtMD(w.scheduled)}${w.scheduled_tech ? ` · ${w.scheduled_tech}` : ''}</span>`) : ''}
+        ${(Number(w.parts_open) || 0) > 0 ? raw(html`<span class="kan-parts">🔩 ${w.parts_open}</span>`) : ''}
+        ${ins === 'PENDING' ? raw('<span class="kan-insp" title="inspection pending">📋</span>') : ''}
         ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
       </div>
     </a>`;
@@ -2782,6 +2826,7 @@ function viewNumberedWorkOrder(c, crumb) {
       <div class="po-big">PO <span>${wo.id}</span></div>
       <div class="s">${wo.id} · ${wo.asset_item || `#${wo.serial}`} · ${PURPOSE_LABEL[wo.purpose] || wo.purpose || '—'} · ${statusText}</div>
       <div class="s">opened by ${wo.opened_by || '—'}${wo.opened ? ` ${fmtMD(wo.opened)}` : ''}</div>
+      ${wo.scheduled ? raw(html`<div class="s sched-line${typeof wo.scheduled_in_days === 'number' && wo.scheduled_in_days < 0 ? ' late' : ''}">📅 Scheduled ${fmtDateDow(wo.scheduled)}${wo.scheduled_tech ? ` · ${wo.scheduled_tech}` : ''}</div>`) : ''}
       <div class="chips">
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">#${wo.serial}${u ? ` ${unitName(u)}` : ''}</a>
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
@@ -2811,11 +2856,22 @@ function viewNumberedWorkOrder(c, crumb) {
     ${isOpen ? raw(laborButton(c)) : ''}
     ${sheetOpen('wo-labor', c.key) ? raw(woLaborForm(c)) : ''}
 
+    <h2>Schedule</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Date', wo.scheduled ? `${fmtDateDow(wo.scheduled)}${wo.scheduled_tech ? ` · ${wo.scheduled_tech}` : ''}` : 'not set'))}
+    </dl></div>
+    ${isOpen ? raw(html`<div class="actions row">
+      <button class="btn ghost" type="button" data-sheet="wo-sched" data-id="${c.key}">${wo.scheduled ? 'Reschedule' : 'Schedule'}</button>
+      ${wo.scheduled ? raw(html`<form class="write inline" data-action="work_order" data-verb="SCHEDULE" data-clear="1" ${raw(woKeyAttr(c))}><button class="btn ghost" type="submit">Clear the date</button></form>`) : ''}
+    </div>`) : ''}
+    ${sheetOpen('wo-sched', c.key) ? raw(woScheduleForm(c)) : ''}
+
     <h2>Work order</h2>
     <div class="card"><dl class="kv">
       ${raw(kvRow('PO / work order', wo.id))}
       ${raw(kvRow('Purpose', PURPOSE_LABEL[wo.purpose] || wo.purpose))}
       ${raw(kvRow('Opened', `${fmtDateFull(wo.opened)}${wo.opened_by ? ` by ${wo.opened_by}` : ''}`))}
+      ${wo.scheduled ? raw(kvRow('Scheduled', `${fmtDateFull(wo.scheduled)}${wo.scheduled_tech ? ` · ${wo.scheduled_tech}` : ''}`)) : ''}
       ${raw(kvRow('Ticket', wo.ticket ? raw(html`<a href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''))}
       ${wo.closed ? raw(kvRow('Closed', fmtDateFull(wo.closed))) : ''}
     </dl></div>
@@ -3002,6 +3058,28 @@ function woLaborForm(c) {
       <textarea id="wl-note" name="note" maxlength="200" placeholder="what got done"></textarea>
       ${raw(sheetButtons('Log the hours'))}
       <div class="form-note">Hours only — the shop rate lives in the vault, not on the phone.</div>
+    </form>`;
+}
+
+/**
+ * D92: a date on the work order — the Service board's SCHEDULED column for a
+ * fleet job. Today or later (a schedule is a promise; work already done is
+ * hours). Who is optional — the engine keeps the date without it.
+ */
+function woScheduleForm(c) {
+  const today = todayCentral();
+  const wo = c.wo || {};
+  const cur = wo.scheduled && wo.scheduled >= today ? wo.scheduled : today;
+  return html`
+    <form class="write sheet" data-action="work_order" data-verb="SCHEDULE" ${raw(woKeyAttr(c))}>
+      <label for="ws-date">Day</label>
+      <input id="ws-date" name="date" type="date" value="${cur}" min="${today}" required>
+      <div class="form-note">The day the work is planned — the card moves to Scheduled.</div>
+      <label>Who (optional)</label>
+      ${raw(toggle('tech', [['', '—']].concat(DRIVERS.map((n) => [n, n])), wo.scheduled_tech || ''))}
+      <label for="ws-note">Note (optional)</label>
+      <textarea id="ws-note" name="note" maxlength="200" placeholder="on site, morning"></textarea>
+      ${raw(sheetButtons(wo.scheduled ? 'Move the date' : 'Set the date'))}
     </form>`;
 }
 
@@ -6861,6 +6939,14 @@ function woEventBody(form, fd, s, orNull) {
     else payload.note = orNull('note');
     return { serial, payload };
   }
+  if (verb === 'SCHEDULE') {
+    // D92: clear rides as `clear: true` and nothing else; otherwise date (+ tech when picked).
+    if (form.dataset.clear) return { serial, payload: { action: verb, ...key, clear: true } };
+    const payload = { action: verb, ...key, date: s('date'), note: orNull('note') };
+    const tech = orNull('tech');
+    if (tech) payload.tech = tech;
+    return { serial, payload };
+  }
   if (verb === 'CLOSE') {
     const payload = { action: verb, ...key, note: orNull('note') };
     // D69: the close IS the ready call. The box is only drawn on a unit at home;
@@ -6895,6 +6981,13 @@ function woFormProblem(form, fd) {
   const verb = form.dataset.verb;
   const today = todayCentral();
   const date = String(fd.get('date') || '').trim();
+  if (verb === 'SCHEDULE') {
+    // D92: the one verb whose date points forward.
+    if (form.dataset.clear) return null;
+    if (!isDateStr(date)) return 'Pick the day.';
+    if (date < today) return 'That day has passed — schedule today or later (work already done is hours).';
+    return null;
+  }
   if (date && (!isDateStr(date) || date > today)) return 'That date is in the future — pick today or earlier.';
   if (verb === 'OPEN' || verb === 'ADD-PARTS') {
     const lines = woLines(fd);
@@ -6917,6 +7010,7 @@ const WO_MSG = {
   'ADD-PARTS': 'The lines appear at the next run.',
   'PART-STATE': 'The line moves at the next run.',
   LABOR: 'The hours land at the next run.',
+  SCHEDULE: 'The date lands at the next run.',
   CLOSE: 'It closes at the next run.',
   CANCEL: 'It comes off the board at the next run.',
 };

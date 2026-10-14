@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-10-14T14:21:58.548Z",
+    "generated_at": "2026-10-14T14:55:26.455Z",
     "run_id": "mock-empty-2026-10-14",
     "fleet_totals": {
       "units": 39
@@ -2665,6 +2665,12 @@
     "parts_ordered": 0,
     "parts_in_transit": 0,
     "delivered_30d": 0,
+    "open_by_stage": {
+      "WAITING-ON-PARTS": 0,
+      "SCHEDULED": 0,
+      "IN-PROGRESS": 0,
+      "READY-TO-SCHEDULE": 0
+    },
     "closed_window_days": 365
   },
   "inspection_checklist": {
@@ -2827,7 +2833,7 @@
   "rejections": [
     {
       "id": "rej-mock-1",
-      "ts": "2026-10-14T14:21:58.548Z",
+      "ts": "2026-10-14T14:55:26.455Z",
       "actor": "Matt",
       "role": "owner",
       "action": "parts_update",
@@ -2836,7 +2842,7 @@
     },
     {
       "id": "rej-mock-2",
-      "ts": "2026-10-14T14:21:58.548Z",
+      "ts": "2026-10-14T14:55:26.455Z",
       "actor": "Zac",
       "role": "service",
       "action": "ticket_update",

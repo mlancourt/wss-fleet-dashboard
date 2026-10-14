@@ -1389,6 +1389,13 @@ function buildActivity({ withActivity, units, service_queue, leads, work_orders,
  *          Delivered (30d) must leave it out while the WO page keeps it
  * D70: every DELIVERED line carries `delivered_age_days` (null otherwise).
  * D71: every labor row carries `kind` (LABOR | TRAVEL); W1004 has a TRAVEL row.
+ * D92: every row carries `scheduled` / `scheduled_tech` / `scheduled_in_days` and
+ *      a derived `stage` (OPEN only — the engine's stage_of): parts open →
+ *      WAITING-ON-PARTS · hours or sheet DONE → IN-PROGRESS · date → SCHEDULED ·
+ *      else READY-TO-SCHEDULE. W1002 carries a date (2 days out, Zac) AND a DONE
+ *      sheet, so it proves hands-on beats the calendar; W1001 and W1002 are
+ *      un-ticketed and draw as outlined cards on the Service board, W1003 rides
+ *      its ticket's card.
  * D69: every row carries `inspection` as an OBJECT (never null, never an
  * I-number). Every unit carries `work_order`, `wo_parts_open`, `wo_inspection`
  * and `last_inspection` (null when none) + `hours` / `hours_as_of` (written by a
@@ -1402,7 +1409,7 @@ function buildWorkOrders({ withWorkOrders, units }) {
     u.hours = null; u.hours_as_of = null;
   }
   const empty = { open: 0, inspections_pending: 0, inspections_done_7d: 0, parts_requested: 0, parts_ordered: 0,
-    parts_in_transit: 0, delivered_30d: 0, closed_window_days: 365 };
+    parts_in_transit: 0, delivered_30d: 0, open_by_stage: { 'WAITING-ON-PARTS': 0, SCHEDULED: 0, 'IN-PROGRESS': 0, 'READY-TO-SCHEDULE': 0 }, closed_window_days: 365 };
   if (!withWorkOrders) return { work_orders: [], work_order_summary: empty };
 
   const used = new Set();
@@ -1467,6 +1474,14 @@ function buildWorkOrders({ withWorkOrders, units }) {
     row.labor = row.labor.map((l) => ({ ...l, kind: l.kind || 'LABOR' }));
     row.parts_open = row.parts.filter((p) => p.state !== 'DELIVERED' && p.state !== 'CANCELLED').length;
     row.hours_total = row.labor.reduce((n, l) => n + l.hours, 0);
+    // D92: the schedule fields + the derived stage, as the engine emits them.
+    row.scheduled = row.scheduled || null;
+    row.scheduled_tech = row.scheduled ? row.scheduled_tech || null : null;
+    row.scheduled_in_days = row.scheduled ? Math.round((Date.parse(row.scheduled + 'T00:00:00Z') - TODAY) / DAY) : null;
+    row.stage = row.status !== 'OPEN' ? null
+      : row.parts_open ? 'WAITING-ON-PARTS'
+        : (row.hours_total > 0 || row.inspection.status === 'DONE') ? 'IN-PROGRESS'
+          : row.scheduled ? 'SCHEDULED' : 'READY-TO-SCHEDULE';
     if (row.status === 'OPEN') {
       u.work_order = id; u.wo_parts_open = row.parts_open; u.wo_inspection = row.inspection.status;
     }
@@ -1521,7 +1536,7 @@ function buildWorkOrders({ withWorkOrders, units }) {
   if (pmUnit) {
     const p = deriveProfileMock(pmUnit.category);
     out.push(wo('W1002', pmUnit, {
-      age: 2, purpose: 'PM', opened_by: 'Zac',
+      age: 2, purpose: 'PM', opened_by: 'Zac', scheduled: d(2), scheduled_tech: 'Zac',   // D92
       inspection: sheet(pmUnit, {
         status: 'DONE', done: d(-1), tech: 'Zac', battery: { type: 'AGM', voltage: 24, pack: null },
         readings: p.machine_class === 'SWEEPER'
@@ -1628,6 +1643,8 @@ function buildWorkOrders({ withWorkOrders, units }) {
       parts_ordered: cnt('ORDERED'),
       parts_in_transit: cnt('IN-TRANSIT'),
       delivered_30d: lines.filter(({ p }) => p.state === 'DELIVERED' && p.delivered_age_days <= 30).length,   // D70
+      open_by_stage: ['WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-SCHEDULE']                   // D92
+        .reduce((o, st) => ({ ...o, [st]: out.filter((w) => w.stage === st).length }), {}),
       closed_window_days: 365,                                                                              // D70
     },
   };

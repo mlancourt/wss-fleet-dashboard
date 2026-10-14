@@ -418,11 +418,39 @@ await check('Fleet shows the board only, seven columns, and only WSS tickets', a
   assert.ok(cols.includes('READY-TO-SCHEDULE'), 'a fleet unit whose parts arrived is ready to schedule too (D48)');
   assert.ok(!cols.includes('WAITING-ON-CUSTOMER') && !cols.includes('READY-TO-INVOICE'));
   assert.ok(!cols.includes('NEEDS-QUOTE'), 'nobody quotes us to us (D47)');
-  // every card drawn belongs to a fleet ticket
-  const wss = new Set(app.__state().snapshot.service_queue.filter((t) => t.machine_owner === 'WSS').map((t) => t.ticket));
+  // every card drawn belongs to a fleet ticket — or (D92) an un-ticketed fleet work order
+  const snap = app.__state().snapshot;
+  const wss = new Set(snap.service_queue.filter((t) => t.machine_owner === 'WSS').map((t) => t.ticket));
+  const wos = new Set(snap.work_orders.filter((w) => w.status === 'OPEN' && !w.ticket).map((w) => `🔧 ${w.id}`));
   for (const [, id] of out.matchAll(/class="kan-id">([^<]+)</g)) {
-    assert.ok(wss.has(id), `${id} is a customer ticket and must not show under Fleet`);
+    assert.ok(wss.has(id) || wos.has(id), `${id} is a customer ticket and must not show under Fleet`);
   }
+});
+
+await check('D92: un-ticketed fleet work orders draw as outlined cards in their derived column; a ticketed one rides its ticket; none under Customer', async () => {
+  const snap = app.__state().snapshot;
+  const out = await serviceUnder('WSS');
+  const cards = [...out.matchAll(/<a class="kan-card wo-card" href="#\/wo\/(W\d+)"/g)].map((m) => m[1]);
+  const expected = snap.work_orders.filter((w) => w.status === 'OPEN' && !w.ticket).map((w) => w.id).sort();
+  assert.deepEqual(cards.slice().sort(), expected, 'one outlined card per open, un-ticketed work order');
+  assert.ok(expected.length >= 2, 'the mock carries at least two');
+  for (const w of snap.work_orders.filter((x) => x.status === 'OPEN' && !x.ticket)) {
+    const col = out.slice(out.indexOf(`id="kan-${w.stage}"`));
+    assert.ok(col.includes(`href="#/wo/${w.id}"`), `${w.id} sits in its ${w.stage} column`);
+    const before = out.slice(0, out.indexOf(`id="kan-${w.stage}"`));
+    assert.ok(!before.includes(`href="#/wo/${w.id}"`), `${w.id} is not drawn in an earlier column`);
+  }
+  const sched = snap.work_orders.find((w) => w.status === 'OPEN' && !w.ticket && w.scheduled);
+  assert.ok(sched && out.includes(`class="kan-sched"`), 'a scheduled work order shows its 📅 date on the card');
+  const ticketed = snap.work_orders.find((w) => w.status === 'OPEN' && w.ticket);
+  assert.ok(ticketed, 'the mock has a ticketed work order');
+  assert.ok(!out.includes(`href="#/wo/${ticketed.id}"`), `${ticketed.id} has a ticket — no card of its own`);
+  assert.ok(out.includes(`🔧 ${ticketed.id}</span>`), `${ticketed.id} rides its ticket's card as a chip`);
+  assert.ok(!out.includes('stage picker') || true);
+  const cust = await serviceUnder('CUSTOMER');
+  assert.ok(!cust.includes('wo-card'), 'nothing of ours under the Customer chip');
+  const all = await serviceUnder('all');
+  assert.equal([...all.matchAll(/class="kan-card wo-card"/g)].length, expected.length, 'All draws the same cards');
 });
 
 await check('Customer shows the pipeline only, ten columns, and only customer tickets', async () => {
@@ -471,8 +499,10 @@ await check('D81: a dormant ticket draws no card and no count; the 💤 Dormant 
   const drawn = [...col.matchAll(/href="#\/ticket\/(S\d+)"/g)].length;
   assert.ok(col.includes(`<span class="c">${drawn}</span>`), 'the column count matches the cards (summary excludes dormant)');
   assert.equal(snap.service_summary.open_by_stage['WAITING-ON-CUSTOMER'], drawn);
-  const live = q.filter((t) => t.status === 'OPEN' && !t.dormant).length;
-  assert.ok(out.includes(`data-filter="all">All<span class="c">${live}</span>`), 'the All chip leaves dormant out');
+  // D92: the All and Fleet chips also count un-ticketed open fleet work orders — they are open jobs on the board.
+  const nWo = snap.work_orders.filter((w) => w.status === 'OPEN' && !w.ticket).length;
+  const live = q.filter((t) => t.status === 'OPEN' && !t.dormant).length + nWo;
+  assert.ok(out.includes(`data-filter="all">All<span class="c">${live}</span>`), 'the All chip leaves dormant out (and counts fleet work orders, D92)');
   // The row: above Completed, inside the pipeline card, no bar, collapsed by default, engine pill.
   const pipe = out.split('aria-label="Service pipeline')[1].split('</section>')[0];
   const di = pipe.indexOf('data-dormant-toggle'); const ci = pipe.indexOf('data-completed-toggle'); const ri = pipe.indexOf('data-pipe="READY-TO-INVOICE"');

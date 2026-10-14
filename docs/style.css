@@ -508,6 +508,17 @@ form.write textarea { min-height: 80px; resize: vertical; }
 .kan-card.pri-HIGH { border-left-color: var(--red); }        /* HIGH gets a maroon edge */
 .kan-card.closed { opacity: .55; }
 .kan-card.pending-card { background: var(--red-soft); border-radius: var(--radius-sm); padding: 10px; margin: 8px 0 0; border-top: 0; border-left-color: var(--red); }
+/* D92: a fleet work order on the board — outlined, not filled: ours, nobody billed. */
+.kan-card.wo-card, .kan-card.wo-card:first-child {
+  border: 1.5px dashed var(--red); border-left: 3px solid var(--red); border-radius: var(--radius-sm);
+  padding: 9px 10px 8px; margin: 8px 0 0; background: var(--white);
+}
+.kan-wo, .kan-sched, .kan-parts { font-size: 12px; white-space: nowrap; }
+.kan-sched.late { color: var(--red-deep); font-weight: 650; }
+.sched-line.late { color: var(--red-deep); font-weight: 650; }
+/* D92: a one-button write form sitting in an action row — no card chrome, same footprint as its sibling button. */
+.actions.row > form.write.inline { display: flex; flex: 1 1 auto; min-width: 120px; background: none; border: 0; box-shadow: none; padding: 0; margin: 0; }
+.actions.row > form.write.inline .btn { width: 100%; flex: 1 1 auto; }
 .kan-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .kan-t { font-weight: 650; color: var(--slate-900); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kan-age { font-size: 12px; color: var(--ink-3); flex: 0 0 auto; font-variant-numeric: tabular-nums; }

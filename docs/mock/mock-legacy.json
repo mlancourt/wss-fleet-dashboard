@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-10-14T14:21:58.547Z",
+    "generated_at": "2026-10-14T14:55:26.453Z",
     "run_id": "mock-legacy-2026-10-14",
     "fleet_totals": {
       "units": 39,
@@ -2605,7 +2605,7 @@
   "rejections": [
     {
       "id": "rej-mock-1",
-      "ts": "2026-10-14T14:21:58.547Z",
+      "ts": "2026-10-14T14:55:26.453Z",
       "actor": "Matt",
       "role": "owner",
       "action": "parts_update",
@@ -2614,7 +2614,7 @@
     },
     {
       "id": "rej-mock-2",
-      "ts": "2026-10-14T14:21:58.547Z",
+      "ts": "2026-10-14T14:55:26.453Z",
       "actor": "Zac",
       "role": "service",
       "action": "ticket_update",

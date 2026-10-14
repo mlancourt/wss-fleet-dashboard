@@ -170,7 +170,9 @@ const SERVICE_LEAD_KEYS = new Set(['lead', 'note']);
 // D65 — work orders. Membership only, as everywhere: forward-only part states,
 // one OPEN per serial and the close guard are the engine's, not ours.
 // D69 adds INSPECT — the sheet lives on the work order, one per work order.
-const WO_VERBS = new Set(['OPEN', 'ADD-PARTS', 'PART-STATE', 'LABOR', 'CLOSE', 'CANCEL', 'INSPECT']);
+// D92 adds SCHEDULE — a date (+ who) on the work order; the Service board's
+// SCHEDULED column for a fleet job. Today-or-later is the engine's call.
+const WO_VERBS = new Set(['OPEN', 'ADD-PARTS', 'PART-STATE', 'LABOR', 'CLOSE', 'CANCEL', 'INSPECT', 'SCHEDULE']);
 // D69: the D67 sheet kinds folded into `purpose`. RENT-READY is still accepted
 // from a stale phone — the engine maps it to CHECKOUT — so it is legal here.
 const WO_PURPOSES = new Set(['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER', 'RENT-READY']);
@@ -228,6 +230,7 @@ const WO_KEYS = {
   'ADD-PARTS': ['action', 'work_order', 'parts'],
   'PART-STATE': ['action', 'work_order', 'line', 'state', 'source', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],   // D68: source
   LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'kind', 'note'],
+  SCHEDULE: ['action', 'work_order', 'date', 'tech', 'clear', 'note'],   // D92: date + tech, or clear: true
   CLOSE: ['action', 'work_order', 'note', 'ready'],             // D69: ready (bool) — the close IS the ready call
   CANCEL: ['action', 'work_order', 'note'],
 };
@@ -1375,6 +1378,23 @@ function cleanPayload(action, p, role, serial) {
       // D71: travel vs labor hours. Absent = LABOR (the engine defaults it), so
       // the key is only stored when sent; case-insensitive, anything else a 400.
       if (obj.kind != null) out.kind = oneOf(String(obj.kind).toUpperCase(), WO_LABOR_KINDS, 'kind');
+      return out;
+    }
+    if (verb === 'SCHEDULE') {
+      // D92: either a date (with an optional tech) or `clear: true` — never
+      // both, never neither. Past dates are the engine's refusal (it owns the
+      // clock); this file only shapes the payload.
+      const out = { action: verb, ...woKey(), note: note() };
+      if (obj.clear != null) {
+        if (obj.clear !== true) throw httpError(400, 'clear must be true');
+        if (obj.date != null || obj.tech != null) throw httpError(400, 'clear takes no date or tech');
+        out.clear = true;
+        return out;
+      }
+      const date = optDate(obj.date, 'date');
+      if (!date) throw httpError(400, 'SCHEDULE needs a date (or clear: true)');
+      out.date = date;
+      if (obj.tech != null) out.tech = oneOf(obj.tech, DRIVERS, 'tech');
       return out;
     }
     if (verb === 'CLOSE') {

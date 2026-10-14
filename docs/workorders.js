@@ -294,6 +294,7 @@ export function woChipText(wo, unit) {
   if (st) bits.push(`📋 ${sheetChip(st)}`);
   bits.push(`${open} part${open === 1 ? '' : 's'} open`);
   if (hours != null) bits.push(`${fmtHours(hours)} h`);
+  if (wo && wo.scheduled) bits.push(`📅 ${wo.scheduled}`);   // D92
   return bits.join(' · ');
 }
 
@@ -510,6 +511,7 @@ export function describeWoEvent(e) {
     }
     case 'PART-STATE': return `line ${p.line} → ${pendingLineLabel(p)}`;
     case 'LABOR': return `${fmtHours(p.hours)} h${laborKindOf(p) === 'TRAVEL' ? ' travel' : ''} logged for ${p.who || 'someone'}`;
+    case 'SCHEDULE': return p.clear ? 'clear the scheduled date' : `scheduled for ${p.date || '?'}${p.tech ? ` (${p.tech})` : ''}`;   // D92
     case 'CLOSE': return p.ready === false ? 'close (readiness left alone)' : 'close';
     case 'CANCEL': return 'cancel the work order';
     case 'INSPECT': return describeStep(p);

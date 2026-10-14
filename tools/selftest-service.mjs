@@ -8,6 +8,7 @@ import {
   isDormant, dormantTickets, dormantAfterDays, dormantCloseDays, closesInDays, onBoard, DORMANT_AFTER, DORMANT_CLOSE,
   missingMoves, openCount, dispatchFor, sortOpen, sortByKind, groupByDate, sections, rigClash,
   driverChoices, defaultDriver, canCancel, unbookedPickups, fleetSerialIn,
+  WO_STAGES, woStage, boardWorkOrders, sortWorkOrders,
 } from '../docs/service.js';
 
 let passed = 0;
@@ -115,6 +116,45 @@ check('columnize counts come from service_summary only when unfiltered', () => {
   assert.equal(columnize(QUEUE, { summary }).find((c) => c.stage === 'RECEIVED').count, 9);
   // Filtered, the summary would be a lie — count what is drawn.
   assert.equal(columnize(QUEUE, { summary, filter: 'WSS' }).find((c) => c.stage === 'RECEIVED').count, 1);
+});
+
+check('D92: woStage — the engine stage wins; the client mirror says the same thing in the same order', () => {
+  const W = (o) => ({ id: 'W1', status: 'OPEN', ticket: null, parts_open: 0, hours_total: 0, inspection: { status: 'PENDING' }, scheduled: null, ...o });
+  assert.equal(woStage(W({})), 'READY-TO-SCHEDULE');
+  assert.equal(woStage(W({ scheduled: '2026-10-21' })), 'SCHEDULED');
+  assert.equal(woStage(W({ scheduled: '2026-10-21', hours_total: 0.5 })), 'IN-PROGRESS', 'hours beat the date');
+  assert.equal(woStage(W({ scheduled: '2026-10-21', inspection: { status: 'DONE' } })), 'IN-PROGRESS', 'a done sheet is hands-on');
+  assert.equal(woStage(W({ scheduled: '2026-10-21', hours_total: 2, parts_open: 1 })), 'WAITING-ON-PARTS', 'parts beat everything');
+  assert.equal(woStage(W({ stage: 'SCHEDULED', parts_open: 3 })), 'SCHEDULED', 'the engine sent a stage — believe it');
+  assert.equal(woStage(W({ stage: 'BOGUS', parts_open: 3 })), 'WAITING-ON-PARTS', 'an unknown engine stage falls back to the mirror');
+  assert.equal(woStage(W({ status: 'CLOSED', scheduled: '2026-10-21' })), null);
+  assert.equal(woStage(null), null);
+  assert.ok(WO_STAGES.every((st) => stagesFor('WSS').includes(st)), 'every derived stage is a Fleet column');
+});
+
+check('D92: boardWorkOrders — OPEN and un-ticketed only; never under the Customer chip; columnize seats + counts them', () => {
+  const wos = [
+    { id: 'W1', status: 'OPEN', ticket: null, parts_open: 0, hours_total: 0, inspection: { status: 'PENDING' }, scheduled: null, age_days: 3 },
+    { id: 'W2', status: 'OPEN', ticket: 'S2', parts_open: 0, hours_total: 0, inspection: { status: 'PENDING' }, scheduled: null, age_days: 9 },
+    { id: 'W3', status: 'CLOSED', ticket: null, parts_open: 0, hours_total: 0, inspection: { status: 'DONE' }, scheduled: null, age_days: null },
+    { id: 'W4', status: 'OPEN', ticket: null, parts_open: 2, hours_total: 0, inspection: { status: 'PENDING' }, scheduled: '2026-10-21', age_days: 7 },
+    { id: 'W5', status: 'OPEN', ticket: null, parts_open: 0, hours_total: 0, inspection: { status: 'PENDING' }, scheduled: null, age_days: 0 },
+  ];
+  assert.deepEqual(boardWorkOrders(wos, 'all').map((w) => w.id), ['W1', 'W4', 'W5']);
+  assert.deepEqual(boardWorkOrders(wos, 'WSS').map((w) => w.id), ['W1', 'W4', 'W5']);
+  assert.deepEqual(boardWorkOrders(wos, 'CUSTOMER'), []);
+  assert.deepEqual(boardWorkOrders(null, 'all'), []);
+  assert.deepEqual(sortWorkOrders(boardWorkOrders(wos)).map((w) => w.id), ['W4', 'W1', 'W5'], 'oldest first');
+  const cols = columnize(QUEUE, { filter: 'WSS', workOrders: wos });
+  const by = Object.fromEntries(cols.map((c) => [c.stage, c]));
+  assert.deepEqual(by['READY-TO-SCHEDULE'].workOrders.map((w) => w.id), ['W1', 'W5']);
+  assert.deepEqual(by['WAITING-ON-PARTS'].workOrders.map((w) => w.id), ['W4']);
+  assert.equal(by['READY-TO-SCHEDULE'].count, by['READY-TO-SCHEDULE'].tickets.length + 2);
+  assert.equal(by['WAITING-ON-PARTS'].count, by['WAITING-ON-PARTS'].tickets.length + 1);
+  const summary = { open_by_stage: { 'READY-TO-SCHEDULE': 4 } };
+  assert.equal(columnize(QUEUE, { summary, workOrders: wos }).find((c) => c.stage === 'READY-TO-SCHEDULE').count, 6, 'summary tickets + drawn work orders');
+  assert.equal(columnize(QUEUE, { filter: 'CUSTOMER', workOrders: wos }).reduce((n, c) => n + c.workOrders.length, 0), 0);
+  assert.ok(columnize(QUEUE).every((c) => Array.isArray(c.workOrders) && !c.workOrders.length), 'no work orders passed → empty arrays, never undefined');
 });
 
 check('columnsFor: Fleet drops exactly the three stages a WSS ticket cannot occupy (D43/D47)', () => {
