@@ -43,7 +43,7 @@ function el(tag = 'div') {
 const view = el('main');
 const nodes = {
   '#view': view, '#asof': el('span'), '#pending-badge': el('span'),
-  '#tab-dispatch-badge': el('span'), '#tab-leads-badge': el('span'),
+  '#tab-dispatch-badge': el('span'), '#tab-leads-badge': el('span'), '#tab-parts-badge': el('span'),
 };
 
 globalThis.window = {
@@ -125,7 +125,7 @@ const app = await import(path.join(DOCS, 'app.js'));
 const settle = () => new Promise((r) => setTimeout(r, 30));
 await settle();
 
-const ROUTES = ['#/', '#/rentals', '#/holds', '#/dispatch', '#/service', '#/leads', '#/billing'];
+const ROUTES = ['#/', '#/rentals', '#/holds', '#/parts', '#/dispatch', '#/service', '#/leads', '#/billing'];
 
 /** Render one route and hand back the markup, failing loudly on a throw. */
 async function renderRoute(hash) {
@@ -155,7 +155,8 @@ async function allRoutes(variant, role) {
     ...snap.units.filter((u) => u.last_inspection).map((u) => `#/unit/${encodeURIComponent(u.serial)}`),
     ...app.__state().pending.filter((e) => e.action === 'work_order' && e.payload && e.payload.action === 'OPEN' && e.serial)
       .map((e) => `#/wo/new/${encodeURIComponent(e.serial)}`),
-    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999', '#/wo/W9999', '#/wo/new/nope',
+    ...(snap.parts_orders || []).map((o) => `#/parts/${encodeURIComponent(o.order)}`),
+    '#/unit/nope', '#/ticket/S9999', '#/lead/L9999', '#/wo/W9999', '#/wo/new/nope', '#/parts/P9999',
   ];
   for (const hash of ROUTES.concat(extra)) out.push([hash, await renderRoute(hash)]);
   return out;
@@ -642,10 +643,11 @@ async function undoableIds(role) {
   await app.__refresh();
   const seen = new Set();
   const snap = app.__state().snapshot;
-  const routes = ['#/', '#/rentals', '#/dispatch', '#/service', '#/holds', '#/leads']
+  const routes = ['#/', '#/rentals', '#/dispatch', '#/service', '#/holds', '#/leads', '#/parts']
     .concat(snap.units.map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
     .concat(snap.service_queue.map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
     .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
+    .concat((snap.parts_orders || []).map((o) => `#/parts/${encodeURIComponent(o.order)}`))
     .concat((snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`))
     // D69: a sheet change on a ⏳ NEW work order only shows on that page.
     .concat(app.__state().pending.filter((e) => e.action === 'work_order' && e.payload && e.payload.action === 'OPEN' && e.serial)
@@ -2719,7 +2721,11 @@ await check('D75: two strips under the utilization card — Work orders, then Pa
   const open = snap.work_orders.filter((w) => w.status !== 'CLOSED').flatMap((w) => w.parts);
   // D79: the customer orders on OPEN tickets count in ordered / in transit (requested stays work-order only).
   const orders = snap.service_queue.filter((t) => t.status === 'OPEN' && t.order).map((t) => t.order);
-  const n = (st2) => open.filter((p) => p.state === st2).length + orders.filter((o) => o.state === st2).length;
+  // D88: parts sales in flight (OPEN, ORDERED / IN-TRANSIT) count too — the engine's in_flight cross-checks.
+  const sales = (snap.parts_orders || []).filter((o) => o.status === 'OPEN' && ['ORDERED', 'IN-TRANSIT'].includes(o.stage));
+  assert.equal(sales.length, snap.parts_summary.in_flight, 'parts_summary.in_flight agrees with the rows');
+  const n = (st2) => open.filter((p) => p.state === st2).length + orders.filter((o) => o.state === st2).length
+    + sales.filter((o) => o.stage === st2).length;
   assert.ok(orders.some((o) => o.state === 'ORDERED') && orders.some((o) => o.state === 'IN-TRANSIT'), 'mock carries both');
   assert.ok(tr.includes(`>${n('ORDERED')} ordered · ${n('IN-TRANSIT')} in transit · ${n('REQUESTED')} requested<`), 'pill = ordered · in transit · requested');
   assert.ok(/parts-n red/.test(tr), 'a REQUESTED line on an 8-day-old work order is red — on the tracker');
@@ -4049,7 +4055,9 @@ await check('D79: Parts tracker — a Customer orders band between the active wo
   const tr = trackerOf(await renderRoute('#/'));
   const band = tr.indexOf('<div class="parts-g">Customer orders</div>');
   assert.ok(band > tr.lastIndexOf('data-tracker-wo="W1002"') && band < tr.indexOf('Delivered (30d)'), 'between the Active WO groups and Delivered (30d)');
-  const rows = tr.slice(band, tr.indexOf('class="parts-sub"')).split('<div class="prow">').slice(1);
+  // D88: the Parts sales band sits after Customer orders — the band ends where it starts.
+  const salesAt = tr.indexOf('<div class="parts-g">Parts sales</div>');
+  const rows = tr.slice(band, salesAt > band ? salesAt : tr.indexOf('class="parts-sub"')).split('<div class="prow">').slice(1);
   const it = orderTicket(snap, 'IN-TRANSIT');
   const od = orderTicket(snap, 'ORDERED');
   assert.deepEqual(rows.map((r) => r.match(/PO <strong>(S\d{4})<\/strong>/)[1]), [it.ticket, od.ticket], 'oldest `ordered` first; DELIVERED not in the band');
@@ -4077,6 +4085,7 @@ await check('D79: CLOSED tickets never draw; orders alone still draw the strip; 
   closed.order = { state: 'IN-TRANSIT', vendor: 'RPS', vendor_ref: 'CLOSEDREF', ordered: '2026-09-01', tracking: null, carrier: null, delivered: null, note: null };
   assert.ok(!trackerOf(await renderRoute('#/')).includes('CLOSEDREF'), 'a CLOSED ticket\'s order never shows');
   snap.work_orders = [];
+  snap.parts_orders = [];   // D88: "nothing at all" now also needs no parts sales in flight
   const only = trackerOf(await renderRoute('#/'));
   assert.ok(only.includes('Customer orders') && only.includes('>1 ordered · 1 in transit<'), 'no part lines, orders only: still drawn, head counts the orders');
   for (const t of snap.service_queue) t.order = null;
@@ -4270,6 +4279,247 @@ await check('D83: the composer renders from the catalog — To prefilled, note t
   assert.ok(pv.includes('Kevin Example'), 'the sender block from the catalog response');
   void previewHtml;
   app.__quoteDrafts().delete('L1005');
+});
+
+/* ============================================================ D88 parts == */
+
+/** Tap a Parts stage button the way the page's click handler sees it. */
+async function tapPartsStage(stage) {
+  for (const fn of listeners.get('click') || []) {
+    const btn = { dataset: { partsStage: stage }, disabled: false };
+    btn.closest = (q) => (q === '[data-parts-stage]' ? btn : null);
+    await fn({ target: btn });
+  }
+  await settle();
+  return view._html;
+}
+const partsCardOf = (out, id) => {
+  const i = out.indexOf(`PO <strong>${id}</strong>`);
+  if (i < 0) return '';
+  const start = out.lastIndexOf('<div class="kan-card parts-card', i);
+  return out.slice(start, out.indexOf('<div class="kan-card', i) > 0 ? out.indexOf('<div class="kan-card', i) : out.indexOf('</section>', i));
+};
+
+await check('D88 nav: Parts takes Holds\' slot (Fleet · Rentals · Parts · Dispatch · Service · Leads); badge = requested_unquoted', async () => {
+  const idx = fs.readFileSync(path.join(DOCS, 'index.html'), 'utf8');
+  const tabs = [...idx.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(tabs, ['fleet', 'rentals', 'parts', 'dispatch', 'service', 'leads']);
+  assert.ok(!idx.includes('href="#/holds"'), 'no Holds tab');
+  assert.ok(idx.includes('id="tab-parts-badge"'), 'the Parts badge');
+  const snap = await asFull('owner');
+  await renderRoute('#/parts');
+  const badge = nodes['#tab-parts-badge'];
+  assert.equal(snap.parts_summary.requested_unquoted, 1);
+  assert.equal(badge.hidden, false); assert.equal(String(badge.textContent), '1');
+  snap.parts_summary.requested_unquoted = 0;
+  await renderRoute('#/parts');
+  assert.equal(badge.hidden, true, 'zero → no badge');
+  await asFull('owner');
+});
+
+await check('D88 board: six stage columns with the engine counts, a + New parts order button, the Closed (14d) strip', async () => {
+  const snap = await asFull('owner');
+  const out = await renderRoute('#/parts');
+  const cols = [...out.matchAll(/id="parts-col-([A-Z-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(cols, ['REQUESTED', 'QUOTED', 'APPROVED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED']);
+  for (const [st, n] of Object.entries(snap.parts_summary.open_by_stage)) {
+    const at = out.indexOf(`id="parts-col-${st}"`);
+    assert.ok(out.slice(at, at + 300).includes(`<span class="c">${n}</span>`), `${st} count ${n}`);
+  }
+  assert.ok(out.includes('data-sheet="new-parts"') && out.includes('+ New parts order'));
+  const closed = snap.parts_orders.filter((o) => o.status !== 'OPEN').length;
+  assert.ok(out.includes(`Closed (14d) <span class="count">${closed}</span>`), 'Closed strip with its count');
+  assert.ok(!out.includes('P0996') && !out.includes('P0997'), 'closed orders never sit on the board');
+  app.__ui().showClosedParts = true;
+  const open = await renderRoute('#/parts');
+  assert.ok(/chip ok">COMPLETE<\/span>\s*<span class="drow-what">Harbor Lane Bakery/.test(open), 'COMPLETE green');
+  assert.ok(/chip bad">LOST<\/span>/.test(open) && open.includes('Got it elsewhere'), 'LOST + its reason');
+  app.__ui().showClosedParts = false;
+  assert.ok(!/undefined|NaN/.test(open));
+});
+
+await check('D88 card: P-number in the red mono, first parts line, CASH/ACCOUNT · STOCK · 🛒 · stale · vendor + tracking · 🔧/L chips', async () => {
+  const snap = await asFull('owner');
+  const out = await renderRoute('#/parts');
+  const c1 = partsCardOf(out, 'P1001');
+  assert.ok(c1.includes('<span class="prow-po">PO <strong>P1001</strong></span>'));
+  assert.ok(c1.includes('2x squeegee blade rear') && !c1.includes('gasket'), 'first line only');
+  assert.ok(c1.includes('>CASH<') && /parts-card stale-red/.test(c1) && c1.includes('title="Two shop days with no quote out"'), 'terms, red edge, reason as title');
+  const t = snap.parts_orders.find((o) => o.order === 'P1001').related_ticket;
+  assert.ok(t && c1.includes(`href="#/ticket/${t}">🔧 ${t}</a>`), '🔧 ticket chip links');
+  const c2 = partsCardOf(out, 'P1002');
+  const l = snap.parts_orders.find((o) => o.order === 'P1002').related_lead;
+  assert.ok(l && c2.includes(`href="#/lead/${l}"`), 'lead chip links');
+  assert.ok(partsCardOf(out, 'P1003').includes('>ACCOUNT<'));
+  const c6 = partsCardOf(out, 'P1006');
+  assert.ok(c6.includes('>STOCK<') && c6.includes('🛒'), 'stock + web cart');
+  const c4 = partsCardOf(out, 'P1004');
+  assert.ok(c4.includes('>RPS<') && c4.includes('ups.com') && c4.includes('1Z999AA10123456784'), 'vendor + carrier link once ordered');
+  assert.ok(!partsCardOf(out, 'P1003').includes('chip track'), 'no trail before ORDERED');
+});
+
+await check('D88 money: no $ when value is null, $ on owner/sales when a number, never on service (stripped or not)', async () => {
+  for (const who of ['owner', 'sales']) {
+    await asFull(who);
+    const out = await renderRoute('#/parts');
+    assert.ok(!MONEY_RE.test(partsCardOf(out, 'P1001')), `${who}: null value draws nothing`);
+    assert.ok(partsCardOf(out, 'P1002').includes('chip money">$313<'), `${who}: a number draws`);
+    assert.ok((await renderRoute('#/parts/P1002')).includes('$313'), `${who}: detail shows the value`);
+  }
+  // The Worker strips value for service; the page must not draw it even if it slipped through.
+  await asFull('service');
+  const raw = await renderRoute('#/parts');
+  for (const o of app.__state().snapshot.parts_orders) assert.ok(!MONEY_RE.test(partsCardOf(raw, o.order)), `service sees no $ on ${o.order} (unstripped)`);
+  for (const o of app.__state().snapshot.parts_orders) delete o.value;
+  delete app.__state().snapshot.parts_summary.money_fields;
+  const out = await renderRoute('#/parts');
+  assert.ok(!/chip money/.test(out), 'no money chip at all');
+  const det = await renderRoute('#/parts/P1002');
+  assert.ok(!det.includes('>Value<') && !/undefined|NaN/.test(det), 'no Value row, no hole');
+  assert.ok(!det.includes('data-parts-stage='), 'service: no stage buttons');
+  assert.ok(det.includes('data-sheet="pf-note"') && !det.includes('data-sheet="pf-quote"'), 'service: a note and nothing else');
+  await asFull('owner');
+});
+
+await check('D88 stage picker: ORDERED opens the gate inline — CASH asks paid + invoice, ACCOUNT asks the customer PO; vendor always', async () => {
+  await asFull('owner');
+  await renderRoute('#/parts/P1002');
+  // P1002 is QUOTED, CASH — not on hand to order, but the sheet is the same shape.
+  let out = await tapPartsStage('ORDERED');
+  assert.ok(out.includes('data-action="parts_update" data-id="P1002" data-mode="stage"'));
+  assert.ok(out.includes('name="stage" value="ORDERED"'));
+  assert.ok(/<select id="ps-vendor" name="vendor" required>/.test(out), 'vendor required');
+  assert.ok(/name="paid" type="date"[^>]*required/.test(out) && /name="invoice"[^>]*required/.test(out), 'CASH: paid + invoice');
+  assert.ok(!out.includes('name="customer_po"'), 'CASH: no PO asked');
+  assert.ok(out.includes('Cash order — ships after payment'), 'the gate says why');
+  await renderRoute('#/parts/P1003');
+  out = await tapPartsStage('ORDERED');
+  assert.ok(/name="customer_po"[^>]*required/.test(out), 'ACCOUNT: the customer PO');
+  assert.ok(!out.includes('name="paid"') && !out.includes('name="invoice"'), 'ACCOUNT: no paid / invoice');
+  assert.ok(out.includes('Order it under PO <strong>P1003</strong>'));
+  // IN-TRANSIT asks tracking; QUOTED asks quote # + value.
+  await renderRoute('#/parts/P1007');
+  assert.ok(/name="tracking"[^>]*required/.test(await tapPartsStage('IN-TRANSIT')), 'IN-TRANSIT: tracking');
+  await renderRoute('#/parts/P1001');
+  out = await tapPartsStage('QUOTED');
+  assert.ok(/name="quote"[^>]*required/.test(out) && /name="value" type="number"[^>]*required/.test(out), 'QUOTED: quote # + value');
+});
+
+await check('D88 stage picker: SHOP-STOCK offers DELIVERED (with the gate), never ORDERED / IN-TRANSIT; sales cannot tap ORDERED', async () => {
+  await asFull('owner');
+  let out = await renderRoute('#/parts/P1006');
+  const stages = [...out.matchAll(/data-parts-stage="([A-Z-]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(stages, ['REQUESTED', 'QUOTED', 'APPROVED', 'DELIVERED']);
+  out = await tapPartsStage('DELIVERED');
+  assert.ok(/name="paid"[^>]*required/.test(out) && /name="invoice"[^>]*required/.test(out), 'stock DELIVERED rides the CASH gate');
+  assert.ok(out.includes(`value="Order #1002"`), 'pre-filled from the record');
+  assert.ok(!out.includes('name="vendor"'), 'no vendor on a stock order');
+  await asFull('sales');
+  out = await renderRoute('#/parts/P1003');
+  assert.ok(/data-parts-stage="ORDERED"\s+disabled/.test(out), 'ORDERED is Matt\'s');
+  assert.ok(/data-parts-stage="REQUESTED"\s+disabled/.test(out), 'no walking back for sales');
+  assert.ok(!/data-parts-stage="DELIVERED"\s+disabled/.test(out), 'forward stages stay open to sales');
+  await asFull('owner');
+  out = await renderRoute('#/parts/P1003');
+  assert.ok(!/data-parts-stage="QUOTED"\s+disabled/.test(out) && /data-parts-stage="REQUESTED"\s+disabled/.test(out), 'owner may step back ONE');
+});
+
+await check('D88 Done: only at DELIVERED, only for the owner; asks the invoice # only when the order has none', async () => {
+  await asFull('owner');
+  const open = (await asFull('owner')).parts_orders.filter((o) => o.status === 'OPEN');
+  for (const o of open) {
+    const out = await renderRoute(`#/parts/${o.order}`);
+    assert.equal(out.includes('data-sheet="parts-done"'), o.stage === 'DELIVERED', `${o.order} (${o.stage})`);
+  }
+  await asFull('sales');
+  assert.ok(!(await renderRoute('#/parts/P1005')).includes('data-sheet="parts-done"'), 'sales: no Done');
+  await asFull('owner');
+  app.__ui().form = { kind: 'parts-done', id: 'P1005' };
+  let out = await renderRoute('#/parts/P1005');
+  assert.ok(out.includes('name="invoice" value="P1005"') && !out.includes('id="pd-inv"'), 'invoice on file → confirm only');
+  const snap = app.__state().snapshot;
+  snap.parts_orders.find((o) => o.order === 'P1005').invoice = null;
+  app.__ui().form = { kind: 'parts-done', id: 'P1005' };
+  out = await renderRoute('#/parts/P1005');
+  assert.ok(/id="pd-inv" name="invoice" required/.test(out), 'no invoice → asks for it');
+  app.__ui().form = null;
+  // Lost / Dead: the reason picker rides LOST only.
+  app.__ui().form = { kind: 'parts-close', id: 'P1002' };
+  out = await renderRoute('#/parts/P1002');
+  assert.ok(out.includes('data-action="parts_close" data-id="P1002"') && out.includes('data-when="outcome=LOST"') && out.includes('Got it elsewhere'));
+  app.__ui().form = null;
+  await asFull('owner');
+});
+
+await check('D88 detail: contact tappable, the whole parts text, the engine invoice link, docs (P is a record), log newest first', async () => {
+  await asFull('owner');
+  const out = await renderRoute('#/parts/P1005');
+  assert.ok(out.includes('class="parts-text">1x solution valve\n1x float switch<'), 'multi-line text verbatim');
+  assert.ok(out.includes('data-doc="c3d4e5f6a7b8c9d0">📄 Invoice P1005'), 'invoice_doc → the INVOICE doc');
+  assert.ok(out.includes('drafted in QuickBooks · not sent'));
+  assert.ok(out.includes('data-doc-pick="camera"') && out.includes('data-record="P1005"'), 'D76 attach on a parts order');
+  const log = out.slice(out.indexOf('class="card notes"'));
+  assert.ok(log.indexOf('not sent') < log.indexOf('ordered from IPC Eagle'), 'newest first');
+  const p1 = await renderRoute('#/parts/P1001');
+  assert.ok(p1.includes('href="tel:2625550111"'), 'phone is tappable');
+  assert.ok((await renderRoute('#/parts/P9999')).includes('Parts order not found.'));
+});
+
+await check('D88 tracker: a Parts sales band (ORDERED + IN-TRANSIT) between Customer orders and Delivered (30d); absent when none', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  app.__ui().showTracker = true;
+  const tr = trackerOf(await renderRoute('#/'));
+  const at = tr.indexOf('<div class="parts-g">Parts sales</div>');
+  assert.ok(at > tr.indexOf('<div class="parts-g">Customer orders</div>') && at < tr.indexOf('class="parts-sub"'), 'between Customer orders and Delivered');
+  const band = tr.slice(at, tr.indexOf('class="parts-sub"'));
+  const ids = [...band.matchAll(/PO <strong>(P\d{4})<\/strong>/g)].map((m) => m[1]);
+  assert.deepEqual(ids, ['P1004', 'P1007'], 'oldest ordered first; APPROVED / DELIVERED not in the band');
+  assert.ok(band.includes('href="#/parts/P1004"') && band.includes('Redwing Fabrication') && band.includes('>RPS<') && band.includes('ups.com'));
+  assert.ok(!MONEY_RE.test(band), 'no money in the band');
+  for (const o of snap.parts_orders) if (o.stage === 'ORDERED' || o.stage === 'IN-TRANSIT') o.stage = 'APPROVED';
+  assert.ok(!trackerOf(await renderRoute('#/')).includes('Parts sales'), 'none in flight → no band');
+  // Parts sales ALONE still draw the strip.
+  const s2 = await asFull('owner');
+  s2.work_orders = []; for (const t of s2.service_queue) t.order = null;
+  const alone = trackerOf(await renderRoute('#/'));
+  assert.ok(alone.includes('Parts sales') && alone.includes('>1 ordered · 1 in transit<'), 'parts sales alone: drawn, head counts them');
+  s2.parts_orders = [];
+  assert.equal(trackerOf(await renderRoute('#/')), '', 'no lines, no ticket orders, no parts sales → no card');
+  setParts(false);
+  await asFull('owner');
+});
+
+await check('D88 Holds un-tabbed: #/holds still renders (crumb back to Rentals, lights Rentals); Rentals has Holds › and the red expired line', async () => {
+  const snap = await asFull('owner');
+  const holds = await renderRoute('#/holds');
+  assert.ok(holds.includes('<h1>Holds</h1>') && holds.includes('href="#/rentals">‹ Rentals'));
+  assert.ok(holds.includes('Expired holds — release or extend'), 'the full view survives');
+  const n = snap.reservations.expired.length;
+  assert.ok(n > 0, 'fixture has an expired hold');
+  let r = await renderRoute('#/rentals');
+  assert.ok(r.includes('class="h1-link" href="#/holds">Holds ›</a>'));
+  assert.ok(r.includes(`href="#/holds">⚠️ ${n} expired hold${n === 1 ? '' : 's'} ›</a>`), 'the red line');
+  assert.ok(r.indexOf('expired-holds') < r.indexOf('Recurring revenue'), 'at the top of Rentals');
+  snap.reservations.expired = [];
+  r = await renderRoute('#/rentals');
+  assert.ok(!r.includes('expired-holds') && r.includes('Holds ›'), 'zero → nothing; the link stays');
+});
+
+await check('D88 empty + legacy: an empty list says how to start; a pre-D88 snapshot says it is older; activity routes P', async () => {
+  window.location.href = 'http://localhost:8787/?mock=empty&role=owner';
+  window.location.search = '?mock=empty&role=owner';
+  await app.__refresh();
+  assert.equal(app.__state().snapshot.parts_summary.value_shipped, false, 'empty fixture: value not shipped');
+  assert.ok((await renderRoute('#/parts')).includes('No parts orders yet. Open one from a call or an email.'));
+  window.location.href = 'http://localhost:8787/?mock=legacy&role=owner';
+  window.location.search = '?mock=legacy&role=owner';
+  await app.__refresh();
+  assert.ok((await renderRoute('#/parts')).includes('older snapshot'));
+  const full = await asFull('owner');
+  assert.equal(full.parts_summary.value_shipped, true, 'full fixture: value shipped');
+  const { activityRoute } = await import(path.join(DOCS, 'activity.js'));
+  assert.equal(activityRoute('P1001', []), '#/parts/P1001');
 });
 
 console.log(`\n${passed} checks passed.`);

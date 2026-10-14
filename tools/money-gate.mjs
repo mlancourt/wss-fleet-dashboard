@@ -44,6 +44,9 @@
  * work-order TEXT scan runs over every key but that block, and the block gets
  * the key-only check — re-asserted, not relaxed.
  *
+ * D88 adds parts sales: `value` off every `parts_orders[]` row for service,
+ * cost keys never (any role), and no figure in a parts-order LOG.
+ *
  * TICKET logs are deliberately NOT checked: they carry quote amounts, those are
  * visible to every role by design, and `service_queue[].quote.amount` has
  * rendered for everyone since schema 3.
@@ -214,6 +217,29 @@ try {
     const bad = sq.filter((t) => t && t.order && MONEY_RE.test(JSON.stringify(t.order)));
     ok(bad.length === 0, `${role}: no service_queue[].order text matches /\\$\\s?\\d/ (${n} orders)`);
     for (const t of bad) console.log(`         ${t.ticket}`);
+  }
+
+  /* ------ D88: parts sales — `value` stripped for service, cost never ------
+   * The Worker deletes every key in `parts_summary.money_fields` (today
+   * `value`) off each `parts_orders[]` row for a service token, and the list
+   * itself. `cost_total` / `cost_source_inv` are vault-only for EVERY role (the
+   * publish refuses them by name), and the log is money-free by contract. The
+   * free-text `parts` is deliberately not scanned — Matt may type a price into
+   * it, and that is honest data. No key at all passes vacuously and says so. */
+  {
+    const po = Array.isArray(svc.snapshot.parts_orders) ? svc.snapshot.parts_orders : [];
+    const n = Array.isArray(svc.snapshot.parts_orders) ? po.length : 'no key';
+    ok(po.every((r) => !('value' in r)), `service: no value on any parts order (${n})`);
+    ok(!('money_fields' in (svc.snapshot.parts_summary || {})), 'service: parts_summary.money_fields is gone');
+    ok((svc.pending || []).filter((e) => /^parts_/.test(e.action)).every((e) => !('value' in (e.payload || {}))), 'service: no value on a pending parts event');
+  }
+  for (const [role, doc] of [['owner', owner], ['sales', sales], ['service', svc]]) {
+    const po = Array.isArray(doc.snapshot.parts_orders) ? doc.snapshot.parts_orders : [];
+    const n = Array.isArray(doc.snapshot.parts_orders) ? po.length : 'no key';
+    ok(!/"(cost_total|cost_source_inv)"\s*:/.test(JSON.stringify(po)), `${role}: no cost_total / cost_source_inv on any parts order (${n})`);
+    const bad = po.filter((r) => MONEY_RE.test(JSON.stringify(r.log || [])));
+    ok(bad.length === 0, `${role}: no parts_orders[].log text matches /\\$\\s?\\d/ (${n})`);
+    for (const r of bad) console.log(`         ${r.order}`);
   }
 
   /* ------ D78: the activity tape is money-free BY CONTRACT, every role ----

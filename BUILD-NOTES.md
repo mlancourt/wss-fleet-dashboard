@@ -2398,3 +2398,50 @@ work order's order. Commits: catalog + Worker (`89c064e`), page (`0e68c6d`), doc
   only clock-relative timestamps moved).
 - **Baseline was red** before this work: the committed mock was dated 10/6 and the
   D64 "future out date" render check had drifted. `npm run mock` fixed it.
+
+## D88 (2026-10-14) — the Parts tab (parts sales, P-number = vendor PO)
+
+Built from `Parts-Site-Spec.md` v1.0 against the live snapshot (one record, P1001 — the
+website test order, APPROVED / CASH / WEB-CART). No key was invented: every field the page
+reads is in the real `parts_orders[]` / `parts_summary`. Deployed **Worker first**
+(version `b3d5bd4d`), then the page (BUILD `2026-10-14-d88`, SW `v57`).
+
+**What shipped** — see CLAUDE.md v5.0. Worker: three actions (twenty), the service strip
+of `parts_summary.money_fields`, the publish refusal (`cost_total` / `cost_source_inv` at any
+depth, `$` in the log), `P` as a doc record. Page: `#/parts` board + detail with the gate
+inline, the tracker's Parts sales band, Holds un-tabbed (Rentals link + red expired line).
+
+**Floor calls (the spec didn't settle these)**
+- **Unknown payload key → 400 by name** on all three parts actions (spec §6.1 "anything
+  else → 400 by name"). `lead_*` silently drops unknown keys; parts does not — a misspelt
+  gate field must never look accepted.
+- **ORDERED and COMPLETE are refused (403) at the Worker for non-owners** — role rules on
+  the payload, like work_order's ORDERED. "Sales may LOST/DEAD only before ORDERED" is the
+  order's *state*, so the engine referees that half; the page simply doesn't offer it.
+- `parts_open` is any **crew** role — not `intake`. D82's intake token opens leads and
+  tickets only; widening it was not asked for.
+- The page enforces the forward-only ladder by disabling buttons (owner may step back one
+  inside REQUESTED…ORDERED). The engine refuses at apply time, out of the phone's sight,
+  so a clearly-refused button is never offered — and the gate fields are `required`.
+- Card is a `div` with a link on its top half: it carries the 🔧/L chips and the carrier
+  link, and an `<a>` may not hold another.
+- `value` renders with the house `fmtMoney` (whole dollars — `$313` for 312.50), the same
+  format leads use.
+- Notes on a parts order read **newest first** (spec §4.4); tickets and leads are unchanged
+  (oldest first). `notesSection()` grew a `newestFirst` flag.
+- The engine's `invoice_doc.pdf` opens the matching `docs[]` row (by id, else the first
+  INVOICE doc) — we never build a URL out of a vault path.
+- Tracker band sorts oldest `ordered` first, like the Customer orders band; no age chip
+  (the engine ships fractional shop-clock ages on P rows, not calendar `age_days`).
+
+**Tests** — `selftest-worker` +6 (roles, shapes, 400-by-name, strip, publish refusal, P as
+a doc record) · new `selftest-parts` (9, pure) · `selftest-render` +11 (nav, columns, card
+chips, money by role, gate sheet per terms, SHOP-STOCK, Done, detail, tracker band, Holds,
+empty/legacy) · `money-gate.mjs` + `smoke-real.mjs` walk `parts_orders[]`. Three existing
+render assertions updated for the new band (head counts include parts sales; the
+"nothing at all" rule now also needs no parts sales).
+
+**Noticed, not done** — `smoke-real` on the live snapshot fails 3 checks that also fail on
+`main` before D88: leads L1021 / L1022 / L1028 ship `next_action` as `{what, when}` (an
+object), so the Leads board draws `[object Object]`. Contract is a string — engine-side;
+reported, not papered over.

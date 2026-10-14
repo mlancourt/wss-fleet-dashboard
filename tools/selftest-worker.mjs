@@ -380,4 +380,124 @@ await check('D82 intake: opens a lead (WEB-CHAT) and a ticket, nothing else, rea
   assert.equal((await post('sales', { action: 'lead_open', payload: { customer: 'B', source: 'WEB-CHAT', interest: 'RENTAL', priority: 'LOW' } })).status, 201, 'WEB-CHAT is a legal source for everyone');
 });
 
+/* ------------------------------------------------------------ D88 parts -- */
+
+const PO = (payload) => ({ action: 'parts_open', payload });
+const PU = (payload) => ({ action: 'parts_update', payload: { order: 'P1001', ...payload } });
+const PC = (payload) => ({ action: 'parts_close', payload: { order: 'P1001', ...payload } });
+
+await check('D88: parts_open — any crew role (not intake), customer + parts required, enums upper-cased, unknown key 400 by name', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    const e = await ok(role, PO({ customer: ' Acme Foods ', parts: '2x squeegee blade', terms: 'cash', supply: 'VENDOR', ship_to: 'customer',
+      ship_address: '1 Example Way', source: 'PHONE', assigned: 'Matt', value: 312.5, related_ticket: 's1030', related_lead: 'L1037' }), `${role} parts_open`);
+    assert.equal(e.payload.customer, 'Acme Foods');
+    assert.equal(e.payload.terms, 'CASH'); assert.equal(e.payload.ship_to, 'CUSTOMER');
+    assert.equal(e.payload.related_ticket, 'S1030'); assert.equal(e.payload.value, 312.5);
+    assert.equal(e.payload.machine, null, 'absent keys normalised to null');
+    assert.equal(e.serial, null);
+  }
+  await refused('intake', PO({ customer: 'A', parts: 'x' }), 'intake', 403);
+  await refused('owner', PO({ parts: 'x' }), 'no customer', 400, 'customer');
+  await refused('owner', PO({ customer: 'A' }), 'no parts', 400, 'parts');
+  await refused('owner', PO({ customer: 'A', parts: 'x'.repeat(2001) }), 'parts 2001', 400, 'parts');
+  await refused('owner', PO({ customer: 'A', parts: 'x', ship_address: 'x'.repeat(201) }), 'address 201', 400, 'ship_address');
+  await refused('owner', PO({ customer: 'A', parts: 'x', note: 'x'.repeat(1001) }), 'note 1001', 400, 'note');
+  await refused('owner', PO({ customer: 'A', parts: 'x', terms: 'NET30' }), 'bad terms', 400, 'terms');
+  await refused('owner', PO({ customer: 'A', parts: 'x', source: 'FAX' }), 'bad source', 400, 'source');
+  await refused('owner', PO({ customer: 'A', parts: 'x', value: '312' }), 'string value', 400, 'value');
+  await refused('owner', PO({ customer: 'A', parts: 'x', value: -1 }), 'negative value', 400, 'value');
+  await refused('owner', PO({ customer: 'A', parts: 'x', priority: 'HIGH' }), 'unknown key', 400, '"priority"');
+  await refused('owner', PO({ customer: 'A', parts: 'x', related_ticket: 'L1001' }), 'a lead is not a ticket', 400, 'related_ticket');
+  await refused('owner', PO({ customer: 'A', parts: 'x', cost_total: 5 }), 'cost on a phone', 400, 'cost_total');
+});
+
+await check('D88: parts_update — only the keys being changed; service = note only (403); ORDERED owner-only; gate fields ride with the stage', async () => {
+  const e = await ok('owner', PU({ stage: 'ordered', vendor: 'ipc eagle', vendor_ref: ' SO1 ', paid: '2026-10-13', invoice: '4310' }), 'owner ORDERED + gate');
+  assert.deepEqual(e.payload, { order: 'P1001', stage: 'ORDERED', vendor: 'IPC-EAGLE', vendor_ref: 'SO1', paid: '2026-10-13', invoice: '4310' });
+  assert.deepEqual((await ok('sales', PU({ stage: 'QUOTED', quote: '44040', value: 312.5 }), 'sales QUOTED')).payload,
+    { order: 'P1001', stage: 'QUOTED', quote: '44040', value: 312.5 });
+  assert.deepEqual((await ok('sales', PU({ customer_po: 'PO-77' }), 'a field alone')).payload, { order: 'P1001', customer_po: 'PO-77' });
+  assert.deepEqual((await ok('service', PU({ note: 'they called back' }), 'service note')).payload, { order: 'P1001', note: 'they called back' });
+  await refused('service', PU({ stage: 'APPROVED' }), 'service stage', 403, 'note');
+  await refused('service', PU({ note: 'x', value: 5 }), 'service value', 403, 'note');
+  await refused('sales', PU({ stage: 'ORDERED', vendor: 'RPS', customer_po: 'X' }), 'sales ORDERED', 403, 'owner');
+  await refused('owner', PU({}), 'nothing to change', 400, 'at least one');
+  await refused('owner', { action: 'parts_update', payload: { note: 'x' } }, 'no order', 400, 'order');
+  await refused('owner', PU({ order: 'W1001', note: 'x' }), 'a W is not a P', 400, 'order');
+  await refused('owner', PU({ stage: 'SHIPPED' }), 'bad stage', 400, 'stage');
+  await refused('owner', PU({ vendor: 'GRAINGER' }), 'bad vendor', 400, 'vendor');
+  await refused('owner', PU({ paid: '10/13/2026' }), 'bad paid date', 400, 'paid');
+  await refused('owner', PU({ outcome: 'LOST' }), 'unknown key', 400, '"outcome"');
+  await refused('owner', PU({ cost_source_inv: 'X' }), 'cost on a phone', 400, 'cost_source_inv');
+});
+
+await check('D88: parts_close — sales/owner; COMPLETE owner-only; reason only on LOST; service 403', async () => {
+  const c = await ok('owner', PC({ outcome: 'COMPLETE', invoice: '4310', reason: 'PRICE' }), 'owner COMPLETE');
+  assert.deepEqual(c.payload, { order: 'P1001', outcome: 'COMPLETE', reason: null, invoice: '4310', note: null });
+  const l = await ok('sales', PC({ outcome: 'LOST', reason: 'sourced-elsewhere', note: 'Amazon' }), 'sales LOST');
+  assert.equal(l.payload.reason, 'SOURCED-ELSEWHERE');
+  assert.equal((await ok('sales', PC({ outcome: 'DEAD' }), 'sales DEAD')).payload.reason, null);
+  await refused('sales', PC({ outcome: 'COMPLETE', invoice: '1' }), 'sales COMPLETE', 403, 'owner');
+  await refused('service', PC({ outcome: 'DEAD' }), 'service close', 403);
+  await refused('owner', PC({ outcome: 'WON' }), 'bad outcome', 400, 'outcome');
+  await refused('owner', PC({ outcome: 'LOST', reason: 'COMPETITOR' }), 'a lead reason', 400, 'reason');
+  await refused('owner', PC({ outcome: 'DEAD', stage: 'DELIVERED' }), 'unknown key', 400, '"stage"');
+});
+
+await check('D88: a parts order is a doc record — doc_detach and POST /api/doc take P1001', async () => {
+  const e = await ok('service', { action: 'doc_detach', payload: { record: 'p1001', doc_id: '4f2a91c07be3d518' } }, 'detach off P');
+  assert.equal(e.payload.record, 'P1001');
+  const res = await worker.fetch(new Request('https://w.example/api/doc', { method: 'POST',
+    headers: { Authorization: `Bearer ${TOK.sales}`, 'Content-Type': 'application/pdf', 'X-Doc-Name': 'po.pdf', 'X-Doc-Record': 'P1001', 'X-Doc-Kind': 'OTHER' },
+    body: new TextEncoder().encode('%PDF-1.4 fake') }), env);
+  assert.ok(res.status === 201 || res.status === 200, `upload against P1001: ${res.status}`);
+});
+
+await check('D88: /api/data — service loses parts value (+ money_fields) and the pending value; owner/sales keep it', async () => {
+  const pub = await worker.fetch(new Request('https://w.example/api/admin/publish', {
+    method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ meta: { schema_version: 7 },
+      parts_orders: [{ order: 'P1001', status: 'OPEN', stage: 'QUOTED', value: 312.5, parts: '2x blade', log: [{ ts: 'x', who: 'Matt', text: 'quote 44040 sent' }] }],
+      parts_summary: { money_fields: ['value'], value_shipped: true } }) }), env);
+  assert.equal(pub.status, 200);
+  await ok('sales', PU({ value: 400 }), 'a pending value');
+  const read = async (role) => {
+    const r = await worker.fetch(new Request('https://w.example/api/data', { headers: { Authorization: `Bearer ${TOK[role]}` } }), env);
+    return { text: await r.clone().text(), body: await r.json() };
+  };
+  const svc = await read('service');
+  const row = svc.body.snapshot.parts_orders[0];
+  assert.ok(!('value' in row), 'value stripped off the row');
+  assert.ok(!('money_fields' in svc.body.snapshot.parts_summary), 'money_fields stripped');
+  assert.equal(row.log.length, 1, 'the log survives');
+  assert.ok(svc.body.pending.filter((e) => e.action === 'parts_update').every((e) => !('value' in e.payload)), 'pending value stripped');
+  assert.ok(!/312\.5|"value":400/.test(svc.text), 'no figure in the raw bytes');
+  for (const role of ['owner', 'sales']) {
+    const b = (await read(role)).body;
+    assert.equal(b.snapshot.parts_orders[0].value, 312.5, `${role} keeps the value`);
+  }
+});
+
+await check('D88: publish refuses cost_total / cost_source_inv anywhere on a parts order, and a figure in its log — not in `parts`', async () => {
+  const pub = async (doc) => {
+    const res = await worker.fetch(new Request('https://w.example/api/admin/publish', {
+      method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' }, body: JSON.stringify(doc),
+    }), env);
+    return { status: res.status, body: await res.json() };
+  };
+  const snap = (r) => ({ meta: { schema_version: 7 }, parts_orders: [{ order: 'P1001', status: 'OPEN', parts: 'x', log: [], ...r }] });
+  assert.equal((await pub(snap({}))).status, 200);
+  assert.equal((await pub(snap({ parts: '2x blade @ $45 each' }))).status, 200, 'a price typed into `parts` is honest data');
+  for (const [k, where] of [['cost_total', {}], ['cost_source_inv', {}], ['COST_TOTAL', {}]]) {
+    const r = await pub(snap({ [k]: 1, ...where }));
+    assert.equal(r.status, 400, k);
+    assert.ok(r.body.error.includes(k) && r.body.error.includes('P1001'), r.body.error);
+  }
+  const deep = await pub(snap({ invoice_doc: { status: 'CREATED', extra: { cost_total: 9 } } }));
+  assert.equal(deep.status, 400, 'at any depth');
+  const fig = await pub(snap({ log: [{ ts: 'x', who: 'Matt', text: 'quoted $312' }] }));
+  assert.equal(fig.status, 400);
+  assert.ok(fig.body.error.includes('dollar figure'), fig.body.error);
+});
+
 console.log(`${passed} checks passed.`);

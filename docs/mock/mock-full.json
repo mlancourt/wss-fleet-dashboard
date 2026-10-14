@@ -1,8 +1,8 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-10-13T14:16:12.681Z",
-    "run_id": "mock-full-2026-10-13",
+    "generated_at": "2026-10-14T01:51:48.221Z",
+    "run_id": "mock-full-2026-10-14",
     "fleet_totals": {
       "units": 39
     },
@@ -6152,7 +6152,7 @@
   },
   "activity": [
     {
-      "ts": "2026-10-13T14:08:12.680Z",
+      "ts": "2026-10-14T01:43:48.221Z",
       "actor": "Josh",
       "role": "service",
       "action": "work_order",
@@ -6162,7 +6162,7 @@
       "evt": "mock-act-1"
     },
     {
-      "ts": "2026-10-13T13:51:12.680Z",
+      "ts": "2026-10-14T01:26:48.221Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "lead_update",
@@ -6172,7 +6172,7 @@
       "evt": "mock-act-2"
     },
     {
-      "ts": "2026-10-13T13:21:12.680Z",
+      "ts": "2026-10-14T00:56:48.221Z",
       "actor": "Matt",
       "role": "owner",
       "action": "dispatch_done",
@@ -6182,7 +6182,7 @@
       "evt": "evt-mock-6"
     },
     {
-      "ts": "2026-10-13T12:41:12.680Z",
+      "ts": "2026-10-14T00:16:48.221Z",
       "actor": "Zac",
       "role": "service",
       "action": "readiness",
@@ -6192,7 +6192,7 @@
       "evt": "mock-act-3"
     },
     {
-      "ts": "2026-10-13T11:56:12.680Z",
+      "ts": "2026-10-13T23:31:48.221Z",
       "actor": "Josh",
       "role": "service",
       "action": "doc_attach",
@@ -6202,7 +6202,7 @@
       "evt": "mock-act-4"
     },
     {
-      "ts": "2026-10-13T10:56:12.680Z",
+      "ts": "2026-10-13T22:31:48.221Z",
       "actor": "Architect",
       "role": null,
       "action": "ticket_update",
@@ -6212,7 +6212,7 @@
       "evt": "mock-act-5"
     },
     {
-      "ts": "2026-10-12T18:16:12.680Z",
+      "ts": "2026-10-13T05:51:48.221Z",
       "actor": "Matt",
       "role": "owner",
       "action": "work_order",
@@ -6222,7 +6222,7 @@
       "evt": "mock-act-6"
     },
     {
-      "ts": "2026-10-12T16:16:12.680Z",
+      "ts": "2026-10-13T03:51:48.221Z",
       "actor": "Zac",
       "role": "service",
       "action": "work_order",
@@ -6232,7 +6232,7 @@
       "evt": "mock-act-7"
     },
     {
-      "ts": "2026-10-12T12:16:12.680Z",
+      "ts": "2026-10-12T23:51:48.221Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "rental_update",
@@ -6242,7 +6242,7 @@
       "evt": "mock-act-8"
     },
     {
-      "ts": "2026-10-12T08:16:12.680Z",
+      "ts": "2026-10-12T19:51:48.221Z",
       "actor": "Josh",
       "role": "service",
       "action": "ticket_update",
@@ -6252,7 +6252,7 @@
       "evt": "mock-act-9"
     },
     {
-      "ts": "2026-10-10T12:16:12.680Z",
+      "ts": "2026-10-10T23:51:48.221Z",
       "actor": "Matt",
       "role": "owner",
       "action": "lead_open",
@@ -6262,7 +6262,7 @@
       "evt": "mock-act-10"
     },
     {
-      "ts": "2026-10-10T10:16:12.680Z",
+      "ts": "2026-10-10T21:51:48.221Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "reserve",
@@ -6271,5 +6271,594 @@
       "text": "hold placed for Acme Foods",
       "evt": "mock-act-11"
     }
-  ]
+  ],
+  "parts_orders": [
+    {
+      "order": "P1001",
+      "status": "OPEN",
+      "stage": "REQUESTED",
+      "customer": "Harbor Lane Bakery",
+      "contact": "Gina Ortiz",
+      "phone": "262-555-0111",
+      "email": null,
+      "ship_to": "CUSTOMER",
+      "ship_address": "400 Example Ave, Hartland WI 53029",
+      "source": "PHONE",
+      "terms": "CASH",
+      "supply": "VENDOR",
+      "parts": "2x squeegee blade rear\n1x recovery tank lid gasket",
+      "machine": null,
+      "serial": null,
+      "vendor": null,
+      "vendor_ref": null,
+      "ordered": null,
+      "tracking": null,
+      "carrier": null,
+      "delivered": null,
+      "quote": null,
+      "value": null,
+      "customer_po": null,
+      "invoice": null,
+      "paid": null,
+      "web_order": null,
+      "invoice_doc": null,
+      "assigned": "Matt",
+      "opened": "2026-10-10",
+      "opened_by": "Matt",
+      "stage_since": "2026-10-11T07:36:00.000Z",
+      "age_in_stage_days": 2.1,
+      "age_total_days": 2.1,
+      "stale": "red",
+      "stale_reason": "Two shop days with no quote out",
+      "closed": null,
+      "close_reason": null,
+      "close_note": null,
+      "related_ticket": "S1001",
+      "related_lead": null,
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-11 09:12 CT",
+          "who": "Matt",
+          "text": "opened — Harbor Lane Bakery, 2 blades + gasket, CASH"
+        }
+      ]
+    },
+    {
+      "order": "P1002",
+      "status": "OPEN",
+      "stage": "QUOTED",
+      "customer": "Fieldstone Packaging",
+      "contact": "Lee Park",
+      "phone": null,
+      "email": "lee@fieldstone.example",
+      "ship_to": "CUSTOMER",
+      "ship_address": "12 Mill Rd, Watertown WI 53094",
+      "source": "EMAIL",
+      "terms": "CASH",
+      "supply": "VENDOR",
+      "parts": "1x 28\" pad driver",
+      "machine": null,
+      "serial": null,
+      "vendor": null,
+      "vendor_ref": null,
+      "ordered": null,
+      "tracking": null,
+      "carrier": null,
+      "delivered": null,
+      "quote": {
+        "number": "44040",
+        "sent": "2026-10-12"
+      },
+      "value": 312.5,
+      "customer_po": null,
+      "invoice": null,
+      "paid": null,
+      "web_order": null,
+      "invoice_doc": null,
+      "assigned": "Kevin",
+      "opened": "2026-10-09",
+      "opened_by": "Kevin",
+      "stage_since": "2026-10-12T10:00:00.000Z",
+      "age_in_stage_days": 1,
+      "age_total_days": 3.4,
+      "stale": null,
+      "stale_reason": null,
+      "closed": null,
+      "close_reason": null,
+      "close_note": null,
+      "related_ticket": null,
+      "related_lead": "L1013",
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-10 14:02 CT",
+          "who": "Kevin",
+          "text": "opened from email"
+        },
+        {
+          "ts": "2026-10-12 10:30 CT",
+          "who": "Kevin",
+          "text": "quote 44040 sent, value set"
+        }
+      ]
+    },
+    {
+      "order": "P1003",
+      "status": "OPEN",
+      "stage": "APPROVED",
+      "customer": "Oak Hollow Schools",
+      "contact": "Facilities desk",
+      "phone": null,
+      "email": null,
+      "ship_to": "SHOP",
+      "ship_address": null,
+      "source": "WALK-IN",
+      "terms": "ACCOUNT",
+      "supply": "VENDOR",
+      "parts": "4x brush 20\" poly\n2x pad holder 20\"",
+      "machine": null,
+      "serial": null,
+      "vendor": null,
+      "vendor_ref": null,
+      "ordered": null,
+      "tracking": null,
+      "carrier": null,
+      "delivered": null,
+      "quote": {
+        "number": "44041",
+        "sent": "2026-10-09"
+      },
+      "value": 880,
+      "customer_po": null,
+      "invoice": null,
+      "paid": null,
+      "web_order": null,
+      "invoice_doc": null,
+      "assigned": "Matt",
+      "opened": "2026-10-06",
+      "opened_by": "Matt",
+      "stage_since": "2026-10-09T10:00:00.000Z",
+      "age_in_stage_days": 4,
+      "age_total_days": 6.5,
+      "stale": "yellow",
+      "stale_reason": "Approved four shop days ago — still no PO",
+      "closed": null,
+      "close_reason": null,
+      "close_note": null,
+      "related_ticket": null,
+      "related_lead": null,
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-07 11:00 CT",
+          "who": "Matt",
+          "text": "opened at the counter"
+        },
+        {
+          "ts": "2026-10-09 15:20 CT",
+          "who": "Matt",
+          "text": "approved by phone — PO to follow"
+        }
+      ]
+    },
+    {
+      "order": "P1004",
+      "status": "OPEN",
+      "stage": "IN-TRANSIT",
+      "customer": "Redwing Fabrication",
+      "contact": "Sam Holt",
+      "phone": null,
+      "email": null,
+      "ship_to": "CUSTOMER",
+      "ship_address": "77 Forge St, Oconomowoc WI 53066",
+      "source": "PHONE",
+      "terms": "CASH",
+      "supply": "VENDOR",
+      "parts": "1x vacuum motor 24V",
+      "machine": null,
+      "serial": null,
+      "vendor": "RPS",
+      "vendor_ref": "SO-88812",
+      "ordered": "2026-10-07",
+      "tracking": "1Z999AA10123456784",
+      "carrier": "UPS",
+      "delivered": null,
+      "quote": {
+        "number": "44037",
+        "sent": "2026-10-04"
+      },
+      "value": 455,
+      "customer_po": null,
+      "invoice": "4310",
+      "paid": "2026-10-06",
+      "web_order": null,
+      "invoice_doc": null,
+      "assigned": "Matt",
+      "opened": "2026-10-02",
+      "opened_by": "Matt",
+      "stage_since": "2026-10-11T10:00:00.000Z",
+      "age_in_stage_days": 2,
+      "age_total_days": 10.2,
+      "stale": null,
+      "stale_reason": null,
+      "closed": null,
+      "close_reason": null,
+      "close_note": null,
+      "related_ticket": null,
+      "related_lead": null,
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-07 08:40 CT",
+          "who": "Matt",
+          "text": "ordered from RPS under P1004"
+        },
+        {
+          "ts": "2026-10-11 06:15 CT",
+          "who": null,
+          "text": "IN-TRANSIT — UPS tracking from the RPS invoice"
+        }
+      ]
+    },
+    {
+      "order": "P1005",
+      "status": "OPEN",
+      "stage": "DELIVERED",
+      "customer": "Lakeview Cold Storage",
+      "contact": "Ana Ruiz",
+      "phone": null,
+      "email": null,
+      "ship_to": "CUSTOMER",
+      "ship_address": "5 Dock Rd, Johnson Creek WI 53038",
+      "source": "PHONE",
+      "terms": "ACCOUNT",
+      "supply": "VENDOR",
+      "parts": "1x solution valve\n1x float switch",
+      "machine": null,
+      "serial": null,
+      "vendor": "IPC-EAGLE",
+      "vendor_ref": null,
+      "ordered": "2026-10-03",
+      "tracking": "784512345678",
+      "carrier": "FEDEX",
+      "delivered": "2026-10-12",
+      "quote": {
+        "number": "44035",
+        "sent": "2026-10-01"
+      },
+      "value": 214,
+      "customer_po": "LCS-5521",
+      "invoice": "P1005",
+      "paid": null,
+      "web_order": null,
+      "invoice_doc": {
+        "status": "CREATED",
+        "pdf": "c3d4e5f6a7b8c9d0",
+        "draft": "P1005-EMAIL-DRAFT.md"
+      },
+      "assigned": "Matt",
+      "opened": "2026-09-30",
+      "opened_by": "Matt",
+      "stage_since": "2026-10-12T10:00:00.000Z",
+      "age_in_stage_days": 1,
+      "age_total_days": 13,
+      "stale": null,
+      "stale_reason": null,
+      "closed": null,
+      "close_reason": null,
+      "close_note": null,
+      "related_ticket": null,
+      "related_lead": null,
+      "docs": [
+        {
+          "id": "c3d4e5f6a7b8c9d0",
+          "name": "P1005-Invoice.pdf",
+          "kind": "INVOICE",
+          "bytes": 48211,
+          "added": "2026-10-14"
+        }
+      ],
+      "log": [
+        {
+          "ts": "2026-10-01 10:05 CT",
+          "who": "Matt",
+          "text": "opened"
+        },
+        {
+          "ts": "2026-10-03 09:00 CT",
+          "who": "Matt",
+          "text": "ordered from IPC Eagle under P1005"
+        },
+        {
+          "ts": "2026-10-12 17:30 CT",
+          "who": null,
+          "text": "DELIVERED — FedEx"
+        },
+        {
+          "ts": "2026-10-12 18:00 CT",
+          "who": null,
+          "text": "invoice P1005 drafted in QuickBooks — not sent"
+        }
+      ]
+    },
+    {
+      "order": "P1006",
+      "status": "OPEN",
+      "stage": "APPROVED",
+      "customer": "Pinecrest Dental",
+      "contact": "Jo Lind",
+      "phone": null,
+      "email": "jo@pinecrest.example",
+      "ship_to": "CUSTOMER",
+      "ship_address": "9 Elm Ct, Ixonia WI 53036",
+      "source": "WEB-CART",
+      "terms": "CASH",
+      "supply": "SHOP-STOCK",
+      "parts": "1x detergent fast packs (case)",
+      "machine": null,
+      "serial": null,
+      "vendor": null,
+      "vendor_ref": null,
+      "ordered": null,
+      "tracking": null,
+      "carrier": null,
+      "delivered": null,
+      "quote": null,
+      "value": 96,
+      "customer_po": null,
+      "invoice": "Order #1002",
+      "paid": "2026-10-12",
+      "web_order": "1002",
+      "invoice_doc": null,
+      "assigned": "Matt",
+      "opened": "2026-10-12",
+      "opened_by": "web",
+      "stage_since": "2026-10-13T00:24:00.000Z",
+      "age_in_stage_days": 0.4,
+      "age_total_days": 0.4,
+      "stale": null,
+      "stale_reason": null,
+      "closed": null,
+      "close_reason": null,
+      "close_note": null,
+      "related_ticket": null,
+      "related_lead": null,
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-12 19:44 CT",
+          "who": null,
+          "text": "opened by the engine from website order #1002 (paid, APPROVED — ready to ship)"
+        }
+      ]
+    },
+    {
+      "order": "P1007",
+      "status": "OPEN",
+      "stage": "ORDERED",
+      "customer": "Fieldstone Packaging",
+      "contact": "Lee Park",
+      "phone": null,
+      "email": null,
+      "ship_to": "CUSTOMER",
+      "ship_address": "12 Mill Rd, Watertown WI 53094",
+      "source": "PHONE",
+      "terms": "ACCOUNT",
+      "supply": "VENDOR",
+      "parts": "6x squeegee blade front",
+      "machine": null,
+      "serial": null,
+      "vendor": "RPS",
+      "vendor_ref": null,
+      "ordered": "2026-10-12",
+      "tracking": null,
+      "carrier": null,
+      "delivered": null,
+      "quote": {
+        "number": "44039",
+        "sent": "2026-10-08"
+      },
+      "value": 270,
+      "customer_po": "FP-2210",
+      "invoice": null,
+      "paid": null,
+      "web_order": null,
+      "invoice_doc": null,
+      "assigned": "Kevin",
+      "opened": "2026-10-08",
+      "opened_by": "Matt",
+      "stage_since": "2026-10-12T10:00:00.000Z",
+      "age_in_stage_days": 1,
+      "age_total_days": 5,
+      "stale": null,
+      "stale_reason": null,
+      "closed": null,
+      "close_reason": null,
+      "close_note": null,
+      "related_ticket": null,
+      "related_lead": null,
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-12 13:10 CT",
+          "who": "Matt",
+          "text": "ordered from RPS under P1007"
+        }
+      ]
+    },
+    {
+      "order": "P0996",
+      "status": "CLOSED",
+      "stage": "DELIVERED",
+      "customer": "Harbor Lane Bakery",
+      "contact": null,
+      "phone": null,
+      "email": null,
+      "ship_to": "CUSTOMER",
+      "ship_address": null,
+      "source": "PHONE",
+      "terms": "CASH",
+      "supply": "VENDOR",
+      "parts": "1x charger cord",
+      "machine": null,
+      "serial": null,
+      "vendor": "RPS",
+      "vendor_ref": null,
+      "ordered": "2026-10-05",
+      "tracking": "1Z999AA10123456700",
+      "carrier": "UPS",
+      "delivered": "2026-10-09",
+      "quote": null,
+      "value": 48,
+      "customer_po": null,
+      "invoice": "4301",
+      "paid": "2026-10-04",
+      "web_order": null,
+      "invoice_doc": null,
+      "assigned": "Matt",
+      "opened": "2026-10-04",
+      "opened_by": "Matt",
+      "stage_since": "2026-10-09T10:00:00.000Z",
+      "age_in_stage_days": 4,
+      "age_total_days": 9,
+      "stale": null,
+      "stale_reason": null,
+      "closed": "2026-10-09",
+      "close_reason": "COMPLETE",
+      "close_note": null,
+      "related_ticket": null,
+      "related_lead": null,
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-09 16:00 CT",
+          "who": null,
+          "text": "DELIVERED — UPS; closed COMPLETE"
+        }
+      ]
+    },
+    {
+      "order": "P0997",
+      "status": "LOST",
+      "stage": "QUOTED",
+      "customer": "Juniper Metalworks",
+      "contact": null,
+      "phone": null,
+      "email": null,
+      "ship_to": "CUSTOMER",
+      "ship_address": null,
+      "source": "PHONE",
+      "terms": "CASH",
+      "supply": "VENDOR",
+      "parts": "2x brush 32\" cylindrical",
+      "machine": null,
+      "serial": null,
+      "vendor": null,
+      "vendor_ref": null,
+      "ordered": null,
+      "tracking": null,
+      "carrier": null,
+      "delivered": null,
+      "quote": {
+        "number": "44030",
+        "sent": "2026-10-01"
+      },
+      "value": 640,
+      "customer_po": null,
+      "invoice": null,
+      "paid": null,
+      "web_order": null,
+      "invoice_doc": null,
+      "assigned": "Matt",
+      "opened": "2026-09-29",
+      "opened_by": "Matt",
+      "stage_since": "2026-10-07T10:00:00.000Z",
+      "age_in_stage_days": 6,
+      "age_total_days": 14,
+      "stale": null,
+      "stale_reason": null,
+      "closed": "2026-10-07",
+      "close_reason": "SOURCED-ELSEWHERE",
+      "close_note": "bought them online",
+      "related_ticket": null,
+      "related_lead": null,
+      "docs": [],
+      "log": [
+        {
+          "ts": "2026-10-07 09:30 CT",
+          "who": "Kevin",
+          "text": "closed LOST — sourced elsewhere"
+        }
+      ]
+    }
+  ],
+  "parts_summary": {
+    "open_by_stage": {
+      "REQUESTED": 1,
+      "QUOTED": 1,
+      "APPROVED": 2,
+      "ORDERED": 1,
+      "IN-TRANSIT": 1,
+      "DELIVERED": 1
+    },
+    "requested_unquoted": 1,
+    "in_flight": 2,
+    "stale_count": 2,
+    "closed_recent": {
+      "CLOSED": 1,
+      "LOST": 1,
+      "DEAD": 0
+    },
+    "money_fields": [
+      "value"
+    ],
+    "value_shipped": true,
+    "stages": [
+      "REQUESTED",
+      "QUOTED",
+      "APPROVED",
+      "ORDERED",
+      "IN-TRANSIT",
+      "DELIVERED"
+    ],
+    "sources": [
+      "PHONE",
+      "EMAIL",
+      "WEB-CART",
+      "WEB-FORM",
+      "WALK-IN",
+      "SERVICE"
+    ],
+    "terms": [
+      "CASH",
+      "ACCOUNT"
+    ],
+    "supply": [
+      "VENDOR",
+      "SHOP-STOCK"
+    ],
+    "ship_to": [
+      "CUSTOMER",
+      "SHOP"
+    ],
+    "vendors": [
+      "RPS",
+      "IPC-EAGLE",
+      "NILFISK",
+      "MINUTEMAN",
+      "TENNANT",
+      "OTHER"
+    ],
+    "lost_reasons": [
+      "PRICE",
+      "NO-RESPONSE",
+      "SOURCED-ELSEWHERE",
+      "OTHER"
+    ],
+    "assignees": [
+      "Matt",
+      "Kevin"
+    ]
+  }
 }

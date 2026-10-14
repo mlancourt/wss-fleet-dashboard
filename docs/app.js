@@ -111,11 +111,17 @@ import {
   delta, pctOr, statOr, leadForHold, isDemoHold, isStale,
 } from './leads.js';
 import { activityGroups, pendingActivityRows, activityRoute, activityTime, actorHue, actorLabel } from './activity.js';
+import {
+  P_STAGE_LABEL, P_SOURCE_LABEL, P_REASON_LABEL, P_OUTCOME_LABEL,
+  partsOptions, isOpenOrder, isStock, partsValue, orderById, firstLine, partsColumns, closedOrders, partsBadge,
+  canEditOrder, canCloseOrder, canComplete, partsStageOptions, isGated, stageFields, gateText,
+  partsInFlight, inFlightCounts,
+} from './parts.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-13-d87';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-14-d88';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -250,6 +256,7 @@ const ui = {
   showScore: null,
   showInsights: false,   // §3.2 — collapsed by default
   showClosedLeads: false,
+  showClosedParts: false, // D88: the Parts tab's Closed (14d) strip — collapsed by default
   showCompleted: false,  // D62: the Service tab's Completed strip — collapsed by default, per session
   showDormant: false,    // D81: the pipeline's 💤 Dormant row — collapsed by default, per session
   completedQuery: '',    // D62: its search box
@@ -382,6 +389,10 @@ const leads = () => (state.snapshot && state.snapshot.leads) || [];
 const leadsSummary = () => (state.snapshot && state.snapshot.leads_summary) || null;
 const scoreboard = () => (state.snapshot && state.snapshot.scoreboard) || null;
 const insights = () => (state.snapshot && state.snapshot.insights) || null;
+// D88: parts sales. Absent on a pre-D88 snapshot — the tab says so rather than drawing an empty board.
+const partsOrders = () => (state.snapshot && Array.isArray(state.snapshot.parts_orders) ? state.snapshot.parts_orders : []);
+const partsSummary = () => (state.snapshot && state.snapshot.parts_summary) || null;
+const hasParts = () => !!(state.snapshot && (Array.isArray(state.snapshot.parts_orders) || state.snapshot.parts_summary));
 // D65. Absent on a pre-D65 snapshot, which reads as "no work orders" — the
 // strip draws empty and the unit page still offers the button.
 const workOrders = () => workOrdersOf(state.snapshot);
@@ -428,6 +439,10 @@ const pendingForLead = (id) => (id ? state.pending.filter((e) =>
 // D83: a quote the Worker already SENT, waiting for the engine to write it to the lead.
 const pendingQuoteSends = (id) => state.pending.filter((e) => e.action === 'quote_send' && pl(e).lead === id && e.result && e.result.number);
 const pendingLeadOpens = () => state.pending.filter((e) => e.action === 'lead_open');
+// D88: keyed on `order`; a pending parts_open has no P-number until the engine runs.
+const pendingForParts = (id) => (id ? state.pending.filter((e) =>
+  ((e.action === 'parts_update' || e.action === 'parts_close') && pl(e).order === id) || isDetachOn(e, id)) : []);
+const pendingPartsOpens = () => state.pending.filter((e) => e.action === 'parts_open');
 // schema 6 / S2: keyed on `record`, which is a ticket id OR a lead id — the one
 // action whose key spans both boards. Deliberately NOT folded into
 // pendingForTicket: a doc_attach is not a change to the ticket, it is a
@@ -669,12 +684,15 @@ function partsTracker() {
   const g = trackerGroups(list, PARTS_AMBER, PARTS_RED);
   // D79: customer parts orders on OPEN tickets ride the same strip.
   const co = customerOrders(serviceQueue());
-  if (!g.active.length && !g.delivered.length && !co.active.length && !co.delivered.length) return '';
+  // D88: parts sales in flight (OPEN, ORDERED / IN-TRANSIT) ride the same strip.
+  const ps = partsInFlight(partsOrders());
+  if (!g.active.length && !g.delivered.length && !co.active.length && !co.delivered.length && !ps.length) return '';
   const c = trackerCounts(list);
   const oc = orderCounts(co.active);
+  const pc = inFlightCounts(ps);
   const tone = requestedTone(list, PARTS_AMBER, PARTS_RED);
   const open = ui.showTracker;
-  const segs = [[c.ordered + oc.ordered, 'ordered'], [c.inTransit + oc.inTransit, 'in transit'], [c.requested, 'requested']]
+  const segs = [[c.ordered + oc.ordered + pc.ordered, 'ordered'], [c.inTransit + oc.inTransit + pc.inTransit, 'in transit'], [c.requested, 'requested']]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
   const pill = segs.length ? segs.join(' · ') : 'nothing open';
   const nDelivered = g.delivered.length + co.delivered.length;
@@ -683,7 +701,9 @@ function partsTracker() {
     <div class="parts-body" id="tracker-body">
       ${raw(g.active.map((x) => trackerGroup(x, false)).join(''))}${co.active.length ? raw(html`
         <div class="parts-g">Customer orders</div>
-        ${raw(co.active.map((r) => orderStripRow(r, false)).join(''))}`) : ''}
+        ${raw(co.active.map((r) => orderStripRow(r, false)).join(''))}`) : ''}${ps.length ? raw(html`
+        <div class="parts-g">Parts sales</div>
+        ${raw(ps.map(partsSaleRow).join(''))}`) : ''}
       ${nDelivered ? raw(html`
         <button type="button" class="parts-sub" data-parts-delivered-toggle="1" aria-expanded="${ui.showPartsDelivered ? 'true' : 'false'}">
           Delivered (30d) <span class="count">${nDelivered}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
@@ -828,6 +848,28 @@ function orderStripRow({ ticket: t, order: o }, deliveredBand) {
         ${deliveredBand
           ? (o.delivered ? raw(chip(`delivered ${fmtDate(o.delivered)}`, 'ok')) : '')
           : (typeof t.age_in_stage_days === 'number' ? raw(chip(ageText(t.age_in_stage_days), 'age')) : '')}
+      </div>
+    </div>`;
+}
+
+/**
+ * D88 — one parts sale in the tracker: PO P1001 · customer · ordered <date> ·
+ * vendor · carrier tracking. The P-number is the vendor PO. Tap → the order.
+ * No money, ever — the tracker is a list of boxes, not of sales.
+ */
+function partsSaleRow(o) {
+  const href = partsHref(o.order);
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="${raw(href)}">
+        <span class="prow-po">PO <strong>${o.order}</strong></span>
+        <span class="prow-desc">${o.customer || '—'}</span>
+      </a>
+      <div class="chips">
+        ${o.ordered ? raw(chip(`ordered ${fmtDate(o.ordered)}`, 'cal')) : ''}
+        ${o.vendor ? raw(chip(VENDOR_LABEL[o.vendor] || o.vendor, 'rig')) : ''}
+        ${raw(trackingChip(o))}
+        ${raw(chip((P_STAGE_LABEL[o.stage] || o.stage).toLowerCase(), o.stage === 'IN-TRANSIT' ? 'rent' : 'hold'))}
       </div>
     </div>`;
 }
@@ -1494,7 +1536,12 @@ function readinessForm(u) {
  */
 function viewRentals() {
   const rows = agreements();
-  const head = html`<h1>Rentals</h1>${raw(msgBlock())}${raw(revenueCard())}`;
+  // D88: Holds lost its tab to Parts. The view lives on at #/holds; Rentals is its
+  // door, and the one thing the tab was FOR — expired holds, loud — is a red line here.
+  const expired = holdsRollup().expired.length;
+  const head = html`<div class="h1-row"><h1>Rentals</h1><a class="h1-link" href="#/holds">Holds ›</a></div>${raw(msgBlock())}
+    ${expired ? raw(html`<a class="alert expired-holds" href="#/holds">⚠️ ${expired} expired hold${expired === 1 ? '' : 's'} ›</a>`) : ''}
+    ${raw(revenueCard())}`;
   if (!rows.length) return head + emptyState('No agreements in this snapshot.');
 
   const g = rentalGroups(rows);
@@ -1920,7 +1967,7 @@ function filedRow(d, recordId, detaching, row, face) {
     ${sheetOpen('doc-detach', key) ? raw(html`
       <div class="undo-confirm doc-detach">
         <div class="undo-q"><strong>Remove this document from ${recordId}?</strong><br>
-          It comes off this ${recordId.startsWith('L') ? 'lead' : 'ticket'} at the next update. The file stays in the office archive — nothing is deleted.</div>
+          It comes off this ${recordId.startsWith('L') ? 'lead' : recordId.startsWith('P') ? 'order' : 'ticket'} at the next update. The file stays in the office archive — nothing is deleted.</div>
         <div class="actions row">
           <button class="btn sm" type="button" data-doc-detach-go="${d.id}" data-record="${recordId}">Remove</button>
           <button class="btn sm ghost" type="button" data-sheet-close="1">Cancel</button>
@@ -1999,9 +2046,10 @@ function kindSheet(recordId) {
  * and the badge are what say "not applied yet"; the position says "most
  * recent", which is true.
  */
-function notesSection(entity, pending) {
-  const rows = logRows(entity);
-  const mine = pendingNotes(pending);
+function notesSection(entity, pending, newestFirst = false) {
+  // D88: the parts order reads its log newest first (spec §4) — your own ⏳ note on top.
+  const rows = newestFirst ? logRows(entity).reverse() : logRows(entity);
+  const mine = newestFirst ? pendingNotes(pending).reverse() : pendingNotes(pending);
   if (!rows.length && !mine.length) {
     return html`<h2>Notes</h2>
       <div class="card notes"><div class="hold-empty">No notes yet.</div></div>`;
@@ -2013,19 +2061,22 @@ function notesSection(entity, pending) {
     ${extra ? raw(extra) : ''}
   </div>`;
 
-  return html`
-    <h2>Notes${rows.length ? raw(html` <span class="count">${rows.length}</span>`) : ''}</h2>
-    <div class="card notes">
-      ${raw(rows.map((n) => html`
+  const filedNote = (n) => html`
         <div class="nrow">
           <div class="ntext">${n.text}</div>
           ${raw(meta(n.who, n.ts, null))}
-        </div>`).join(''))}
+        </div>`;
+
+  return html`
+    <h2>Notes${rows.length ? raw(html` <span class="count">${rows.length}</span>`) : ''}</h2>
+    <div class="card notes">
+      ${raw((newestFirst ? [] : rows).map(filedNote).join(''))}
       ${raw(mine.map((n) => html`
         <div class="nrow is-pending">
           <div class="ntext">${n.text}</div>
           ${raw(meta(n.who, null, html`<span class="npend">⏳ applies at the next run</span>`))}
         </div>`).join(''))}
+      ${raw((newestFirst ? rows : []).map(filedNote).join(''))}
     </div>`;
 }
 
@@ -3999,7 +4050,9 @@ function viewHolds() {
         : raw(html`<button class="btn sm ghost" type="button" data-sheet="add-run" data-serial="${h.serial}" data-hold="${h.id || ''}">Schedule delivery</button>`)}
     </div>`;
 
-  if (!r.expired.length && !r.upcoming.length) return html`<h1>Holds</h1>${raw(emptyState('Nothing on hold.'))}`;
+  // D88: un-tabbed, not deleted — reached from Rentals, so it walks back there.
+  const crumb = '<a class="crumb" href="#/rentals">‹ Rentals</a>';
+  if (!r.expired.length && !r.upcoming.length) return html`${raw(crumb)}<h1>Holds</h1>${raw(emptyState('Nothing on hold.'))}`;
 
   const expired = r.expired.length ? html`
     <h2 class="danger">Expired holds — release or extend</h2>
@@ -4009,7 +4062,7 @@ function viewHolds() {
     <h2>${g.date ? fmtDateFull(g.date) : 'Unknown date'}</h2>
     <div class="card holds">${raw(g.items.map((h) => row(h, true)).join(''))}</div>`);
 
-  return html`<h1>Holds</h1>${raw(msgBlock())}
+  return html`${raw(crumb)}<h1>Holds</h1>${raw(msgBlock())}
     <div class="sub">${r.upcoming.length} upcoming${r.expired.length ? raw(html` · <span class="none">${r.expired.length} expired</span>`) : ''}</div>
     ${sheetOpen('add-run') ? raw(addRunForm((ui.form && ui.form.arg) || {})) : ''}
     ${raw(expired)}${raw(groups.join(''))}`;
@@ -4892,6 +4945,423 @@ function closeLeadForm(l, o) {
     </form>`;
 }
 
+/* ============================================================ Parts (D88) ==
+ * Parts-Site-Spec §4. Shaped on the Leads tab, minus the scoreboard and the
+ * insights: "it doesn't have to be too complex" (Matt). The P-number is the
+ * vendor PO, so it leads every card in the same red mono as W and S.
+ *
+ * MONEY: `value` arrives only for owner/sales and only once the engine ships it
+ * (until then it is null for everyone). A null draws nothing — never "$0" — and
+ * a service token is never drawn a figure even if one slipped through.
+ */
+
+const partsOpts = () => partsOptions(partsSummary());
+const seesPartsMoney = () => role() === 'owner' || role() === 'sales';
+const partsMoney = (o) => (seesPartsMoney() ? partsValue(o) : null);
+const ageDays = (n) => (typeof n === 'number' && isFinite(n) ? `${Math.round(n * 10) / 10}d` : '');
+const TERMS_LABEL = { CASH: 'CASH', ACCOUNT: 'ACCOUNT' };
+const SHIP_LABEL = { CUSTOMER: 'Ship to customer', SHOP: 'To the shop' };
+const SUPPLY_LABEL = { VENDOR: 'From the vendor', 'SHOP-STOCK': 'From shop stock' };
+const partsHref = (id) => `#/parts/${enc(id)}`;
+const staleChip = (o) => (o && o.stale
+  ? html`<span class="chip ${o.stale === 'red' ? 'bad' : 'warn'}"${o.stale_reason ? raw(html` title="${o.stale_reason}"`) : ''}>${o.stale === 'red' ? '🔴 stale' : '🟡 going stale'}</span>`
+  : '');
+/** The vendor trail once money has moved — the WO line's partTrailChips, unchanged. */
+const orderTrail = (o) => (['ORDERED', 'IN-TRANSIT', 'DELIVERED'].includes(o.stage) && !isStock(o)
+  ? partTrailChips({ ordered: o.ordered, vendor: o.vendor, tracking: o.tracking, carrier: o.carrier }) : '');
+const relatedChips = (o) => [
+  o.related_ticket ? html`<a class="chip wrench" href="#/ticket/${raw(enc(o.related_ticket))}">🔧 ${o.related_ticket}</a>` : '',
+  o.related_lead ? leadChip(o.related_lead) : '',
+].join('');
+
+function viewParts() {
+  if (!hasParts()) {
+    return html`<h1>Parts</h1>${raw(emptyState('No parts orders in this snapshot.',
+      'This board is running on an older snapshot — parts orders arrive with the next run.'))}`;
+  }
+  const all = partsOrders();
+  const opens = pendingPartsOpens();
+  const head = html`<h1>Parts</h1>${raw(msgBlock())}
+    <div class="actions"><button class="btn" type="button" data-sheet="new-parts">+ New parts order</button></div>
+    ${sheetOpen('new-parts') ? raw(newPartsForm()) : ''}
+    ${opens.length ? raw(html`<div class="note"><strong>⏳ ${opens.length} new parts order${opens.length > 1 ? 's' : ''} pending</strong>
+      ${raw(opens.map((e) => html`<div class="pend-row"><span>${pl(e).customer || '—'}${pl(e).parts ? ` · ${firstLine(pl(e).parts)}` : ''}</span>${raw(undoControl(e))}</div>`).join(''))}
+      <div style="margin-top:6px">The engine assigns the P-number at the next run.</div></div>`) : ''}`;
+
+  if (!all.length && !opens.length) return head + emptyState('No parts orders yet. Open one from a call or an email.');
+
+  const cols = partsColumns(all, partsSummary()).map((c) => html`
+    <section class="kan-col pcol-${raw(enc(c.stage))}" id="parts-col-${raw(enc(c.stage))}">
+      <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
+      <div class="kan-body">${c.orders.length ? raw(c.orders.map(partsCard).join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
+    </section>`);
+
+  return html`${raw(head)}
+    <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
+    <div class="form-note">Swipe the columns sideways. Tap a card for the whole order.</div>
+    ${raw(partsClosedStrip(all))}`;
+}
+
+/**
+ * One card. A div, not a link: it carries links of its own (the 🔧 ticket, the
+ * lead, the carrier) and an <a> may not hold another. The top half is the link.
+ */
+function partsCard(o) {
+  const pend = pendingForParts(o.order);
+  const v = partsMoney(o);
+  const age = ageDays(o.age_in_stage_days);
+  return html`
+    <div class="kan-card parts-card${o.stale ? ` stale-${o.stale}` : ''}">
+      <a class="pc-main" href="${raw(partsHref(o.order))}">
+        <div class="kan-row">
+          <span class="prow-po">PO <strong>${o.order}</strong></span>
+          <span class="kan-age${o.stale ? ` stale-${o.stale}` : ''}">${age}${pend.length ? ' ⏳' : ''}</span>
+        </div>
+        <div class="kan-t">${o.customer || '—'}</div>
+        <div class="kan-eq">${firstLine(o.parts) || '—'}</div>
+      </a>
+      <div class="chips">
+        ${o.terms ? raw(chip(TERMS_LABEL[o.terms] || o.terms, o.terms === 'CASH' ? 'cal' : 'rig')) : ''}
+        ${isStock(o) ? raw(chip('STOCK', 'stock')) : ''}
+        ${o.source === 'WEB-CART' ? raw('<span class="chip cart" title="website order">🛒</span>') : ''}
+        ${raw(staleChip(o))}
+        ${v != null ? raw(chip(fmtMoney(v), 'money')) : ''}
+        ${raw(orderTrail(o))}
+        ${raw(relatedChips(o))}
+      </div>
+    </div>`;
+}
+
+/** CLOSED (complete) · LOST · DEAD, folded away — the engine keeps them 14 days. */
+function partsClosedStrip(all) {
+  const rows = closedOrders(all);
+  const open = ui.showClosedParts;
+  const tone = { CLOSED: 'ok', LOST: 'bad', DEAD: 'out' };
+  return html`
+    <h2><button type="button" class="disclose" data-parts-closed-toggle="1" aria-expanded="${open ? 'true' : 'false'}">
+      ${open ? '▾' : '▸'} Closed (14d) <span class="count">${rows.length}</span></button></h2>
+    ${open ? raw(html`<div class="card dlist">
+      ${rows.length ? raw(rows.map((o) => html`
+        <a class="drow lead-closed" href="${raw(partsHref(o.order))}">
+          <div class="drow-top">
+            ${raw(chip(P_OUTCOME_LABEL[o.status] || o.status, tone[o.status] || 'out'))}
+            <span class="drow-what">${o.customer || '—'}</span>
+          </div>
+          <div class="drow-meta">${o.order}${firstLine(o.parts) ? ` · ${firstLine(o.parts)}` : ''}${o.close_reason && o.close_reason !== 'COMPLETE' ? raw(html` · ${P_REASON_LABEL[o.close_reason] || o.close_reason}`) : ''}${o.closed ? raw(html` · ${fmtDateFull(o.closed)}`) : ''}</div>
+          ${o.close_note ? raw(html`<div class="drow-note">${o.close_note}</div>`) : ''}
+        </a>`).join('')) : raw('<div class="hold-empty">Nothing closed in the last 14 days.</div>')}
+    </div>`) : ''}`;
+}
+
+function newPartsForm() {
+  const o = partsOpts();
+  const me = meName();
+  const who = o.assignees.includes(me) ? me : (o.assignees.includes('Matt') ? 'Matt' : o.assignees[0]);
+  const pick = (list, want) => (list.includes(want) ? want : list[0]);
+  const pairs = (list, labels) => list.map((v) => [v, (labels && labels[v]) || v]);
+  return html`
+    <form class="write sheet" data-action="parts_open">
+      <label for="np-cust">Customer</label>
+      <input id="np-cust" name="customer" required maxlength="120" autocomplete="off">
+
+      <label for="np-contact">Who you talked to</label>
+      <input id="np-contact" name="contact" maxlength="120" autocomplete="off">
+      <div class="dates">
+        <div><label for="np-phone">Phone</label><input id="np-phone" name="phone" type="tel" maxlength="40" autocomplete="off"></div>
+        <div><label for="np-email">Email</label><input id="np-email" name="email" type="email" maxlength="200" autocomplete="off"></div>
+      </div>
+
+      <label for="np-parts">Parts</label>
+      <textarea id="np-parts" name="parts" required maxlength="2000" placeholder="2× 21-422S squeegee blade rear, 1× VS10301 lid"></textarea>
+
+      <label>Terms</label>
+      ${raw(toggle('terms', pairs(o.terms, { CASH: 'Cash', ACCOUNT: 'Account' }), pick(o.terms, 'CASH')))}
+      <div class="form-note">New customers are cash — paid before we order.</div>
+
+      <label>Ship to</label>
+      ${raw(toggle('ship_to', pairs(o.shipTo, { CUSTOMER: 'Customer', SHOP: 'Our shop' }), pick(o.shipTo, 'CUSTOMER')))}
+      <div data-when="ship_to=CUSTOMER">
+        <label for="np-addr">Ship address</label>
+        <input id="np-addr" name="ship_address" maxlength="200" autocomplete="off" placeholder="street, city, zip">
+      </div>
+
+      <label>Supply</label>
+      ${raw(toggle('supply', pairs(o.supply, { VENDOR: 'Order it', 'SHOP-STOCK': 'From stock' }), pick(o.supply, 'VENDOR')))}
+
+      <label>How it came in</label>
+      ${raw(toggle('source', pairs(o.sources, P_SOURCE_LABEL), pick(o.sources, 'PHONE')))}
+
+      <label>Whose order</label>
+      ${raw(toggle('assigned', o.assignees.map((n) => [n, n]), who))}
+
+      <label for="np-note">Note</label>
+      <textarea id="np-note" name="note" maxlength="1000" placeholder="anything else they said"></textarea>
+
+      ${raw(sheetButtons('Open the order'))}
+      <div class="form-note">A proposal. The engine assigns the P-number — the vendor PO — at the next run.</div>
+    </form>`;
+}
+
+/* ---- parts order detail (§4.4) ---- */
+
+function viewPartsOrder(id) {
+  const o = orderById(partsOrders(), id);
+  if (!o) {
+    return html`<a class="crumb" href="#/parts">‹ Parts</a>
+      ${raw(emptyState('Parts order not found.', 'It may have closed and left the snapshot.'))}`;
+  }
+  const pend = pendingForParts(o.order);
+  const u = o.serial ? unitBySerial(o.serial) : null;
+  const v = partsMoney(o);
+  const q = o.quote && typeof o.quote === 'object' ? o.quote : null;
+  const reach = [
+    o.phone ? html`<a href="tel:${raw(encodeURIComponent(String(o.phone).replace(/[^\d+]/g, '')))}">${o.phone}</a>` : '',
+    o.email ? html`<a href="mailto:${raw(encodeURIComponent(o.email))}">${o.email}</a>` : '',
+  ].filter(Boolean).join(' · ');
+  const closedTone = { CLOSED: 'ok', LOST: 'bad', DEAD: 'out' };
+
+  return html`
+    <a class="crumb" href="#/parts">‹ Parts</a>
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="h">${o.customer || '—'}</div>
+      <div class="s"><span class="prow-po">PO <strong>${o.order}</strong></span> · ${firstLine(o.parts) || '—'}</div>
+      <div class="chips">
+        ${raw(chip(P_STAGE_LABEL[o.stage] || o.stage || '—', 'stage'))}
+        ${o.status !== 'OPEN' ? raw(chip(P_OUTCOME_LABEL[o.status] || o.status, closedTone[o.status] || 'out')) : ''}
+        ${o.terms ? raw(chip(TERMS_LABEL[o.terms] || o.terms, o.terms === 'CASH' ? 'cal' : 'rig')) : ''}
+        ${isStock(o) ? raw(chip('STOCK', 'stock')) : ''}
+        ${o.source ? raw(chip(o.source === 'WEB-CART' ? '🛒 web cart' : (P_SOURCE_LABEL[o.source] || o.source), 'out')) : ''}
+        ${raw(staleChip(o))}
+        ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
+      </div>
+    </div>
+
+    ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
+      ${raw(pend.map((e) => html`<div class="pend-row"><span>${describeParts(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
+      <div style="margin-top:6px">Applies at the next run — the board still shows the current truth.</div></div>`) : ''}
+    ${o.stale_reason ? raw(html`<div class="note"><strong>Going stale</strong>${o.stale_reason}</div>`) : ''}
+
+    <h2>Who</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Customer', o.customer))}
+      ${raw(kvRow('Contact', o.contact))}
+      ${raw(kvRow('Reach them', reach ? raw(reach) : ''))}
+      ${raw(kvRow('Ship', `${SHIP_LABEL[o.ship_to] || o.ship_to || ''}${o.ship_address ? ` — ${o.ship_address}` : ''}`))}
+      ${raw(kvRow('Source', o.source === 'WEB-CART' && o.web_order ? `web cart · order #${o.web_order}` : (P_SOURCE_LABEL[o.source] || o.source)))}
+      ${raw(kvRow('Assigned', o.assigned))}
+    </dl></div>
+
+    <h2>The parts</h2>
+    <div class="card"><div class="parts-text">${o.parts || '—'}</div>
+      ${o.machine || u ? raw(html`<dl class="kv">${raw(kvRow('Machine', u
+        ? raw(html`<a href="#/unit/${raw(enc(u.serial))}">#${u.serial} ${unitName(u)}</a>`) : (o.machine || '')))}</dl>`) : ''}
+    </div>
+
+    <h2>The order</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Terms', o.terms === 'ACCOUNT' ? 'Account — ships on the customer’s PO' : o.terms === 'CASH' ? 'Cash — ships after payment' : ''))}
+      ${raw(kvRow('Supply', SUPPLY_LABEL[o.supply] || o.supply))}
+      ${raw(kvRow('Quote', q ? `${q.number || '—'}${q.sent ? ` · sent ${fmtDate(q.sent)}` : ''}` : ''))}
+      ${v != null ? raw(kvRow('Value', fmtMoney(v), 'num')) : ''}
+      ${raw(kvRow('Customer PO', o.customer_po))}
+      ${raw(kvRow('Invoice', o.invoice))}
+      ${raw(kvRow('Paid', o.paid ? fmtDateFull(o.paid) : ''))}
+      ${raw(kvRow('Vendor', o.vendor ? (VENDOR_LABEL[o.vendor] || o.vendor) : ''))}
+      ${raw(kvRow('Vendor ref', o.vendor_ref))}
+      ${raw(kvRow('Ordered', o.ordered ? fmtDateFull(o.ordered) : ''))}
+      ${raw(kvRow('Tracking', o.tracking ? raw(trackingChip(o)) : ''))}
+      ${raw(kvRow('Delivered', o.delivered ? fmtDateFull(o.delivered) : ''))}
+      ${raw(kvRow('Related', relatedChips(o) ? raw(relatedChips(o)) : ''))}
+    </dl>
+    ${raw(invoiceDocLine(o))}
+    </div>
+
+    <h2>Timing</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Opened', `${fmtDateFull(o.opened)}${o.opened_by ? ` by ${o.opened_by}` : ''}`))}
+      ${raw(kvRow('In this stage since', o.stage_since ? fmtInstantCentral(o.stage_since) : ''))}
+      ${raw(kvRow('Age', [ageDays(o.age_in_stage_days) && `${ageDays(o.age_in_stage_days)} in stage`, ageDays(o.age_total_days) && `${ageDays(o.age_total_days)} total`].filter(Boolean).join(' · ')))}
+      ${o.closed ? raw(kvRow('Closed', `${fmtDateFull(o.closed)}${o.close_reason ? ` · ${P_REASON_LABEL[o.close_reason] || o.close_reason}` : ''}`)) : ''}
+      ${o.close_note ? raw(kvRow('Close note', o.close_note)) : ''}
+    </dl></div>
+
+    ${raw(docsSection(o, o.order))}
+    ${raw(notesSection(o, pend, true))}
+    ${raw(partsStagePicker(o))}
+    ${raw(partsActions(o))}`;
+}
+
+/**
+ * The engine-minted QBO invoice (ACCOUNT orders, §4b). Its PDF also rides in
+ * docs[] as kind INVOICE — so the link opens that row, matched by id when the
+ * engine gave one, else the first INVOICE doc. FLAGGED = the engine could not
+ * match the customer; Matt pins it in the vault.
+ */
+function invoiceDocLine(o) {
+  const inv = o.invoice_doc && typeof o.invoice_doc === 'object' ? o.invoice_doc : null;
+  if (!inv) return '';
+  const rows = docRows(o);
+  const hit = rows.find((d) => d.id === inv.pdf) || rows.find((d) => d.kind === 'INVOICE') || null;
+  const flagged = inv.status === 'FLAGGED';
+  return html`<div class="pinv">
+    ${hit ? raw(html`<button class="btn sm ghost" type="button" data-doc="${hit.id}">📄 Invoice${o.invoice ? ` ${o.invoice}` : ''}</button>`) : raw(html`<span>📄 Invoice${o.invoice ? ` ${o.invoice}` : ''}</span>`)}
+    ${raw(chip(flagged ? 'flagged — see the run report' : 'drafted in QuickBooks · not sent', flagged ? 'warn' : 'out'))}
+  </div>`;
+}
+
+/** One-line English for a pending parts write. Money only for those who see it. */
+function describeParts(e) {
+  if (e.action === 'doc_detach') return describeDetach(e);
+  const p = pl(e);
+  if (e.action === 'parts_close') {
+    if (p.outcome === 'COMPLETE') return `closing — complete${p.invoice ? `, invoice ${p.invoice}` : ''}`;
+    return `closing as ${p.outcome}${p.reason ? ` — ${P_REASON_LABEL[p.reason] || p.reason}` : ''}`;
+  }
+  const bits = [];
+  if (p.stage) bits.push(`stage → ${P_STAGE_LABEL[p.stage] || p.stage}`);
+  if (p.quote) bits.push(`quote ${p.quote}`);
+  if (p.value != null && seesPartsMoney()) bits.push(`value ${fmtMoney(p.value)}`);
+  if (p.vendor) bits.push(`vendor ${VENDOR_LABEL[p.vendor] || p.vendor}`);
+  if (p.vendor_ref) bits.push(`vendor ref ${p.vendor_ref}`);
+  if (p.tracking) bits.push(`tracking ${p.tracking}`);
+  if (p.customer_po) bits.push(`PO ${p.customer_po}`);
+  if (p.invoice) bits.push(`invoice ${p.invoice}`);
+  if (p.paid) bits.push(`paid ${fmtDate(p.paid)}`);
+  if (p.assigned) bits.push(`assigned to ${p.assigned}`);
+  if (p.note) bits.push('note added');
+  return bits.length ? bits.join(', ') : 'details updated';
+}
+
+function partsStagePicker(o) {
+  if (!canEditOrder(role())) {
+    return html`<h2>Stage</h2>
+      <div class="info">${P_STAGE_LABEL[o.stage] || o.stage}. Kevin and Matt work parts orders; you can still add a note below.</div>`;
+  }
+  if (!isOpenOrder(o)) {
+    return html`<h2>Stage</h2>
+      <div class="info">This order is ${(P_OUTCOME_LABEL[o.status] || o.status || '').toLowerCase()}. Reopening one is the vault's job — tell Matt.</div>`;
+  }
+  const btns = partsStageOptions(o, role(), partsSummary()).map((x) => html`
+    <button type="button" class="stg${x.current ? ' on' : ''}" data-parts-stage="${x.stage}"
+      ${x.enabled ? '' : raw('disabled')}>${x.label}</button>`);
+  return html`
+    <h2>Stage</h2>
+    <div class="stages">${raw(btns.join(''))}</div>
+    ${isStock(o) ? raw('<div class="form-note">From shop stock — no vendor order: Approved goes straight to Delivered.</div>') : ''}
+    ${role() !== 'owner' ? raw('<div class="form-note">Matt marks it Ordered — he places the vendor order under this PO.</div>') : ''}
+    ${ui.form && ui.form.kind === 'parts-stage' && ui.form.id === o.order ? raw(partsStageForm(o, ui.form.arg)) : ''}`;
+}
+
+/** One input for a stageFields() entry — pre-filled from the record, never invented. */
+function partsField(f, idp) {
+  const id = `${idp}-${f.key}`;
+  const req = f.required ? raw(' required') : '';
+  const label = html`<label for="${id}">${f.label}${f.required ? '' : ' (optional)'}</label>`;
+  if (f.type === 'vendor') {
+    const opts = partsOpts().vendors.map((v) => html`<option value="${v}"${v === f.value ? raw(' selected') : ''}>${VENDOR_LABEL[v] || v}</option>`);
+    return label + html`<select id="${id}" name="${f.key}"${req}><option value=""${f.value ? '' : raw(' selected')}>— pick —</option>${raw(opts.join(''))}</select>`;
+  }
+  if (f.type === 'date') return label + html`<input id="${id}" name="${f.key}" type="date" value="${f.value || ''}" max="${todayCentral()}"${req}>`;
+  if (f.type === 'money') return label + html`<input id="${id}" name="${f.key}" type="number" min="0" step="0.01" inputmode="decimal" value="${f.value === '' ? '' : String(f.value)}"${req}>`;
+  return label + html`<input id="${id}" name="${f.key}" maxlength="64" autocomplete="off" value="${f.value || ''}"${req}>`;
+}
+
+/**
+ * The stage sheet, with the gate INLINE (§4.4): one sheet, one parts_update.
+ * The engine refuses a gated move without its fields at the next run — out of
+ * the phone's sight — so they are asked for here and ride in the same event.
+ */
+function partsStageForm(o, stage) {
+  const label = P_STAGE_LABEL[stage] || stage;
+  const fields = stageFields(o, stage);
+  return html`
+    <form class="write sheet" data-action="parts_update" data-id="${o.order}" data-mode="stage">
+      <input type="hidden" name="stage" value="${stage}">
+      ${isGated(o, stage) ? raw(html`<div class="info gate">🔒 ${gateText(o)}</div>`) : ''}
+      ${raw(fields.map((f) => partsField(f, 'ps')).join(''))}
+      ${stage === 'ORDERED' ? raw(html`<div class="form-note">Order it under PO <strong>${o.order}</strong> — that is how the box finds this order.</div>`) : ''}
+      <label for="ps-note">Move to ${label} — note (optional)</label>
+      <textarea id="ps-note" name="note" maxlength="1000" placeholder="what was said"></textarea>
+      ${raw(sheetButtons(`Move to ${label}`))}
+    </form>`;
+}
+
+/** The single-field edit sheets: kind → [fields]. Each posts parts_update with only what it holds. */
+const PF_SHEETS = {
+  'pf-quote': { title: 'Quote', fields: (o) => stageFields(o, 'QUOTED').map((f) => ({ ...f, required: f.key === 'quote' })) },
+  'pf-po': { title: 'Customer PO', fields: (o) => [{ key: 'customer_po', label: 'Customer PO #', type: 'text', required: true, value: o.customer_po || '' }] },
+  'pf-invoice': { title: 'Invoice', fields: (o) => [{ key: 'invoice', label: 'Invoice #', type: 'text', required: true, value: o.invoice || '' }] },
+  'pf-paid': { title: 'Paid', fields: (o) => [{ key: 'paid', label: 'Paid on', type: 'date', required: true, value: o.paid || todayCentral() }] },
+  'pf-tracking': { title: 'Tracking', fields: (o) => [{ key: 'tracking', label: 'Tracking #', type: 'text', required: true, value: o.tracking || '' }] },
+  'pf-vref': { title: 'Vendor ref', fields: (o) => [{ key: 'vendor_ref', label: 'Vendor ref', type: 'text', required: true, value: o.vendor_ref || '' }] },
+};
+
+/** Note (any role) · the record's fields (owner/sales) · Done (owner, DELIVERED) · Lost / Dead. */
+function partsActions(o) {
+  const open = ui.form && ui.form.id === o.order ? ui.form.kind : null;
+  const canEdit = canEditOrder(role()) && isOpenOrder(o);
+  const opts = partsOpts();
+  const btn = (kind, label) => html`<button class="btn ghost" type="button" data-sheet="${kind}" data-id="${o.order}">${label}</button>`;
+  const fieldSheet = PF_SHEETS[open] ? html`
+      <form class="write sheet" data-action="parts_update" data-id="${o.order}" data-mode="${open}">
+        ${raw(PF_SHEETS[open].fields(o).map((f) => partsField(f, 'pf')).join(''))}
+        ${raw(sheetButtons(`Save ${PF_SHEETS[open].title.toLowerCase()}`))}
+      </form>` : '';
+
+  return html`
+    <h2>Update</h2>
+    <div class="actions row">
+      ${raw(btn('pf-note', 'Add a note'))}
+      ${canEdit ? raw([btn('pf-quote', 'Quote'), btn('pf-po', 'Customer PO'), btn('pf-invoice', 'Invoice #'),
+        btn('pf-paid', 'Paid'), btn('pf-tracking', 'Tracking'), btn('pf-vref', 'Vendor ref'), btn('pf-assign', 'Assign')].join('')) : ''}
+    </div>
+    ${open === 'pf-note' ? raw(html`
+      <form class="write sheet" data-action="parts_update" data-id="${o.order}" data-mode="note">
+        <label for="pn-note">Note</label>
+        <textarea id="pn-note" name="note" required maxlength="1000" placeholder="what happened"></textarea>
+        ${raw(sheetButtons('Add the note'))}
+        <div class="form-note">Notes land in the order's file at the next run; yours shows as pending until then.</div>
+      </form>`) : ''}
+    ${canEdit ? raw(fieldSheet) : ''}
+    ${canEdit && open === 'pf-assign' ? raw(html`
+      <form class="write sheet" data-action="parts_update" data-id="${o.order}" data-mode="assign">
+        <label>Whose order</label>
+        ${raw(toggle('assigned', opts.assignees.map((n) => [n, n]), opts.assignees.includes(o.assigned) ? o.assigned : opts.assignees[0]))}
+        ${raw(sheetButtons('Assign'))}
+      </form>`) : ''}
+
+    ${canComplete(role(), o) ? raw(html`
+      <h2>Done</h2>
+      <div class="actions"><button class="btn" type="button" data-sheet="parts-done" data-id="${o.order}">✓ Done — delivered and invoiced</button></div>
+      ${open === 'parts-done' ? raw(html`
+        <form class="write sheet" data-action="parts_close" data-id="${o.order}" data-mode="done">
+          <input type="hidden" name="outcome" value="COMPLETE">
+          ${o.invoice ? raw(html`<input type="hidden" name="invoice" value="${o.invoice}"><p>Close <strong>${o.order}</strong> as complete on invoice <strong>${o.invoice}</strong>?</p>`)
+            : raw(html`<label for="pd-inv">Invoice #</label>
+          <input id="pd-inv" name="invoice" required maxlength="64" autocomplete="off" placeholder="as it reads in QuickBooks">
+          <div class="form-note">No invoice on this order yet — that is the "did we invoice it?" answer.</div>`)}
+          ${raw(sheetButtons('Close it'))}
+        </form>`) : ''}`) : ''}
+
+    ${isOpenOrder(o) && canCloseOrder(role(), o) ? raw(html`
+      <h2>Close it out</h2>
+      <div class="actions"><button class="btn ghost danger-btn" type="button" data-sheet="parts-close" data-id="${o.order}">Lost or dead</button></div>
+      ${open === 'parts-close' ? raw(html`
+        <form class="write sheet" data-action="parts_close" data-id="${o.order}">
+          <label>What happened</label>
+          ${raw(toggle('outcome', [['LOST', 'Lost it'], ['DEAD', 'Went nowhere']], 'LOST'))}
+          <div data-when="outcome=LOST">
+            <label>Why</label>
+            ${raw(toggle('reason', opts.lostReasons.map((r) => [r, P_REASON_LABEL[r] || r]), opts.lostReasons[0]))}
+          </div>
+          <label for="pc-note">Note</label>
+          <textarea id="pc-note" name="note" maxlength="1000" placeholder="who they bought it from, what the number was"></textarea>
+          ${raw(sheetButtons('Close the order'))}
+          <div class="form-note">A proposal — it stays on the board until the next run.${['ORDERED', 'IN-TRANSIT', 'DELIVERED'].includes(o.stage) ? ' Cancel the vendor order by hand first.' : ''}</div>
+        </form>`) : ''}`) : ''}`;
+}
+
 /* ---- gate / error screens ---- */
 
 function viewGate(code) {
@@ -4965,8 +5435,9 @@ function renderHeader() {
 }
 
 function renderTabs(route) {
-  const tab = route.startsWith('#/rentals') || route.startsWith('#/agreement/') ? 'rentals'
-    : route.startsWith('#/holds') ? 'holds'
+  // D88: Holds lost its tab to Parts; it is reached from Rentals, so it lights Rentals.
+  const tab = route.startsWith('#/rentals') || route.startsWith('#/agreement/') || route.startsWith('#/holds') ? 'rentals'
+    : route.startsWith('#/parts') ? 'parts'
     : route.startsWith('#/dispatch') ? 'dispatch'
     : route.startsWith('#/leads') || route.startsWith('#/lead/') ? 'leads'
     : route.startsWith('#/service') || route.startsWith('#/ticket') ? 'service' : 'fleet';
@@ -4987,6 +5458,13 @@ function renderTabs(route) {
     const n = s && typeof s.received_uncontacted === 'number' ? s.received_uncontacted : 0;
     lb.hidden = n === 0;
     lb.textContent = n;
+  }
+  // D88: Parts badge = requests nobody has quoted — the same visible pressure.
+  const pb = $('#tab-parts-badge');
+  if (pb) {
+    const n = partsBadge(partsSummary());
+    pb.hidden = n === 0;
+    pb.textContent = n;
   }
 }
 
@@ -5022,6 +5500,7 @@ function render() {
   else if (section === 'service') out = viewService();
   else if (section === 'ticket') out = viewTicket(decodeURIComponent(arg || ''));
   else if (section === 'leads') out = viewLeads();
+  else if (section === 'parts') out = arg ? viewPartsOrder(decodeURIComponent(arg)) : viewParts();
   else if (section === 'lead') {
     // D83: #/lead/<L>/quote is the composer.
     const [lid, sub] = decodeURIComponent(arg || '').split('/');
@@ -5606,6 +6085,17 @@ document.addEventListener('click', async (ev) => {
     render();
     return;
   }
+
+  // D88: a parts stage tap opens the stage sheet — with the money gate inline when it applies.
+  const pstg = ev.target.closest('[data-parts-stage]');
+  if (pstg && !pstg.disabled) {
+    const order = decodeURIComponent(window.location.hash.split('/').pop());
+    ui.form = { kind: 'parts-stage', id: order, arg: pstg.dataset.partsStage };
+    ui.msg = null;
+    render();
+    return;
+  }
+  if (ev.target.closest('[data-parts-closed-toggle]')) { ui.showClosedParts = !ui.showClosedParts; render(); return; }
 
   if (ev.target.closest('[data-done-toggle]')) { ui.showDone = !ui.showDone; render(); return; }
   // D65: the Parts strip. Remembered for the session, not the device.
@@ -6230,6 +6720,42 @@ function eventBody(action, form, fd) {
     };
   }
   if (action === 'work_order') return woEventBody(form, fd, s, orNull);
+
+  /* ----------------------------------------------------------- D88 parts -- */
+  // `serial` never rides at the top: a parts order is keyed on its P-number.
+  if (action === 'parts_open') {
+    const shipTo = s('ship_to');
+    return {
+      serial: null,
+      payload: {
+        customer: s('customer'), contact: orNull('contact'), phone: orNull('phone'), email: orNull('email'),
+        parts: s('parts'), terms: orNull('terms'), supply: orNull('supply'), ship_to: orNull('ship_to'),
+        // The address hides when it ships to our shop — and so it doesn't travel.
+        ship_address: shipTo === 'CUSTOMER' ? orNull('ship_address') : null,
+        source: orNull('source'), assigned: orNull('assigned'), note: orNull('note'),
+      },
+    };
+  }
+  if (action === 'parts_update') {
+    // Only the keys being changed travel; `data-mode` says which sheet it was.
+    // A stage sheet carries its gate fields IN THE SAME EVENT (spec §3).
+    const payload = { order: form.dataset.id };
+    for (const k of ['stage', 'note', 'quote', 'vendor', 'vendor_ref', 'tracking', 'customer_po', 'invoice', 'paid', 'assigned']) {
+      const v = s(k);
+      if (v) payload[k] = v;
+    }
+    const val = s('value');
+    if (val !== '') payload.value = Number(val);
+    return { serial: null, payload };
+  }
+  if (action === 'parts_close') {
+    const outcome = s('outcome');
+    return {
+      serial: null,
+      payload: { order: form.dataset.id, outcome, reason: outcome === 'LOST' ? orNull('reason') : null,
+        invoice: outcome === 'COMPLETE' ? orNull('invoice') : null, note: orNull('note') },
+    };
+  }
   if (action === 'rental_update') {
     // The id travels in the TYPE the snapshot gave it — an int stays an int, a
     // WSS-paper string stays a string (D59). The form only carries it as text,
@@ -6367,6 +6893,9 @@ const SUBMIT_MSG = {
   lead_open: 'The engine assigns the lead number at the next run.',
   lead_update: 'Applies at the next run.',
   lead_close: 'It moves to Closed at the next run.',
+  parts_open: 'The engine assigns the P-number at the next run.',
+  parts_update: 'Applies at the next run.',
+  parts_close: 'It moves to Closed at the next run.',
 };
 // D64: one action, three verbs — say what each one will actually do.
 const RENTAL_MSG = {
@@ -6427,6 +6956,17 @@ document.addEventListener('submit', async (ev) => {
     ui.msg = { tone: 'bad', text: 'Pick a vendor or put in a ref or a note.' };
     render();
     return;
+  }
+  // D88: a parts order needs who and what — the Worker refuses either missing.
+  if (action === 'parts_open') {
+    const miss = ['customer', 'parts'].find((k) => !String(fd.get(k) || '').trim());
+    if (miss) {
+      const el = form.querySelector(`[name=${miss}]`);
+      if (el) el.focus();
+      ui.msg = { tone: 'bad', text: miss === 'customer' ? 'Who is it for? Put a customer on it.' : 'What parts? Write them down.' };
+      render();
+      return;
+    }
   }
   // A lead with no customer is a note to nobody.
   if (action === 'lead_open' && !String(fd.get('customer') || '').trim()) {

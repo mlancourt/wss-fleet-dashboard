@@ -1465,3 +1465,20 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
 .btn.ghost[disabled] { background: var(--white); color: var(--slate-400); border-color: var(--slate-200); }
 .qc-sum-row:first-child { font-size: 12.5px; color: var(--ink-3); }
 .qc .qc-2 label { margin-top: 10px; }
+
+/* ---- D88: the Parts tab ---------------------------------------------------- */
+/* A parts card is a div (it carries links of its own); its top half is the link. */
+.parts-card .pc-main { display: block; color: inherit; text-decoration: none; }
+.parts-card .chips { margin-top: 5px; }
+.parts-card.stale-red    { border-left-color: var(--bad); }    /* stale tone on the card edge, like leads */
+.parts-card.stale-yellow { border-left-color: var(--warn); }
+.parts-card .kan-t { display: block; margin-top: 2px; }
+.chip.money { background: var(--slate-100); color: var(--slate-800); text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.chip.cart  { background: var(--slate-100); text-transform: none; }
+.parts-text { font-size: 14.5px; line-height: 1.45; color: var(--slate-800); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 0; }
+.pinv { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0 12px; }
+.info.gate { margin-bottom: 4px; }
+/* Rentals header: the door to Holds (un-tabbed, D88) + the expired-holds line */
+.h1-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.h1-row .h1-link { font-size: 14px; color: var(--slate-500); text-decoration: none; font-weight: 600; }
+a.alert.expired-holds { display: block; text-decoration: none; margin: 0 0 12px; }

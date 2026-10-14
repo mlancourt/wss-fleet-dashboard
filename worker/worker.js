@@ -100,6 +100,15 @@ const ACTION_ROLES = {
   // see quoteSend(). Kevin's and Matt's — a quote names a price. (`quote_view`
   // is NOT here on purpose: only this Worker mints it, from the customer routes.)
   quote_send: new Set(['owner', 'sales']),
+  // D88 (2026-10-13) — the parts sales tab: three actions, shaped on lead_*.
+  // TWENTY actions. Anyone may write a parts request down (the tech on the
+  // phone with the customer is the one who heard it); working it is Kevin's and
+  // Matt's — `service` may add a note to an order and nothing else (narrowed in
+  // cleanPayload), and closing is theirs. ORDERED (money leaves the building)
+  // and COMPLETE (names the invoice) are Matt's alone, narrowed there too.
+  parts_open: ALL_ROLES,
+  parts_update: ALL_ROLES,
+  parts_close: new Set(['owner', 'sales']),
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -132,6 +141,27 @@ const LEAD_INTERESTS = new Set(['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'P
 const LOST_REASONS = new Set(['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER']);
 const LEAD_OUTCOMES = new Set(['LOST', 'DEAD', 'SPAM']);  // WON is reached by moving to INVOICED, not by closing; SPAM (D84) = never a lead
 const ASSIGNEES = new Set(['Kevin', 'Matt']);
+// D88 — parts orders (Parts-Site-Spec §2/§3). The engine ships the same lists in
+// parts_summary; these are the Worker's copy, shape only.
+const P_STAGES = new Set(['REQUESTED', 'QUOTED', 'APPROVED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED']);
+const P_SOURCES = new Set(['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE']);
+const P_TERMS = new Set(['CASH', 'ACCOUNT']);
+const P_SUPPLY = new Set(['VENDOR', 'SHOP-STOCK']);
+const P_SHIP_TO = new Set(['CUSTOMER', 'SHOP']);
+const P_OUTCOMES = new Set(['COMPLETE', 'LOST', 'DEAD']);
+const P_REASONS = new Set(['PRICE', 'NO-RESPONSE', 'SOURCED-ELSEWHERE', 'OTHER']);
+const P_ID_RE = /^P\d{4,6}$/;
+const S_ID_RE = /^S\d{4,6}$/;
+const L_ID_RE = /^L\d{4,6}$/;
+// Field-by-field, like lead_* — but an unknown key is a 400 BY NAME here, not a
+// silent drop (spec §6.1): a misspelt gate field must never look accepted.
+const P_OPEN_KEYS = ['customer', 'contact', 'phone', 'email', 'parts', 'terms', 'supply', 'ship_to', 'ship_address',
+  'source', 'assigned', 'value', 'machine', 'serial', 'related_ticket', 'related_lead', 'note'];
+const P_UPDATE_KEYS = ['order', 'stage', 'note', 'parts', 'vendor', 'vendor_ref', 'tracking', 'quote', 'value',
+  'customer_po', 'invoice', 'paid', 'assigned', 'terms', 'supply', 'ship_to', 'ship_address', 'contact', 'phone',
+  'email', 'machine', 'serial'];
+const P_CLOSE_KEYS = ['order', 'outcome', 'reason', 'invoice', 'note'];
+const SERVICE_PARTS_KEYS = new Set(['order', 'note']);
 // D64 — the three rental verbs. Membership only: whether THIS agreement may go
 // OFF-RENT today (is it ACTIVE? is the date after it went out?) is the vault's.
 const RENTAL_VERBS = new Set(['OUT', 'OFF-RENT', 'IN']);
@@ -251,7 +281,7 @@ const DOC_SOURCES = new Set(['vault', 'crew']);
 const CREW_DOC_KINDS = new Set(['WORKORDER', 'PARTS-LIST', 'PHOTO', 'OTHER']);
 // A ticket ("S1018") or a lead ("L1005"). Shape only, as ever: whether that
 // record exists is the vault's call, not this file's.
-const DOC_RECORD_RE = /^[SL]\d{4}$/;
+const DOC_RECORD_RE = /^[SLP]\d{4}$/;   // D88: + a parts order (P1001)
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const DOC_NAME_MAX = 120;
 
@@ -489,7 +519,7 @@ async function crewData({ me, env }) {
   if (me.role === 'service' || stamps) {
     doc = parseSnapshot(snapshot);
     if (stamps) overlayLeads(doc.leads, stamps);
-    if (me.role === 'service') stripLeadMoney(doc);
+    if (me.role === 'service') { stripLeadMoney(doc); stripPartsMoney(doc); }
     doc = JSON.stringify(doc);
   }
   // `quote_view` is the customer's, minted here — it is not a crew proposal and
@@ -531,7 +561,8 @@ function stripPendingMoney(e) {
     return { ...e, payload: { lead: p.lead, to: p.to },
       result: { number: r.number, token: r.token, sent_at: r.sent_at, by: r.by, to: r.to, expires: r.expires } };
   }
-  if ((e.action === 'lead_update' || e.action === 'lead_open') && e.payload && 'value' in e.payload) {
+  if ((e.action === 'lead_update' || e.action === 'lead_open' || e.action === 'parts_update' || e.action === 'parts_open')
+    && e.payload && 'value' in e.payload) {
     const { value, ...rest } = e.payload;   // eslint-disable-line no-unused-vars
     return { ...e, payload: rest };
   }
@@ -606,6 +637,29 @@ function stripLeadMoney(doc) {
   if (doc.scoreboard && typeof doc.scoreboard === 'object') delete doc.scoreboard.money;
 
   return doc;   // D83: the caller stringifies — the quote overlay may already have touched it
+}
+
+/**
+ * D88 — the same gate over parts sales (Parts-Site-Spec §6.2): every key named
+ * in `parts_summary.money_fields` (today `value`), UNIONED with ours so a missing
+ * list cannot open the gate, off every `parts_orders[]` row — then the list
+ * itself, like the leads one. `log` stays: it is money-free by contract and the
+ * publish refusal below holds the engine to that. `parts` (free text Matt types)
+ * is not a money field and is not touched.
+ */
+const PARTS_MONEY_DEFAULT = ['value'];
+function stripPartsMoney(doc) {
+  const summary = doc.parts_summary && typeof doc.parts_summary === 'object' ? doc.parts_summary : null;
+  const fields = new Set(PARTS_MONEY_DEFAULT);
+  if (summary && Array.isArray(summary.money_fields)) for (const f of summary.money_fields) if (typeof f === 'string') fields.add(f);
+  if (Array.isArray(doc.parts_orders)) {
+    for (const row of doc.parts_orders) {
+      if (!row || typeof row !== 'object') continue;
+      for (const f of fields) deletePath(row, f);
+    }
+  }
+  if (summary) delete summary.money_fields;
+  return doc;
 }
 
 /**
@@ -699,6 +753,34 @@ function refuseTicketMoney(queue) {
     walk(t, `service_queue[${id}]`, 0);
     if (t && t.order != null && FIGURE_RE.test(JSON.stringify(t.order))) {
       throw httpError(400, `refused: service_queue[${id}].order carries a dollar figure (D79)`);
+    }
+  });
+}
+
+/**
+ * D88 (Parts-Site-Spec §6.3): a parts order's cost is vault-only, exactly like
+ * D79's ticket order — `cost_total` / `cost_source_inv` at ANY depth of a
+ * `parts_orders[]` row refuses the publish, by name. The figure scan covers the
+ * LOG only (money-free by contract, like lead logs): `parts` is free text Matt
+ * may type a price into, and refusing that would freeze the board on honest data.
+ */
+function refusePartsMoney(rows) {
+  if (!Array.isArray(rows)) return;
+  const walk = (v, at, depth) => {
+    if (!v || typeof v !== 'object' || depth > 8) return;
+    for (const [k, x] of Object.entries(v)) {
+      const here = Array.isArray(v) ? `${at}[${k}]` : `${at}.${k}`;
+      if (!Array.isArray(v) && TICKET_MONEY_KEY_RE.test(k)) {
+        throw httpError(400, `refused: ${here} — parts order cost stays in the vault (D88)`);
+      }
+      walk(x, here, depth + 1);
+    }
+  };
+  rows.forEach((r, i) => {
+    const id = r && typeof r.order === 'string' ? r.order : String(i);
+    walk(r, `parts_orders[${id}]`, 0);
+    if (r && r.log != null && FIGURE_RE.test(JSON.stringify(r.log))) {
+      throw httpError(400, `refused: parts_orders[${id}].log carries a dollar figure (D88)`);
     }
   });
 }
@@ -1075,7 +1157,7 @@ function cleanPayload(action, p, role, serial) {
     const doc_id = str(obj.doc_id, 64, 'doc_id', true);
     if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
     const record = str(obj.record, 16, 'record', true).toUpperCase();
-    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket or lead id (S1018 / L1005)');
+    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead or parts order id (S1018 / L1005 / P1001)');
     return {
       record,
       doc_id,
@@ -1091,7 +1173,7 @@ function cleanPayload(action, p, role, serial) {
     const doc_id = str(obj.doc_id, 64, 'doc_id', true);
     if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
     const record = str(obj.record, 16, 'record', true).toUpperCase();
-    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket or lead id (S1018 / L1005)');
+    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead or parts order id (S1018 / L1005 / P1001)');
     return { record, doc_id };
   }
 
@@ -1289,6 +1371,104 @@ function cleanPayload(action, p, role, serial) {
     return { action: verb, ...woKey(), note: note() };
   }
 
+  /* ----------------------------------------------------------- D88 parts -- */
+
+  if (action === 'parts_open' || action === 'parts_update' || action === 'parts_close') {
+    const allowed = action === 'parts_open' ? P_OPEN_KEYS : action === 'parts_update' ? P_UPDATE_KEYS : P_CLOSE_KEYS;
+    for (const k of Object.keys(obj)) {
+      if (!allowed.includes(k)) throw httpError(400, `${action} does not take "${k}"`);
+    }
+    const optEnum = (k, set) => optOneOf(obj[k] == null || obj[k] === '' ? null : String(obj[k]).trim().toUpperCase(), set, k);
+    // Case-insensitive vendor, stored upper; "IPC EAGLE" -> "IPC-EAGLE" (the D79 rule).
+    const vendorOf = (v) => {
+      if (v == null || v === '') return null;
+      if (typeof v !== 'string') throw httpError(400, 'vendor must be a string');
+      return oneOf(v.trim().toUpperCase().replace(/[\s_]+/g, '-'), WO_VENDORS, 'vendor');
+    };
+    const idOf = (v, re, field, what) => {
+      if (v == null || v === '') return null;
+      const t = str(v, 16, field, true).toUpperCase();
+      if (!re.test(t)) throw httpError(400, `${field} must be a ${what}`);
+      return t;
+    };
+    const order = () => idOf(obj.order, P_ID_RE, 'order', 'parts order id (P1001)') || (() => { throw httpError(400, 'order is required'); })();
+
+    if (action === 'parts_open') {
+      // No P-number: the engine assigns it, exactly as it does a ticket or a lead.
+      return {
+        customer: str(obj.customer, 120, 'customer', true),
+        contact: optStr(obj.contact, 120, 'contact'),
+        phone: optStr(obj.phone, 40, 'phone'),
+        email: optStr(obj.email, 200, 'email'),
+        parts: str(obj.parts, 2000, 'parts', true),
+        terms: optEnum('terms', P_TERMS),
+        supply: optEnum('supply', P_SUPPLY),
+        ship_to: optEnum('ship_to', P_SHIP_TO),
+        ship_address: optStr(obj.ship_address, 200, 'ship_address'),
+        source: optEnum('source', P_SOURCES),
+        assigned: optOneOf(obj.assigned, ASSIGNEES, 'assigned'),
+        value: optValue(obj.value, 'value'),
+        machine: optStr(obj.machine, 200, 'machine'),
+        serial: optSerial(obj.serial, 'serial'),
+        related_ticket: idOf(obj.related_ticket, S_ID_RE, 'related_ticket', 'ticket id (S1030)'),
+        related_lead: idOf(obj.related_lead, L_ID_RE, 'related_lead', 'lead id (L1037)'),
+        note: optStr(obj.note, 1000, 'note'),
+      };
+    }
+
+    if (action === 'parts_update') {
+      // Only the keys being changed travel. `service` gets the note and nothing
+      // else — the same rule as a lead, and a 403 rather than a silent drop.
+      if (role === 'service') {
+        for (const k of Object.keys(obj)) {
+          if (!SERVICE_PARTS_KEYS.has(k)) throw httpError(403, `role service may only add a note to a parts order (got ${k})`);
+        }
+      }
+      const out = { order: order() };
+      const stage = optEnum('stage', P_STAGES);
+      // ORDERED spends the money — Matt places the vendor order (the D65 rule).
+      // Whether the gate is satisfied (paid + invoice / customer PO) is state: the engine's.
+      if (stage === 'ORDERED' && role !== 'owner') throw httpError(403, 'only the owner moves a parts order to ORDERED');
+      if (stage) out.stage = stage;
+      const put = (k, v) => { if (v != null && v !== '') out[k] = v; };
+      put('note', optStr(obj.note, 1000, 'note'));
+      put('parts', optStr(obj.parts, 2000, 'parts'));
+      put('vendor', vendorOf(obj.vendor));
+      put('vendor_ref', optStr(obj.vendor_ref, 64, 'vendor_ref'));
+      put('tracking', optStr(obj.tracking, 64, 'tracking'));
+      put('quote', optStr(obj.quote, 64, 'quote'));
+      put('value', optValue(obj.value, 'value'));
+      put('customer_po', optStr(obj.customer_po, 64, 'customer_po'));
+      put('invoice', optStr(obj.invoice, 64, 'invoice'));
+      put('paid', optDate(obj.paid, 'paid'));
+      put('assigned', optOneOf(obj.assigned, ASSIGNEES, 'assigned'));
+      put('terms', optEnum('terms', P_TERMS));
+      put('supply', optEnum('supply', P_SUPPLY));
+      put('ship_to', optEnum('ship_to', P_SHIP_TO));
+      put('ship_address', optStr(obj.ship_address, 200, 'ship_address'));
+      put('contact', optStr(obj.contact, 120, 'contact'));
+      put('phone', optStr(obj.phone, 40, 'phone'));
+      put('email', optStr(obj.email, 200, 'email'));
+      put('machine', optStr(obj.machine, 200, 'machine'));
+      put('serial', optSerial(obj.serial, 'serial'));
+      if (Object.keys(out).length < 2) throw httpError(400, 'parts_update needs at least one field to change');
+      return out;
+    }
+
+    // parts_close. COMPLETE names the invoice and closes the books on it — Matt's.
+    // "Sales only before ORDERED" is the order's state, so the engine referees that half.
+    const outcome = oneOf(obj.outcome == null ? obj.outcome : String(obj.outcome).trim().toUpperCase(), P_OUTCOMES, 'outcome');
+    if (outcome === 'COMPLETE' && role !== 'owner') throw httpError(403, 'only the owner closes a parts order COMPLETE');
+    const reason = optEnum('reason', P_REASONS);
+    return {
+      order: order(),
+      outcome,
+      reason: outcome === 'LOST' ? reason : null,
+      invoice: optStr(obj.invoice, 64, 'invoice'),
+      note: optStr(obj.note, 1000, 'note'),
+    };
+  }
+
   return {}; // every action in ACTION_ROLES is handled above
 }
 
@@ -1349,6 +1529,7 @@ async function adminPublish({ request, env }) {
   }
 
   refuseTicketMoney(doc.service_queue);
+  refusePartsMoney(doc.parts_orders);
 
   const metadata = {
     published_at: new Date().toISOString(),
@@ -2029,7 +2210,7 @@ async function crewDocPost({ request, me, env }) {
   const name = docName(request.headers.get('X-Doc-Name'));
 
   const record = (request.headers.get('X-Doc-Record') || '').trim().toUpperCase();
-  if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'X-Doc-Record must be a ticket or lead id (S1018 / L1005)');
+  if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'X-Doc-Record must be a ticket, lead or parts order id (S1018 / L1005 / P1001)');
 
   const kind = (request.headers.get('X-Doc-Kind') || '').trim().toUpperCase();
   if (!CREW_DOC_KINDS.has(kind)) throw httpError(400, `X-Doc-Kind must be one of ${[...CREW_DOC_KINDS].join(', ')}`);

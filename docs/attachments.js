@@ -34,6 +34,7 @@ export const DOC_ID_RE = /^[0-9a-f]{16}$/;
 const KIND_ICON = {
   QUOTE: '📄', PO: '📄', 'PM-REPORT': '📄', 'SERVICE-TICKET': '📄', OTHER: '📄',
   WORKORDER: '📝', 'PARTS-LIST': '📝',
+  INVOICE: '🧾',   // D88: the engine-minted QBO invoice on a parts order — vault-minted only
   PHOTO: '🖼',
 };
 
@@ -112,8 +113,8 @@ export function docUrl(apiBase, id, token) {
 
 /* ===================================================== upload (S2) ======== */
 
-/** A ticket ("S1018") or a lead ("L1005") — what a doc can be attached to. */
-export const DOC_RECORD_RE = /^[SL]\d{4}$/;
+/** A ticket ("S1018"), a lead ("L1005") or — D88 — a parts order ("P1001"): what a doc can be attached to. */
+export const DOC_RECORD_RE = /^[SLP]\d{4}$/;
 
 /**
  * The three buttons on the kind sheet, in order. PHOTO is deliberately NOT a

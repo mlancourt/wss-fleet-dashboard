@@ -51,7 +51,7 @@ function el() {
 const view = el();
 const nodes = {
   '#view': view, '#asof': el(), '#pending-badge': el(),
-  '#tab-dispatch-badge': el(), '#tab-leads-badge': el(),
+  '#tab-dispatch-badge': el(), '#tab-leads-badge': el(), '#tab-parts-badge': el(),
 };
 
 globalThis.window = {
@@ -118,12 +118,13 @@ for (const role of ['owner', 'sales', 'service']) {
   await app.__refresh();
   const snap = app.__state().snapshot;
 
-  const routes = ['#/', '#/rentals', '#/holds', '#/dispatch', '#/service', '#/leads']
+  const routes = ['#/', '#/rentals', '#/holds', '#/parts', '#/dispatch', '#/service', '#/leads']
     .concat((snap.categories || []).map((c) => `#/cat/${encodeURIComponent(c)}`))
     .concat((snap.units || []).map((u) => `#/unit/${encodeURIComponent(u.serial)}`))
     .concat((snap.service_queue || []).map((t) => `#/ticket/${encodeURIComponent(t.ticket)}`))
     .concat((snap.dispatch || []).map((r) => `#/dispatch/${encodeURIComponent(r.id)}`))
     .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
+    .concat((snap.parts_orders || []).map((o) => `#/parts/${encodeURIComponent(o.order)}`))   // D88
     // D64: every agreement with an id has a page — int or WSS-paper string.
     .concat((snap.agreements || []).filter((a) => a.agreement != null)
       .map((a) => `#/agreement/${encodeURIComponent(String(a.agreement))}`));

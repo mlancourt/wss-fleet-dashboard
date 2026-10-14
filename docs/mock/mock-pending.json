@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-10-13T11:16:12.697Z",
+    "ts": "2026-10-13T22:51:48.226Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-10-13T13:36:12.697Z",
+    "ts": "2026-10-14T01:11:48.226Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-10-13T14:04:12.697Z",
+    "ts": "2026-10-14T01:39:48.226Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-10-13T14:10:12.697Z",
+    "ts": "2026-10-14T01:45:48.226Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-10-13T14:13:12.697Z",
+    "ts": "2026-10-14T01:48:48.226Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-10-13T14:14:12.697Z",
+    "ts": "2026-10-14T01:49:48.226Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-10-13T13:51:12.697Z",
+    "ts": "2026-10-14T01:26:48.227Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-10-13T14:07:12.697Z",
+    "ts": "2026-10-14T01:42:48.227Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -128,7 +128,7 @@
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-10-13T14:09:12.697Z",
+    "ts": "2026-10-14T01:44:48.227Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -142,7 +142,7 @@
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-10-13T14:11:12.697Z",
+    "ts": "2026-10-14T01:46:48.227Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-10-13T14:13:12.697Z",
+    "ts": "2026-10-14T01:48:48.227Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-10-13T14:12:12.697Z",
+    "ts": "2026-10-14T01:47:48.227Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-10-13T14:14:12.697Z",
+    "ts": "2026-10-14T01:49:48.227Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -221,7 +221,7 @@
   },
   {
     "id": "evt-mock-15",
-    "ts": "2026-10-13T14:15:12.697Z",
+    "ts": "2026-10-14T01:50:48.227Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "doc_detach",
@@ -233,7 +233,7 @@
   },
   {
     "id": "evt-mock-16",
-    "ts": "2026-10-13T14:13:12.697Z",
+    "ts": "2026-10-14T01:48:48.227Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "quote_send",
@@ -267,7 +267,7 @@
     "result": {
       "number": "Q2004",
       "token": "44444444444444444444444444444444",
-      "sent_at": "2026-10-13T14:13:12.697Z",
+      "sent_at": "2026-10-14T01:48:48.227Z",
       "by": "Kevin",
       "to": "m.idle@harborline.example",
       "subtotal": 5455,
@@ -280,7 +280,7 @@
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-10-13T14:12:12.697Z",
+    "ts": "2026-10-14T01:47:48.227Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",
@@ -290,6 +290,45 @@
       "outcome": "DEAD",
       "reason": null,
       "note": "Four calls, nothing back"
+    }
+  },
+  {
+    "id": "evt-mock-p1",
+    "ts": "2026-10-14T01:39:48.227Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "parts_open",
+    "serial": null,
+    "payload": {
+      "customer": "Birchwood Creamery",
+      "contact": null,
+      "phone": null,
+      "email": null,
+      "parts": "1x drive belt",
+      "terms": "CASH",
+      "supply": "VENDOR",
+      "ship_to": "SHOP",
+      "ship_address": null,
+      "source": "SERVICE",
+      "assigned": "Matt",
+      "value": null,
+      "machine": null,
+      "serial": null,
+      "related_ticket": null,
+      "related_lead": null,
+      "note": null
+    }
+  },
+  {
+    "id": "evt-mock-p2",
+    "ts": "2026-10-14T01:45:48.227Z",
+    "actor": "Kevin",
+    "role": "sales",
+    "action": "parts_update",
+    "serial": null,
+    "payload": {
+      "order": "P1003",
+      "note": "PO promised by Friday"
     }
   }
 ]

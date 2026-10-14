@@ -1132,6 +1132,9 @@ function build({ withServiceQueue }) {
   // ------------------------------------------------- work orders (D65)
   const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units });
 
+  // ---------------------------------------------------- parts sales (D88)
+  const { parts_orders, parts_summary } = buildParts({ withParts: withServiceQueue, service_queue, leads });
+
   // ---------------------------------------------------- activity (D78)
   const activity = buildActivity({ withActivity: withServiceQueue, units, service_queue, leads, work_orders, dispatch, agreements });
 
@@ -1211,9 +1214,114 @@ function build({ withServiceQueue }) {
     inspection_checklist: CHECKLIST_FIXTURE,
     // D78 (schema 7, additive): the activity tape. Newest first, <= 40, money-free.
     activity,
+    // D88 (schema 7, additive): parts sales. OPEN + closed <= 14 days.
+    parts_orders,
+    parts_summary,
   };
 
   return { snapshot, ledger };
+}
+
+/* ------------------------------------------------- parts sales (D88)
+ * Parts-Site-Spec §8. Every stage, both terms, both supplies, a stale-red
+ * request, a QUOTED value, an ACCOUNT order with no PO yet (the gate's
+ * missing half), CASH in transit on UPS with invoice 4310, an ACCOUNT order
+ * DELIVERED with its engine-minted invoice (invoice_doc + an INVOICE doc), a
+ * web-cart order that arrived APPROVED + paid from shop stock, one ORDERED on
+ * RPS, and inside the 14-day window one COMPLETE and one LOST. The full
+ * variant ships value (value_shipped: true); the empty one ships the keys with
+ * nothing in them (value_shipped: false). Logs never carry a figure.
+ */
+function buildParts({ withParts, service_queue, leads }) {
+  const STAGES = ['REQUESTED', 'QUOTED', 'APPROVED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED'];
+  const summaryOf = (rows, shipped) => {
+    const open = rows.filter((o) => o.status === 'OPEN');
+    const by = Object.fromEntries(STAGES.map((st) => [st, open.filter((o) => o.stage === st).length]));
+    return {
+      open_by_stage: by,
+      requested_unquoted: by.REQUESTED,
+      in_flight: by.ORDERED + by['IN-TRANSIT'],
+      stale_count: open.filter((o) => o.stale).length,
+      closed_recent: { CLOSED: rows.filter((o) => o.status === 'CLOSED').length, LOST: rows.filter((o) => o.status === 'LOST').length, DEAD: rows.filter((o) => o.status === 'DEAD').length },
+      money_fields: ['value'],
+      value_shipped: shipped,
+      stages: STAGES,
+      sources: ['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE'],
+      terms: ['CASH', 'ACCOUNT'],
+      supply: ['VENDOR', 'SHOP-STOCK'],
+      ship_to: ['CUSTOMER', 'SHOP'],
+      vendors: ['RPS', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'TENNANT', 'OTHER'],
+      lost_reasons: ['PRICE', 'NO-RESPONSE', 'SOURCED-ELSEWHERE', 'OTHER'],
+      assignees: ['Matt', 'Kevin'],
+    };
+  };
+  if (!withParts) return { parts_orders: [], parts_summary: summaryOf([], false) };
+
+  const ticket = (service_queue || []).find((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN');
+  const partsLead = (leads || []).find((l) => l.interest === 'PARTS');
+  const mk = (o) => ({
+    order: o.order, status: o.status || 'OPEN', stage: o.stage,
+    customer: o.customer, contact: o.contact || null, phone: o.phone || null, email: o.email || null,
+    ship_to: o.ship_to || 'CUSTOMER', ship_address: o.ship_address || null,
+    source: o.source || 'PHONE', terms: o.terms || 'CASH', supply: o.supply || 'VENDOR',
+    parts: o.parts, machine: o.machine || null, serial: null,
+    vendor: o.vendor || null, vendor_ref: o.vendor_ref || null, ordered: o.ordered == null ? null : d(-o.ordered),
+    tracking: o.tracking || null, carrier: o.carrier || null, delivered: o.delivered == null ? null : d(-o.delivered),
+    quote: o.quote || null, value: o.value == null ? null : o.value,
+    customer_po: o.customer_po || null, invoice: o.invoice || null, paid: o.paid == null ? null : d(-o.paid), web_order: o.web_order || null,
+    invoice_doc: o.invoice_doc || null,
+    assigned: o.assigned || 'Matt', opened: d(-o.totalDays), opened_by: o.opened_by || 'Matt',
+    stage_since: dt(o.stageDays, 10), age_in_stage_days: o.stageDays, age_total_days: o.totalDays,
+    stale: o.stale || null, stale_reason: o.stale_reason || null,
+    closed: o.closedDays == null ? null : d(-o.closedDays), close_reason: o.close_reason || null, close_note: o.close_note || null,
+    related_ticket: o.related_ticket || null, related_lead: o.related_lead || null,
+    docs: o.docs || [],
+    log: o.log || [],
+  });
+  const rows = [
+    mk({ order: 'P1001', stage: 'REQUESTED', customer: 'Harbor Lane Bakery', contact: 'Gina Ortiz', phone: '262-555-0111',
+      parts: '2x squeegee blade rear\n1x recovery tank lid gasket', ship_address: '400 Example Ave, Hartland WI 53029',
+      stale: 'red', stale_reason: 'Two shop days with no quote out', stageDays: 2.1, totalDays: 2.1,
+      related_ticket: ticket ? ticket.ticket : null,
+      log: logOf([[ts(-2, '09:12'), 'Matt', 'opened — Harbor Lane Bakery, 2 blades + gasket, CASH']]) }),
+    mk({ order: 'P1002', stage: 'QUOTED', customer: 'Fieldstone Packaging', contact: 'Lee Park', email: 'lee@fieldstone.example',
+      source: 'EMAIL', parts: '1x 28" pad driver', value: 312.5, quote: { number: '44040', sent: d(-1) }, assigned: 'Kevin', opened_by: 'Kevin',
+      ship_address: '12 Mill Rd, Watertown WI 53094', stageDays: 1.0, totalDays: 3.4,
+      related_lead: partsLead ? partsLead.lead : null,
+      log: logOf([[ts(-3, '14:02'), 'Kevin', 'opened from email'], [ts(-1, '10:30'), 'Kevin', 'quote 44040 sent, value set']]) }),
+    mk({ order: 'P1003', stage: 'APPROVED', customer: 'Oak Hollow Schools', contact: 'Facilities desk', terms: 'ACCOUNT', ship_to: 'SHOP',
+      source: 'WALK-IN', parts: '4x brush 20" poly\n2x pad holder 20"', value: 880, quote: { number: '44041', sent: d(-4) },
+      stale: 'yellow', stale_reason: 'Approved four shop days ago — still no PO', stageDays: 4.0, totalDays: 6.5,
+      log: logOf([[ts(-6, '11:00'), 'Matt', 'opened at the counter'], [ts(-4, '15:20'), 'Matt', 'approved by phone — PO to follow']]) }),
+    mk({ order: 'P1004', stage: 'IN-TRANSIT', customer: 'Redwing Fabrication', contact: 'Sam Holt', terms: 'CASH',
+      parts: '1x vacuum motor 24V', value: 455, quote: { number: '44037', sent: d(-9) }, paid: 7, invoice: '4310',
+      vendor: 'RPS', vendor_ref: 'SO-88812', ordered: 6, tracking: '1Z999AA10123456784', carrier: 'UPS',
+      ship_address: '77 Forge St, Oconomowoc WI 53066', stageDays: 2.0, totalDays: 10.2,
+      log: logOf([[ts(-6, '08:40'), 'Matt', 'ordered from RPS under P1004'], [ts(-2, '06:15'), null, 'IN-TRANSIT — UPS tracking from the RPS invoice']]) }),
+    mk({ order: 'P1005', stage: 'DELIVERED', customer: 'Lakeview Cold Storage', contact: 'Ana Ruiz', terms: 'ACCOUNT',
+      parts: '1x solution valve\n1x float switch', value: 214, quote: { number: '44035', sent: d(-12) }, customer_po: 'LCS-5521',
+      vendor: 'IPC-EAGLE', ordered: 10, tracking: '784512345678', carrier: 'FEDEX', delivered: 1, invoice: 'P1005',
+      ship_address: '5 Dock Rd, Johnson Creek WI 53038', stageDays: 1.0, totalDays: 13.0,
+      invoice_doc: { status: 'CREATED', pdf: 'c3d4e5f6a7b8c9d0', draft: 'P1005-EMAIL-DRAFT.md' },
+      docs: [doc('c3d4e5f6a7b8c9d0', 'P1005-Invoice.pdf', 'INVOICE', 48211, 1)],
+      log: logOf([[ts(-12, '10:05'), 'Matt', 'opened'], [ts(-10, '09:00'), 'Matt', 'ordered from IPC Eagle under P1005'], [ts(-1, '17:30'), null, 'DELIVERED — FedEx'], [ts(-1, '18:00'), null, 'invoice P1005 drafted in QuickBooks — not sent']]) }),
+    mk({ order: 'P1006', stage: 'APPROVED', customer: 'Pinecrest Dental', contact: 'Jo Lind', email: 'jo@pinecrest.example',
+      source: 'WEB-CART', supply: 'SHOP-STOCK', terms: 'CASH', parts: '1x detergent fast packs (case)', value: 96, paid: 1,
+      invoice: 'Order #1002', web_order: '1002', opened_by: 'web', ship_address: '9 Elm Ct, Ixonia WI 53036', stageDays: 0.4, totalDays: 0.4,
+      log: logOf([[ts(-1, '19:44'), null, 'opened by the engine from website order #1002 (paid, APPROVED — ready to ship)']]) }),
+    mk({ order: 'P1007', stage: 'ORDERED', customer: 'Fieldstone Packaging', contact: 'Lee Park', terms: 'ACCOUNT', customer_po: 'FP-2210',
+      parts: '6x squeegee blade front', value: 270, quote: { number: '44039', sent: d(-5) }, vendor: 'RPS', ordered: 1,
+      ship_address: '12 Mill Rd, Watertown WI 53094', assigned: 'Kevin', stageDays: 1.0, totalDays: 5.0,
+      log: logOf([[ts(-1, '13:10'), 'Matt', 'ordered from RPS under P1007']]) }),
+    mk({ order: 'P0996', status: 'CLOSED', stage: 'DELIVERED', customer: 'Harbor Lane Bakery', parts: '1x charger cord', value: 48,
+      paid: 9, invoice: '4301', vendor: 'RPS', ordered: 8, delivered: 4, tracking: '1Z999AA10123456700', carrier: 'UPS',
+      close_reason: 'COMPLETE', closedDays: 4, stageDays: 4, totalDays: 9,
+      log: logOf([[ts(-4, '16:00'), null, 'DELIVERED — UPS; closed COMPLETE']]) }),
+    mk({ order: 'P0997', status: 'LOST', stage: 'QUOTED', customer: 'Juniper Metalworks', parts: '2x brush 32" cylindrical', value: 640,
+      quote: { number: '44030', sent: d(-12) }, close_reason: 'SOURCED-ELSEWHERE', close_note: 'bought them online', closedDays: 6, stageDays: 6, totalDays: 14,
+      log: logOf([[ts(-6, '09:30'), 'Kevin', 'closed LOST — sourced elsewhere']]) }),
+  ];
+  return { parts_orders: rows, parts_summary: summaryOf(rows, true) };
 }
 
 /* ------------------------------------------------- activity (D78)
@@ -1999,6 +2107,9 @@ function downgradeToSchema2(s3, ledger) {
   delete snap.inspection_checklist;
   // D78 postdates it too: no tape. The strip still draws — "nothing yet".
   delete snap.activity;
+  // D88 postdates it too: no parts orders. The tab says so; the tracker draws without the band.
+  delete snap.parts_orders;
+  delete snap.parts_summary;
   for (const u of snap.units) { delete u.wo_inspection; delete u.last_inspection; delete u.hours_as_of; }
   return snap;
 }
@@ -2302,6 +2413,23 @@ const pending = [
     actor: 'Kevin', role: 'sales',
     action: 'lead_close', serial: null,
     payload: { lead: 'L1004', outcome: 'DEAD', reason: null, note: 'Four calls, nothing back' },
+  },
+  // D88: a parts order opened from a phone (no P-number yet) and Kevin's note on
+  // P1003 (Matt stays at exactly one pending — the activity tape test relies on it).
+  {
+    id: 'evt-mock-p1',
+    ts: ago(12),
+    actor: 'Josh', role: 'service',
+    action: 'parts_open', serial: null,
+    payload: { customer: 'Birchwood Creamery', contact: null, phone: null, email: null, parts: '1x drive belt', terms: 'CASH', supply: 'VENDOR',
+      ship_to: 'SHOP', ship_address: null, source: 'SERVICE', assigned: 'Matt', value: null, machine: null, serial: null, related_ticket: null, related_lead: null, note: null },
+  },
+  {
+    id: 'evt-mock-p2',
+    ts: ago(6),
+    actor: 'Kevin', role: 'sales',
+    action: 'parts_update', serial: null,
+    payload: { order: 'P1003', note: 'PO promised by Friday' },
   },
 ];
 const pfile = path.join(outdir, 'mock-pending.json');

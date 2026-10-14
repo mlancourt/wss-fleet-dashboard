@@ -128,6 +128,7 @@ export function pendingRecord(e) {
   switch (e && e.action) {
     case 'ticket_update': return p.ticket || null;
     case 'lead_update': case 'lead_close': return p.lead || null;
+    case 'parts_update': case 'parts_close': return p.order || null;   // D88
     case 'work_order': return p.work_order || e.serial || null;
     case 'doc_attach': case 'doc_detach': return p.record || null;
     case 'dispatch_claim': case 'dispatch_done': case 'dispatch_cancel': return p.dispatch_id || null;
@@ -144,6 +145,9 @@ const LABEL = {
   ticket_update: 'update sent',
   lead_open: 'new lead sent',
   lead_update: 'update sent',
+  parts_open: 'new parts order sent',
+  parts_update: 'update sent',
+  parts_close: 'close sent',
   doc_attach: 'document attached',
   doc_detach: 'document removal sent',
   readiness: 'readiness sent',
@@ -193,7 +197,7 @@ export function pendingActivityRows(pending, me, activity) {
 /**
  * Where a row goes, by the SHAPE of its record — not by its action (a
  * doc_attach is about a ticket or a lead; a work_order row may name a serial).
- *   S1031 → the ticket · L1009 → the lead · W1003 → the work order ·
+ *   S1031 → the ticket · L1009 → the lead · W1003 → the work order · P1001 → the parts order ·
  *   a serial that is one of ours → the unit · anything else (a dispatch id, an
  *   agreement number, null) → no link: a plain row.
  */
@@ -203,6 +207,7 @@ export function activityRoute(record, units) {
   if (/^S\d{4,}$/.test(s)) return `#/ticket/${encodeURIComponent(s)}`;
   if (/^L\d{4,}$/.test(s)) return `#/lead/${encodeURIComponent(s)}`;
   if (/^W\d{4,}$/.test(s)) return `#/wo/${encodeURIComponent(s)}`;
+  if (/^P\d{4,}$/.test(s)) return `#/parts/${encodeURIComponent(s)}`;   // D88
   if (Array.isArray(units) && units.some((u) => u && String(u.serial) === s)) return `#/unit/${encodeURIComponent(s)}`;
   return null;
 }

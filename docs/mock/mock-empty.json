@@ -1,8 +1,8 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-10-13T14:16:12.682Z",
-    "run_id": "mock-empty-2026-10-13",
+    "generated_at": "2026-10-14T01:51:48.222Z",
+    "run_id": "mock-empty-2026-10-14",
     "fleet_totals": {
       "units": 39
     },
@@ -2823,5 +2823,74 @@
       }
     ]
   },
-  "activity": []
+  "activity": [],
+  "parts_orders": [],
+  "parts_summary": {
+    "open_by_stage": {
+      "REQUESTED": 0,
+      "QUOTED": 0,
+      "APPROVED": 0,
+      "ORDERED": 0,
+      "IN-TRANSIT": 0,
+      "DELIVERED": 0
+    },
+    "requested_unquoted": 0,
+    "in_flight": 0,
+    "stale_count": 0,
+    "closed_recent": {
+      "CLOSED": 0,
+      "LOST": 0,
+      "DEAD": 0
+    },
+    "money_fields": [
+      "value"
+    ],
+    "value_shipped": false,
+    "stages": [
+      "REQUESTED",
+      "QUOTED",
+      "APPROVED",
+      "ORDERED",
+      "IN-TRANSIT",
+      "DELIVERED"
+    ],
+    "sources": [
+      "PHONE",
+      "EMAIL",
+      "WEB-CART",
+      "WEB-FORM",
+      "WALK-IN",
+      "SERVICE"
+    ],
+    "terms": [
+      "CASH",
+      "ACCOUNT"
+    ],
+    "supply": [
+      "VENDOR",
+      "SHOP-STOCK"
+    ],
+    "ship_to": [
+      "CUSTOMER",
+      "SHOP"
+    ],
+    "vendors": [
+      "RPS",
+      "IPC-EAGLE",
+      "NILFISK",
+      "MINUTEMAN",
+      "TENNANT",
+      "OTHER"
+    ],
+    "lost_reasons": [
+      "PRICE",
+      "NO-RESPONSE",
+      "SOURCED-ELSEWHERE",
+      "OTHER"
+    ],
+    "assignees": [
+      "Matt",
+      "Kevin"
+    ]
+  }
 }
