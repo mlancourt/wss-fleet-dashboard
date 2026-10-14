@@ -183,7 +183,6 @@
     "city": "Ixonia",
     "region": "WI"
   },
-  "tax_rate": 0.055,
   "valid_days": 30,
   "sender": {
     "mailbox": "kevin@example.com",

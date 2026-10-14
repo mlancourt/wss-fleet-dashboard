@@ -10,7 +10,7 @@
  * throwing mid-send.
  */
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { lineBlocks, quoteTotals, fmtCents, fmtUsd, quoteTerms, TAX_EXEMPT_LINE, DEFAULT_TAX_RATE, FOOTER_LINE, quoteListings } from '../docs/quote-email.js';
+import { lineBlocks, quoteTotals, fmtCents, fmtUsd, quoteTerms, TAX_EXEMPT_LINE, TAX_NOTE_LINE, FOOTER_LINE, quoteListings } from '../docs/quote-email.js';
 import { LOGO_JPEG_B64 } from './quote-logo.js';
 
 const RED = rgb(0xB7 / 255, 0x1C / 255, 0x1C / 255);
@@ -83,8 +83,7 @@ export async function renderQuotePdf(q) {
   const logo = await doc.embedJpg(b64ToBytes(LOGO_JPEG_B64));
   const biz = q.business || {};
   const sender = q.sender || {};
-  const rate = typeof q.tax_rate === 'number' ? q.tax_rate : DEFAULT_TAX_RATE;
-  const totals = quoteTotals(q.lines, !!q.tax, rate);
+  const totals = quoteTotals(q.lines, !!q.tax);
   doc.setTitle(`WSS Quote ${q.number}`);
   doc.setAuthor(winAnsi(biz.name || 'Wisconsin Scrub & Sweep'));
   doc.setSubject(winAnsi(`Quote ${q.number} for ${q.customer || ''}`));
@@ -209,8 +208,7 @@ export async function renderQuotePdf(q) {
   const TX = M + TERMS_W + 30;
   const tot = (label, value) => { text(label, TX, ty, 10); right(value, X_AMT, ty, 10); ty -= 13; };
   tot('SUBTOTAL', fmtCents(toC(totals.subtotal)).replace('$', ''));
-  if (q.tax) tot('TAX', fmtCents(toC(totals.tax)).replace('$', ''));
-  else { text(TAX_EXEMPT_LINE, TX, ty, 7.5, font, GREY); ty -= 13; }
+  text(q.tax ? TAX_NOTE_LINE : TAX_EXEMPT_LINE, TX, ty, 7.5, font, GREY); ty -= 13;   // D94: never a tax figure
   text('TOTAL', TX, ty, 10);
   right(fmtUsd(totals.total), X_AMT, ty - 4, 16, bold);
   y = Math.min(y, ty - 20) - 30;

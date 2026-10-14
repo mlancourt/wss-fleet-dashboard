@@ -15,7 +15,7 @@
  */
 import {
   renderQuoteEmail, quoteTotals, fmtUsd, defaultSubject, NUMBER_PLACEHOLDER, esc, BANNER_PATH,
-  DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS, taxLabel, TAX_EXEMPT_LINE,
+  DEFAULT_VALID_DAYS, TAX_NOTE_LINE, TAX_EXEMPT_LINE,
 } from './quote-email.js';
 
 export const BRAND_CHIPS = ['Factory Cat', 'Kodiak', 'Tomcat', 'other'];
@@ -248,13 +248,13 @@ export function draftProblem(draft) {
 }
 
 /** Preview-side totals — the Worker computes the real ones. Unparseable prices count as 0 here. */
-export function draftTotals(draft, rate = DEFAULT_TAX_RATE) {
+export function draftTotals(draft) {
   const p = draftPayload(draft);
   const clean = p.lines.map((l) => ({
     ...l, unit: typeof l.unit === 'number' && isFinite(l.unit) ? l.unit : 0,
     options: (l.options || []).map((o) => ({ ...o, unit: typeof o.unit === 'number' && isFinite(o.unit) ? o.unit : 0 })),
   }));
-  return quoteTotals(clean, p.tax, rate);
+  return quoteTotals(clean, p.tax);
 }
 
 /** renderQuoteEmail's input for the preview: no number, no PDF link, NO pixel.
@@ -267,7 +267,7 @@ export function previewInput(draft, lead, catalog, { today, expires, me, listing
     number: null, date: today, expires, valid_days: DEFAULT_VALID_DAYS,
     customer: lead.customer, contact: lead.contact, to: p.to,
     sender: (catalog && catalog.sender) || { name: (me && me.name) || '' },
-    lines, tax: p.tax, tax_rate: (catalog && catalog.tax_rate) || DEFAULT_TAX_RATE,
+    lines, tax: p.tax, tax_rate: null,
     note: p.note, business: (catalog && catalog.business) || null, pdf_url: null, pixel_url: null, banner_url: BANNER_PATH,
     listings,
   };
@@ -345,11 +345,10 @@ export function resultsHtml(draft, catalog) {
 }
 
 export function totalsHtml(draft, catalog) {
-  const rate = (catalog && catalog.tax_rate) || DEFAULT_TAX_RATE;
-  const t = draftTotals(draft, rate);
+  const t = draftTotals(draft);
   return `
-    <div class="qc-sum-row"><span>Subtotal ${fmtUsd(t.subtotal)}</span><span>${draft.tax ? `${esc(taxLabel(rate))} ${fmtUsd(t.tax)}` : 'No tax'}</span></div>
-    <div class="qc-sum-row qc-total"><span>Total</span><span>${fmtUsd(t.total)}</span></div>`;
+    <div class="qc-sum-row"><span>Subtotal ${fmtUsd(t.subtotal)}</span><span>${draft.tax ? '+ WI sales tax at invoicing' : 'Tax exempt'}</span></div>
+    <div class="qc-sum-row qc-total"><span>Total (before tax)</span><span>${fmtUsd(t.total)}</span></div>`;
 }
 
 function barHtml(draft, catalog) {
@@ -410,7 +409,6 @@ export function composerView(draft, lead, cat, opts = {}) {
   if (draft.view === 'preview') {
     return `${crumb}${head}${err}<div class="qc" id="qc">${previewHtml(draft, lead, catalog, opts)}${barHtml(draft, catalog)}</div>`;
   }
-  const rate = (catalog && catalog.tax_rate) || DEFAULT_TAX_RATE;
   const chips = BRAND_CHIPS.map((b) => `<button type="button" class="chipbtn${draft.brand === b ? ' on' : ''}" data-qc="brand" data-brand="${attr(b)}">${esc(b === 'other' ? 'Other' : b)}</button>`).join('');
   return `${crumb}${head}${err}
   <div class="qc" id="qc">
@@ -432,8 +430,8 @@ export function composerView(draft, lead, cat, opts = {}) {
     <section class="card qc-sec">
       <label>Freight<input data-qc-field="freight" inputmode="decimal" value="${attr(draft.freight)}" placeholder="leave empty to leave it off"></label>
       <label class="qc-chk qc-tax"><input type="checkbox" data-qc="tax"${draft.tax ? ' checked' : ''}>
-        <span>${esc(taxLabel(rate))} on machine, options and freight</span></label>
-      ${draft.tax ? '' : `<div class="form-note">The quote will read "${esc(TAX_EXEMPT_LINE)}".</div>`}
+        <span>Taxable — the invoice adds WI sales tax at the ship-to county's rate</span></label>
+      <div class="form-note">The quote will read "${esc(draft.tax ? TAX_NOTE_LINE : TAX_EXEMPT_LINE)}". No tax figure is quoted.</div>
     </section>
 
     <section class="card qc-sec">

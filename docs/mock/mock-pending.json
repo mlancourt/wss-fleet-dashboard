@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-10-14T11:55:26.485Z",
+    "ts": "2026-10-14T14:43:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-10-14T14:15:26.486Z",
+    "ts": "2026-10-14T17:03:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-10-14T14:43:26.486Z",
+    "ts": "2026-10-14T17:31:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-10-14T14:49:26.486Z",
+    "ts": "2026-10-14T17:37:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-10-14T14:52:26.486Z",
+    "ts": "2026-10-14T17:40:14.359Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-10-14T14:53:26.486Z",
+    "ts": "2026-10-14T17:41:14.359Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-10-14T14:30:26.486Z",
+    "ts": "2026-10-14T17:18:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-10-14T14:46:26.486Z",
+    "ts": "2026-10-14T17:34:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -128,7 +128,7 @@
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-10-14T14:48:26.486Z",
+    "ts": "2026-10-14T17:36:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -142,7 +142,7 @@
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-10-14T14:50:26.486Z",
+    "ts": "2026-10-14T17:38:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-10-14T14:52:26.486Z",
+    "ts": "2026-10-14T17:40:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-10-14T14:51:26.486Z",
+    "ts": "2026-10-14T17:39:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-10-14T14:53:26.486Z",
+    "ts": "2026-10-14T17:41:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -221,7 +221,7 @@
   },
   {
     "id": "evt-mock-15",
-    "ts": "2026-10-14T14:54:26.486Z",
+    "ts": "2026-10-14T17:42:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "doc_detach",
@@ -233,7 +233,7 @@
   },
   {
     "id": "evt-mock-16",
-    "ts": "2026-10-14T14:52:26.486Z",
+    "ts": "2026-10-14T17:40:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "quote_send",
@@ -267,20 +267,20 @@
     "result": {
       "number": "Q2004",
       "token": "44444444444444444444444444444444",
-      "sent_at": "2026-10-14T14:52:26.486Z",
+      "sent_at": "2026-10-14T17:40:14.359Z",
       "by": "Kevin",
       "to": "m.idle@harborline.example",
       "subtotal": 5455,
-      "tax": 300.03,
-      "total": 5755.03,
-      "tax_rate": 0.055,
+      "tax": 0,
+      "total": 5455,
+      "tax_rate": null,
       "expires": "2026-11-13",
       "pdf": "/q/44444444444444444444444444444444.pdf"
     }
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-10-14T14:51:26.486Z",
+    "ts": "2026-10-14T17:39:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",
@@ -294,7 +294,7 @@
   },
   {
     "id": "evt-mock-p1",
-    "ts": "2026-10-14T14:43:26.486Z",
+    "ts": "2026-10-14T17:31:14.359Z",
     "actor": "Josh",
     "role": "service",
     "action": "parts_open",
@@ -321,7 +321,7 @@
   },
   {
     "id": "evt-mock-p2",
-    "ts": "2026-10-14T14:49:26.486Z",
+    "ts": "2026-10-14T17:37:14.359Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "parts_update",

@@ -4262,7 +4262,7 @@ await check('D83: the Quotes section — newest first, money, sent by, state, th
   assert.ok(sec.includes('<span class="qs-expired">Expired</span>'), 'the old one reads Expired');
   assert.ok(sec.includes('/q/a1b2c3d4e5f60718293a4b5c6d7e8f90.pdf') && sec.includes('📄 PDF'), 'the same URL the customer got');
   const l5 = await leadsAs('sales', '#/lead/L1005');
-  assert.ok(/<strong>Q2004<\/strong> · \$5,755 · sent by Kevin · <span class="qs-quiet">sending…/.test(l5), 'the pending send has a row too');
+  assert.ok(/<strong>Q2004<\/strong> · \$5,455 · sent by Kevin · <span class="qs-quiet">sending…/.test(l5), 'the pending send has a row too');
 });
 
 await check('D83: Quote button for sales + owner on an open lead; none for service; the kanban QUOTED card carries the half-chip', async () => {
@@ -4297,7 +4297,7 @@ await check('D83: service sees the chips with no money (the Worker strips quote.
   assert.ok(out.includes('Q2002 · sent') && out.includes('Viewed'), 'the chip still reads');
   assert.ok(!/\$\s?\d/.test(out.slice(out.indexOf('<h2>Quotes</h2>'), out.indexOf('<h2>Quotes</h2>') + 2000)), 'no figure in the Quotes section');
   const l5 = await renderRoute('#/lead/L1005');
-  assert.ok(l5.includes('Q2004 · sending…') && !l5.includes('$5,755'));
+  assert.ok(l5.includes('Q2004 · sending…') && !l5.includes('$5,455'));
   const comp = await renderRoute('#/lead/L1006/quote');
   assert.ok(comp.includes("Quotes are Kevin's and Matt's.") && !comp.includes('id="qc"'), 'no composer for service');
 });
@@ -4322,7 +4322,7 @@ await check('D83: the composer renders from the catalog — To prefilled, note t
   const edit = await renderRoute('#/lead/L1005/quote');
   assert.ok(edit.includes('Kodiak KX20 Walk-Behind Scrubber (20&quot; Disk)') || edit.includes('Kodiak KX20 Walk-Behind Scrubber (20" Disk)'));
   assert.ok(edit.includes('Squeegees - 20 Inch Deck') && !edit.includes('Squeegees - 17 Inch Deck'), 'options filtered to the 20" deck');
-  assert.ok(edit.includes('$5,455.00') && edit.includes('$300.03') && edit.includes('$5,755.03'), 'totals: 5400 + 55, tax 5.5%');
+  assert.ok(edit.includes('$5,455.00') && edit.includes('+ WI sales tax at invoicing') && edit.includes('Total (before tax)') && !edit.includes('$300.03') && !edit.includes('$5,755.03'), 'D94: 5400 + 55, no tax figure — the invoice computes it');
   assert.ok(!/data-qc="send" disabled/.test(edit), 'Send is live once the quote is whole');
   d.view = 'preview';
   const pv = await renderRoute('#/lead/L1005/quote');

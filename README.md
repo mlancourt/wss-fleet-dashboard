@@ -640,8 +640,8 @@ npx wrangler secret put RESEND_WEBHOOK_SECRET --config worker/wrangler.toml   # 
 
 A token whose name is not in it gets `403 no sending mailbox` before anything is
 minted. Until `RESEND_API_KEY` is set, `quote_send` answers `503` — the safe
-default right after a deploy. `WSS_TAX_RATE` (`0.055`) is a plain `[vars]` line in
-`worker/wrangler.toml`.
+default right after a deploy. (D94, 2026-10-14: there is no `WSS_TAX_RATE` any more —
+a quote carries no tax figure; the invoice computes it at the ship-to county's rate.)
 
 **Register the webhook (Resend dashboard → Webhooks → Add endpoint):**
 `https://wss-fleet-worker.mlancourt.workers.dev/api/resend/webhook`, events

@@ -40,7 +40,7 @@
  *     needs the bundle: `npx wrangler deploy --dry-run --outdir dist`.
  */
 
-import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS, BANNER_PATH, safeListingUrl } from '../docs/quote-email.js';
+import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_VALID_DAYS, BANNER_PATH, safeListingUrl } from '../docs/quote-email.js';
 import { overlayLeads } from '../docs/quotes.js';
 import { renderQuotePdf } from './quote-pdf.js';
 
@@ -1658,7 +1658,7 @@ async function crewCatalog({ me, env }) {
     return out;
   }) : cat.machines;
   // `sender` = the caller's own From block, so the preview's signature is the one that sends.
-  return json({ ...cat, machines, tax_rate: taxRate(env), valid_days: DEFAULT_VALID_DAYS, sender: senderFor(env, me.name) });
+  return json({ ...cat, machines, valid_days: DEFAULT_VALID_DAYS, sender: senderFor(env, me.name) });
 }
 
 /** GET /api/catalog/<key> — the one machine, whole (v1.3). Same gate as the list. */
@@ -1724,10 +1724,6 @@ async function adminCatalog({ request, env }) {
   return json({ ok: true, built: typeof cat.built === 'string' ? cat.built : null, machines: cat.machines.length, series: Object.keys(cat.series).length });
 }
 
-function taxRate(env) {
-  const r = Number(env.WSS_TAX_RATE);
-  return isFinite(r) && r >= 0 && r < 0.2 && env.WSS_TAX_RATE != null && env.WSS_TAX_RATE !== '' ? r : DEFAULT_TAX_RATE;
-}
 
 /** The token's sender block from SENDERS (a JSON secret: name → {mailbox, name, phone}). */
 function senderFor(env, name) {
@@ -1901,8 +1897,7 @@ async function quoteSend({ request, env, me, raw }) {
   const catalog = await env.FLEET_KV.get('catalog', 'json');
   const p = cleanQuote(raw, catalog);
   const lead = await quoteLead(env, p.lead);
-  const rate = taxRate(env);
-  const totals = quoteTotals(p.lines, p.tax, rate);
+  const totals = quoteTotals(p.lines, p.tax);   // D94: tax 0, total = subtotal, tax_rate null — the invoice computes tax
 
   // v1.3 (D91): the full catalog record for every line whose listing rides along, and its photo for the
   // PDF — fetched before a number is reserved, so a slow image never holds the seq.
@@ -1926,7 +1921,7 @@ async function quoteSend({ request, env, me, raw }) {
   const business = (catalog && catalog.business) || null;
   const q = {
     number, date, expires, valid_days: p.valid_days, customer: lead.customer || null, contact: lead.contact || null,
-    to: p.to, sender, lines: p.lines, tax: p.tax, tax_rate: rate, note: p.note, business, listings, photos,
+    to: p.to, sender, lines: p.lines, tax: p.tax, tax_rate: totals.tax_rate, note: p.note, business, listings, photos,
     pdf_url: `${origin}/q/${token}.pdf`, pixel_url: `${origin}/q/${token}/o.gif`,
     // v1.1 §3 step 4: the banner is served by the Tracker's Pages origin (the Worker hosts no static assets).
     banner_url: `${String(env.PAGES_ORIGIN || 'https://fleet.wisconsinscrubandsweep.com').replace(/\/+$/, '')}/${BANNER_PATH}`,
@@ -1963,7 +1958,7 @@ async function quoteSend({ request, env, me, raw }) {
   const record = {
     number, token, lead: p.lead, customer: lead.customer || null, contact: lead.contact || null,
     to: p.to, cc: p.cc, subject, by: me.name, mailbox: sender.mailbox, sent_at, date, expires,
-    lines: p.lines, tax: p.tax, tax_rate: rate, subtotal: totals.subtotal, tax_amount: totals.tax, total: totals.total,
+    lines: p.lines, tax: p.tax, tax_rate: totals.tax_rate, subtotal: totals.subtotal, tax_amount: totals.tax, total: totals.total,
     valid_days: p.valid_days, resend_id: resendId,
   };
   const ttl = { expirationTtl: QUOTE_TTL };
@@ -1978,7 +1973,7 @@ async function quoteSend({ request, env, me, raw }) {
     id, ts, actor: me.name, role: me.role, action: 'quote_send', serial: null,
     payload: { ...p, subject },      // the subject AS SENT — "Q----" already replaced by the number
     result: { number, token, sent_at, by: me.name, to: p.to, subject, subtotal: totals.subtotal, tax: totals.tax, total: totals.total,
-      tax_rate: rate, expires, pdf: `/q/${token}.pdf` },
+      tax_rate: totals.tax_rate, expires, pdf: `/q/${token}.pdf` },
   };
   await env.FLEET_KV.put(`evt:${id}`, JSON.stringify(event));
   await pokeEngine(env, 'quote_send');

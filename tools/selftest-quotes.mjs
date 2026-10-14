@@ -50,7 +50,6 @@ const TOK = { owner: 'qtestowner000000000000000000001', sales: 'qtestsales000000
 const WEBHOOK_SECRET = 'whsec_' + Buffer.from('fake-webhook-signing-key-for-tests').toString('base64');
 const env = {
   FLEET_KV: fakeKV(), ADMIN_SECRET: 'qtest-admin-secret', RESEND_API_KEY: 're_fake_test_key', RESEND_WEBHOOK_SECRET: WEBHOOK_SECRET,
-  WSS_TAX_RATE: '0.055',
   SENDERS: JSON.stringify({
     Kevin: { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' },
     Matt: { mailbox: 'matt@example.com', name: 'Matt Example', title: '', phone: '(555) 010-0002' },
@@ -132,12 +131,14 @@ console.log('quotes self-test (D83)');
 
 /* ============================================================ shared modules */
 
-await check('totals in cents: Σ qty·unit + Σ options, tax 5.5% on the lot, rounded to the cent', () => {
-  const t = quoteTotals(LINES, true, 0.055);
+await check('totals in cents: Σ qty·unit + Σ options; D94: no tax figure — tax 0, total = subtotal, tax_rate null, taxable or not', () => {
+  const t = quoteTotals(LINES, true);
   assert.equal(t.subtotal, 5737);                 // 5433 + 54 + 0 + 250 + 0
-  assert.equal(t.tax, 315.54);                    // 315.535 → .54
-  assert.equal(t.total, 6052.54);
-  assert.deepEqual(quoteTotals([{ kind: 'machine', qty: 2, unit: 0.1, options: [{ unit: 0.2 }] }], false), { subtotal: 0.6, tax: 0, total: 0.6, tax_rate: 0.055 }, 'no float drift; v1.1: options multiply by qty');
+  assert.equal(t.tax, 0);                         // D94: the invoice computes tax at the ship-to county's rate
+  assert.equal(t.total, 5737);
+  assert.equal(t.tax_rate, null);
+  assert.deepEqual(quoteTotals(LINES, true, 0.055), t, 'a stray rate argument changes nothing');
+  assert.deepEqual(quoteTotals([{ kind: 'machine', qty: 2, unit: 0.1, options: [{ unit: 0.2 }] }], false), { subtotal: 0.6, tax: 0, total: 0.6, tax_rate: null }, 'no float drift; v1.1: options multiply by qty');
   assert.equal(fmtCents(1299540), '$12,995.40');
   assert.equal(fmtUsd(0), '$0.00');
   assert.equal(longDate('2026-10-08'), 'October 8, 2026');
@@ -155,15 +156,16 @@ await check('the email: one template, escaped, PDF button, pixel only when given
   assert.ok(html.includes('Hi &lt;b&gt;Pat&lt;/b&gt;'), 'the note is escaped');
   assert.ok(html.includes('href="https://w.example/q/abc.pdf"') && html.includes('View / download quote (PDF)'));
   assert.ok(html.trim().endsWith('</body></html>') && html.lastIndexOf('o.gif') > html.lastIndexOf('View / download'), 'the pixel goes last');
-  assert.ok(html.includes('$6,052.54') && html.includes('(included)') && html.includes('Sales tax (5.5%)'));
+  assert.ok(html.includes('$5,737.00') && html.includes('(included)') && html.includes('Plus applicable WI sales tax — added at invoicing'), 'D94: pre-tax total + the tax note');
+  assert.ok(!html.includes('$6,052.54') && !/Sales tax \(/.test(html) && !/\d\.\d%/.test(html), 'D94: no tax figure, no rate, anywhere in the email');
   assert.ok(html.includes('Prices are valid through the date shown above and do not include sales tax unless shown.'), 'the §6 terms');
   assert.ok(html.includes('(555) 010-0000'), 'terms phone from the catalog business block, never hard-coded');
-  assert.ok(text.includes('https://w.example/q/abc.pdf') && text.includes('$6,052.54'), 'plain-text alternative carries the link and the total');
+  assert.ok(text.includes('https://w.example/q/abc.pdf') && text.includes('$5,737.00') && text.includes('Plus applicable WI sales tax'), 'plain-text alternative carries the link, the total and the tax note');
   const preview = renderQuoteEmail({ ...q, number: null, pixel_url: null, pdf_url: null });
   assert.ok(!preview.html.includes('o.gif') && !preview.html.includes('<img'), 'no pixel in a preview');
   assert.ok(preview.html.includes(NUMBER_PLACEHOLDER));
   const exempt = renderQuoteEmail({ ...q, tax: false });
-  assert.ok(exempt.html.includes('Tax not included — exempt certificate on file') && exempt.html.includes('$5,737.00'));
+  assert.ok(exempt.html.includes('Tax not included — exempt certificate on file') && exempt.html.includes('$5,737.00') && !exempt.html.includes('Plus applicable'));
   assert.equal(defaultSubject(null, 'Acme X20'), `Wisconsin Scrub & Sweep — Quote ${NUMBER_PLACEHOLDER} · Acme X20`);
   assert.ok(quoteTerms(null).join(' ').includes('Prices are valid through the date shown above'));
 });
@@ -198,7 +200,7 @@ await check('GET /api/catalog: 503 before a push; the push refuses net/disc by p
   const ok = await asJson(await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG }));
   assert.equal(ok.status, 200); assert.equal(ok.body.machines, 3);
   const got = await asJson(await call('GET', '/api/catalog', { role: 'sales' }));
-  assert.equal(got.status, 200); assert.equal(got.body.machines[1].list, 9139); assert.equal(got.body.tax_rate, 0.055); assert.equal(got.body.valid_days, 30);
+  assert.equal(got.status, 200); assert.equal(got.body.machines[1].list, 9139); assert.ok(!('tax_rate' in got.body), 'D94: the catalog carries no tax rate'); assert.equal(got.body.valid_days, 30);
   assert.deepEqual(got.body.sender, { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' }, 'the caller’s own From block, for an exact preview');
   assert.equal((await call('GET', '/api/catalog', { role: 'owner' })).status, 200);
   assert.equal((await call('GET', '/api/catalog', { role: 'service' })).status, 403, 'E: service 403');
@@ -216,7 +218,7 @@ await check('quote_send: renders, sends via Resend from the sender (Bcc + Reply-
   const res = first.result;
   assert.equal(res.number, 'Q2001', 'the seq starts at 2001');
   assert.match(res.token, /^[0-9a-f]{32}$/);
-  assert.equal(res.subtotal, 5737); assert.equal(res.tax, 315.54); assert.equal(res.total, 6052.54);
+  assert.equal(res.subtotal, 5737); assert.equal(res.tax, 0); assert.equal(res.total, 5737); assert.equal(res.tax_rate, null);   // D94
   assert.equal(res.by, 'Kevin'); assert.equal(res.pdf, `/q/${res.token}.pdf`);
   assert.match(res.expires, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(first.actor, 'Kevin'); assert.equal(first.action, 'quote_send');
@@ -234,7 +236,7 @@ await check('quote_send: renders, sends via Resend from the sender (Bcc + Reply-
   const pdf = await env.FLEET_KV.get(`quotepdf:${res.token}`, 'arrayBuffer');
   assert.equal(new TextDecoder().decode(new Uint8Array(pdf).slice(0, 5)), '%PDF-');
   const rec = await env.FLEET_KV.get(`quote:${res.token}`, 'json');
-  assert.equal(rec.resend_id, 'fake-resend-1'); assert.equal(rec.lead, 'L1034'); assert.equal(rec.total, 6052.54);
+  assert.equal(rec.resend_id, 'fake-resend-1'); assert.equal(rec.lead, 'L1034'); assert.equal(rec.total, 5737);
   assert.equal(await env.FLEET_KV.get('quotenum:Q2001'), res.token);
   assert.ok(await env.FLEET_KV.get(`evt:${first.id}`), 'the event is stored for the engine');
 });
@@ -535,13 +537,14 @@ await check('A (preview matches Send): the composer’s payload through the real
   for (const it of [{ part: 'X-035', description: '130ah WET (2x)', list: 54 }, { part: 'X-020', description: '33" Squeegee', list: 0 }]) toggleOption(d, line.id, it);
   line.unit = '5,199.99';
   d.freight = '185.50';
-  const preview = draftTotals(d, 0.055);
+  const preview = draftTotals(d);
   const r = await send('sales', draftPayload(d));
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.deepEqual([r.body.result.subtotal, r.body.result.tax, r.body.result.total], [preview.subtotal, preview.tax, preview.total]);
   const mail = sent.at(-1).body;
-  const { html } = renderQuoteEmail({ ...previewInput(d, lead, CATALOG, { today: '2026-10-08', expires: '2026-11-07' }), tax_rate: 0.055 });
-  for (const fig of [fmtUsd(preview.subtotal), fmtUsd(preview.tax), fmtUsd(preview.total), '(included)']) {
+  const { html } = renderQuoteEmail(previewInput(d, lead, CATALOG, { today: '2026-10-08', expires: '2026-11-07' }));
+  assert.equal(preview.tax, 0);
+  for (const fig of [fmtUsd(preview.subtotal), fmtUsd(preview.total), '(included)', 'Plus applicable WI sales tax']) {
     assert.ok(html.includes(fig) && mail.html.includes(fig), `${fig} in both the preview and the sent email`);
   }
   assert.ok(!mail.html.includes(NUMBER_PLACEHOLDER) && mail.subject.includes(r.body.result.number));
@@ -680,11 +683,14 @@ await check('v1.1 layout: the PDF — company block, QUOTE # / DATE / VALID THRO
   const t = await pdfText(await renderQuotePdf(q));
   for (const w of ['Wisconsin Scrub & Sweep', '1 Fake St', 'Ixonia, WI 53036', '(555) 010-0000', 'info@example.com', 'https://example.com',
     'Quote', 'QUOTE #', 'Q2001', 'DATE', '10/08/2026', 'VALID THROUGH', '11/07/2026', 'ADDRESS', 'Acme Foods', 'QUOTED BY', 'Territory Manager',
-    'DESCRIPTION', 'QTY', 'RATE', 'AMOUNT', '($5,433 MSRP)', 'Subtotal: $5,025', 'SUBTOTAL', 'TAX', 'TOTAL',
+    'DESCRIPTION', 'QTY', 'RATE', 'AMOUNT', '($5,433 MSRP)', 'Subtotal: $5,025', 'SUBTOTAL', 'Plus applicable WI sales tax', 'TOTAL',
     'Accepted By', 'Accepted Date', 'A Local, Veteran-Owned Company', 'The Wisconsin Scrub & Sweep Team']) {
     assert.ok(t.includes(w), `PDF draws "${w}"`);
   }
   assert.ok(!t.includes('FOB'), 'no v1.0 terms in the PDF');
+  assert.ok(!/\bTAX\b/.test(t) && !/\d\.\d%/.test(t), 'D94: no TAX row and no rate on the PDF');
+  const ex = await pdfText(await renderQuotePdf({ ...q, tax: false }));
+  assert.ok(ex.includes('exempt certificate on file') && !ex.includes('Plus applicable'), 'exempt wording on the PDF');
 });
 
 /* ========================================================== v1.3 (D91) listing */

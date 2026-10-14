@@ -11,7 +11,9 @@
  */
 
 export const QUOTE_LINE_KINDS = ['machine', 'text', 'freight'];
-export const DEFAULT_TAX_RATE = 0.055;     // WI 5.5% — the Worker's WSS_TAX_RATE overrides
+// D94 (2026-10-14): no tax rate on a quote. WI is 5% + the ship-to COUNTY (Waukesha 5.0 · Jefferson 5.5 ·
+// Milwaukee Co. 5.9 · City of Milwaukee 7.9) and the invoice computes it automatically, so a quoted rate was
+// a guess that the invoice then contradicted. The quote states the pre-tax total and says tax is added.
 export const DEFAULT_VALID_DAYS = 30;      // Q3
 export const NUMBER_PLACEHOLDER = 'Q----'; // the number is minted at send
 
@@ -44,20 +46,20 @@ export function longDate(ymd) {
 /**
  * Totals, server-side truth (spec v1.1 §3 step 1): a machine line's per-unit
  * price is `unit` + Σ option units — options are per machine, so they multiply
- * by qty too; subtotal = Σ qty·line_unit. Tax is the rate on that whole
- * subtotal when on (machine + options + freight are all taxable in WI),
- * rounded to the cent.
+ * by qty too; subtotal = Σ qty·line_unit. D94: no tax is computed — `tax` is
+ * always 0, `total` = subtotal, `tax_rate` null; `taxOn` only picks the wording
+ * (taxable → "plus applicable WI sales tax", exempt → the certificate line).
+ * The keys stay so the engine's Q file and the stored result keep their shape.
  */
 export const lineUnitCents = (l) => toCents(l && l.unit) + ((l && l.options) || []).reduce((n, o) => n + toCents(o && o.unit), 0);
 
-export function quoteTotals(lines, taxOn, rate = DEFAULT_TAX_RATE) {
+export function quoteTotals(lines, taxOn) {   // eslint-disable-line no-unused-vars — taxOn is wording, not math (D94)
   let sub = 0;
   for (const l of lines || []) {
     const qty = Number.isInteger(l && l.qty) ? l.qty : 1;
     sub += qty * lineUnitCents(l);
   }
-  const tax = taxOn ? Math.round(sub * rate) : 0;
-  return { subtotal: sub / 100, tax: tax / 100, total: (sub + tax) / 100, tax_rate: rate };
+  return { subtotal: sub / 100, tax: 0, total: sub / 100, tax_rate: null };
 }
 
 /** "$5,433" when whole dollars, "$5,433.50" otherwise — the Machinio wording inside a line. */
@@ -136,7 +138,7 @@ export const FOOTER_LINE = 'A Local, Veteran-Owned Company';
 /** Where the email banner lives (spec v1.1 §3 step 4): the Tracker's Pages origin. */
 export const BANNER_PATH = 'assets/wss-banner-1200.png';
 
-export const taxLabel = (rate) => `Sales tax (${Math.round(rate * 1000) / 10}%)`;
+export const TAX_NOTE_LINE = 'Plus applicable WI sales tax — added at invoicing';   // D94: taxable quotes
 export const TAX_EXEMPT_LINE = 'Tax not included — exempt certificate on file';
 
 /** The signature block (spec v1.1 §6b): name · title (if any) · Wisconsin Scrub & Sweep · phone · email. */
@@ -234,8 +236,7 @@ function noteHtml(note) {
  * preview passes none, so a preview can never fire an "Opened").
  */
 export function renderQuoteEmail(q) {
-  const rate = typeof q.tax_rate === 'number' ? q.tax_rate : DEFAULT_TAX_RATE;
-  const t = quoteTotals(q.lines, !!q.tax, rate);
+  const t = quoteTotals(q.lines, !!q.tax);
   const blocks = lineBlocks(q.lines);
   const number = q.number || NUMBER_PLACEHOLDER;
   const sender = q.sender || {};
@@ -287,7 +288,7 @@ export function renderQuoteEmail(q) {
         <th align="right" style="padding:6px;font-size:12px;color:#666;border-bottom:2px solid ${red}">Amount</th>
       </tr>${lineHtml}
       ${totRow('Subtotal', fmtUsd(t.subtotal))}
-      ${q.tax ? totRow(taxLabel(rate), fmtUsd(t.tax)) : totRow(TAX_EXEMPT_LINE, '—')}
+      ${totRow(q.tax ? TAX_NOTE_LINE : TAX_EXEMPT_LINE, '—')}
       ${totRow('Total', fmtUsd(t.total), true)}
     </table>
   </td></tr>${cardsHtml}
@@ -314,7 +315,7 @@ ${q.pixel_url ? `<img src="${esc(q.pixel_url)}" width="1" height="1" alt="" styl
     ...textLines,
     '',
     `${pad('Subtotal:', 12)} ${fmtUsd(t.subtotal)}`,
-    q.tax ? `${pad('Tax:', 12)} ${fmtUsd(t.tax)} (${Math.round(rate * 1000) / 10}%)` : TAX_EXEMPT_LINE,
+    q.tax ? TAX_NOTE_LINE : TAX_EXEMPT_LINE,
     `${pad('Total:', 12)} ${fmtUsd(t.total)}`,
     '',
     ...cards.flatMap((c) => [c.title, ...(c.model ? [`#${c.model}`] : []), ...c.specs.slice(0, LISTING_SPECS_IN_EMAIL).map((x) => `  ${x.k}: ${x.v}`), ...(c.url ? [c.url] : []), '']),

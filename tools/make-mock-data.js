@@ -2254,7 +2254,7 @@ const mockCatalog = {
     ] },
   },
   business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', url: 'https://example.com', street: '1 Example Way', city_line: 'Ixonia, WI 53036', city: 'Ixonia', region: 'WI' },
-  tax_rate: 0.055, valid_days: 30,
+  valid_days: 30,
   sender: { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' },
 };
 fs.writeFileSync(path.join(outdir, 'mock-catalog.json'), JSON.stringify(mockCatalog, null, 2) + '\n');
@@ -2433,7 +2433,7 @@ const pending = [
       lines: [{ kind: 'machine', key: 'kodiak-kx20-walk-behind-scrubber-20-disk', description: 'Kodiak KX20 Walk-Behind Scrubber (20" Disk)', model: 'KX20-PA', qty: 1, unit: 5400,
         options: [{ part: 'KX-035', description: '130ah WET (2x) / Onboard Charger', unit: 55 }] }] },
     result: { number: 'Q2004', token: FAKE_TOKEN.Q2004, sent_at: ago(3), by: 'Kevin', to: 'm.idle@harborline.example',
-      subtotal: 5455, tax: 300.03, total: 5755.03, tax_rate: 0.055, expires: d(30), pdf: `/q/${FAKE_TOKEN.Q2004}.pdf` },
+      subtotal: 5455, tax: 0, total: 5455, tax_rate: null, expires: d(30), pdf: `/q/${FAKE_TOKEN.Q2004}.pdf` },
   },
   // A close proposal on a lead that is still OPEN on the board.
   {
