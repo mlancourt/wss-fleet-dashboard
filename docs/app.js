@@ -21,7 +21,40 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney, isDateStr, fmtDateDow, fmtMD, addDays,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
-import { loadData, postEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog } from './api.js';
+import { loadData, postEvent as apiPostEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog } from './api.js';
+
+/* ---- D87: the board settles by itself ---------------------------------------
+ * Since 2026-10-13 the engine runs the moment the Worker takes an event (ntfy
+ * poke → mini), so a tap is on the published board ~12 s later. The page used to
+ * re-read /api/data only at boot, so the ⏳ pending row sat there until a reload.
+ * Now every successful postEvent() schedules one quiet re-read 15 s out (reset by
+ * each further tap, so a burst settles once), and coming back to the foreground
+ * re-reads too. A re-read never fires over an open sheet (ui.form) — render()
+ * rewrites the view and would eat what the tech is typing — it waits and retries
+ * while anything is still pending. Nothing here changes what a tap means. */
+let settleTimer = null;
+let settleTries = 0;   // bounded: a tap buys at most ~6 looks, then the next tap or reload takes over
+function scheduleSettle(ms = 15000) {
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(async () => {
+    settleTimer = null;
+    if (!(state.pending && state.pending.length)) return;          // nothing left to settle
+    if (settleTries++ >= 6) return;                                // the engine is down or slow — stop polling
+    if (ui.form || state.loading || document.visibilityState === 'hidden') { scheduleSettle(5000); return; }
+    await refresh();
+    if (state.pending && state.pending.length) scheduleSettle(10000); // engine still chewing — look again
+  }, ms);
+  if (settleTimer && typeof settleTimer.unref === 'function') settleTimer.unref(); // Node (the test seam): never hold the process open
+}
+async function postEvent(...args) {
+  const stored = await apiPostEvent(...args);
+  settleTries = 0;
+  scheduleSettle();
+  return stored;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !ui.form && !state.loading) refresh().catch(() => {});
+});
 import {
   composerView, newDraft, addMachine, addText, removeLine, toggleOption, groupsFor, draftPayload, draftProblem,
   resultsHtml, totalsHtml, syncPrice,
@@ -82,7 +115,7 @@ import { activityGroups, pendingActivityRows, activityRoute, activityTime, actor
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-13-d84';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-13-d87';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
