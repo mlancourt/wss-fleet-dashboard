@@ -608,6 +608,27 @@ function stripLeadMoney(doc) {
   return doc;   // D83: the caller stringifies — the quote overlay may already have touched it
 }
 
+/**
+ * D87 (2026-10-13): wake the engine the moment an event lands. Until today the
+ * only thing that ever APPLIED an event was the mini's hourly launchd tick, so a
+ * crew tap sat in KV for up to an hour. Now every `evt:` put is followed by one
+ * publish to a private ntfy topic; the mini holds a listener that kickstarts
+ * com.lannyai.wss-fleet. Fire-and-forget: a failed poke costs nothing but the
+ * hour the tick was always going to cost. FLEET_POKE_URL is a secret (the repo
+ * is public; the topic IS the credential) — unset = no poke, same as before.
+ */
+async function pokeEngine(env, why) {
+  if (!env.FLEET_POKE_URL) return;
+  try {
+    await fetch(env.FLEET_POKE_URL, {
+      method: 'POST',
+      headers: { Title: 'fleet', Tags: 'zap' },
+      body: why || 'event',
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch (e) { console.log('poke failed:', e && e.message); }
+}
+
 async function crewEvent({ request, me, env }) {
   const body = await readJson(request, MAX_EVENT_BYTES);
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw httpError(400, 'body must be an object');
@@ -647,6 +668,7 @@ async function crewEvent({ request, me, env }) {
   const event = { id, ts, actor: me.name, role: me.role, action, serial, payload };
 
   await env.FLEET_KV.put(`evt:${id}`, JSON.stringify(event));
+  await pokeEngine(env, action);
   return json(event, 201);
 }
 
@@ -1677,6 +1699,7 @@ async function quoteSend({ request, env, me, raw }) {
       tax_rate: rate, expires, pdf: `/q/${token}.pdf` },
   };
   await env.FLEET_KV.put(`evt:${id}`, JSON.stringify(event));
+  await pokeEngine(env, 'quote_send');
   return json(event, 201);
 }
 
@@ -1724,6 +1747,7 @@ async function customerEvent(env, rec, kind, extra = {}) {
     payload: { lead: rec.lead, number: rec.number, token: rec.token, kind, at: ts, ...extra },
   };
   await env.FLEET_KV.put(`evt:${id}`, JSON.stringify(event));
+  await pokeEngine(env, 'quote_view');
 }
 
 /** 30/min/IP on the customer routes, so a scanner can't burn KV. KV TTLs bottom out at 60 s. */
