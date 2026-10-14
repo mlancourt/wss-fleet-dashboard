@@ -2214,7 +2214,12 @@ addQuotes(empty.snapshot);
 const mockCatalog = {
   built: `${d(0)}T10:00:00-05:00`,
   machines: [
-    { key: 'kodiak-kx20-walk-behind-scrubber-20-disk', title: 'Kodiak KX20 Walk-Behind Scrubber (20" Disk)', manufacturer: 'Kodiak', model: 'KX20-PA', stock: 'KX20-001', category: 'Floor Scrubbers', condition: 'new', list: 5400, series: 'KX Series', deck_in: 20, deck_type: 'D', image: null },
+    { key: 'kodiak-kx20-walk-behind-scrubber-20-disk', title: 'Kodiak KX20 Walk-Behind Scrubber (20" Disk)', manufacturer: 'Kodiak', model: 'KX20-PA', stock: 'KX20-001', category: 'Floor Scrubbers', condition: 'new', list: 5400, series: 'KX Series', deck_in: 20, deck_type: 'D', image: null,
+      // v1.3 (D91): the listing block — invented specs + copy; url on example.com, no photo in mock (no external assets).
+      url: 'https://example.com/listings/kodiak-kx20-walk-behind-scrubber-20-disk',
+      specs: [{ k: 'CLEANING PATH', v: '20"' }, { k: 'TANK SIZES', v: '12 GAL SOLUTION / 15 GAL RECOVERY' }, { k: 'PAD PRESSURE', v: '60 LBS' },
+        { k: 'RUN TIME', v: 'UP TO 2.5 HOURS' }, { k: 'SQUEEGEE', v: '33"' }, { k: 'WEIGHT', v: '260 LBS (DRY)' }, { k: 'WARRANTY', v: '2 YEARS PARTS' }],
+      description: 'The KX20 is a simple 20" disk scrubber for small floors: one switch, one valve, and a squeegee that lifts itself when you back up.\n\n- 20" disk deck, pad driver included\n- 12 gallon solution tank\n- Onboard charger\n\nMade for daily cleaning in shops, schools and stores.' },
     { key: 'kodiak-kx20-walk-behind-scrubber-17-disk', title: 'Kodiak KX20 Walk-Behind Scrubber (17" Disk)', manufacturer: 'Kodiak', model: 'KX17-PA', stock: 'KX17-001', category: 'Floor Scrubbers', condition: 'new', list: 5250, series: 'KX Series', deck_in: 17, deck_type: 'D', image: null },
     { key: 'factory-cat-mx-20-disk', title: 'Factory Cat MX Scrubber (20" Disk)', manufacturer: 'Factory Cat', model: 'MX-20D', stock: 'MX20D', category: 'Floor Scrubbers', condition: 'new', list: 9100, series: null, deck_in: 20, deck_type: 'D', image: null },
     { key: 'tomcat-rx-rider-28', title: 'Tomcat RX Rider Scrubber (28" Cylindrical)', manufacturer: 'Tomcat', model: 'RX-28C', stock: 'RX28', category: 'Floor Scrubbers', condition: 'new', list: 21500, series: null, deck_in: 28, deck_type: 'C', image: null },

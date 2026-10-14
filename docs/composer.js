@@ -117,6 +117,7 @@ export function addMachine(draft, m, lead) {
     id: ++draft.seq, kind: 'machine', key: m.key, description: m.title || '', model: m.model || '', stock: m.stock || '',
     qty: '1', unit: money2(m.list), list: typeof m.list === 'number' ? m.list : null, discount: '', note: '',
     series: m.series || null, deck_in: m.deck_in == null ? null : m.deck_in, deck_type: m.deck_type || null, options: [],
+    listing: true,      // v1.3 (D91): the photo + specs + description ride along unless Kevin turns it off
   };
   draft.lines.push(line);
   retemplate(draft, lead);
@@ -201,6 +202,7 @@ export function draftPayload(draft) {
       }
       const n = String(l.note || '').trim();
       if (n) out.note = n;
+      if (l.key) out.listing = l.listing !== false;
       return out;
     }
     const t = { kind: 'text', description: String(l.description || '').trim(), qty: Number.isInteger(qty) ? qty : 1, unit };
@@ -255,8 +257,9 @@ export function draftTotals(draft, rate = DEFAULT_TAX_RATE) {
   return quoteTotals(clean, p.tax, rate);
 }
 
-/** renderQuoteEmail's input for the preview: no number, no PDF link, NO pixel. */
-export function previewInput(draft, lead, catalog, { today, expires, me } = {}) {
+/** renderQuoteEmail's input for the preview: no number, no PDF link, NO pixel.
+ *  `listings` = {key → full machine} from GET /api/catalog/<key> (v1.3) — the card the send draws. */
+export function previewInput(draft, lead, catalog, { today, expires, me, listings = null } = {}) {
   const p = draftPayload(draft);
   const lines = p.lines.map((l) => ({ ...l, unit: Number.isFinite(l.unit) ? l.unit : 0,
     options: (l.options || []).map((o) => ({ ...o, unit: Number.isFinite(o.unit) ? o.unit : 0 })) }));
@@ -266,6 +269,7 @@ export function previewInput(draft, lead, catalog, { today, expires, me } = {}) 
     sender: (catalog && catalog.sender) || { name: (me && me.name) || '' },
     lines, tax: p.tax, tax_rate: (catalog && catalog.tax_rate) || DEFAULT_TAX_RATE,
     note: p.note, business: (catalog && catalog.business) || null, pdf_url: null, pixel_url: null, banner_url: BANNER_PATH,
+    listings,
   };
 }
 
@@ -316,12 +320,16 @@ function lineCard(draft, catalog, l) {
         ${items}
       </div>`;
   }).join('');
+  // v1.3: a catalog machine (it has a key) can carry its listing; a free-text line has nothing to show.
+  const listing = l.key ? `
+    <label class="qc-chk qc-listing"><input type="checkbox" data-qc="listing" data-line="${l.id}"${l.listing !== false ? ' checked' : ''}>
+      <span>Include listing <span class="qc-part">photo · specs · description</span></span></label>` : '';
   return head(`
     <div class="qc-line-h"><strong>${esc(l.description)}</strong>${rm}</div>
     <div class="qc-sub">${[l.model && `Model ${esc(l.model)}`, l.stock && `Stock ${esc(l.stock)}`, l.list != null ? `MSRP ${esc(fmtUsd(l.list))}` : 'no list price — type one'].filter(Boolean).join(' · ')}</div>
     ${qtyUnit}
     ${groups.length ? `<div class="qc-opts-h">Options</div>${grp}` : ''}
-    ${noteField}`);
+    ${noteField}${listing}`);
 }
 
 export function resultsHtml(draft, catalog) {

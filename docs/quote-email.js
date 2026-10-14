@@ -145,6 +145,80 @@ export function signatureLines(sender, business = null) {
   return [s.name, s.title, (business && business.name) || 'Wisconsin Scrub & Sweep', s.phone, s.mailbox].filter((x) => typeof x === 'string' && x.trim());
 }
 
+/* ---- v1.3 (D91) — the listing block -------------------------------------
+ * A catalog machine line with `listing !== false` carries the machine's photo,
+ * specs and description — the way Machinio's quotes carried the listing. The
+ * full record (`specs[]`, `description`) is read by `key` from the catalog: the
+ * Worker passes it at send, the composer passes the one GET /api/catalog/<key>
+ * returned, so the preview card is the card that sends.
+ */
+export const LISTING_SPECS_IN_EMAIL = 6;
+export const LISTING_LEAD_MAX = 320;
+export const LISTING_PDF_NOTE = 'Full specifications and description are on the quote PDF.';
+// The image/link must be ours. Machinio's CDN dies the day Machinio stops serving it (spec §2.3 v1.3).
+const FOREIGN_HOST = /machineryhost/i;
+export const safeListingUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) && !FOREIGN_HOST.test(u) ? u : null);
+
+/**
+ * lines + {key → full catalog machine} → one listing per line that gets one, in line order:
+ * { key, title, model, image, url, specs: [{k, v}], description }. A record with nothing to show
+ * (no url, no specs, no description — a pre-v1.3 catalog) draws nothing, so the output stays the v1.2 one.
+ */
+export function quoteListings(lines, listings) {
+  if (!listings) return [];
+  const out = [];
+  for (const l of lines || []) {
+    if (!l || l.kind !== 'machine' || !l.key || l.listing === false) continue;
+    const m = Object.prototype.hasOwnProperty.call(listings, l.key) ? listings[l.key] : null;
+    if (!m || typeof m !== 'object') continue;
+    const specs = (Array.isArray(m.specs) ? m.specs : [])
+      .filter((x) => x && typeof x.k === 'string' && x.k.trim() && x.v != null && String(x.v).trim())
+      .map((x) => ({ k: x.k.trim(), v: String(x.v).trim() }));
+    const description = typeof m.description === 'string' ? m.description.trim() : '';
+    const url = safeListingUrl(m.url);
+    if (!url && !specs.length && !description) continue;
+    out.push({ key: l.key, title: m.title || l.description || '', model: l.model || m.model || '', image: safeListingUrl(m.image), url, specs, description });
+  }
+  return out;
+}
+
+/** The description's first paragraph: cut at the first blank line or bullet, ≤ 320 chars + "…". */
+export function leadParagraph(description, max = LISTING_LEAD_MAX) {
+  const lines = [];
+  for (const ln of String(description || '').split(/\r?\n/)) {
+    if (!ln.trim()) { if (lines.length) break; continue; }
+    if (/^\s*[-•*]\s/.test(ln)) break;
+    lines.push(ln.trim());
+  }
+  const p = lines.join(' ').replace(/\s+/g, ' ').trim();
+  if (p.length <= max) return p;
+  const cut = p.slice(0, max);
+  const sp = cut.lastIndexOf(' ');
+  return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.–—-]+$/, '')}…`;
+}
+
+function listingCardHtml(c, red) {
+  const specs = c.specs.slice(0, LISTING_SPECS_IN_EMAIL);
+  const lead = leadParagraph(c.description);
+  const photo = c.image
+    ? `<td width="180" valign="top" style="padding:0 14px 0 0;width:180px"><img src="${esc(c.image)}" width="180" alt="${esc(c.title)}" style="display:block;width:180px;max-width:180px;height:auto;border:0"></td>`
+    : '';
+  return `
+  <tr><td style="padding:14px 18px 0 18px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e6e6e6;border-radius:6px"><tr><td style="padding:12px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${photo}
+        <td valign="top" style="font-size:13px;line-height:1.45;color:#333">
+          <div style="font-size:15px;font-weight:bold;color:#1a1a1a">${esc(c.title)}</div>${c.model ? `
+          <div style="color:#666;font-size:12px;margin-top:2px">#${esc(c.model)}</div>` : ''}${specs.length ? `
+          <div style="margin-top:8px">${specs.map((s) => `<div><span style="color:#666">${esc(s.k)}:</span> ${esc(s.v)}</div>`).join('')}</div>` : ''}${lead ? `
+          <p style="margin:8px 0 0 0">${esc(lead)}</p>` : ''}${c.url ? `
+          <div style="margin-top:8px"><a href="${esc(c.url)}" style="color:${red};font-weight:bold;text-decoration:none">Full listing →</a></div>` : ''}
+        </td>
+      </tr></table>
+    </td></tr></table>
+  </td></tr>`;
+}
+
 /** Plain-text note → paragraphs. Blank lines split; single newlines become <br>. */
 function noteHtml(note) {
   return String(note || '').trim().split(/\n\s*\n/).filter(Boolean)
@@ -154,7 +228,7 @@ function noteHtml(note) {
 /**
  * q = { number, date, expires, valid_days, customer, contact, to, subject,
  *       sender: {name, mailbox, phone}, lines, tax, tax_rate, note,
- *       pdf_url, pixel_url, business }
+ *       pdf_url, pixel_url, business, listings? }   (listings: v1.3 — {catalog key → full machine})
  * → { html, text }. Table-based, inline styles only, no external CSS or
  * images except the open pixel — which goes LAST and only when given (the
  * preview passes none, so a preview can never fire an "Opened").
@@ -179,6 +253,13 @@ export function renderQuoteEmail(q) {
         <td style="${num}">${fmtCents(r.rate)}</td>
         <td style="${num}">${fmtCents(r.amount)}</td>
       </tr>`).join('');
+
+  // v1.3: listing cards under the line table — only when there are any, so a quote without them is the v1.2 email byte for byte.
+  const cards = quoteListings(q.lines, q.listings);
+  const cardsHtml = cards.length
+    ? `${cards.map((c) => listingCardHtml(c, red)).join('')}
+  <tr><td style="padding:10px 18px 0 18px;font-size:12px;color:#666">${esc(LISTING_PDF_NOTE)}</td></tr>`
+    : '';
 
   const totRow = (label, value, strong) => `
       <tr>
@@ -209,7 +290,7 @@ export function renderQuoteEmail(q) {
       ${q.tax ? totRow(taxLabel(rate), fmtUsd(t.tax)) : totRow(TAX_EXEMPT_LINE, '—')}
       ${totRow('Total', fmtUsd(t.total), true)}
     </table>
-  </td></tr>
+  </td></tr>${cardsHtml}
   <tr><td align="center" style="padding:22px 18px">
     <a href="${esc(pdf)}" style="display:inline-block;background:${red};color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;padding:14px 22px;border-radius:6px">View / download quote (PDF)</a>
   </td></tr>
@@ -236,6 +317,8 @@ ${q.pixel_url ? `<img src="${esc(q.pixel_url)}" width="1" height="1" alt="" styl
     q.tax ? `${pad('Tax:', 12)} ${fmtUsd(t.tax)} (${Math.round(rate * 1000) / 10}%)` : TAX_EXEMPT_LINE,
     `${pad('Total:', 12)} ${fmtUsd(t.total)}`,
     '',
+    ...cards.flatMap((c) => [c.title, ...(c.model ? [`#${c.model}`] : []), ...c.specs.slice(0, LISTING_SPECS_IN_EMAIL).map((x) => `  ${x.k}: ${x.v}`), ...(c.url ? [c.url] : []), '']),
+    ...(cards.length ? [LISTING_PDF_NOTE, ''] : []),
     `View / download the quote (PDF): ${pdf}`,
     '',
     signatureLines(sender, q.business).join('\n'),

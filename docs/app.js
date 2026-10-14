@@ -21,7 +21,7 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney, isDateStr, fmtDateDow, fmtMD, addDays,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
-import { loadData, postEvent as apiPostEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog } from './api.js';
+import { loadData, postEvent as apiPostEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog, loadMachine } from './api.js';
 
 /* ---- D87: the board settles by itself ---------------------------------------
  * Since 2026-10-13 the engine runs the moment the Worker takes an event (ntfy
@@ -121,7 +121,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-14-a74';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-14-d91';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -4573,6 +4573,16 @@ function quoteButton(l) {
   </div>${open ? '' : raw('<div class="form-note">A closed lead takes no quotes.</div>')}`;
 }
 
+// v1.3 (D91): full machine records (specs + description) by key, for the preview's listing card.
+// api.js caches them for the session; this map is what the preview reads synchronously.
+const quoteListings = {};
+function fetchListing(key) {
+  if (!key || quoteListings[key]) return;
+  loadMachine(ctx(), key)
+    .then((m) => { quoteListings[key] = m; if (composerLead()) render(); })
+    .catch(() => { /* no card in the preview; the send still reads the catalog itself */ });
+}
+
 function startQuoteCatalog(force = false) {
   quoteCat = { state: 'loading', data: null, error: null };
   loadCatalog(ctx(), { force })
@@ -4594,7 +4604,7 @@ function viewComposer(id) {
   if (quoteCat.state === 'idle') startQuoteCatalog();
   if (!quoteDrafts.has(id)) quoteDrafts.set(id, newDraft(l));
   const today = todayCentral();
-  return msgBlock() + composerView(quoteDrafts.get(id), l, quoteCat, { today, expires: addDays(today, 30), me: state.me });
+  return msgBlock() + composerView(quoteDrafts.get(id), l, quoteCat, { today, expires: addDays(today, 30), me: state.me, listings: quoteListings });
 }
 
 /** The composer's id from the hash ("#/lead/L1034/quote" → "L1034"). */
@@ -4648,8 +4658,8 @@ function onComposerClick(el) {
   const cat = quoteCat.data;
   if (act === 'pick') {
     const m = cat && cat.machines.find((x) => x.key === el.dataset.key);
-    if (m) addMachine(d, m, l);
-  } else if (act === 'brand') d.brand = d.brand === el.dataset.brand ? null : el.dataset.brand;
+    if (m) { addMachine(d, m, l); fetchListing(m.key); }
+  } else if (act === 'listing' && line) line.listing = line.listing === false; else if (act === 'brand') d.brand = d.brand === el.dataset.brand ? null : el.dataset.brand;
   else if (act === 'add-text') addText(d);
   else if (act === 'remove' && line) removeLine(d, line.id, l);
   else if (act === 'group' && line) {

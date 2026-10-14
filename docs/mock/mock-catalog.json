@@ -13,7 +13,39 @@
       "series": "KX Series",
       "deck_in": 20,
       "deck_type": "D",
-      "image": null
+      "image": null,
+      "url": "https://example.com/listings/kodiak-kx20-walk-behind-scrubber-20-disk",
+      "specs": [
+        {
+          "k": "CLEANING PATH",
+          "v": "20\""
+        },
+        {
+          "k": "TANK SIZES",
+          "v": "12 GAL SOLUTION / 15 GAL RECOVERY"
+        },
+        {
+          "k": "PAD PRESSURE",
+          "v": "60 LBS"
+        },
+        {
+          "k": "RUN TIME",
+          "v": "UP TO 2.5 HOURS"
+        },
+        {
+          "k": "SQUEEGEE",
+          "v": "33\""
+        },
+        {
+          "k": "WEIGHT",
+          "v": "260 LBS (DRY)"
+        },
+        {
+          "k": "WARRANTY",
+          "v": "2 YEARS PARTS"
+        }
+      ],
+      "description": "The KX20 is a simple 20\" disk scrubber for small floors: one switch, one valve, and a squeegee that lifts itself when you back up.\n\n- 20\" disk deck, pad driver included\n- 12 gallon solution tank\n- Onboard charger\n\nMade for daily cleaning in shops, schools and stores."
     },
     {
       "key": "kodiak-kx20-walk-behind-scrubber-17-disk",

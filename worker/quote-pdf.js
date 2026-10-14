@@ -10,7 +10,7 @@
  * throwing mid-send.
  */
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { lineBlocks, quoteTotals, fmtCents, fmtUsd, quoteTerms, TAX_EXEMPT_LINE, DEFAULT_TAX_RATE, FOOTER_LINE } from '../docs/quote-email.js';
+import { lineBlocks, quoteTotals, fmtCents, fmtUsd, quoteTerms, TAX_EXEMPT_LINE, DEFAULT_TAX_RATE, FOOTER_LINE, quoteListings } from '../docs/quote-email.js';
 import { LOGO_JPEG_B64 } from './quote-logo.js';
 
 const RED = rgb(0xB7 / 255, 0x1C / 255, 0x1C / 255);
@@ -66,7 +66,9 @@ const TINT = rgb(0xF6 / 255, 0xD9 / 255, 0xD9 / 255);   // the red-tinted header
 
 /**
  * q = { number, date, expires, valid_days, customer, contact, to, sender:{name, title, mailbox, phone},
- *       lines, tax, tax_rate, business }  →  Uint8Array (the PDF bytes)
+ *       lines, tax, tax_rate, business,
+ *       listings?: {key → full catalog machine}, photos?: {key → JPEG bytes} }  →  Uint8Array (the PDF bytes)
+ * (v1.3: `photos` are fetched by the Worker before this runs — the renderer itself never touches the network.)
  *
  * Laid out like the Machinio quotes WSS has sent for five years (spec v1.1 §3 step 3,
  * Reference/Machinio-Quote-Example-300160.pdf): company block top-left, the mark top-right,
@@ -220,8 +222,10 @@ export async function renderQuotePdf(q) {
   text('Accepted Date', M + W / 2 + 10, y, 10);
   page.drawLine({ start: { x: M + W / 2 + 82, y: y - 2 }, end: { x: M + W, y: y - 2 }, thickness: 0.6, color: GREY });
 
-  // Page x of n, once we know n.
-  const pages = doc.getPages();
+  // Page x of n, once we know n — counted over the quote pages only, so the v1.3 listing pages
+  // that follow never change page 1 (spec §3 step 3: the price page stays the v1.2 page).
+  const pages = [...doc.getPages()];
+  await equipmentPages(doc, q, { font, bold, logo });
   if (pages.length > 1) {
     pages.forEach((p, i) => {
       const s = `${q.number} · page ${i + 1} of ${pages.length}`;
@@ -232,3 +236,120 @@ export async function renderQuotePdf(q) {
 }
 
 const toC = (n) => Math.round(n * 100);
+
+/* ---- v1.3 (D91) — "Equipment Details" ------------------------------------
+ * After the quote page(s): one block per catalog machine line with
+ * `listing !== false`, in line order — bold title + #model, the photo
+ * top-right (≤ 2.4" × 2.4", aspect kept), the spec table left of the photo
+ * and full width below it, the description (paragraphs + bullets), then
+ * `Full listing: <url>`. A block that won't fit what's left of a page starts a
+ * new one; the title never leaves its photo. A photo that won't embed is
+ * simply absent — never a failed send.
+ */
+const PHOTO_MAX = 2.4 * 72;
+const KEY_W = 128;                    // the spec table's k column
+
+async function equipmentPages(doc, q, { font, bold, logo }) {
+  const cards = quoteListings(q.lines, q.listings);
+  if (!cards.length) return 0;
+  const W = PAGE[0] - 2 * M;
+  const FOOT = M + 4;
+  const BOTTOM = FOOT + 26;
+  const photos = q.photos || {};
+  let page;
+  let y;
+  let pages = 0;
+
+  const newPage = () => {
+    page = doc.addPage(PAGE);
+    pages++;
+    const t = winAnsi(FOOTER_LINE);
+    page.drawText(t, { x: (PAGE[0] - font.widthOfTextAtSize(t, 9.5)) / 2, y: FOOT, size: 9.5, font, color: INK });
+    // The header strip: the mark top-right, the quote number small, then the heading.
+    const lh = 26;
+    const lw = (logo.width / logo.height) * lh;
+    page.drawImage(logo, { x: M + W - lw, y: PAGE[1] - M - lh, width: lw, height: lh });
+    page.drawText(winAnsi(`QUOTE # ${q.number || ''}`), { x: M, y: PAGE[1] - M - 10, size: 9, font: bold, color: GREY });
+    page.drawText('Equipment Details', { x: M, y: PAGE[1] - M - 36, size: 18, font, color: RED });
+    y = PAGE[1] - M - 58;
+  };
+  const atTop = () => y >= PAGE[1] - M - 58 - 0.5;
+
+  for (const c of cards) {
+    // The photo, when one came down and embeds as a JPEG.
+    let img = null;
+    if (photos[c.key]) {
+      try { img = await doc.embedJpg(photos[c.key]); } catch (err) { console.log(`quote ${q.number}: photo for ${c.key} did not embed (${(err && err.message) || 'bad JPEG'})`); }
+    }
+    let pw = 0;
+    let ph = 0;
+    if (img) {
+      const s = Math.min(PHOTO_MAX / img.width, PHOTO_MAX / img.height);
+      pw = img.width * s; ph = img.height * s;
+    }
+    const sideW = img ? W - pw - 16 : W;
+
+    // Lay the block out top-down (offsets from the block's top), then place it.
+    const rows = [];
+    let off = 0;
+    const widthAt = (o) => (o < ph + 4 ? sideW : W);
+    const push = (h, items, rule = false) => { rows.push({ off, h, items, rule }); off += h; };
+    for (const t of wrap(c.title, bold, 12.5, sideW)) push(15, [{ t, x: 0, size: 12.5, f: bold, color: INK }]);
+    if (c.model) push(14, [{ t: `#${c.model}`, x: 0, size: 9.5, f: font, color: GREY }]);
+    off += 6;
+    for (const sp of c.specs) {
+      const w = widthAt(off);
+      const ks = wrap(String(sp.k).toUpperCase(), bold, 7.5, KEY_W - 8);
+      const vs = wrap(sp.v, font, 9, w - KEY_W);
+      const n = Math.max(ks.length, vs.length);
+      const items = [];
+      ks.forEach((t, i) => items.push({ t, x: 0, dy: i * 11 + 0.5, size: 7.5, f: bold, color: GREY }));
+      vs.forEach((t, i) => items.push({ t, x: KEY_W, dy: i * 11, size: 9, f: font, color: INK }));
+      push(n * 11 + 5, items, w);
+    }
+    if (c.specs.length) off += 8;
+    off = Math.max(off, ph + 10);
+    const paras = String(c.description || '').split(/\r?\n\s*\r?\n/).map((p) => p.trim()).filter(Boolean);
+    for (const para of paras) {
+      // Consecutive plain lines are one paragraph; a "- " line is a bullet of its own.
+      const chunks = [];
+      for (const ln of para.split(/\r?\n/)) {
+        const b = /^\s*[-•*]\s+(.*)$/.exec(ln);
+        if (b) chunks.push({ bullet: true, t: b[1] });
+        else if (chunks.length && !chunks[chunks.length - 1].bullet) chunks[chunks.length - 1].t += ` ${ln.trim()}`;
+        else chunks.push({ bullet: false, t: ln.trim() });
+      }
+      for (const ch of chunks) {
+        const ind = ch.bullet ? 12 : 0;
+        wrap(ch.t, font, 9.5, W - ind).forEach((t, i) => {
+          const items = [{ t, x: ind, size: 9.5, f: font, color: INK }];
+          if (ch.bullet && i === 0) items.push({ t: '•', x: 2, size: 9.5, f: font, color: INK });
+          push(12.5, items);
+        });
+      }
+      off += 6;
+    }
+    if (c.url) {
+      off += 2;
+      wrap(`Full listing: ${c.url}`, font, 9, W).forEach((t) => push(12, [{ t, x: 0, size: 9, f: font, color: GREY }]));
+    }
+    const total = Math.max(off, ph) + 22;
+
+    // Place it: a fresh page when it won't fit what's left and we aren't already at the top.
+    if (!page || (y - total < BOTTOM && !atTop())) newPage();
+    else if (rows.length && pages && !atTop()) {
+      page.drawLine({ start: { x: M, y: y + 10 }, end: { x: M + W, y: y + 10 }, thickness: 0.6, color: RULE });
+    }
+    const top = y;
+    if (img) page.drawImage(img, { x: M + W - pw, y: top - ph, width: pw, height: ph });
+    let shift = 0;          // a block taller than a page carries on below the next page's header
+    for (const r of rows) {
+      let ry = top - r.off + shift;
+      if (ry - r.h < BOTTOM) { newPage(); shift = y - (top - r.off); ry = y; }
+      for (const it of r.items) page.drawText(winAnsi(it.t), { x: M + it.x, y: ry - 9 - (it.dy || 0), size: it.size, font: it.f, color: it.color });
+      if (r.rule) page.drawLine({ start: { x: M, y: ry - r.h + 2 }, end: { x: M + r.rule, y: ry - r.h + 2 }, thickness: 0.4, color: RULE });
+    }
+    y = top - total + shift;
+  }
+  return pages;
+}

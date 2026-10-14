@@ -1452,6 +1452,7 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
 .qc-hit-p { font-variant-numeric: tabular-nums; color: var(--slate-700); }
 .qc-addtext { margin-top: 12px; }
 .qc .qc-tax { margin-top: 10px; }
+.qc .qc-listing { margin-top: 4px; }
 .qc-bar { position: sticky; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); z-index: 5; margin-top: 14px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-up); padding: 10px 14px 12px; }
 .qc-sum-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--slate-700); font-variant-numeric: tabular-nums; }

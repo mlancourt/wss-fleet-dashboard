@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import worker from '../worker/worker.js';
 import {
   quoteTotals, fmtCents, fmtUsd, longDate, lineBlocks, signatureLines, renderQuoteEmail, defaultSubject, quoteTerms, NUMBER_PLACEHOLDER,
+  quoteListings, leadParagraph,
 } from '../docs/quote-email.js';
 import { overlayQuote, overlayLeads, quoteState, quoteChipText, mdOf, tokenOf, statusRank, quoteStateLong, isTracked } from '../docs/quotes.js';
 import {
@@ -96,6 +97,8 @@ await env.FLEET_KV.put('snapshot', JSON.stringify(SNAP()));
 const sent = [];
 let resendMode = 'ok';
 const realFetch = globalThis.fetch;
+const IMAGES = new Map();
+const imageHits = [];
 globalThis.fetch = async (url, init) => {
   if (String(url) === 'https://api.resend.com/emails') {
     const body = JSON.parse(init.body);
@@ -103,6 +106,14 @@ globalThis.fetch = async (url, init) => {
     if (resendMode === 'throw') throw new Error('connect ECONNREFUSED');
     sent.push({ body, headers: init.headers });
     return new Response(JSON.stringify({ id: `fake-resend-${sent.length}` }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  // v1.3: the listing photos. A route here answers; `hang` waits for the Worker's abort.
+  if (IMAGES.has(String(url))) {
+    imageHits.push(String(url));
+    const r = IMAGES.get(String(url));
+    if (r === 'hang') return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+    if (r === 'throw') throw new Error('getaddrinfo ENOTFOUND');
+    return new Response(r.body, { status: r.status, headers: { 'Content-Type': r.type } });
   }
   return realFetch(url, init);
 };
@@ -232,7 +243,7 @@ await check('a catalog key alone fills title, model and list from the catalog; a
   const r = await send('owner', PAYLOAD({ lines: [{ kind: 'machine', key: 'zeta-micro-20-disk' }] }));
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.result.number, 'Q2002');
-  assert.deepEqual(r.body.payload.lines[0], { kind: 'machine', key: 'zeta-micro-20-disk', description: 'Zeta Micro (20" Disk)', model: 'ZM-20', qty: 1, unit: 9139, list: 9139, discount: 0, options: [] }, 'v1.1: the MSRP rides along');
+  assert.deepEqual(r.body.payload.lines[0], { kind: 'machine', key: 'zeta-micro-20-disk', description: 'Zeta Micro (20" Disk)', model: 'ZM-20', qty: 1, unit: 9139, list: 9139, discount: 0, listing: true, options: [] }, 'v1.1: the MSRP rides along; v1.3: listing on by default');
   assert.equal(sent.at(-1).body.from, 'Matt Example <matt@example.com>', "Matt's token sends as Matt");
   const unknown = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: 'not-in-catalog' }] }));
   assert.equal(unknown.status, 400); assert.ok(unknown.body.error.includes('not in the catalog'));
@@ -503,7 +514,7 @@ await check('composer: the payload — catalog key + list price, ticked options,
   toggleOption(d, line.id, CATALOG.series['X Series'].groups[0].items[0]);
   let p = draftPayload(d);
   assert.deepEqual(p.lines, [{ kind: 'machine', key: CATALOG.machines[0].key, description: CATALOG.machines[0].title, model: 'X20-PA', qty: 1, unit: 5433,
-    options: [{ part: 'X-035', description: '130ah WET (2x)', unit: 54 }], list: 5433, discount: 0 }]);
+    options: [{ part: 'X-035', description: '130ah WET (2x)', unit: 54 }], list: 5433, discount: 0, listing: true }]);
   assert.equal(p.subject, `Wisconsin Scrub & Sweep — Quote ${NUMBER_PLACEHOLDER} · ${CATALOG.machines[0].title}`);
   assert.deepEqual(p.cc, []); assert.equal(p.tax, true); assert.equal(p.valid_days, 30);
   d.freight = '250'; d.cc = 'a@example.com; b@example.com';
@@ -674,6 +685,163 @@ await check('v1.1 layout: the PDF — company block, QUOTE # / DATE / VALID THRO
     assert.ok(t.includes(w), `PDF draws "${w}"`);
   }
   assert.ok(!t.includes('FOB'), 'no v1.0 terms in the PDF');
+});
+
+/* ========================================================== v1.3 (D91) listing */
+
+const IMG = 'https://www.example.com/img/machines/acme-x20-walk-behind-scrubber-20-disk/00.jpg';
+const LOGO_JPEG = (await import('node:fs')).readFileSync(new URL('../worker/assets/wss-logo.jpeg', import.meta.url));
+const SPECS = [['CLEANING PATH', '20"'], ['TANK SIZES', '12 GAL SOLUTION / 15 GAL RECOVERY'], ['PAD PRESSURE', '60 LBS'], ['RUN TIME', '2.5 HOURS'],
+  ['SQUEEGEE', '33"'], ['WEIGHT', '260 LBS'], ['WARRANTY SEVENTH', '2 YEARS']].map(([k, v]) => ({ k, v }));
+const DESC = 'The X20 is the simplest 20" scrubber Acme builds: one switch, one valve.\nIt fits through any door.\n\n- 20" disk deck, pad driver at 180 rpm\n- 12 gallon solution tank\n\nBuilt for daily cleaning in shops and schools.';
+const CATALOG3 = { ...CATALOG, machines: CATALOG.machines.map((m, i) => (i === 0
+  ? { ...m, image: IMG, url: 'https://www.example.com/listings/1472968-acme-x20', specs: SPECS, description: DESC }
+  : { ...m, url: `https://www.example.com/listings/${m.key}`, specs: [{ k: 'CLEANING PATH', v: '20"' }], description: 'A machine.' })) };
+const XKEY = CATALOG.machines[0].key;
+const pageCount = async (bytes) => (await (await import('pdf-lib')).PDFDocument.load(bytes)).getPageCount();
+const imageCount = (bytes) => (Buffer.from(bytes).toString('latin1').match(/\/Subtype\s*\/Image/g) || []).length;
+
+await check('K: GET /api/catalog drops specs + description (url + image stay); GET /api/catalog/<key> returns the one machine whole; 401 / 403 / 404', async () => {
+  assert.equal((await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG3 })).status, 200);
+  const raw = await (await call('GET', '/api/catalog', { role: 'sales' })).text();
+  const list = JSON.parse(raw);
+  assert.ok(list.machines.every((m) => !('specs' in m) && !('description' in m)), 'no heavy keys on the list');
+  assert.equal(list.machines[0].image, IMG); assert.ok(list.machines[0].url.startsWith('https://'));
+  assert.ok(!raw.includes('"specs"') && !raw.includes('PAD PRESSURE'));
+  const one = await asJson(await call('GET', `/api/catalog/${XKEY}`, { role: 'owner' }));
+  assert.equal(one.status, 200); assert.equal(one.body.specs.length, 7); assert.equal(one.body.description, DESC); assert.equal(one.body.image, IMG);
+  assert.equal((await call('GET', `/api/catalog/${XKEY}`, { role: 'sales' })).status, 200);
+  assert.equal((await call('GET', `/api/catalog/${XKEY}`)).status, 401, 'no token');
+  assert.equal((await call('GET', `/api/catalog/${XKEY}`, { role: 'service' })).status, 403);
+  assert.equal((await call('GET', `/api/catalog/${XKEY}`, { role: 'intake' })).status, 403);
+  assert.equal((await call('GET', '/api/catalog/not-a-machine', { role: 'sales' })).status, 404);
+  assert.equal((await call('GET', '/api/catalog/BAD%20KEY', { role: 'sales' })).status, 400);
+  assert.equal((await call('POST', `/api/catalog/${XKEY}`, { role: 'sales', body: {} })).status, 405);
+});
+
+await check('listing on the payload: boolean or 400; stored as sent on a catalog machine line (absent = on); ignored on text/freight', async () => {
+  IMAGES.set(IMG, { status: 200, type: 'image/jpeg', body: LOGO_JPEG });
+  const bad = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: XKEY, listing: 'yes' }] }));
+  assert.equal(bad.status, 400); assert.ok(bad.body.error.includes('listing must be true or false'), bad.body.error);
+  assert.equal((await send('sales', PAYLOAD({ lines: [{ kind: 'text', description: 'x', unit: 1, listing: 1 }] }))).status, 400, 'checked on any line');
+  const r = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: XKEY }, { kind: 'machine', key: 'zeta-micro-20-disk', listing: false }, { kind: 'text', description: 'Setup', unit: 1, listing: true }, { kind: 'machine', description: 'Special', unit: 5 }] }));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.payload.lines.map((l) => l.listing), [true, false, undefined, undefined], 'on · off · text drops it · keyless machine has none');
+  const rec = await env.FLEET_KV.get(`quote:${r.body.result.token}`, 'json');
+  assert.deepEqual(rec.lines.map((l) => l.listing), [true, false, undefined, undefined], 'the quote JSON carries it too');
+  const stored = await env.FLEET_KV.get(`evt:${r.body.id}`, 'json');
+  assert.equal(stored.payload.lines[0].listing, true);
+});
+
+await check('J (email): one card per listing line under the line table — photo 180 px, title + #model, six specs, the first paragraph, Full listing →; then the PDF line', async () => {
+  const before = sent.length;
+  const r = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: XKEY }, { kind: 'machine', key: 'zeta-micro-20-disk', listing: false }, { kind: 'text', description: 'Setup', unit: 1 }] }));
+  assert.equal(r.status, 201);
+  const { html, text } = sent[before].body;
+  assert.ok(html.includes(`<img src="${IMG}" width="180" alt="Acme X20 Walk-Behind Scrubber (20&quot; Disk)"`), 'photo, 180 px, alt = title');
+  assert.ok(html.indexOf('Full listing →') > html.indexOf('>Total<') && html.indexOf('Full listing →') < html.indexOf('View / download quote (PDF)'), 'right under the line table, above the button');
+  assert.ok(html.includes('#X20-PA') && html.includes('CLEANING PATH:</span> 20&quot;') && html.includes('WEIGHT:'), 'title, model, specs');
+  assert.ok(!html.includes('WARRANTY SEVENTH'), 'only the first six specs');
+  assert.ok(html.includes('The X20 is the simplest 20&quot; scrubber Acme builds: one switch, one valve. It fits through any door.'), 'first paragraph, lines joined');
+  assert.ok(!html.includes('pad driver at 180 rpm') && !html.includes('Built for daily'), 'stops at the blank line / bullet');
+  assert.ok(html.includes('href="https://www.example.com/listings/1472968-acme-x20"'));
+  assert.equal((html.match(/Full listing →/g) || []).length, 1, 'the listing:false line draws no card');
+  assert.ok(html.includes('Full specifications and description are on the quote PDF.'));
+  for (const w of ['Acme X20 Walk-Behind Scrubber (20" Disk)', '#X20-PA', '  TANK SIZES: 12 GAL SOLUTION / 15 GAL RECOVERY', 'https://www.example.com/listings/1472968-acme-x20']) assert.ok(text.includes(w), `text: ${w}`);
+  assert.ok(!text.includes('WARRANTY SEVENTH'));
+  assert.ok(!/machineryhost/i.test(html + text));
+});
+
+await check('J: listing off (or none in the catalog) → the email HTML is byte-identical to today’s; the preview draws the same card the send does', async () => {
+  const sender = { name: 'Kevin Example', title: 'Territory Manager', mailbox: 'kevin@example.com', phone: '(555) 010-0001' };
+  const base = { number: 'Q2001', date: '2026-10-08', expires: '2026-11-07', tax: true, tax_rate: 0.055, note: 'Hi', sender, business: CATALOG.business,
+    pdf_url: 'https://w.example/q/a.pdf', pixel_url: 'https://w.example/q/a/o.gif' };
+  const lines = [{ kind: 'machine', key: XKEY, description: 'Acme X20', model: 'X20-PA', qty: 1, unit: 5433, options: [] }];
+  const today = renderQuoteEmail({ ...base, lines });
+  const off = renderQuoteEmail({ ...base, lines: [{ ...lines[0], listing: false }], listings: { [XKEY]: CATALOG3.machines[0] } });
+  assert.equal(off.html, today.html, 'off = byte-identical');
+  assert.equal(off.text, today.text);
+  assert.equal(renderQuoteEmail({ ...base, lines, listings: { [XKEY]: CATALOG.machines[0] } }).html, today.html, 'a pre-v1.3 record (nothing to show) draws nothing');
+  const on = renderQuoteEmail({ ...base, lines: [{ ...lines[0], listing: true }], listings: { [XKEY]: CATALOG3.machines[0] } });
+  assert.notEqual(on.html, today.html);
+  assert.equal(quoteListings([{ kind: 'machine', key: XKEY }], { [XKEY]: { ...CATALOG3.machines[0], image: 'https://img.machineryhost.com/x.jpg' } })[0].image, null, 'never the Machinio CDN');
+  assert.equal(leadParagraph('x'.repeat(400)).length, 321, '≤ 320 + …');
+  // The composer: the switch defaults on, the payload carries it, the preview with the fetched record = the send's card.
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com' };
+  const d = newDraft(lead);
+  const ml = addMachine(d, CATALOG.machines[0], lead);
+  addText(d);
+  assert.equal(ml.listing, true);
+  const pl = draftPayload(d).lines;
+  assert.equal(pl[0].listing, true); assert.ok(!('listing' in pl[1]), 'a free-text line carries no listing');
+  const prevOn = renderQuoteEmail(previewInput(d, lead, CATALOG, { today: '2026-10-08', expires: '2026-11-07', listings: { [XKEY]: CATALOG3.machines[0] } }));
+  assert.ok(prevOn.html.includes('Full listing →') && prevOn.html.includes(`src="${IMG}"`), 'preview card from the full record');
+  ml.listing = false;
+  const prevOff = renderQuoteEmail(previewInput(d, lead, CATALOG, { today: '2026-10-08', expires: '2026-11-07', listings: { [XKEY]: CATALOG3.machines[0] } }));
+  assert.ok(!prevOff.html.includes('Full listing →'));
+  assert.equal(draftPayload(d).lines[0].listing, false);
+  const { composerView } = await import('../docs/composer.js');
+  ml.listing = true;
+  const view = composerView(d, lead, { state: 'ready', data: CATALOG });
+  assert.equal((view.match(/data-qc="listing"/g) || []).length, 1, 'the switch on the catalog machine line only, not the free-text line');
+  assert.ok(/data-qc="listing"[^>]*checked/.test(view), 'default on');
+});
+
+await check('J (PDF): page 1 unchanged + one Equipment Details page per the listing line — photo, the full spec table, description, Full listing:', async () => {
+  const { renderQuotePdf } = await import('../worker/quote-pdf.js');
+  const q = { number: 'Q2001', date: '2026-10-08', expires: '2026-11-07', customer: 'Acme Foods', to: 'pat@example.com', tax: true, tax_rate: 0.055,
+    business: CATALOG.business, sender: { name: 'Kevin Example' }, lines: [{ kind: 'machine', key: XKEY, description: 'Acme X20', model: 'X20-PA', qty: 1, unit: 5433, options: [] }] };
+  const today = await renderQuotePdf(q);
+  const listings = { [XKEY]: CATALOG3.machines[0] };
+  const withL = await renderQuotePdf({ ...q, listings, photos: { [XKEY]: new Uint8Array(LOGO_JPEG) } });
+  assert.equal(await pageCount(withL), (await pageCount(today)) + 1, 'one listing line → +1 page');
+  assert.equal(imageCount(withL), imageCount(today) + 1, 'the photo embeds (the header strip reuses the mark)');
+  const off = await renderQuotePdf({ ...q, lines: [{ ...q.lines[0], listing: false }], listings, photos: { [XKEY]: new Uint8Array(LOGO_JPEG) } });
+  assert.equal(await pageCount(off), await pageCount(today), 'off → no extra page');
+  assert.equal(await pdfText(off), await pdfText(today), 'off → the same drawn text as today');
+  const tToday = await pdfText(today);
+  const t = await pdfText(withL);
+  assert.ok(t.startsWith(tToday), 'page 1 draws exactly what it drew before; the listing comes after');
+  for (const w of ['Equipment Details', 'QUOTE # Q2001', 'Acme X20 Walk-Behind Scrubber (20" Disk)', '#X20-PA', 'CLEANING PATH', 'WARRANTY SEVENTH', '2 YEARS',
+    '12 gallon solution tank', 'Built for daily cleaning in shops and schools.', 'Full listing: https://www.example.com/listings/1472968-acme-x20', 'A Local, Veteran-Owned Company']) {
+    assert.ok(t.includes(w), `PDF draws "${w}"`);
+  }
+  // Blocks flow: eight long listing lines run to more pages, and nothing throws.
+  const many = Array.from({ length: 8 }, () => ({ ...q.lines[0] }));
+  const big = await renderQuotePdf({ ...q, lines: many, listings, photos: { [XKEY]: new Uint8Array(LOGO_JPEG) } });
+  assert.ok((await pageCount(big)) >= 3);
+  const garbage = await renderQuotePdf({ ...q, listings, photos: { [XKEY]: new Uint8Array([0xff, 0xd8, 0xff, 0, 1, 2]) } });
+  assert.equal(imageCount(garbage), imageCount(today), 'a JPEG that will not embed → no photo, still a PDF');
+});
+
+await check('K: the image fetch fails (404 · not a JPEG · DNS · > 2 s) → the quote still sends, with no photo; machineryhost nowhere', async () => {
+  const cases = [['404', { status: 404, type: 'text/plain', body: 'nope' }], ['png', { status: 200, type: 'image/png', body: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }], ['dns', 'throw'], ['slow', 'hang']];
+  for (const [name, resp] of cases) {
+    IMAGES.set(IMG, resp);
+    const t0 = Date.now();
+    const r = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: XKEY }] }));
+    assert.equal(r.status, 201, `${name}: ${JSON.stringify(r.body)}`);
+    if (name === 'slow') assert.ok(Date.now() - t0 < 4000, 'the 2 s cap holds');
+    const pdf = new Uint8Array(await env.FLEET_KV.get(`quotepdf:${r.body.result.token}`, 'arrayBuffer'));
+    assert.equal(imageCount(pdf), 1, `${name}: the mark only, no photo`);
+    assert.ok((await pdfText(pdf)).includes('Equipment Details'), `${name}: the page still comes`);
+  }
+  IMAGES.set(IMG, { status: 200, type: 'image/jpeg', body: LOGO_JPEG });
+  const ok = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: XKEY }] }));
+  const pdf = new Uint8Array(await env.FLEET_KV.get(`quotepdf:${ok.body.result.token}`, 'arrayBuffer'));
+  assert.equal(imageCount(pdf), 2, 'a good JPEG embeds');
+  const hits = imageHits.length;
+  await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: XKEY, listing: false }] }));
+  assert.equal(imageHits.length, hits, 'listing off → no fetch at all');
+  // A Machinio CDN image in the catalog is never fetched or drawn.
+  await call('POST', '/api/admin/catalog', { admin: true, body: { ...CATALOG3, machines: [{ ...CATALOG3.machines[0], image: 'https://img.machineryhost.com/x/00.jpg' }, ...CATALOG3.machines.slice(1)] } });
+  const mh = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: XKEY }] }));
+  assert.equal(mh.status, 201);
+  const mail = sent.at(-1).body;
+  const mpdf = new Uint8Array(await env.FLEET_KV.get(`quotepdf:${mh.body.result.token}`, 'arrayBuffer'));
+  assert.ok(!/machineryhost/i.test(mail.html + mail.text + (await pdfText(mpdf))), 'machineryhost nowhere');
+  assert.equal(imageHits.length, hits, 'and never fetched');
+  await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG });
 });
 
 globalThis.fetch = realFetch;

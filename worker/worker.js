@@ -40,7 +40,7 @@
  *     needs the bundle: `npx wrangler deploy --dry-run --outdir dist`.
  */
 
-import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS, BANNER_PATH } from '../docs/quote-email.js';
+import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_TAX_RATE, DEFAULT_VALID_DAYS, BANNER_PATH, safeListingUrl } from '../docs/quote-email.js';
 import { overlayLeads } from '../docs/quotes.js';
 import { renderQuotePdf } from './quote-pdf.js';
 
@@ -307,12 +307,18 @@ const MAX_QUOTE_OPTIONS = 40;                     // per machine line
 const MAX_QUOTE_UNIT = 10000000;
 const MAX_CC = 5;
 const QUOTE_KEYS = new Set(['lead', 'to', 'cc', 'subject', 'lines', 'tax', 'note', 'valid_days']);
-const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options', 'list', 'discount', 'note']);   // v1.1: list/discount/note
+const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options', 'list', 'discount', 'note', 'listing']);   // v1.1: list/discount/note · v1.3: listing
 const MAX_LINE_NOTE = 300;
 const QUOTE_OPTION_KEYS = new Set(['part', 'description', 'unit']);
 const CATALOG_KEY_RE = /^[a-z0-9][a-z0-9-]{0,159}$/;
 const CATALOG_NEVER = /^(net|disc)$/i;            // dealer cost + discount never leave the vault
 const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
+// v1.3 (D91): GET /api/catalog drops these off every machine (the composer searches title/model/stock;
+// the full record is ~350 KB). GET /api/catalog/<key> and quote_send read them back by key.
+const CATALOG_HEAVY = ['specs', 'description'];
+const CATALOG_ONE_RE = /^\/api\/catalog\/(.+)$/;
+const LISTING_PHOTO_TIMEOUT_MS = 2000;            // a slow image is no photo, never a slow send
+const LISTING_PHOTO_MAX_BYTES = 4 * 1024 * 1024;
 const RATE_LIMIT_PER_MIN = 30;                    // per IP on the customer routes
 // A 1×1 transparent GIF — the "Opened" pixel.
 const PIXEL_GIF = Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), (c) => c.charCodeAt(0));
@@ -395,6 +401,19 @@ async function route(request, env, url) {
     const bytes = await env.FLEET_KV.get(`quotepdf:${adminQ[1]}`, 'arrayBuffer');
     if (!bytes) return json({ error: 'not found' }, 404);
     return new Response(bytes, { status: 200, headers: { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-store' } });
+  }
+
+  // v1.3 (D91) — one machine's full record (specs + description) for the composer's preview card.
+  const catOne = CATALOG_ONE_RE.exec(path);
+  if (catOne) {
+    if (method !== 'GET') {
+      const res = json({ error: 'method not allowed' }, 405);
+      res.headers.set('Allow', 'GET');
+      return res;
+    }
+    const me = await crewAuth(request, url, env);
+    if (!me) return json({ error: 'unauthorized' }, 401);
+    return crewCatalogOne({ env, me, rawKey: catOne[1] });
   }
 
   // /api/event/<id> — the only path with a variable segment, so it is matched
@@ -1611,8 +1630,56 @@ async function crewCatalog({ me, env }) {
   const raw = await env.FLEET_KV.get('catalog');
   if (!raw) return json({ error: 'catalog not published yet' }, 503);
   const cat = JSON.parse(raw);
+  // v1.3: the light copy — url + image stay, specs + description come by key (crewCatalogOne).
+  const machines = Array.isArray(cat.machines) ? cat.machines.map((m) => {
+    if (!m || typeof m !== 'object') return m;
+    const out = { ...m };
+    for (const k of CATALOG_HEAVY) delete out[k];
+    return out;
+  }) : cat.machines;
   // `sender` = the caller's own From block, so the preview's signature is the one that sends.
-  return json({ ...cat, tax_rate: taxRate(env), valid_days: DEFAULT_VALID_DAYS, sender: senderFor(env, me.name) });
+  return json({ ...cat, machines, tax_rate: taxRate(env), valid_days: DEFAULT_VALID_DAYS, sender: senderFor(env, me.name) });
+}
+
+/** GET /api/catalog/<key> — the one machine, whole (v1.3). Same gate as the list. */
+async function crewCatalogOne({ env, me, rawKey }) {
+  if (me.role !== 'sales' && me.role !== 'owner') return json({ error: `role ${me.role} cannot read the quote catalog` }, 403);
+  let key;
+  try { key = decodeURIComponent(rawKey); } catch { key = ''; }
+  if (!CATALOG_KEY_RE.test(key)) return json({ error: 'bad key' }, 400);
+  const cat = await env.FLEET_KV.get('catalog', 'json');
+  if (!cat) return json({ error: 'catalog not published yet' }, 503);
+  const m = Array.isArray(cat.machines) ? cat.machines.find((x) => x && x.key === key) : null;
+  if (!m) return json({ error: `${key} is not in the catalog` }, 404);
+  return json(m);
+}
+
+/**
+ * v1.3 — the listing photos for the PDF, fetched at send time from OUR copy on the website.
+ * Each one is best-effort: a failure, a non-JPEG, an oversize file or > 2 s → no photo for that
+ * line, a log line, and the send carries on. → {key → Uint8Array}
+ */
+async function listingPhotos(listings) {
+  const out = {};
+  await Promise.all(Object.entries(listings).map(async ([key, m]) => {
+    const src = safeListingUrl(m && m.image);
+    if (!src) return;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), LISTING_PHOTO_TIMEOUT_MS);
+    try {
+      const res = await fetch(src, { signal: ctl.signal, cf: { cacheTtl: 3600 } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (bytes.length > LISTING_PHOTO_MAX_BYTES) throw new Error('too large');
+      if (!(bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)) throw new Error('not a JPEG');
+      out[key] = bytes;
+    } catch (err) {
+      console.log(`quote_send: no photo for ${key} — ${(err && err.name === 'AbortError') ? 'timed out' : (err && err.message) || 'fetch failed'}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+  return out;
 }
 
 /** POST /api/admin/catalog — the engine's push. Refuses a dealer-cost key anywhere, by path. */
@@ -1718,6 +1785,7 @@ function cleanQuote(p, catalog) {
     for (const k of Object.keys(l)) if (!QUOTE_LINE_KEYS.has(k)) throw httpError(400, `${at} does not take ${k}`);
     if (!QUOTE_LINE_KINDS.includes(l.kind)) throw httpError(400, `${at}.kind must be one of ${QUOTE_LINE_KINDS.join(', ')}`);
     if (l.options != null && l.kind !== 'machine') throw httpError(400, `${at}: options ride only on a machine line`);
+    if (l.listing != null && typeof l.listing !== 'boolean') throw httpError(400, `${at}.listing must be true or false`);
     let qty = 1;
     if (l.qty != null) {
       if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 99) throw httpError(400, `${at}.qty must be 1–99`);
@@ -1763,6 +1831,8 @@ function cleanQuote(p, catalog) {
       Object.assign(out, { description, model, qty, unit });
       if (list != null) { out.list = list; out.discount = discount || 0; }
       if (lineNote) out.note = lineNote;
+      // v1.3: a catalog machine line carries its listing switch AS SENT (absent = on). Keyless lines have no listing.
+      if (out.key) out.listing = l.listing !== false;
       out.options = opts.map((o, j) => {
         const oat = `${at}.options[${j}]`;
         if (!o || typeof o !== 'object' || Array.isArray(o)) throw httpError(400, `${oat} must be an object`);
@@ -1814,6 +1884,13 @@ async function quoteSend({ request, env, me, raw }) {
   const rate = taxRate(env);
   const totals = quoteTotals(p.lines, p.tax, rate);
 
+  // v1.3 (D91): the full catalog record for every line whose listing rides along, and its photo for the
+  // PDF — fetched before a number is reserved, so a slow image never holds the seq.
+  const byKey = new Map(((catalog && catalog.machines) || []).map((m) => [m && m.key, m]));
+  const listings = {};
+  for (const l of p.lines) if (l.kind === 'machine' && l.key && l.listing !== false && byKey.has(l.key)) listings[l.key] = byKey.get(l.key);
+  const photos = await listingPhotos(listings);
+
   const prev = await env.FLEET_KV.get('quote:seq');
   const n = Math.max(QUOTE_SEQ_START - 1, parseInt(prev, 10) || 0) + 1;
   const number = `Q${n}`;
@@ -1829,7 +1906,7 @@ async function quoteSend({ request, env, me, raw }) {
   const business = (catalog && catalog.business) || null;
   const q = {
     number, date, expires, valid_days: p.valid_days, customer: lead.customer || null, contact: lead.contact || null,
-    to: p.to, sender, lines: p.lines, tax: p.tax, tax_rate: rate, note: p.note, business,
+    to: p.to, sender, lines: p.lines, tax: p.tax, tax_rate: rate, note: p.note, business, listings, photos,
     pdf_url: `${origin}/q/${token}.pdf`, pixel_url: `${origin}/q/${token}/o.gif`,
     // v1.1 §3 step 4: the banner is served by the Tracker's Pages origin (the Worker hosts no static assets).
     banner_url: `${String(env.PAGES_ORIGIN || 'https://fleet.wisconsinscrubandsweep.com').replace(/\/+$/, '')}/${BANNER_PATH}`,

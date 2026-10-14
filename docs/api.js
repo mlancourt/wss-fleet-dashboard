@@ -241,4 +241,29 @@ export async function loadCatalog({ url, token, apiBase = API_BASE, fetch = defa
   try { storage.setItem(CATALOG_KEY, JSON.stringify({ at: now, built: catalogMem.built, data: catalogMem })); } catch (_) { /* full or blocked */ }
   return catalogMem;
 }
-export const __resetCatalog = () => { catalogMem = null; };
+export const __resetCatalog = () => { catalogMem = null; machineMem.clear(); };
+
+/* ---- v1.3 (D91): one machine's full record ---------------------------------
+ * GET /api/catalog/<key> → the machine with `specs` + `description`, which the
+ * list leaves off. Fetched when Kevin picks a machine so the preview's listing
+ * card is the one that sends; cached in page memory for the session.
+ */
+const machineMem = new Map();
+export async function loadMachine({ url, token, apiBase = API_BASE, fetch = defaultFetch }, key) {
+  if (machineMem.has(key)) return machineMem.get(key);
+  let m;
+  if (mockVariant(url, apiBase)) {
+    const res = await fetch('mock/mock-catalog.json', { cache: 'no-store' });
+    if (!res.ok) throw fail('error', `mock catalog ${res.status}`);
+    m = ((await res.json()).machines || []).find((x) => x && x.key === key) || null;
+    if (!m) throw fail('error', `${key} is not in the mock catalog`);
+  } else {
+    if (!token) throw fail('no-token', 'No token.');
+    const res = await fetch(`${apiBase}/api/catalog/${encodeURIComponent(key)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    if (res.status === 403) throw fail('forbidden', 'Quotes are Kevin\'s and Matt\'s.');
+    if (!res.ok) throw fail('error', `catalog/${key} ${res.status}`);
+    m = await res.json();
+  }
+  machineMem.set(key, m);
+  return m;
+}
