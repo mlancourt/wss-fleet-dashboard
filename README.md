@@ -600,7 +600,7 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `POST /api/admin/events/ack` | secret | `{ids:[…]}` → deletes only those; `{deleted:n}` |
 | `POST /api/admin/tokens` | secret | replaces the map; echoes names + roles only |
 
-**D82 (2026-10-07) — role `intake`.** A write-only token for the website's WSS Chat (`{"name":"Website-Chat","role":"intake"}`): `POST /api/event` with `lead_open` or `ticket_open` only; every other action, `GET /api/data`, `/api/health`, `/api/doc` (both directions) and undo answer 403. `LEAD_SOURCES` gains `WEB-CHAT` (engine `wss_leads.py SOURCES` too). Tests: `selftest-worker.mjs` "D82 intake".
+**D82 (2026-10-07) — role `intake`.** A write-only token for the website's WSS Chat (`{"name":"Website-Chat","role":"intake"}`): `POST /api/event` with `lead_open` or `ticket_open` only (+ `parts_open` since D99, 2026-10-15); every other action, `GET /api/data`, `/api/health`, `/api/doc` (both directions) and undo answer 403. `LEAD_SOURCES` gains `WEB-CHAT` (engine `wss_leads.py SOURCES` too). Tests: `selftest-worker.mjs` "D82 intake".
 
 | `POST /api/doc` | token (any role) | **S2 — a phone uploads.** Body = raw bytes; headers `Content-Type`, `X-Doc-Name`, `X-Doc-Record` (`^[SL]\d{4}$`), `X-Doc-Kind` (`WORKORDER · PARTS-LIST · PHOTO · OTHER` only). No id is sent — the Worker hashes the body. `201 {id, bytes, existed:false}` / `200 {id, existed:true}` / `415` / `413` / `400` |
 | `GET /api/doc/<id>` | token (`?t=` **or** Bearer) | the bytes, `Content-Type` from the stored meta, `Content-Disposition: inline`, `Cache-Control: private, max-age=31536000, immutable`, `nosniff`. `404` unknown, `400` malformed id. `?t=` must work — a new tab cannot send a header. |
