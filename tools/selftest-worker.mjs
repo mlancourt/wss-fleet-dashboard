@@ -411,7 +411,12 @@ await check('D88: parts_open — any crew role (not intake), customer + parts re
     assert.equal(e.payload.machine, null, 'absent keys normalised to null');
     assert.equal(e.serial, null);
   }
-  await refused('intake', PO({ customer: 'A', parts: 'x' }), 'intake', 403);
+  { // D99: intake (the site chat) may OPEN a parts order (source WEB-CHAT), never update or close one
+    const e = await ok('intake', PO({ customer: 'A', parts: 'x', source: 'WEB-CHAT' }), 'D99: intake opens parts orders');
+    assert.equal(e.payload.source, 'WEB-CHAT');
+  }
+  await refused('intake', { action: 'parts_update', payload: { order: 'P1001', note: 'x' } }, 'intake update', 403);
+  await refused('intake', { action: 'parts_close', payload: { order: 'P1001', reason: 'OTHER' } }, 'intake close', 403);
   await refused('owner', PO({ parts: 'x' }), 'no customer', 400, 'customer');
   await refused('owner', PO({ customer: 'A' }), 'no parts', 400, 'parts');
   await refused('owner', PO({ customer: 'A', parts: 'x'.repeat(2001) }), 'parts 2001', 400, 'parts');

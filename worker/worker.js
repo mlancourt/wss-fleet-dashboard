@@ -106,7 +106,7 @@ const ACTION_ROLES = {
   // Matt's — `service` may add a note to an order and nothing else (narrowed in
   // cleanPayload), and closing is theirs. ORDERED (money leaves the building)
   // and COMPLETE (names the invoice) are Matt's alone, narrowed there too.
-  parts_open: ALL_ROLES,
+  parts_open: OPEN_ROLES,   // D99: the site chat (intake) opens parts orders too — add a row, never read/edit/close one
   parts_update: ALL_ROLES,
   parts_close: new Set(['owner', 'sales']),
 };
@@ -144,7 +144,7 @@ const ASSIGNEES = new Set(['Kevin', 'Matt']);
 // D88 — parts orders (Parts-Site-Spec §2/§3). The engine ships the same lists in
 // parts_summary; these are the Worker's copy, shape only.
 const P_STAGES = new Set(['REQUESTED', 'QUOTED', 'APPROVED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED']);
-const P_SOURCES = new Set(['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE']);
+const P_SOURCES = new Set(['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE', 'WEB-CHAT']);   // WEB-CHAT: D99 (site chat parts hand-off)
 const P_TERMS = new Set(['CASH', 'ACCOUNT']);
 const P_SUPPLY = new Set(['VENDOR', 'SHOP-STOCK']);
 const P_SHIP_TO = new Set(['CUSTOMER', 'SHOP']);
