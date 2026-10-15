@@ -159,7 +159,8 @@ const P_OPEN_KEYS = ['customer', 'contact', 'phone', 'email', 'parts', 'terms', 
   'source', 'assigned', 'value', 'machine', 'serial', 'related_ticket', 'related_lead', 'note'];
 const P_UPDATE_KEYS = ['order', 'stage', 'note', 'parts', 'vendor', 'vendor_ref', 'tracking', 'quote', 'value',
   'customer_po', 'invoice', 'paid', 'assigned', 'terms', 'supply', 'ship_to', 'ship_address', 'contact', 'phone',
-  'email', 'machine', 'serial'];
+  'email', 'machine', 'serial', 'ship_from', 'ship_lines'];   // D98: ship_from + ship_lines ride WITH tracking only
+const P_SHIP_FROM = new Set(['SHOP', 'VENDOR']);
 const P_CLOSE_KEYS = ['order', 'outcome', 'reason', 'invoice', 'note'];
 const SERVICE_PARTS_KEYS = new Set(['order', 'note']);
 // D64 — the three rental verbs. Membership only: whether THIS agreement may go
@@ -1479,6 +1480,13 @@ function cleanPayload(action, p, role, serial) {
       put('vendor', vendorOf(obj.vendor));
       put('vendor_ref', optStr(obj.vendor_ref, 64, 'vendor_ref'));
       put('tracking', optStr(obj.tracking, 64, 'tracking'));
+      // D98 — a tracking number is a box. Where it came from and what's in it
+      // describe THAT box, so neither may travel without the number.
+      for (const k of ['ship_from', 'ship_lines']) {
+        if (obj[k] != null && obj[k] !== '' && !out.tracking) throw httpError(400, `${k} only travels with tracking`);
+      }
+      put('ship_from', optEnum('ship_from', P_SHIP_FROM));
+      put('ship_lines', optStr(obj.ship_lines, 300, 'ship_lines'));
       put('quote', optStr(obj.quote, 64, 'quote'));
       put('value', optValue(obj.value, 'value'));
       put('customer_po', optStr(obj.customer_po, 64, 'customer_po'));

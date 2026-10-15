@@ -2445,3 +2445,30 @@ render assertions updated for the new band (head counts include parts sales; the
 `main` before D88: leads L1021 / L1022 / L1028 ship `next_action` as `{what, when}` (an
 object), so the Leads board draws `[object Object]`. Contract is a string — engine-side;
 reported, not papered over.
+
+## D98 (2026-10-15) — split shipments on the Parts card
+
+Built from `Web-Order-Fulfillment-Site-Spec.md` §6–§7 against the live engine keys
+(`shipments[]`, `legs_pending`, `boxes_open`, the widened `in_flight`). No snapshot key or
+event shape invented. Worker deployed first (version `ccc09226`), then the page (BUILD
+`2026-10-15-d98`, SW `v63`). What shipped: CLAUDE.md v5.4.
+
+**Floor calls**
+- `ship_lines` beside no tracking is refused like `ship_from` (the brief said "both may
+  only appear alongside tracking"; the spec only named `ship_from`). A note sheet can never
+  carry either — the page also drops both unless `tracking` is in the payload.
+- The band's head counts a box moving as **in transit** whatever the stage; an ORDERED
+  order counts as ordered only while no box of it is open.
+- Band sort: `ordered`, else the first box's `shipped` — a shop box at APPROVED would
+  otherwise sort first on an empty date.
+- The single-field Tracking sheet still pre-fills the record's tracking; re-saving it is a
+  no-op for the engine (it dedupes on the number).
+- Legacy rows with a bare `tracking` and no `shipments[]` (P1004/P1005 in the mock) draw no
+  Shipments block — the engine synthesizes the entry on first touch, the page never does.
+
+**Tests** — `selftest-worker` +1 (owner/sales shape, VENDOR via the stage, 300 ok / 301 400,
+ship_from/ship_lines without tracking 400, bad enum 400, service 403) · `selftest-parts` +2
+(pure helpers, band) · `selftest-render` +3 (Shipments block, chips + band, the three sheets'
+exact payloads, service view) · two D75/D88 render assertions updated for the band now
+carrying P1008/P1009. `money-gate.mjs` on the mock through `wrangler dev`: 45 / 0.
+

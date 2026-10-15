@@ -181,16 +181,58 @@ export const gateText = (o) => ((o && o.terms) === 'ACCOUNT'
   ? 'Account order — needs the customer’s PO before it ships.'
   : 'Cash order — ships after payment: paid date and invoice # first.');
 
-/* ---------------------------------------------------- landing tracker band -- */
+/* -------------------------------------------------------- shipments (D98) --
+ * One entry per box (Web-Order-Fulfillment-Site-Spec §1). A web cart is
+ * typically a shelf item shipped from Ixonia plus an RPS drop-ship: two boxes,
+ * two carriers, two delivery dates. The record's own tracking/carrier/delivered
+ * mirror the LATEST box; `boxes_open` (tracking, not delivered) and
+ * `legs_pending` (VENDOR supply, no vendor box yet) are the engine's counts.
+ */
 
-/** The 📦 tracker's Parts sales band: OPEN orders at ORDERED or IN-TRANSIT, oldest order first. */
-export function partsInFlight(orders) {
-  return (orders || []).filter((o) => isOpenOrder(o) && (o.stage === 'ORDERED' || o.stage === 'IN-TRANSIT'))
-    .sort((a, b) => String(a.ordered || '').localeCompare(String(b.ordered || '')) || String(a.order).localeCompare(String(b.order)));
+export const P_SHIP_FROM = ['SHOP', 'VENDOR'];
+
+/** The boxes, as the engine sent them. A pre-D98 row has none. */
+export const shipmentsOf = (o) => (o && Array.isArray(o.shipments) ? o.shipments.filter((b) => b && typeof b === 'object') : []);
+
+/** The engine's open-box count; absent on a pre-D98 row → 0. */
+export const boxesOpen = (o) => (o && typeof o.boxes_open === 'number' && isFinite(o.boxes_open) ? o.boxes_open : 0);
+
+/** The newest box with a tracking number: latest `shipped`, then highest id. */
+export function latestShipment(o) {
+  const list = shipmentsOf(o).filter((b) => b.tracking);
+  if (!list.length) return null;
+  return list.slice().sort((a, b) => String(b.shipped || '').localeCompare(String(a.shipped || ''))
+    || (Number(b.id) || 0) - (Number(a.id) || 0))[0];
 }
 
-/** {ordered, inTransit} over the in-flight rows — folded into the tracker head counts. */
+/** Ship from shop: owner/sales, an OPEN order from APPROVED on. */
+export const canShipBox = (role, o) => canEditOrder(role) && isOpenOrder(o)
+  && P_STAGES.indexOf(o.stage) >= P_STAGES.indexOf('APPROVED');
+
+/* ---------------------------------------------------- landing tracker band -- */
+
+/**
+ * The 📦 tracker's Parts sales band: OPEN orders at ORDERED or IN-TRANSIT —
+ * and (D98) any OPEN order with a box moving, whatever its stage (a shop box
+ * that left before the vendor order was placed). Oldest order first.
+ */
+export function partsInFlight(orders) {
+  return (orders || []).filter((o) => isOpenOrder(o) && (o.stage === 'ORDERED' || o.stage === 'IN-TRANSIT' || boxesOpen(o) > 0))
+    .sort((a, b) => flightDate(a).localeCompare(flightDate(b)) || String(a.order).localeCompare(String(b.order)));
+}
+
+/** When it went in flight: the vendor order, else the first box out (a shop box before the vendor order). */
+function flightDate(o) {
+  if (o.ordered) return String(o.ordered);
+  const shipped = shipmentsOf(o).map((b) => b.shipped).filter(Boolean).map(String).sort();
+  return shipped[0] || '';
+}
+
+/** {ordered, inTransit} over the in-flight rows. A box moving counts as in transit, whatever the stage. */
 export function inFlightCounts(rows) {
   const list = rows || [];
-  return { ordered: list.filter((o) => o.stage === 'ORDERED').length, inTransit: list.filter((o) => o.stage === 'IN-TRANSIT').length };
+  return {
+    ordered: list.filter((o) => o.stage === 'ORDERED' && !boxesOpen(o)).length,
+    inTransit: list.filter((o) => o.stage === 'IN-TRANSIT' || boxesOpen(o) > 0).length,
+  };
 }

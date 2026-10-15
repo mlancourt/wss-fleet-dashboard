@@ -1247,7 +1247,8 @@ function buildParts({ withParts, service_queue, leads }) {
     return {
       open_by_stage: by,
       requested_unquoted: by.REQUESTED,
-      in_flight: by.ORDERED + by['IN-TRANSIT'],
+      // D98: any OPEN order with a box moving counts, whatever its stage.
+      in_flight: open.filter((o) => o.stage === 'ORDERED' || o.stage === 'IN-TRANSIT' || o.boxes_open > 0).length,
       stale_count: open.filter((o) => o.stale).length,
       closed_recent: { CLOSED: rows.filter((o) => o.status === 'CLOSED').length, LOST: rows.filter((o) => o.status === 'LOST').length, DEAD: rows.filter((o) => o.status === 'DEAD').length },
       money_fields: ['value'],
@@ -1266,7 +1267,17 @@ function buildParts({ withParts, service_queue, leads }) {
 
   const ticket = (service_queue || []).find((t) => t.machine_owner === 'CUSTOMER' && t.status === 'OPEN');
   const partsLead = (leads || []).find((l) => l.interest === 'PARTS');
-  const mk = (o) => ({
+  // D98: one entry per box; the engine computes legs_pending + boxes_open.
+  const box = (b) => ({ id: b.id, from: b.from, vendor: b.vendor || null, carrier: b.carrier || null, tracking: b.tracking || null,
+    shipped: b.shipped == null ? null : d(-b.shipped), delivered: b.delivered == null ? null : d(-b.delivered),
+    lines: b.lines || null, notified: !!b.notified });
+  const mk = (o) => {
+    const shipments = (o.shipments || []).map(box);
+    const supply = o.supply || 'VENDOR';
+    return {
+    shipments,
+    legs_pending: supply === 'VENDOR' && !shipments.some((b) => b.from === 'VENDOR'),
+    boxes_open: shipments.filter((b) => b.tracking && !b.delivered).length,
     order: o.order, status: o.status || 'OPEN', stage: o.stage,
     customer: o.customer, contact: o.contact || null, phone: o.phone || null, email: o.email || null,
     ship_to: o.ship_to || 'CUSTOMER', ship_address: o.ship_address || null,
@@ -1284,7 +1295,8 @@ function buildParts({ withParts, service_queue, leads }) {
     related_ticket: o.related_ticket || null, related_lead: o.related_lead || null,
     docs: o.docs || [],
     log: o.log || [],
-  });
+  };
+  };
   const rows = [
     mk({ order: 'P1001', stage: 'REQUESTED', customer: 'Harbor Lane Bakery', contact: 'Gina Ortiz', phone: '262-555-0111',
       parts: '2x squeegee blade rear\n1x recovery tank lid gasket', ship_address: '400 Example Ave, Hartland WI 53029',
@@ -1320,6 +1332,24 @@ function buildParts({ withParts, service_queue, leads }) {
       parts: '6x squeegee blade front', value: 270, quote: { number: '44039', sent: d(-5) }, vendor: 'RPS', ordered: 1,
       ship_address: '12 Mill Rd, Watertown WI 53094', assigned: 'Kevin', stageDays: 1.0, totalDays: 5.0,
       log: logOf([[ts(-1, '13:10'), 'Matt', 'ordered from RPS under P1007']]) }),
+    // D98 — the web-cart template (#1002's shape): fast packs off the shelf (delivered, the customer was
+    // mailed) + an RPS drop-ship still moving. Every leg shipped: legs_pending false, one box open.
+    mk({ order: 'P1008', stage: 'IN-TRANSIT', customer: 'Birchwood Clinic', contact: 'Nia Cole', email: 'nia@birchwood.example',
+      source: 'WEB-CART', terms: 'CASH', parts: '2x detergent fast packs\n1x squeegee blade rear', value: 188, paid: 3,
+      invoice: 'Order #1003', web_order: '1003', opened_by: 'web', vendor: 'RPS', ordered: 2,
+      tracking: '1Z999AA10123456791', carrier: 'UPS', ship_address: '3 Birch Ln, Ixonia WI 53036', stageDays: 1.0, totalDays: 3.0,
+      shipments: [
+        { id: 1, from: 'SHOP', carrier: 'UPS', tracking: '1Z999AA10123456785', shipped: 3, delivered: 1, lines: '2x detergent fast packs', notified: true },
+        { id: 2, from: 'VENDOR', vendor: 'RPS', carrier: 'UPS', tracking: '1Z999AA10123456791', shipped: 1, notified: true },
+      ],
+      log: logOf([[ts(-3, '15:10'), 'Matt', 'box 1 shipped from the shop'], [ts(-1, '06:15'), null, 'IN-TRANSIT — UPS tracking from the RPS invoice']]) }),
+    // D98 — a VENDOR order still at APPROVED with a shop box already moving: the RPS order is still
+    // to place (legs_pending), but the box draws in the 📦 band.
+    mk({ order: 'P1009', stage: 'APPROVED', customer: 'Quarry Ridge Dairy', contact: 'Tom Beck', phone: '920-555-0144',
+      terms: 'CASH', parts: '1x case detergent fast packs\n1x vacuum motor 36V', value: 512, paid: 0, invoice: '4322',
+      tracking: '1Z999AA10123456802', carrier: 'UPS', ship_address: '88 Quarry Rd, Lebanon WI 53047', stageDays: 0.5, totalDays: 1.5,
+      shipments: [{ id: 1, from: 'SHOP', carrier: 'UPS', tracking: '1Z999AA10123456802', shipped: 0, lines: '1x case detergent fast packs' }],
+      log: logOf([[ts(0, '10:20'), 'Matt', 'box 1 shipped from the shop — RPS order still to place']]) }),
     mk({ order: 'P0996', status: 'CLOSED', stage: 'DELIVERED', customer: 'Harbor Lane Bakery', parts: '1x charger cord', value: 48,
       paid: 9, invoice: '4301', vendor: 'RPS', ordered: 8, delivered: 4, tracking: '1Z999AA10123456700', carrier: 'UPS',
       close_reason: 'COMPLETE', closedDays: 4, stageDays: 4, totalDays: 9,

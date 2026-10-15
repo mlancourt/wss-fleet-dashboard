@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import {
   partsColumns, closedOrders, partsBadge, partsStageOptions, stageFields, isGated, gateText, partsInFlight,
-  inFlightCounts, firstLine, partsValue, canCloseOrder, canComplete, sortOrders, partsOptions,
+  inFlightCounts, shipmentsOf, boxesOpen, latestShipment, canShipBox, firstLine, partsValue, canCloseOrder, canComplete, sortOrders, partsOptions,
 } from '../docs/parts.js';
 
 let passed = 0;
@@ -77,6 +77,24 @@ check('close + done: owner any time, sales only before ORDERED; Done = owner at 
 check('tracker band: OPEN at ORDERED / IN-TRANSIT only, oldest ordered first; counts', () => {
   const rows = partsInFlight([o({ order: 'P1', stage: 'IN-TRANSIT', ordered: '2026-10-09' }), o({ order: 'P2', stage: 'ORDERED', ordered: '2026-10-01' }),
     o({ order: 'P3', stage: 'DELIVERED' }), o({ order: 'P4', stage: 'ORDERED', status: 'DEAD' })]);
+  assert.deepEqual(rows.map((x) => x.order), ['P2', 'P1']);
+  assert.deepEqual(inFlightCounts(rows), { ordered: 1, inTransit: 1 });
+});
+
+check('D98 shipments: tolerant of a pre-D98 row; newest box by shipped then id; Ship from shop = owner/sales, OPEN, APPROVED on', () => {
+  assert.deepEqual(shipmentsOf(o({})), []);
+  assert.equal(boxesOpen(o({})), 0);
+  assert.equal(latestShipment(o({})), null);
+  const r = o({ shipments: [{ id: 1, tracking: 'A', shipped: '2026-10-15' }, { id: 2, tracking: 'B', shipped: '2026-10-15' }, { id: 3, tracking: null, shipped: '2026-10-16' }] });
+  assert.equal(latestShipment(r).tracking, 'B', 'same day → higher id; no-tracking boxes skipped');
+  for (const st of ['APPROVED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED']) assert.ok(canShipBox('sales', o({ stage: st })), st);
+  assert.ok(!canShipBox('owner', o({ stage: 'QUOTED' })) && !canShipBox('service', o({ stage: 'APPROVED' })));
+  assert.ok(!canShipBox('owner', o({ stage: 'DELIVERED', status: 'CLOSED' })) && !canShipBox('owner', o({ stage: 'APPROVED', status: 'LOST' })));
+});
+
+check('D98 band: an APPROVED order with a box moving draws (in transit), dated by its first box; no box, no row', () => {
+  const rows = partsInFlight([o({ order: 'P1', stage: 'APPROVED', boxes_open: 1, shipments: [{ id: 1, tracking: 'X', shipped: '2026-10-15' }] }),
+    o({ order: 'P2', stage: 'ORDERED', ordered: '2026-10-10' }), o({ order: 'P3', stage: 'APPROVED' })]);
   assert.deepEqual(rows.map((x) => x.order), ['P2', 'P1']);
   assert.deepEqual(inFlightCounts(rows), { ordered: 1, inTransit: 1 });
 });

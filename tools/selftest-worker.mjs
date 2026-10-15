@@ -446,6 +446,22 @@ await check('D88: parts_update — only the keys being changed; service = note o
   await refused('owner', PU({ cost_source_inv: 'X' }), 'cost on a phone', 400, 'cost_source_inv');
 });
 
+await check('D98: parts_update ship_from + ship_lines — only with tracking; SHOP|VENDOR upper-cased; lines <= 300; service still note-only', async () => {
+  for (const role of ['owner', 'sales']) {
+    const e = await ok(role, PU({ tracking: '1Z999AA10123456784', ship_from: 'shop', ship_lines: ' 2x fast packs ' }), `${role} ship from shop`);
+    assert.deepEqual(e.payload, { order: 'P1001', tracking: '1Z999AA10123456784', ship_from: 'SHOP', ship_lines: '2x fast packs' });
+  }
+  assert.deepEqual((await ok('owner', PU({ stage: 'IN-TRANSIT', tracking: '1Z1', ship_from: 'VENDOR' }), 'vendor shipped')).payload,
+    { order: 'P1001', stage: 'IN-TRANSIT', tracking: '1Z1', ship_from: 'VENDOR' });
+  assert.equal((await ok('owner', PU({ tracking: '1Z1', ship_lines: 'x'.repeat(300) }), '300 chars')).payload.ship_lines.length, 300);
+  await refused('owner', PU({ ship_from: 'SHOP' }), 'ship_from without tracking', 400, 'ship_from');
+  await refused('owner', PU({ ship_lines: 'fast packs' }), 'ship_lines without tracking', 400, 'ship_lines');
+  await refused('owner', PU({ note: 'x', ship_from: 'SHOP' }), 'ship_from beside a note only', 400, 'ship_from');
+  await refused('owner', PU({ tracking: '1Z1', ship_from: 'UPS' }), 'bad enum', 400, 'ship_from');
+  await refused('owner', PU({ tracking: '1Z1', ship_lines: 'x'.repeat(301) }), 'lines 301', 400, 'ship_lines');
+  await refused('service', PU({ tracking: '1Z1', ship_from: 'SHOP' }), 'service ships', 403, 'note');
+});
+
 await check('D88: parts_close — sales/owner; COMPLETE owner-only; reason only on LOST; service 403', async () => {
   const c = await ok('owner', PC({ outcome: 'COMPLETE', invoice: '4310', reason: 'PRICE' }), 'owner COMPLETE');
   assert.deepEqual(c.payload, { order: 'P1001', outcome: 'COMPLETE', reason: null, invoice: '4310', note: null });

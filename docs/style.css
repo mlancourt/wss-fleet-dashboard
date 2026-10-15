@@ -1499,3 +1499,8 @@ a.alert.expired-holds { display: block; text-decoration: none; margin: 0 0 12px;
 .alert.rej { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-weight: 500; }
 .alert.rej strong { white-space: nowrap; }
 .alert.rej .btn { margin-left: auto; }
+
+/* D98 — the Shipments block on a parts order: one row per box. */
+.ship-row:last-of-type { border-bottom: 0; }
+.ship-row .chips { margin-top: 0; }
+.ship-lines { display: block; margin-top: 4px; }

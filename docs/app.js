@@ -116,13 +116,13 @@ import {
   P_STAGE_LABEL, P_SOURCE_LABEL, P_REASON_LABEL, P_OUTCOME_LABEL,
   partsOptions, isOpenOrder, isStock, partsValue, orderById, firstLine, partsColumns, closedOrders, partsBadge,
   canEditOrder, canCloseOrder, canComplete, partsStageOptions, isGated, stageFields, gateText,
-  partsInFlight, inFlightCounts,
+  partsInFlight, inFlightCounts, shipmentsOf, boxesOpen, latestShipment, canShipBox, P_SHIP_FROM,
 } from './parts.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-14-d96';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-15-d98';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -869,7 +869,8 @@ function partsSaleRow(o) {
       <div class="chips">
         ${o.ordered ? raw(chip(`ordered ${fmtDate(o.ordered)}`, 'cal')) : ''}
         ${o.vendor ? raw(chip(VENDOR_LABEL[o.vendor] || o.vendor, 'rig')) : ''}
-        ${raw(trackingChip(o))}
+        ${raw(trackingChip(latestShipment(o) || o))}
+        ${raw(boxesChip(o))}
         ${raw(chip((P_STAGE_LABEL[o.stage] || o.stage).toLowerCase(), o.stage === 'IN-TRANSIT' ? 'rent' : 'hold'))}
       </div>
     </div>`;
@@ -5084,8 +5085,16 @@ const staleChip = (o) => (o && o.stale
   ? html`<span class="chip ${o.stale === 'red' ? 'bad' : 'warn'}"${o.stale_reason ? raw(html` title="${o.stale_reason}"`) : ''}>${o.stale === 'red' ? '🔴 stale' : '🟡 going stale'}</span>`
   : '');
 /** The vendor trail once money has moved — the WO line's partTrailChips, unchanged. */
-const orderTrail = (o) => (['ORDERED', 'IN-TRANSIT', 'DELIVERED'].includes(o.stage) && !isStock(o)
-  ? partTrailChips({ ordered: o.ordered, vendor: o.vendor, tracking: o.tracking, carrier: o.carrier }) : '');
+// D98: the tracking chip is the NEWEST box's; a box that left before the vendor
+// order (APPROVED) or off the shelf (stock) draws its tracking alone.
+const orderTrail = (o) => {
+  const box = latestShipment(o);
+  const t = box ? { tracking: box.tracking, carrier: box.carrier } : { tracking: o.tracking, carrier: o.carrier };
+  if (['ORDERED', 'IN-TRANSIT', 'DELIVERED'].includes(o.stage) && !isStock(o)) return partTrailChips({ ordered: o.ordered, vendor: o.vendor, ...t });
+  return box ? trackingChip(t) : '';
+};
+/** D98: more than one box moving — say so; one box is just its tracking chip. */
+const boxesChip = (o) => (boxesOpen(o) > 1 ? chip(`📦 ${boxesOpen(o)} boxes`, 'rent') : '');
 const relatedChips = (o) => [
   o.related_ticket ? html`<a class="chip wrench" href="#/ticket/${raw(enc(o.related_ticket))}">🔧 ${o.related_ticket}</a>` : '',
   o.related_lead ? leadChip(o.related_lead) : '',
@@ -5144,6 +5153,7 @@ function partsCard(o) {
         ${raw(staleChip(o))}
         ${v != null ? raw(chip(fmtMoney(v), 'money')) : ''}
         ${raw(orderTrail(o))}
+        ${raw(boxesChip(o))}
         ${raw(relatedChips(o))}
       </div>
     </div>`;
@@ -5306,7 +5316,54 @@ function viewPartsOrder(id) {
     ${raw(docsSection(o, o.order))}
     ${raw(notesSection(o, pend, true))}
     ${raw(partsStagePicker(o))}
+    ${raw(partsShipments(o))}
     ${raw(partsActions(o))}`;
+}
+
+/**
+ * D98 — the Shipments block: one row per box. 📦 id · SHOP | VENDOR (+vendor) ·
+ * the tracking chip · shipped · delivered or in transit · ✉️ notified (the
+ * website mailed the customer — web cart only) · what's in the box, muted.
+ * No boxes, no block. Never a figure.
+ */
+function partsShipments(o) {
+  const boxes = shipmentsOf(o);
+  const canShip = canShipBox(role(), o);
+  if (!boxes.length && !canShip) return '';
+  const rows = boxes.map((b) => html`
+    <div class="prow ship-row">
+      <div class="chips">
+        <span class="prow-po">📦 <strong>${b.id == null ? '—' : String(b.id)}</strong></span>
+        ${raw(chip(b.from === 'VENDOR' ? `VENDOR${b.vendor ? ` · ${VENDOR_LABEL[b.vendor] || b.vendor}` : ''}` : (b.from || '—'), b.from === 'VENDOR' ? 'rig' : 'stock'))}
+        ${raw(trackingChip(b))}
+        ${b.shipped ? raw(chip(`shipped ${fmtDate(b.shipped)}`, 'cal')) : ''}
+        ${raw(b.delivered ? chip(`✅ delivered ${fmtDate(b.delivered)}`, 'ok') : chip('🚚 in transit', 'rent'))}
+        ${b.notified === true ? raw(chip('✉️ notified', 'out')) : ''}
+      </div>
+      ${b.lines ? raw(html`<div class="prow-desc ship-lines">${b.lines}</div>`) : ''}
+    </div>`);
+  return html`
+    ${boxes.length ? raw(html`<h2>Shipments <span class="count">${boxes.length}</span></h2>
+    <div class="card">${raw(rows.join(''))}
+      ${o.legs_pending === true ? raw('<div class="form-note">The vendor leg hasn’t shipped yet.</div>') : ''}
+    </div>`) : ''}
+    ${canShip ? raw(html`<div class="actions"><button class="btn ghost" type="button" data-sheet="pf-ship" data-id="${o.order}">📦 Ship from shop</button></div>`) : ''}
+    ${canShip && ui.form && ui.form.id === o.order && ui.form.kind === 'pf-ship' ? raw(shipBoxForm(o)) : ''}`;
+}
+
+/** The Ship-from-shop sheet: tracking (required) · what's in the box · from. One parts_update. */
+function shipBoxForm(o) {
+  return html`
+    <form class="write sheet" data-action="parts_update" data-id="${o.order}" data-mode="ship">
+      <label for="sb-tracking">Tracking #</label>
+      <input id="sb-tracking" name="tracking" required maxlength="64" autocomplete="off" placeholder="paste from ShipStation">
+      <label for="sb-lines">What’s in the box (optional)</label>
+      <textarea id="sb-lines" name="ship_lines" maxlength="300" placeholder="2× fast packs"></textarea>
+      <label>From</label>
+      ${raw(toggle('ship_from', P_SHIP_FROM.map((v) => [v, v === 'SHOP' ? 'Our shop' : 'The vendor']), 'SHOP'))}
+      ${raw(sheetButtons('Add the box'))}
+      <div class="form-note">A tracking number is a box. Web-cart customers get the shipped email from the website at the next run.</div>
+    </form>`;
 }
 
 /**
@@ -5341,7 +5398,7 @@ function describeParts(e) {
   if (p.value != null && seesPartsMoney()) bits.push(`value ${fmtMoney(p.value)}`);
   if (p.vendor) bits.push(`vendor ${VENDOR_LABEL[p.vendor] || p.vendor}`);
   if (p.vendor_ref) bits.push(`vendor ref ${p.vendor_ref}`);
-  if (p.tracking) bits.push(`tracking ${p.tracking}`);
+  if (p.tracking) bits.push(`${p.ship_from === 'SHOP' ? 'box from the shop' : p.ship_from === 'VENDOR' ? 'vendor box' : 'tracking'} ${p.tracking}`);
   if (p.customer_po) bits.push(`PO ${p.customer_po}`);
   if (p.invoice) bits.push(`invoice ${p.invoice}`);
   if (p.paid) bits.push(`paid ${fmtDate(p.paid)}`);
@@ -5395,6 +5452,7 @@ function partsStageForm(o, stage) {
   return html`
     <form class="write sheet" data-action="parts_update" data-id="${o.order}" data-mode="stage">
       <input type="hidden" name="stage" value="${stage}">
+      ${stage === 'IN-TRANSIT' ? raw('<input type="hidden" name="ship_from" value="VENDOR">') : ''}
       ${isGated(o, stage) ? raw(html`<div class="info gate">🔒 ${gateText(o)}</div>`) : ''}
       ${raw(fields.map((f) => partsField(f, 'ps')).join(''))}
       ${stage === 'ORDERED' ? raw(html`<div class="form-note">Order it under PO <strong>${o.order}</strong> — that is how the box finds this order.</div>`) : ''}
@@ -5423,6 +5481,7 @@ function partsActions(o) {
   const fieldSheet = PF_SHEETS[open] ? html`
       <form class="write sheet" data-action="parts_update" data-id="${o.order}" data-mode="${open}">
         ${raw(PF_SHEETS[open].fields(o).map((f) => partsField(f, 'pf')).join(''))}
+        ${open === 'pf-tracking' ? raw('<input type="hidden" name="ship_from" value="SHOP">') : ''}
         ${raw(sheetButtons(`Save ${PF_SHEETS[open].title.toLowerCase()}`))}
       </form>` : '';
 
@@ -6863,6 +6922,10 @@ function eventBody(action, form, fd) {
     for (const k of ['stage', 'note', 'quote', 'vendor', 'vendor_ref', 'tracking', 'customer_po', 'invoice', 'paid', 'assigned']) {
       const v = s(k);
       if (v) payload[k] = v;
+    }
+    // D98: where the box came from + what's in it — only beside a tracking number (the Worker 400s otherwise).
+    if (payload.tracking) {
+      for (const k of ['ship_from', 'ship_lines']) { const v = s(k); if (v) payload[k] = v; }
     }
     const val = s('value');
     if (val !== '') payload.value = Number(val);

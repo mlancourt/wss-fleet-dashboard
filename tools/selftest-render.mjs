@@ -2773,10 +2773,12 @@ await check('D75: two strips under the utilization card — Work orders, then Pa
   // D79: the customer orders on OPEN tickets count in ordered / in transit (requested stays work-order only).
   const orders = snap.service_queue.filter((t) => t.status === 'OPEN' && t.order).map((t) => t.order);
   // D88: parts sales in flight (OPEN, ORDERED / IN-TRANSIT) count too — the engine's in_flight cross-checks.
-  const sales = (snap.parts_orders || []).filter((o) => o.status === 'OPEN' && ['ORDERED', 'IN-TRANSIT'].includes(o.stage));
+  // D98: ... and any OPEN order with a box moving, whatever its stage — which counts as in transit.
+  const sales = (snap.parts_orders || []).filter((o) => o.status === 'OPEN' && (['ORDERED', 'IN-TRANSIT'].includes(o.stage) || o.boxes_open > 0));
   assert.equal(sales.length, snap.parts_summary.in_flight, 'parts_summary.in_flight agrees with the rows');
+  const saleState = (o) => (o.stage === 'IN-TRANSIT' || o.boxes_open > 0 ? 'IN-TRANSIT' : o.stage);
   const n = (st2) => open.filter((p) => p.state === st2).length + orders.filter((o) => o.state === st2).length
-    + sales.filter((o) => o.stage === st2).length;
+    + sales.filter((o) => saleState(o) === st2).length;
   assert.ok(orders.some((o) => o.state === 'ORDERED') && orders.some((o) => o.state === 'IN-TRANSIT'), 'mock carries both');
   assert.ok(tr.includes(`>${n('ORDERED')} ordered · ${n('IN-TRANSIT')} in transit · ${n('REQUESTED')} requested<`), 'pill = ordered · in transit · requested');
   assert.ok(/parts-n red/.test(tr), 'a REQUESTED line on an 8-day-old work order is red — on the tracker');
@@ -4525,16 +4527,17 @@ await check('D88 tracker: a Parts sales band (ORDERED + IN-TRANSIT) between Cust
   assert.ok(at > tr.indexOf('<div class="parts-g">Customer orders</div>') && at < tr.indexOf('class="parts-sub"'), 'between Customer orders and Delivered');
   const band = tr.slice(at, tr.indexOf('class="parts-sub"'));
   const ids = [...band.matchAll(/PO <strong>(P\d{4})<\/strong>/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ['P1004', 'P1007'], 'oldest ordered first; APPROVED / DELIVERED not in the band');
+  // D98: P1008 (IN-TRANSIT web cart) is ordered 2 days back; P1009 sits at APPROVED with a shop box out today — it draws.
+  assert.deepEqual(ids, ['P1004', 'P1008', 'P1007', 'P1009'], 'oldest in flight first (ordered, else first box out); APPROVED with no box / DELIVERED not in the band');
   assert.ok(band.includes('href="#/parts/P1004"') && band.includes('Redwing Fabrication') && band.includes('>RPS<') && band.includes('ups.com'));
   assert.ok(!MONEY_RE.test(band), 'no money in the band');
-  for (const o of snap.parts_orders) if (o.stage === 'ORDERED' || o.stage === 'IN-TRANSIT') o.stage = 'APPROVED';
+  for (const o of snap.parts_orders) { if (o.stage === 'ORDERED' || o.stage === 'IN-TRANSIT') o.stage = 'APPROVED'; o.boxes_open = 0; }
   assert.ok(!trackerOf(await renderRoute('#/')).includes('Parts sales'), 'none in flight → no band');
   // Parts sales ALONE still draw the strip.
   const s2 = await asFull('owner');
   s2.work_orders = []; for (const t of s2.service_queue) t.order = null;
   const alone = trackerOf(await renderRoute('#/'));
-  assert.ok(alone.includes('Parts sales') && alone.includes('>1 ordered · 1 in transit<'), 'parts sales alone: drawn, head counts them');
+  assert.ok(alone.includes('Parts sales') && alone.includes('>1 ordered · 3 in transit<'), 'parts sales alone: drawn, head counts them (a box moving at APPROVED is in transit)');
   s2.parts_orders = [];
   assert.equal(trackerOf(await renderRoute('#/')), '', 'no lines, no ticket orders, no parts sales → no card');
   setParts(false);
@@ -4571,6 +4574,102 @@ await check('D88 empty + legacy: an empty list says how to start; a pre-D88 snap
   assert.equal(full.parts_summary.value_shipped, true, 'full fixture: value shipped');
   const { activityRoute } = await import(path.join(DOCS, 'activity.js'));
   assert.equal(activityRoute('P1001', []), '#/parts/P1001');
+});
+
+/* ------------------------------------------------------- D98 shipments -- */
+
+const shipBlockOf = (out) => {
+  const i = out.indexOf('<h2>Shipments');
+  return i < 0 ? '' : out.slice(i, out.indexOf('<h2>Update</h2>', i));
+};
+
+await check('D98 detail: a Shipments block under the stage picker — one row per box, tracking chip, shipped, delivered / in transit, ✉️ notified, lines muted', async () => {
+  await asFull('owner');
+  const out = await renderRoute('#/parts/P1008');
+  const b = shipBlockOf(out);
+  assert.ok(b, 'drawn');
+  assert.ok(out.indexOf('<h2>Stage</h2>') < out.indexOf('<h2>Shipments'), 'under the stage picker');
+  assert.ok(b.includes('<h2>Shipments <span class="count">2</span></h2>'));
+  const rows = b.split('class="prow ship-row"').slice(1);
+  assert.equal(rows.length, 2, 'one row per box');
+  assert.ok(rows[0].includes('📦 <strong>1</strong>') && rows[0].includes('>SHOP<'), 'box 1 from the shop');
+  assert.ok(/<a class="chip track" href="[^"]*ups\.com[^"]*1Z999AA10123456785[^"]*"[^>]*>UPS 1Z999AA10123456785 ↗<\/a>/.test(rows[0]), 'the partTrailChips tracking chip');
+  assert.ok(/>shipped [A-Z][a-z]{2} \d{1,2}</.test(rows[0]), 'shipped <Mon D>');
+  assert.ok(rows[0].includes('✅ delivered') && !rows[0].includes('🚚 in transit'), 'box 1 delivered');
+  assert.ok(rows[0].includes('>✉️ notified<'), 'web cart: notified');
+  assert.ok(rows[0].includes('class="prow-desc ship-lines">2x detergent fast packs<'), 'lines muted under it');
+  assert.ok(rows[1].includes('>VENDOR · RPS<') && rows[1].includes('🚚 in transit') && !rows[1].includes('ship-lines'), 'box 2: vendor RPS, moving, no lines');
+  assert.ok(!MONEY_RE.test(b), 'no $ in the block');
+  assert.ok(!shipBlockOf(await renderRoute('#/parts/P1004')), 'no boxes → no block');
+  const p9 = shipBlockOf(await renderRoute('#/parts/P1009'));
+  assert.ok(p9.includes('The vendor leg hasn’t shipped yet.') && !p9.includes('✉️'), 'legs pending said; not a web cart → never notified');
+});
+
+await check('D98 kanban + band: 📦 N boxes only when boxes_open > 1; the tracking chip is the newest box; APPROVED with a box draws its tracking', async () => {
+  const snap = await asFull('owner');
+  let out = await renderRoute('#/parts');
+  assert.ok(!out.includes('boxes</span>'), 'nobody has two boxes open in the mock');
+  const c8 = partsCardOf(out, 'P1008');
+  assert.ok(c8.includes('1Z999AA10123456791') && !c8.includes('1Z999AA10123456785'), 'newest box drawn, not the delivered shop one');
+  const c9 = partsCardOf(out, 'P1009');
+  assert.ok(c9.includes('chip track') && c9.includes('1Z999AA10123456802'), 'APPROVED + a shop box: its tracking');
+  assert.ok(!partsCardOf(out, 'P1003').includes('chip track'), 'APPROVED with no box: still nothing');
+  const o8 = snap.parts_orders.find((o) => o.order === 'P1008');
+  o8.boxes_open = 2; o8.shipments[0].delivered = null;
+  out = await renderRoute('#/parts');
+  assert.ok(partsCardOf(out, 'P1008').includes('>📦 2 boxes</span>'), 'two boxes moving → the chip');
+  setParts(false);
+  app.__ui().showTracker = true;
+  const tr = trackerOf(await renderRoute('#/'));
+  assert.ok(tr.includes('>📦 2 boxes</span>'), 'the band carries it too');
+  assert.ok(tr.includes('href="#/parts/P1009"'), 'P1009 (APPROVED, box moving) in the band');
+  assert.ok(!MONEY_RE.test(tr.slice(tr.indexOf('Parts sales'))), 'no $ in the band');
+  setParts(false);
+  await asFull('owner');
+});
+
+await check('D98 Ship from shop: owner/sales from APPROVED on, never closed, never service; the sheet posts tracking + ship_from + ship_lines', async () => {
+  await asFull('owner');
+  assert.ok((await renderRoute('#/parts/P1003')).includes('data-sheet="pf-ship" data-id="P1003"'), 'APPROVED: offered');
+  assert.ok(!(await renderRoute('#/parts/P1002')).includes('data-sheet="pf-ship"'), 'QUOTED: not yet');
+  assert.ok(!(await renderRoute('#/parts/P0996')).includes('data-sheet="pf-ship"'), 'CLOSED: never');
+  assert.ok(!(await renderRoute('#/parts/P0997')).includes('data-sheet="pf-ship"'), 'LOST: never');
+  await asFull('sales');
+  assert.ok((await renderRoute('#/parts/P1008')).includes('data-sheet="pf-ship"'), 'sales: offered');
+  await asFull('service');
+  const svc = await renderRoute('#/parts/P1008');
+  assert.ok(!svc.includes('data-sheet="pf-ship"') && shipBlockOf(svc).includes('✉️ notified'), 'service: sees the boxes, cannot add one');
+  assert.ok(!/data-sheet="pf-(?!note)/.test(svc), 'service: still the note and nothing else');
+
+  const { posted } = await apiAs({ name: 'Matt', role: 'owner' });
+  await renderRoute('#/parts/P1009');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'pf-ship', id: 'P1009' } }));
+  await settle();
+  const sheet = view._html;
+  assert.ok(sheet.includes('data-action="parts_update" data-id="P1009" data-mode="ship"'), 'the sheet opened');
+  assert.ok(/name="tracking" required/.test(sheet) && sheet.includes('placeholder="paste from ShipStation"'), 'tracking required, from ShipStation');
+  assert.ok(/name="ship_lines" maxlength="300"/.test(sheet), 'what is in the box, ≤ 300');
+  assert.ok(sheet.includes('data-toggle="ship_from"') && sheet.includes('name="ship_from" value="SHOP"'), 'from: SHOP default');
+  await submitForm({ action: 'parts_update', id: 'P1009', mode: 'ship' }, { tracking: '1Z999AA10123456819', ship_lines: '1x vacuum motor 36V', ship_from: 'SHOP' });
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0], { action: 'parts_update', serial: null,
+    payload: { order: 'P1009', tracking: '1Z999AA10123456819', ship_from: 'SHOP', ship_lines: '1x vacuum motor 36V' } });
+  // The IN-TRANSIT stage sheet is "the vendor shipped".
+  await renderRoute('#/parts/P1007');
+  const it = await tapPartsStage('IN-TRANSIT');
+  assert.ok(it.includes('name="ship_from" value="VENDOR"'), 'IN-TRANSIT sheet carries VENDOR');
+  await submitForm({ action: 'parts_update', id: 'P1007', mode: 'stage' }, { stage: 'IN-TRANSIT', tracking: '1Z999AA10123456820', ship_from: 'VENDOR', note: '' });
+  assert.deepEqual(posted[1].payload, { order: 'P1007', stage: 'IN-TRANSIT', tracking: '1Z999AA10123456820', ship_from: 'VENDOR' });
+  // The single-field Tracking sheet is a shop box.
+  await renderRoute('#/parts/P1003');
+  await fireOn('click', fakeTarget('[data-sheet]', { dataset: { sheet: 'pf-tracking', id: 'P1003' } }));
+  await settle();
+  assert.ok(view._html.includes('name="ship_from" value="SHOP"'), 'Tracking sheet carries SHOP');
+  // ship_from never travels without a tracking number (a note sheet with a stray field).
+  await submitForm({ action: 'parts_update', id: 'P1003', mode: 'note' }, { note: 'called', ship_from: 'SHOP', ship_lines: 'x' });
+  assert.deepEqual(posted[2].payload, { order: 'P1003', note: 'called' });
+  assert.ok(!posted.some((e) => MONEY_RE.test(JSON.stringify(e))), 'no $ in anything posted');
+  await leaveApi();
 });
 
 console.log(`\n${passed} checks passed.`);
