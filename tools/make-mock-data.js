@@ -1260,8 +1260,11 @@ function buildParts({ withParts, service_queue, leads }) {
         const vals = rows.map((o) => o.value).filter((v) => typeof v === 'number');
         const won = rows.filter((o) => o.status === 'CLOSED').map((o) => o.value).filter((v) => typeof v === 'number');
         const m = { quoted: vals.length, avg_value: vals.length ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null, won_value: Number(won.reduce((a, b) => a + b, 0).toFixed(2)) };
-        const out = { as_of: '2026-10-15', windows: { '30d': w(9), '90d': w(9), all: w(9) }, money_shipped: shipped };
-        if (shipped) out.money = { '30d': m, '90d': m, all: m };
+        // D105: every dated window carries `prev` (the equal window before it); 90d's is null — the mock ledger is younger than 90 days.
+        const pw = (n) => ({ days: n, opened: 5, per_day: Number((5 / n).toFixed(2)), complete: 2, lost: 0, dead: 0 });
+        const pm = { quoted: 5, avg_value: 412.4, won_value: 905.1 };
+        const out = { as_of: '2026-10-15', windows: { '7d': { ...w(7), prev: pw(7) }, '30d': { ...w(9), prev: pw(9) }, '90d': { ...w(9), prev: null }, all: w(9) }, money_shipped: shipped };
+        if (shipped) out.money = { '7d': { ...m, prev: pm }, '30d': { ...m, prev: pm }, '90d': { ...m, prev: null }, all: m };
         return out;
       })(),
       stages: STAGES,

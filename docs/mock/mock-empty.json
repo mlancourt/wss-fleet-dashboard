@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-10-15T18:17:20.293Z",
+    "generated_at": "2026-10-15T22:25:05.245Z",
     "run_id": "mock-empty-2026-10-15",
     "fleet_totals": {
       "units": 39
@@ -2833,7 +2833,7 @@
   "rejections": [
     {
       "id": "rej-mock-1",
-      "ts": "2026-10-15T18:17:20.293Z",
+      "ts": "2026-10-15T22:25:05.245Z",
       "actor": "Matt",
       "role": "owner",
       "action": "parts_update",
@@ -2842,7 +2842,7 @@
     },
     {
       "id": "rej-mock-2",
-      "ts": "2026-10-15T18:17:20.293Z",
+      "ts": "2026-10-15T22:25:05.245Z",
       "actor": "Zac",
       "role": "service",
       "action": "ticket_update",
@@ -2872,6 +2872,61 @@
       "value"
     ],
     "value_shipped": false,
+    "stats": {
+      "as_of": "2026-10-15",
+      "windows": {
+        "7d": {
+          "days": 7,
+          "opened": 0,
+          "per_day": 0,
+          "complete": 0,
+          "lost": 0,
+          "dead": 0,
+          "prev": {
+            "days": 7,
+            "opened": 5,
+            "per_day": 0.71,
+            "complete": 2,
+            "lost": 0,
+            "dead": 0
+          }
+        },
+        "30d": {
+          "days": 9,
+          "opened": 0,
+          "per_day": 0,
+          "complete": 0,
+          "lost": 0,
+          "dead": 0,
+          "prev": {
+            "days": 9,
+            "opened": 5,
+            "per_day": 0.56,
+            "complete": 2,
+            "lost": 0,
+            "dead": 0
+          }
+        },
+        "90d": {
+          "days": 9,
+          "opened": 0,
+          "per_day": 0,
+          "complete": 0,
+          "lost": 0,
+          "dead": 0,
+          "prev": null
+        },
+        "all": {
+          "days": 9,
+          "opened": 0,
+          "per_day": 0,
+          "complete": 0,
+          "lost": 0,
+          "dead": 0
+        }
+      },
+      "money_shipped": false
+    },
     "stages": [
       "REQUESTED",
       "QUOTED",

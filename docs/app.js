@@ -118,13 +118,13 @@ import {
   partsOptions, isOpenOrder, isStock, partsValue, orderById, firstLine, partsColumns, closedOrders, partsBadge,
   canEditOrder, canCloseOrder, canComplete, partsStageOptions, isGated, stageFields, gateText,
   partsInFlight, inFlightCounts, shipmentsOf, boxesOpen, latestShipment, canShipBox, P_SHIP_FROM,
-  partsStripSegments, nextStatWindow, P_STAT_LABEL, P_STAT_WINDOWS,
+  partsScoreTiles, P_STAT_LABEL, P_STAT_WINDOWS,
 } from './parts.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-15-d104';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-15-d105';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -5174,6 +5174,7 @@ function viewParts() {
   const all = partsOrders();
   const opens = pendingPartsOpens();
   const head = html`<h1>Parts</h1>${raw(msgBlock())}
+    ${raw(partsScoreboard())}
     <div class="actions"><button class="btn" type="button" data-sheet="new-parts">+ New parts order</button></div>
     ${sheetOpen('new-parts') ? raw(newPartsForm()) : ''}
     ${opens.length ? raw(html`<div class="note"><strong>⏳ ${opens.length} new parts order${opens.length > 1 ? 's' : ''} pending</strong>
@@ -5190,23 +5191,34 @@ function viewParts() {
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
     <div class="form-note">Swipe the columns sideways. Tap a card for the whole order.</div>
-    ${raw(partsStatStrip())}
     ${raw(partsClosedStrip(all))}`;
 }
 
 /**
- * D103 — one muted line under the board: `30d · 8 orders · 1.0/day · avg $531 · 1 complete · 1 lost`.
- * Tap cycles 30d → 90d → all. The figures are the engine's read of the whole ledger
- * (`parts_summary.stats`); money is absent for service (Worker) and draws nothing.
- * A pre-D103 snapshot has no stats → no strip. Not a scoreboard, by ruling.
+ * D105 — the Parts scoreboard, above + New parts order (Matt, 10/15 17:21: the
+ * strip was "small and hard to read … make it like a KPI dashboard / score board …
+ * compare it to previous periods"). One card: a window picker (7d · 30d · 90d · All,
+ * remembered per device) and a row of tiles — orders · per day · avg quote · complete ·
+ * won · lost — each against the same-length period before it, the leads scoreboard's
+ * arrow-and-figure grammar (direction + the prior number, never a percentage; on a
+ * two-order week a percentage is noise in a suit). Money tiles exist only when the
+ * engine shipped `money` (the Worker strips it for service — no hole, no hint).
+ * A pre-D103 snapshot has no stats → no card.
  */
-function partsStatStrip() {
+function partsScoreboard() {
   const win = ui.partsStatWin;
-  const seg = partsStripSegments(partsSummary(), win, fmtMoney);
-  if (!seg) return '';
-  return html`<button type="button" class="pstat" data-parts-stat-toggle="1" title="Tap for the next window">
-    <span class="pstat-w">${P_STAT_LABEL[win] || win}</span>${raw(seg.map((s) => html` <span class="pstat-dot">·</span> <span class="pstat-${s.kind}">${s.text}</span>`).join(''))}
-  </button>`;
+  const sc = partsScoreTiles(partsSummary(), win, fmtMoney);
+  if (!sc) return '';
+  const chips = P_STAT_WINDOWS.map((w) => html`<button type="button" class="pwin${w === win ? ' on' : ''}" data-parts-stat-win="${w}" aria-pressed="${w === win ? 'true' : 'false'}">${P_STAT_LABEL[w] || w}</button>`).join('');
+  const tiles = sc.tiles.map((t) => html`<div class="sb-stat ps-${t.kind}">
+      <b>${t.shown == null ? '—' : t.shown}</b>
+      <span>${t.label}</span>
+      ${t.dir === 'none' ? raw(win === 'all' ? '' : '<em class="d-none"></em>') : raw(html`<em class="d-${t.tone}" title="${P_STAT_LABEL[win]} before: ${t.prevShown}">${ARROW[t.dir]} ${t.prevShown}</em>`)}
+    </div>`).join('');
+  return html`<section class="score pscore" aria-label="Parts scoreboard">
+    <div class="score-h pscore-h"><span>Scoreboard</span><span class="pwins" role="group" aria-label="Window">${raw(chips)}</span></div>
+    <div class="sb-row"><div class="sb-stats ps-stats">${raw(tiles)}</div><div class="sb-cap">${sc.caption}</div></div>
+  </section>`;
 }
 
 /**
@@ -6405,7 +6417,7 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (ev.target.closest('[data-parts-closed-toggle]')) { ui.showClosedParts = !ui.showClosedParts; render(); return; }
-  if (ev.target.closest('[data-parts-stat-toggle]')) { ui.partsStatWin = nextStatWindow(ui.partsStatWin); try { localStorage.setItem(PARTS_STAT_KEY, ui.partsStatWin); } catch (_) { /* storage blocked */ } render(); return; }
+  { const pw = ev.target.closest('[data-parts-stat-win]'); if (pw) { const w = pw.getAttribute('data-parts-stat-win'); if (P_STAT_WINDOWS.includes(w)) { ui.partsStatWin = w; try { localStorage.setItem(PARTS_STAT_KEY, w); } catch (_) { /* storage blocked */ } render(); } return; } }
 
   // D102: fold / unfold a kanban column. render() rewrites the board, which
   // would snap a phone's sideways scroll back to the first column — keep it.

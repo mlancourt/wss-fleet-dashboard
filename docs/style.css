@@ -383,12 +383,27 @@ form.write textarea { min-height: 80px; resize: vertical; }
 .form-note { font-size: 12.5px; color: var(--ink-3); margin-top: 10px; }
 .form-note[hidden] { display: none; }
 /* D103: the Parts strip — one muted line, a button so the window cycles on tap. */
-.pstat { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 8px 0 2px; font: inherit; font-size: 12.5px; color: var(--ink-3); cursor: pointer; line-height: 1.5; }
-.pstat-w { font-weight: 600; color: var(--ink-2); }
-.pstat-dot { opacity: .5; }
-.pstat-ok { color: var(--ok, var(--ink-2)); }
-.pstat-bad { color: var(--bad, var(--ink-2)); }
-.pstat-money { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* D105 — the Parts scoreboard (replaced the D103 strip). The leads scoreboard's
+   card and tile grammar; what is new is the window picker in the head and a
+   tile grid that keeps six figures readable at 390px (three across). */
+.pscore .pscore-h { cursor: default; padding: 10px 12px 8px 16px; }
+.pscore .pscore-h > span:first-child { white-space: nowrap; }
+.pwins { display: inline-flex; gap: 4px; background: var(--slate-100); border-radius: 999px; padding: 3px; }
+.pwin {
+  min-height: 28px; padding: 0 11px; border: 0; border-radius: 999px; background: none; cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 650; color: var(--slate-600); letter-spacing: 0; text-transform: none;
+}
+.pwin.on { background: var(--white); color: var(--slate-900); box-shadow: 0 1px 2px rgba(15, 23, 42, .12); }
+.pwin:focus-visible { outline: 2px solid var(--red); outline-offset: -2px; }
+.pscore .ps-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; margin-top: 2px; }
+.ps-stats .sb-stat b { font-size: 22px; letter-spacing: -.4px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-stats .sb-stat span { font-size: 11.5px; letter-spacing: .2px; text-transform: uppercase; font-weight: 650; }
+.ps-stats .sb-stat em { margin-top: 1px; }
+.ps-stats .ps-ok b { color: var(--ok); }
+.ps-stats .ps-bad b { color: var(--bad); }
+.ps-stats .ps-out b { color: var(--slate-500); }
+.pscore .sb-cap { margin-top: 10px; }
+@media (min-width: 560px) { .pscore .ps-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 
 /* ------------------------------------------------ recurring revenue (D21) */
 

@@ -237,45 +237,59 @@ export function inFlightCounts(rows) {
   };
 }
 
-/* ------------------------------------------------------------- stats strip --
- * D103 (2026-10-15). `parts_summary.stats` is the engine's read of the WHOLE
- * ledger (every P file, not the 14-day window this page gets): per window,
- * `windows[w]` = { days, opened, per_day, complete, lost, dead } for everyone and
- * `money[w]` = { quoted, avg_value, won_value } for owner/sales only — the
- * Worker deletes `stats.money` for a service token, and the engine omits it
- * until that strip is live. Absent money draws nothing; it is not zero.
- * One muted line under the board, not a scoreboard (Matt, 10/15): the board's
- * job is what needs quoting and what's in a box; the figures wait to be asked.
+/**
+ * D103 → D105 — the Parts scoreboard. `parts_summary.stats` is the engine's read of
+ * the WHOLE ledger (not this page's 14-day window): `windows[w]` = counts for orders
+ * opened in the last 7 / 30 / 90 days or ever, `money[w]` the two dollar figures,
+ * and (D105) `prev` on every dated window — the same figures for the equal-length
+ * window before it, or null when the ledger did not exist yet. The Worker deletes
+ * `stats.money` for a service token (prev money rides inside it, so one line strips
+ * every dollar); absent money draws nothing — it is not zero. A scoreboard, by
+ * Matt's ruling (10/15 17:21): "make it more robust and like a KPI dashboard /
+ * score board … I want to compare it to previous periods."
  */
 
-export const P_STAT_WINDOWS = ['30d', '90d', 'all'];
-export const P_STAT_LABEL = { '30d': '30d', '90d': '90d', all: 'All time' };
+export const P_STAT_WINDOWS = ['7d', '30d', '90d', 'all'];
+export const P_STAT_LABEL = { '7d': '7d', '30d': '30d', '90d': '90d', all: 'All' };
+export const P_STAT_PREV = { '7d': 'the 7 days before', '30d': 'the 30 days before', '90d': 'the 90 days before' };
 
-/** The next window on a tap: 30d → 90d → all → 30d. An unknown one starts over. */
-export function nextStatWindow(w) {
-  const i = P_STAT_WINDOWS.indexOf(w);
-  return P_STAT_WINDOWS[(i < 0 ? 0 : i + 1) % P_STAT_WINDOWS.length];
-}
+const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+const dir = (a, b) => (a == null || b == null ? 'none' : a > b ? 'up' : a < b ? 'down' : 'flat');
+/** Which way is good: more lost / dead is worse, so those tiles colour the other way. `tone` is what the page paints. */
+const BAD_UP = new Set(['lost', 'dead']);
+const tone = (key, d) => (d === 'none' || d === 'flat' ? d : BAD_UP.has(key) ? (d === 'up' ? 'down' : 'up') : d);
 
 /**
- * The strip's segments for one window, as { text, kind } in draw order — or
- * null when the snapshot has no stats (pre-D103) or nothing was ever opened.
- *   counts  "8 orders" · "1.0/day" · "1 complete" · "1 lost" · "1 dead" (zero lost/dead are left out)
- *   money   "avg $531" (only over orders that carry a value) · "won $1,809" (when > 0)
- * `fmt` is the page's money formatter; the strip never formats a dollar itself.
+ * The tiles for one window, in draw order — or null when the snapshot has no stats
+ * (pre-D103) or the window is missing. Each tile: { key, label, value, shown, prev,
+ * prevShown, dir, tone, kind } where `dir` compares value to prev ('none' = no arrow),
+ * `tone` is the colour to paint it (more lost is 'down' however the arrow points) and
+ * `kind` is 'count' | 'ok' | 'bad' | 'money'. Money tiles exist only when the engine
+ * shipped `money` (never for service). Lost / dead tiles appear only when either side
+ * is non-zero — a row of zeros is a scoreboard nobody reads. `fmt` is the page's
+ * money formatter; the scoreboard never formats a dollar itself.
+ *   caption  "vs. the 30 days before" · "no earlier period yet" · "all time · 41 days"
  */
-export function partsStripSegments(summary, win, fmt = (n) => `$${Math.round(n).toLocaleString('en-US')}`) {
+export function partsScoreTiles(summary, win, fmt = (n) => `$${Math.round(n).toLocaleString('en-US')}`) {
   const st = summary && summary.stats && typeof summary.stats === 'object' ? summary.stats : null;
   const w = st && st.windows && typeof st.windows === 'object' ? st.windows[win] : null;
   if (!w || typeof w.opened !== 'number') return null;
-  const seg = [];
-  seg.push({ text: `${w.opened} order${w.opened === 1 ? '' : 's'}`, kind: 'count' });
-  if (w.opened > 0 && typeof w.per_day === 'number') seg.push({ text: `${w.per_day.toFixed(w.per_day >= 10 ? 0 : 1)}/day`, kind: 'count' });
+  const pw = w.prev && typeof w.prev === 'object' ? w.prev : null;
   const m = st.money && typeof st.money === 'object' && st.money[win] && typeof st.money[win] === 'object' ? st.money[win] : null;
-  if (m && typeof m.avg_value === 'number' && isFinite(m.avg_value)) seg.push({ text: `avg ${fmt(m.avg_value)}`, kind: 'money' });
-  if (typeof w.complete === 'number') seg.push({ text: `${w.complete} complete`, kind: 'ok' });
-  if (m && typeof m.won_value === 'number' && m.won_value > 0) seg.push({ text: `won ${fmt(m.won_value)}`, kind: 'money' });
-  if (w.lost > 0) seg.push({ text: `${w.lost} lost`, kind: 'bad' });
-  if (w.dead > 0) seg.push({ text: `${w.dead} dead`, kind: 'out' });
-  return seg;
+  const pm = m && m.prev && typeof m.prev === 'object' ? m.prev : null;
+  const plain = (n) => (n == null ? null : String(Math.round(n * 10) / 10));
+  const rate = (n) => (n == null ? null : `${n.toFixed(n >= 10 ? 0 : 1)}/day`);
+  const tiles = [];
+  const tile = (key, label, kind, v, p, show) => { const d = dir(v, p); tiles.push({ key, label, kind, value: v, prev: p, shown: show(v), prevShown: show(p), dir: d, tone: tone(key, d) }); };
+  tile('opened', 'orders', 'count', num(w.opened), pw ? num(pw.opened) : null, plain);
+  tile('per_day', 'per day', 'count', num(w.per_day), pw ? num(pw.per_day) : null, rate);
+  if (m) tile('avg', 'avg quote', 'money', num(m.avg_value), pm ? num(pm.avg_value) : null, (n) => (n == null ? null : fmt(n)));
+  tile('complete', 'complete', 'ok', num(w.complete), pw ? num(pw.complete) : null, plain);
+  if (m) tile('won', 'won', 'money', num(m.won_value), pm ? num(pm.won_value) : null, (n) => (n == null ? null : fmt(n)));
+  if ((w.lost || 0) > 0 || (pw && pw.lost > 0)) tile('lost', 'lost', 'bad', num(w.lost), pw ? num(pw.lost) : null, plain);
+  if ((w.dead || 0) > 0 || (pw && pw.dead > 0)) tile('dead', 'dead', 'out', num(w.dead), pw ? num(pw.dead) : null, plain);
+  const caption = win === 'all' ? `all time · ${w.days} day${w.days === 1 ? '' : 's'}`
+    : pw ? `vs. ${P_STAT_PREV[win] || 'the period before'}${pw.days && pw.days < (w.days || 0) ? ` (${pw.days}d of history)` : ''}`
+    : 'no earlier period yet';
+  return { tiles, caption, hasMoney: !!m, days: w.days };
 }

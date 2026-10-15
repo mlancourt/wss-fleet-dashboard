@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   partsColumns, closedOrders, partsBadge, partsStageOptions, stageFields, isGated, gateText, partsInFlight,
   inFlightCounts, shipmentsOf, boxesOpen, latestShipment, canShipBox, firstLine, partsValue, canCloseOrder, canComplete, sortOrders, partsOptions,
-  partsStripSegments, nextStatWindow, P_STAT_WINDOWS,
+  partsScoreTiles, P_STAT_WINDOWS,
 } from '../docs/parts.js';
 
 let passed = 0;
@@ -109,22 +109,32 @@ check('first line of multi-line parts text; options fall back to ours', () => {
 
 console.log(`${passed} checks passed.`);
 
-// ---------------------------------------------------------------- D103: the stats strip
+// ---------------------------------------------------------------- D105: the Parts scoreboard (was the D103 strip)
 {
-  const stats = { as_of: '2026-10-15', windows: { '30d': { days: 8, opened: 8, per_day: 1, complete: 1, lost: 1, dead: 0 }, '90d': { days: 8, opened: 8, per_day: 1, complete: 1, lost: 1, dead: 0 }, all: { days: 8, opened: 8, per_day: 1, complete: 1, lost: 1, dead: 0 } },
-    money: { '30d': { quoted: 8, avg_value: 530.9, won_value: 1808.65 }, '90d': { quoted: 8, avg_value: 530.9, won_value: 1808.65 }, all: { quoted: 8, avg_value: 530.9, won_value: 1808.65 } } };
+  const win = (o, p) => ({ days: 30, opened: 8, per_day: 0.27, complete: 1, lost: 1, dead: 0, ...o, prev: p === undefined ? { days: 30, opened: 5, per_day: 0.17, complete: 2, lost: 0, dead: 1 } : p });
+  const stats = { as_of: '2026-10-15', windows: { '7d': win({ days: 7, opened: 2, per_day: 0.29 }), '30d': win({}), '90d': win({ days: 41 }, null), all: { days: 41, opened: 8, per_day: 0.2, complete: 1, lost: 1, dead: 0 } },
+    money: { '7d': { quoted: 2, avg_value: 600, won_value: 0, prev: { quoted: 1, avg_value: 300, won_value: 300 } }, '30d': { quoted: 8, avg_value: 530.9, won_value: 1808.65, prev: { quoted: 5, avg_value: 412.4, won_value: 905.1 } }, '90d': { quoted: 8, avg_value: 530.9, won_value: 1808.65, prev: null }, all: { quoted: 8, avg_value: 530.9, won_value: 1808.65 } } };
   const fmt = (n) => `$${Math.round(n)}`;
-  const texts = (seg) => seg.map((x) => x.text);
-  assert.deepEqual(texts(partsStripSegments({ stats }, '30d', fmt)), ['8 orders', '1.0/day', 'avg $531', '1 complete', 'won $1809', '1 lost'], 'D103: owner strip in draw order; zero dead left out');
-  const svc = { stats: { windows: stats.windows } };   // the Worker deleted stats.money
-  assert.deepEqual(texts(partsStripSegments(svc, '30d', fmt)), ['8 orders', '1.0/day', '1 complete', '1 lost'], 'D103: service strip — no money segment, no $0');
-  assert.ok(partsStripSegments(svc, '30d', fmt).every((x) => x.kind !== 'money'), 'D103: nothing of kind money for service');
-  assert.equal(partsStripSegments({}, '30d', fmt), null, 'D103: pre-D103 snapshot → no strip');
-  assert.equal(partsStripSegments({ stats: { windows: {} } }, '30d', fmt), null, 'D103: window missing → no strip');
-  const empty = { stats: { windows: { '30d': { days: 30, opened: 0, per_day: 0, complete: 0, lost: 0, dead: 0 } }, money: { '30d': { quoted: 0, avg_value: null, won_value: 0 } } } };
-  assert.deepEqual(texts(partsStripSegments(empty, '30d', fmt)), ['0 orders', '0 complete'], 'D103: nothing opened → no per-day, no avg (null is not zero), no won');
-  assert.equal(nextStatWindow('30d'), '90d'); assert.equal(nextStatWindow('90d'), 'all'); assert.equal(nextStatWindow('all'), '30d');
-  assert.equal(nextStatWindow('bogus'), '30d', 'D103: an unknown window starts the cycle over');
-  assert.deepEqual(P_STAT_WINDOWS, ['30d', '90d', 'all']);
-  console.log('  ok  D103: stats strip segments, money absent for service, window cycle');
+  const sc = partsScoreTiles({ stats }, '30d', fmt);
+  assert.deepEqual(sc.tiles.map((t) => [t.key, t.shown, t.dir, t.prevShown]),
+    [['opened', '8', 'up', '5'], ['per_day', '0.3/day', 'up', '0.2/day'], ['avg', '$531', 'up', '$412'], ['complete', '1', 'down', '2'], ['won', '$1809', 'up', '$905'], ['lost', '1', 'up', '0'], ['dead', '0', 'down', '1']],
+    'D105: owner tiles in draw order, each against prev; lost/dead shown because one side is non-zero');
+  assert.equal(sc.caption, 'vs. the 30 days before'); assert.ok(sc.hasMoney);
+  assert.deepEqual(sc.tiles.filter((t) => t.key === 'lost' || t.key === 'dead').map((t) => [t.dir, t.tone]), [['up', 'down'], ['down', 'up']], 'D105: more lost paints red, fewer dead paints green — the arrow keeps the arithmetic');
+  const svc = partsScoreTiles({ stats: { windows: stats.windows } }, '30d', fmt);   // the Worker deleted stats.money (prev money with it)
+  assert.deepEqual(svc.tiles.map((t) => t.key), ['opened', 'per_day', 'complete', 'lost', 'dead'], 'D105: service — no money tile, no $0, no hint');
+  assert.ok(!svc.hasMoney && svc.tiles.every((t) => t.kind !== 'money'));
+  const young = partsScoreTiles({ stats }, '90d', fmt);
+  assert.ok(young.tiles.every((t) => t.dir === 'none' && t.prevShown == null), 'D105: prev null → no arrows');
+  assert.equal(young.caption, 'no earlier period yet');
+  const all = partsScoreTiles({ stats }, 'all', fmt);
+  assert.equal(all.caption, 'all time · 41 days'); assert.ok(all.tiles.every((t) => t.dir === 'none'));
+  assert.equal(partsScoreTiles({}, '30d', fmt), null, 'D105: pre-D103 snapshot → no card');
+  assert.equal(partsScoreTiles({ stats: { windows: {} } }, '30d', fmt), null, 'D105: window missing → no card');
+  const empty = { stats: { windows: { '30d': { days: 30, opened: 0, per_day: 0, complete: 0, lost: 0, dead: 0, prev: null } }, money: { '30d': { quoted: 0, avg_value: null, won_value: 0, prev: null } } } };
+  assert.deepEqual(partsScoreTiles(empty, '30d', fmt).tiles.map((t) => [t.key, t.shown]), [['opened', '0'], ['per_day', '0.0/day'], ['avg', null], ['complete', '0'], ['won', '$0']], 'D105: nothing opened → avg null (not zero), no lost/dead tiles');
+  const partial = partsScoreTiles({ stats: { windows: { '7d': win({ days: 7 }, { days: 3, opened: 1, per_day: 0.33, complete: 0, lost: 0, dead: 0 }) } } }, '7d', fmt);
+  assert.equal(partial.caption, 'vs. the 7 days before (3d of history)', 'D105: a prev window the ledger only partly covers says so');
+  assert.deepEqual(P_STAT_WINDOWS, ['7d', '30d', '90d', 'all']);
+  console.log('  ok  D105: scoreboard tiles vs prev, money absent for service, captions');
 }

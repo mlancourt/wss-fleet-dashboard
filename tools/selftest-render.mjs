@@ -4425,6 +4425,31 @@ await check('D88 board: six stage columns with the engine counts, a + New parts 
   assert.ok(!/undefined|NaN/.test(open));
 });
 
+await check('D105: the Parts scoreboard sits above + New parts order — window picker, tiles vs prev with arrows, no money tile for service', async () => {
+  const snap = await asFull('owner');
+  app.__ui().partsStatWin = '30d';
+  const out = await renderRoute('#/parts');
+  const at = out.indexOf('class="score pscore"');
+  assert.ok(at >= 0 && at < out.indexOf('data-sheet="new-parts"'), 'scoreboard renders before the button');
+  assert.ok(!out.includes('class="pstat"'), 'the D103 strip is gone');
+  assert.ok(/data-parts-stat-win="7d"[^>]*>7d<\/button>/.test(out) && /class="pwin on" data-parts-stat-win="30d"/.test(out), 'picker with 30d on');
+  const st = snap.parts_summary.stats;
+  assert.ok(out.includes(`<b>${st.windows['30d'].opened}</b>`), 'orders tile');
+  assert.ok(/<em class="d-(up|down|flat)"[^>]*>[↑↓—] 5<\/em>/.test(out), 'orders arrow against prev (5)');
+  assert.ok(out.includes('vs. the 30 days before'), 'caption');
+  assert.ok(out.includes('avg quote') && out.includes('>won<'), 'owner sees money tiles');
+  app.__ui().partsStatWin = '90d';
+  const young = await renderRoute('#/parts');
+  assert.ok(young.includes('no earlier period yet') && !/<em class="d-(up|down|flat)"/.test(young.slice(young.indexOf('pscore'), young.indexOf('data-sheet="new-parts"'))), '90d prev null → no arrows');
+  app.__ui().partsStatWin = '30d';
+  await asFull('service');
+  delete app.__state().snapshot.parts_summary.stats.money;   // what the Worker does for a service token (prev money rides inside)
+  const svc = await renderRoute('#/parts');
+  const card = svc.slice(svc.indexOf('class="score pscore"'), svc.indexOf('data-sheet="new-parts"'));
+  assert.ok(card.includes('<b>') && !card.includes('avg quote') && !card.includes('>won<') && !card.includes('$'), 'service: counts only, no dollar anywhere in the card');
+  assert.ok(!/undefined|NaN/.test(out));
+});
+
 await check('D88 card: P-number in the red mono, first parts line, CASH/ACCOUNT · STOCK · 🛒 · stale · vendor + tracking · 🔧/L chips', async () => {
   const snap = await asFull('owner');
   const out = await renderRoute('#/parts');
