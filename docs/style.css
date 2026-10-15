@@ -490,11 +490,15 @@ form.write textarea { min-height: 80px; resize: vertical; }
 }
 .kan-head {
   position: sticky; top: 0; z-index: 1; background: var(--card);
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  font-weight: 700; font-size: 11.5px; letter-spacing: .7px; text-transform: uppercase; color: var(--red);
-  padding: 12px 0 8px; border-bottom: 2px solid var(--slate-100);
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+  font-weight: 700; font-size: 11.5px; line-height: 1.3; letter-spacing: .7px; text-transform: uppercase; color: var(--red);
+  padding: 13px 0 9px; border-bottom: 1px solid var(--line);
   border-radius: var(--radius) var(--radius) 0 0;
 }
+/* D104: the label may wrap to two lines on a narrow column; the count pill sits
+   on the FIRST line, not floating at the head's vertical middle, so every column
+   reads the same whether its name is one word or three. */
+.kan-head > span:first-child { min-width: 0; padding-top: 1px; }
 /* D55 — PO received is the one open column that is already WON: the PO is in
    hand and only the factory's serial is outstanding. Every other lead column
    heads maroon ("still ours to do"), so this one reads in the site's existing
@@ -504,40 +508,52 @@ form.write textarea { min-height: 80px; resize: vertical; }
 .kan-col.col-PO-RECEIVED .kan-head { color: var(--ok); }
 
 .kan-head .c {
-  background: var(--slate-100); color: var(--slate-700); font-size: 12px;
-  border-radius: 999px; padding: 1px 9px; letter-spacing: 0; flex: 0 0 auto;
+  background: var(--slate-100); color: var(--slate-700); font-size: 12px; line-height: 18px;
+  min-width: 22px; text-align: center; border-radius: 999px; padding: 0 7px; letter-spacing: 0; flex: 0 0 auto;
+  font-variant-numeric: tabular-nums; margin-top: 1px;
 }
 /* D102: the head is a button now (tap = fold the column to a deck). Same look
    as the div it replaced — width, font and colour are inherited, the browser's
    button chrome is stripped. */
 button.kan-head {
-  width: 100%; border: 0; border-bottom: 2px solid var(--slate-100); font: inherit; font-weight: 700;
-  text-align: left; cursor: pointer; -webkit-appearance: none; appearance: none; min-height: 40px;
+  width: 100%; border: 0; border-bottom: 1px solid var(--line); font: inherit; font-weight: 700; line-height: 1.3;
+  text-align: left; cursor: pointer; -webkit-appearance: none; appearance: none; min-height: 42px;
 }
 button.kan-head:focus-visible { outline: 2px solid var(--red); outline-offset: -2px; }
 /* The folded column: the top card stays face-up as a real card (boxed, lifted),
    every card behind it hides, and the deck below draws the fanned edges of the
    ones underneath — up to three, narrowing — with a +N for the true depth. */
 .kan-col.folded .kan-body > .kan-card:not(:first-child) { display: none; }
+/* D104 polish: the boxed top card bleeds 8px past the column's text edge on
+   both sides so its text lands on the same x as the open cards above/below it
+   (column padding 14 − 8 bleed + 3 edge + 8 pad = 17, the open card's 14 − 9 + 3
+   + 9). Before this the box sat inside the padding and its text started 10px to
+   the right of every other card's — the "off" alignment Matt saw. The stale /
+   HIGH / pending / WO edges carry through the fold. */
 .kan-col.folded .kan-body > .kan-card:first-child {
   background: var(--white); border: 1px solid var(--line); border-left: 3px solid transparent;
-  border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 10px 10px 9px; margin: 10px 0 0;
+  border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 9px 8px 8px; margin: 10px -8px 0;
   position: relative; z-index: 1;
 }
 .kan-col.folded .kan-body > .kan-card.pri-HIGH:first-child { border-left-color: var(--red); }
+.kan-col.folded .kan-body > .kan-card.parts-card.stale-red:first-child { border-left-color: var(--bad); }
+.kan-col.folded .kan-body > .kan-card.parts-card.stale-yellow:first-child { border-left-color: var(--warn); }
 .kan-col.folded .kan-body > .kan-card.pending-card:first-child { background: var(--red-soft); border-left-color: var(--red); }
 .kan-col.folded .kan-body > .kan-card.wo-card:first-child { border-style: dashed; border-left: 3px solid var(--red); }
-.kan-deck { position: relative; height: 22px; margin: -4px 0 0; cursor: pointer; }
+/* The deck shares the card's bleed so the fanned edges are centred under it.
+   Each edge is a shade deeper than the one above and only the tight shadow is
+   kept — three full card shadows stacked into one grey smear. */
+.kan-deck { position: relative; height: 26px; margin: -3px -8px 0; cursor: pointer; }
 .kan-deck i {
-  position: absolute; display: block; height: 9px; border: 1px solid var(--line); border-top: 0;
-  border-radius: 0 0 8px 8px; background: var(--white); box-shadow: var(--shadow);
+  position: absolute; display: block; height: 8px; border: 1px solid var(--line); border-top: 0;
+  border-radius: 0 0 8px 8px; background: var(--white); box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
 }
-.kan-deck i:nth-child(1) { top: 0; left: 5px; right: 5px; z-index: 3; }
-.kan-deck i:nth-child(2) { top: 4px; left: 10px; right: 10px; z-index: 2; }
-.kan-deck i:nth-child(3) { top: 8px; left: 15px; right: 15px; z-index: 1; }
+.kan-deck i:nth-child(1) { top: 0; left: 6px; right: 6px; z-index: 3; }
+.kan-deck i:nth-child(2) { top: 4px; left: 12px; right: 12px; z-index: 2; background: var(--slate-50); }
+.kan-deck i:nth-child(3) { top: 8px; left: 18px; right: 18px; z-index: 1; background: var(--slate-100); }
 .kan-more {
-  position: absolute; right: 2px; top: 6px; font-size: 11px; font-weight: 700; color: var(--slate-500);
-  font-variant-numeric: tabular-nums;
+  position: absolute; right: 8px; top: 10px; font-size: 11px; font-weight: 700; color: var(--slate-500);
+  font-variant-numeric: tabular-nums; line-height: 16px;
 }
 .kan-card {
   display: block; border-top: 1px solid var(--slate-100); padding: 10px 0 9px;
@@ -717,6 +733,10 @@ form.write.sheet { margin-bottom: 14px; }
   .kan-wrap { width: 100vw; margin-left: calc(50% - 50vw); }
   .kanban { scroll-snap-type: none; padding-left: max(16px, calc(50vw - 620px)); padding-right: 16px; }
   .kan-col { flex: 1 1 0; min-width: 150px; }
+  /* D104: side-by-side columns share one head height (two label lines) so the
+     dividers and the first cards sit on one horizontal line across the board;
+     the type tightens a hair so a three-word stage fits in two lines at 150px. */
+  .kan-head, button.kan-head { min-height: 54px; font-size: 11px; letter-spacing: .6px; }
 }
 
 /* ================================================ leads (schema 5) =========
