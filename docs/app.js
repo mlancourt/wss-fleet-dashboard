@@ -124,7 +124,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-15-d105';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-15-d106';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -5967,42 +5967,43 @@ function bindMap() {
   }, { passive: false });
 
   /**
-   * D101 — the hover tip. One <g id="maptip"> appended LAST inside #pins, so
-   * it always draws over its neighbours (SVG has no z-index; order is the
-   * only stacking there is). It is built on pointerover and thrown away on
-   * pointerout, never kept in the view string, so a re-render cannot leave a
-   * stale tip behind and a gesture never has to reposition it — any touch
-   * on the map just drops it. Mouse (and pen) only: a finger has no hover,
-   * and the tap sheet already answers the phone.
+   * D101 — the hover tip. An HTML box floated over the map, NOT an SVG child:
+   * anything drawn inside the SVG is cropped by the viewBox the moment it
+   * crosses the frame, and a real customer name is wider than the mock's.
+   * HTML gets real text wrapping and ellipsis, a font that does not scale with
+   * the zoom, and a position we can clamp inside the map box.
+   *
+   * Built on pointerover, thrown away on pointerout and on any pointerdown —
+   * never kept in the view string, so a re-render cannot leave a stale tip and
+   * a gesture never has to reposition it. Mouse (and pen) only: a finger has
+   * no hover, and the tap sheet already answers the phone.
    */
-  const tipClear = () => { const t = svg.querySelector('#maptip'); if (t) t.remove(); };
+  const wrap = svg.closest('.mapwrap') || svg.parentElement;
+  const tipClear = () => { const t = wrap && wrap.querySelector('.maptip'); if (t) t.remove(); };
   const tipShow = (pin) => {
     tipClear();
     const st = mapStacks.get(pin.dataset.stack);
-    const lines = st ? pinTip(st) : [];
-    if (!lines.length) return;
-    const scale = pinScale();
-    const lh = 12;
-    const pad = 6;
-    const w = Math.max(...lines.map((l) => l.length)) * 5.2 + pad * 2;
-    const h = lines.length * lh + pad * 2 - 2;
-    // Above the head and to the right by default; flipped to the left or
-    // below when that would run off the edge of the current viewBox — a tip
-    // the frame clips is worse than none.
-    const px = Number(pin.dataset.x);
-    const py = Number(pin.dataset.y);
-    const v = mapView || mapOuter || { x: 0, y: 0, w: Infinity, h: Infinity };
-    const x0 = px + w * scale > v.x + v.w ? -w : 0;
-    let y0 = PIN_HEAD_Y - 12 - h;
-    if (py + y0 * scale < v.y) y0 = 8;
-    const text = lines.map((l, i) =>
-      `<text class="tip-tx${i === 0 ? ' first' : ''}" x="${(x0 + pad).toFixed(1)}" y="${(y0 + pad + lh * i + 9).toFixed(1)}">${esc(l)}</text>`).join('');
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.id = 'maptip';
-    g.setAttribute('transform', `translate(${px},${py}) scale(${scale})`);
-    g.innerHTML = `<rect class="tip-bg" x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="4"/>${text}`;
-    const layer = svg.querySelector('#pins');
-    if (layer) layer.appendChild(g);
+    const tip = st ? pinTip(st) : null;
+    if (!tip || !tip.rows.length || !wrap) return;
+    const el = document.createElement('div');
+    el.className = 'maptip';
+    el.innerHTML = tip.rows.map((r) => html`<div class="tr"><div class="tc">${r.customer}</div>${r.equip ? raw(html`<div class="te">${r.equip}</div>`) : ''}</div>`).join('')
+      + (tip.more ? html`<div class="tm">+${tip.more} more</div>` : '');
+    wrap.appendChild(el);
+    // Centre on the pin head, above it; clamp inside the box, flip below when
+    // there is no room above. Measured after insertion so the clamp uses the
+    // real rendered size, not an estimate.
+    const head = pin.querySelector('.pg') || pin;
+    const pr = head.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    const tw = el.offsetWidth;
+    const th = el.offsetHeight;
+    const cx = pr.left + pr.width / 2 - wr.left;
+    const left = Math.max(4, Math.min(wr.width - tw - 4, cx - tw / 2));
+    let top = pr.top - wr.top - th - 6;
+    if (top < 4) top = pr.bottom - wr.top + 6;
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(top)}px`;
   };
   svg.addEventListener('pointerover', (ev) => {
     if (ev.pointerType === 'touch') return;

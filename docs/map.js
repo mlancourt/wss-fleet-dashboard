@@ -326,26 +326,26 @@ export const stackKind = (s) => KINDS.find((k) => s.kinds.includes(k)) || 'renta
 
 /**
  * The hover blurb (D101): what a desktop pointer sees over a pin without
- * tapping — customer · equipment, one line per row at that address.
+ * tapping — customer and equipment, one entry per row at that address.
  *
  * Deliberately thin: the tap sheet is where address, precision, Navigate and
  * the plan-a-run controls live. The tip answers "who is that pin, and what
- * machine" — the two things the ID chip cannot say — and nothing else, because
- * a tip that grows into a card is a sheet that cannot be scrolled.
+ * machine" — the two things the ID chip cannot say — and nothing else.
  *
- * A stack lists up to TIP_MAX rows and then says how many more. Rows with
- * neither a customer nor equipment fall back to the ID so a line is never
- * blank. Phones have no hover and get nothing from this — the sheet is theirs.
+ * Returns { rows: [{ customer, equip }], more } — TIP_MAX rows at most and a
+ * count of the rest. A row with neither name nor equipment carries its ID as
+ * the customer so a line is never blank. Phones have no hover and get nothing
+ * from this — the sheet is theirs.
  */
-export const TIP_MAX = 4;
+export const TIP_MAX = 3;
 export function pinTip(st) {
-  const rows = st && Array.isArray(st.rows) ? st.rows : [];
-  const lines = rows.slice(0, TIP_MAX).map((r) => {
-    const parts = [r.customer, r.equip].map((v) => str(v)).filter(Boolean);
-    return parts.length ? parts.join(' · ') : str(r.label) || str(r.id) || '—';
+  const all = st && Array.isArray(st.rows) ? st.rows : [];
+  const rows = all.slice(0, TIP_MAX).map((r) => {
+    const customer = str(r.customer);
+    const equip = str(r.equip);
+    return { customer: customer || (equip ? '' : (str(r.label) || str(r.id) || '—')), equip: equip || '' };
   });
-  if (rows.length > TIP_MAX) lines.push(`+${rows.length - TIP_MAX} more`);
-  return lines;
+  return { rows, more: Math.max(0, all.length - TIP_MAX) };
 }
 
 

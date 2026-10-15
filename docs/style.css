@@ -1121,13 +1121,22 @@ table.ins td.n { color: var(--slate-700); }
 /* In select mode the map is a picker, so say so with the cursor. */
 .wimap.planning .pin { cursor: copy; }
 
-/* D101 — the hover tip: customer · equipment above the pin for a desktop
-   pointer. Built by bindMap on pointerover, last child of #pins so it draws
-   over its neighbours; counter-scaled like the pins. Touch never sees it. */
-#maptip { pointer-events: none; }
-#maptip .tip-bg { fill: rgba(15, 23, 42, .92); stroke: var(--white); stroke-width: 0.8; }
-#maptip .tip-tx { font: 500 9px system-ui, -apple-system, sans-serif; fill: var(--white); }
-#maptip .tip-tx.first { font-weight: 700; }
+/* D101 — the hover tip: customer / equipment over the pin for a desktop
+   pointer. An HTML box in .mapwrap, built by bindMap on pointerover, clamped
+   inside the box so the frame never crops it. Touch never sees it. */
+.maptip {
+  position: absolute; z-index: 3; pointer-events: none;
+  max-width: min(240px, calc(100% - 8px));
+  padding: 6px 9px; border-radius: 7px;
+  background: rgba(15, 23, 42, .94); color: var(--white);
+  border: 1px solid rgba(255, 255, 255, .35); box-shadow: var(--shadow);
+  font-size: 12px; line-height: 1.25;
+}
+.maptip .tr + .tr { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, .18); }
+.maptip .tc, .maptip .te { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.maptip .tc { font-weight: 700; }
+.maptip .te { color: rgba(255, 255, 255, .82); font-size: 11px; }
+.maptip .tm { margin-top: 4px; font-size: 11px; color: rgba(255, 255, 255, .7); }
 
 /* --- legend -------------------------------------------------------------- */
 .maplegend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); margin-bottom: 12px; }

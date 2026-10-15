@@ -539,21 +539,21 @@ check('the chip-hide threshold shows chips at the default view and hides them st
   assert.ok(FACTOR >= 1.4 && FACTOR <= 1.8);
 });
 
-check('D101: the hover tip is customer · equipment, one line per row, capped', () => {
+check('D101: the hover tip is customer + equipment per row, capped, never blank', () => {
   const { pins } = collect(SNAP);
   for (const p of pins) assert.ok('equip' in p, `${p.kind} ${p.id} carries equip`);
   const lead = pins.find((p) => p.kind === 'lead');
-  const one = stack([lead])[0];
-  assert.deepEqual(pinTip(one), [[lead.customer, lead.equip].filter(Boolean).join(' · ')]);
-  // A row with nothing to say falls back to its ID — never a blank line.
-  assert.deepEqual(pinTip({ rows: [{ id: 'S1', label: 'S1', customer: null, equip: null }] }), ['S1']);
-  // A stack lists TIP_MAX rows and then counts the rest.
+  const one = pinTip(stack([lead])[0]);
+  assert.deepEqual(one, { rows: [{ customer: lead.customer, equip: lead.equip || '' }], more: 0 });
+  // A row with nothing to say carries its ID — never a blank line.
+  assert.deepEqual(pinTip({ rows: [{ id: 'S1', label: 'S1', customer: null, equip: null }] }), { rows: [{ customer: 'S1', equip: '' }], more: 0 });
+  // A stack lists TIP_MAX rows and counts the rest.
   const rows = Array.from({ length: TIP_MAX + 2 }, (_, i) => ({ id: `S${i}`, label: `S${i}`, customer: `C${i}`, equip: `E${i}` }));
-  const lines = pinTip({ rows });
-  assert.equal(lines.length, TIP_MAX + 1);
-  assert.equal(lines[0], 'C0 · E0');
-  assert.equal(lines[TIP_MAX], '+2 more');
-  assert.deepEqual(pinTip(null), []);
+  const t = pinTip({ rows });
+  assert.equal(t.rows.length, TIP_MAX);
+  assert.deepEqual(t.rows[0], { customer: 'C0', equip: 'E0' });
+  assert.equal(t.more, 2);
+  assert.deepEqual(pinTip(null), { rows: [], more: 0 });
 });
 
 console.log(`\n${passed} checks passed`);
