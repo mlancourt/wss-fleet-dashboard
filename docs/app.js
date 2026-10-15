@@ -123,7 +123,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-15-d101';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-15-d102';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -232,6 +232,19 @@ const ACTIVITY_OPEN_KEY = 'wss.activity.open';
 function storedActivityOpen() {
   try { return sessionStorage.getItem(ACTIVITY_OPEN_KEY) === '1'; } catch (_) { return false; }
 }
+// D102: folded kanban columns — "board:stage" keys, remembered per DEVICE
+// (localStorage, not session): which columns are noise is a standing choice,
+// not a job-of-the-day one. Nothing folds by default.
+const KAN_FOLD_KEY = 'wss.kan.folded';
+function storedKanFolds() {
+  try {
+    const raw = localStorage.getItem(KAN_FOLD_KEY);
+    return new Set(raw ? String(raw).split(',').filter(Boolean) : []);
+  } catch (_) { return new Set(); }
+}
+const rememberKanFolds = () => {
+  try { localStorage.setItem(KAN_FOLD_KEY, [...ui.kanFolded].join(',')); } catch (_) { /* ignore */ }
+};
 const LEAD_FILTER_KEY = 'wss_fleet_lead_filter';
 function storedLeadFilter() {
   try {
@@ -271,7 +284,30 @@ const ui = {
   // DONE / SKIPPED. A tap flips it for this page view; key → true (open) / false.
   sheetCard: new Map(),
   historyExpanded: false,         // D70: the unit page's Service history — first 5, "Show all N" for the session
+  kanFolded: storedKanFolds(),    // D102: "board:stage" keys of the columns folded to a deck — per device
 };
+
+/**
+ * D102 — one kanban column, shared by Service, Leads and Parts. The head is a
+ * button: tap it and the column folds to a DECK — the top card stays face-up
+ * (the columns sort oldest-first, so that is the one to act on), the rest hide
+ * behind two or three fanned edges and a "+N" so a 3-deep deck reads smaller
+ * than a 12-deep one. The count pill in the head never changes. Tap the head
+ * or the deck to open it again. `key` = "board:stage"; `id` is the column's
+ * DOM id (the pipeline widget and the lead chips scroll to it).
+ */
+const KAN_DECK_MAX = 3;
+function kanColumn({ key, id, cls, label, count, cards, empty }) {
+  const folded = ui.kanFolded.has(key);
+  const under = Math.max(0, cards.length - 1);
+  const deck = folded && under > 0
+    ? html`<div class="kan-deck" data-kan-fold="${key}" aria-hidden="true">${raw('<i></i>'.repeat(Math.min(under, KAN_DECK_MAX)))}<span class="kan-more">+${under}</span></div>`
+    : '';
+  return html`<section class="kan-col${cls ? raw(' ' + cls) : ''}${folded ? ' folded' : ''}" id="${raw(id)}">
+    <button type="button" class="kan-head" data-kan-fold="${key}" aria-expanded="${folded ? 'false' : 'true'}" title="${folded ? 'Show every card' : 'Fold the column to a deck'}"><span>${label}</span><span class="c">${count}</span></button>
+    <div class="kan-body">${cards.length ? raw(cards.join('')) : raw(`<div class="kan-empty">${empty || 'nothing here'}</div>`)}</div>${raw(deck)}
+  </section>`;
+}
 
 /* ---- uploads in flight (S2) --------------------------------------------
  * A file a tech picked, resized, and is trying to send. Module scope so it
@@ -2197,10 +2233,7 @@ function viewService() {
       .concat((c.workOrders || []).map((w) => ({ age: Number(w.age_days) || 0, h: woCard(w) })))
       .sort((a, b) => b.age - a.age);
     const cards = synth.concat(queue.map((x) => x.h));
-    return html`<section class="kan-col" id="kan-${c.stage}">
-      <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
-      <div class="kan-body">${cards.length ? raw(cards.join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
-    </section>`;
+    return kanColumn({ key: `service:${c.stage}`, id: `kan-${c.stage}`, label: c.label, count: c.count, cards });
   });
 
   return html`${raw(head)}
@@ -4234,11 +4267,10 @@ function viewLeads() {
     return head + emptyState('No leads yet.', 'Write one down above — it shows here as pending until the next run picks it up.');
   }
 
-  const cols = boardColumns(all, { filter, me: state.me, summary: leadsSummary() }).map((c) => html`
-    <section class="kan-col col-${raw(enc(c.key))}" id="lead-col-${raw(enc(c.key))}">
-      <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
-      <div class="kan-body">${c.leads.length ? raw(c.leads.map(leadCard).join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
-    </section>`);
+  const cols = boardColumns(all, { filter, me: state.me, summary: leadsSummary() }).map((c) => kanColumn({
+    key: `leads:${c.key}`, id: `lead-col-${enc(c.key)}`, cls: `col-${enc(c.key)}`,
+    label: c.label, count: c.count, cards: c.leads.map(leadCard),
+  }));
 
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
@@ -5143,11 +5175,10 @@ function viewParts() {
 
   if (!all.length && !opens.length) return head + emptyState('No parts orders yet. Open one from a call or an email.');
 
-  const cols = partsColumns(all, partsSummary()).map((c) => html`
-    <section class="kan-col pcol-${raw(enc(c.stage))}" id="parts-col-${raw(enc(c.stage))}">
-      <div class="kan-head"><span>${c.label}</span><span class="c">${c.count}</span></div>
-      <div class="kan-body">${c.orders.length ? raw(c.orders.map(partsCard).join('')) : raw('<div class="kan-empty">nothing here</div>')}</div>
-    </section>`);
+  const cols = partsColumns(all, partsSummary()).map((c) => kanColumn({
+    key: `parts:${c.stage}`, id: `parts-col-${enc(c.stage)}`, cls: `pcol-${enc(c.stage)}`,
+    label: c.label, count: c.count, cards: c.orders.map(partsCard),
+  }));
 
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
@@ -6352,6 +6383,20 @@ document.addEventListener('click', async (ev) => {
   }
   if (ev.target.closest('[data-parts-closed-toggle]')) { ui.showClosedParts = !ui.showClosedParts; render(); return; }
 
+  // D102: fold / unfold a kanban column. render() rewrites the board, which
+  // would snap a phone's sideways scroll back to the first column — keep it.
+  const fold = ev.target.closest('[data-kan-fold]');
+  if (fold) {
+    const key = fold.dataset.kanFold;
+    if (ui.kanFolded.has(key)) ui.kanFolded.delete(key); else ui.kanFolded.add(key);
+    rememberKanFolds();
+    const strip = fold.closest('.kanban');
+    const left = strip ? strip.scrollLeft : 0;
+    render();
+    const again = $('.kanban');
+    if (again && left) again.scrollLeft = left;
+    return;
+  }
   if (ev.target.closest('[data-done-toggle]')) { ui.showDone = !ui.showDone; render(); return; }
   // D65: the Parts strip. Remembered for the session, not the device.
   if (ev.target.closest('[data-parts-toggle]')) {

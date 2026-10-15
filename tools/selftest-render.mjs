@@ -928,7 +928,7 @@ async function leadsAsStrippedService(hash = '#/leads', openScore = false) {
 
 await check('the Leads board draws seven columns, New Lead first and Won last', async () => {
   const out = await leadsAs('sales');
-  const heads = [...out.matchAll(/<div class="kan-head"><span>([^<]+)</g)].map((m) => m[1]);
+  const heads = [...out.matchAll(/class="kan-head"[^>]*><span>([^<]+)</g)].map((m) => m[1]);
   // D55: RECEIVED reads "New Lead" and PO-RECEIVED closes the open stages.
   assert.deepEqual(heads.slice(0, 6),
     ['New Lead', 'Contacted', 'Quoted', 'Demo booked', 'Demo done', 'PO received'],
@@ -937,6 +937,40 @@ await check('the Leads board draws seven columns, New Lead first and Won last', 
   assert.equal(heads[heads.length - 1], 'Won', 'Won is the last column');
   assert.ok(out.includes('data-lead-filter="all"') && out.includes('data-lead-filter="mine"')
     && out.includes('data-lead-filter="stale"'), 'All / Mine / Stale');
+});
+
+await check('D102: a kanban column folds to a deck — top card up, the rest behind fanned edges, count pill unchanged', async () => {
+  const ui = app.__ui();
+  ui.kanFolded.clear();
+  let out = await leadsAs('sales');
+  assert.ok(out.includes('<button type="button" class="kan-head" data-kan-fold="leads:RECEIVED" aria-expanded="true"'),
+    'every head is a fold button, open by default');
+  assert.ok(!out.includes('class="kan-col col-RECEIVED folded"') && !out.includes('kan-deck'), 'nothing folds by default');
+  // Pick the deepest open column so the deck has something to fan.
+  const cols = [...out.matchAll(/<section class="kan-col col-([A-Z-]+)" id="[^"]+">[\s\S]*?<span class="c">(\d+)<\/span>/g)]
+    .map((m) => ({ key: m[1], n: Number(m[2]) })).sort((a, b) => b.n - a.n);
+  const deep = cols[0];
+  assert.ok(deep && deep.n >= 3, `the fixture needs a column at least 3 deep (got ${JSON.stringify(cols)})`);
+  ui.kanFolded.add(`leads:${deep.key}`);
+  out = await leadsAs('sales');
+  assert.ok(out.includes(`class="kan-col col-${deep.key} folded"`), 'the folded class lands on the column');
+  assert.ok(out.includes(`data-kan-fold="leads:${deep.key}" aria-expanded="false"`), 'the head says it is closed');
+  const m = out.match(new RegExp(`<div class="kan-deck" data-kan-fold="leads:${deep.key}" aria-hidden="true">((?:<i></i>)+)<span class="kan-more">\\+(\\d+)</span></div>`));
+  assert.ok(m, 'a deck sits under the folded column');
+  assert.equal(m[1].length / '<i></i>'.length, Math.min(deep.n - 1, 3), 'up to three fanned edges');
+  assert.equal(Number(m[2]), deep.n - 1, '+N is the true depth under the top card');
+  const pill = out.match(new RegExp(`data-kan-fold="leads:${deep.key}"[^>]*><span>[^<]+</span><span class="c">(\\d+)</span>`));
+  assert.equal(Number(pill[1]), deep.n, 'the count pill still carries the whole column');
+  const cardsIn = (html, key) => (html.match(new RegExp(`id="lead-col-${key}">[\\s\\S]*?</section>`))[0].match(/class="kan-card/g) || []).length;
+  assert.equal(cardsIn(out, deep.key), deep.n, 'every card is still in the DOM — CSS hides the ones behind, nothing is dropped');
+  // A one-card column folds without a deck: nothing to fan.
+  const one = cols.find((c) => c.n === 1);
+  if (one) {
+    ui.kanFolded.add(`leads:${one.key}`);
+    out = await leadsAs('sales');
+    assert.ok(out.includes(`class="kan-col col-${one.key} folded"`) && !out.includes(`class="kan-deck" data-kan-fold="leads:${one.key}"`), 'one card, no deck');
+  }
+  ui.kanFolded.clear();
 });
 
 await check('every OPEN lead in the fixture is on the board exactly once', async () => {

@@ -500,6 +500,38 @@ form.write textarea { min-height: 80px; resize: vertical; }
   background: var(--slate-100); color: var(--slate-700); font-size: 12px;
   border-radius: 999px; padding: 1px 9px; letter-spacing: 0; flex: 0 0 auto;
 }
+/* D102: the head is a button now (tap = fold the column to a deck). Same look
+   as the div it replaced — width, font and colour are inherited, the browser's
+   button chrome is stripped. */
+button.kan-head {
+  width: 100%; border: 0; border-bottom: 2px solid var(--slate-100); font: inherit; font-weight: 700;
+  text-align: left; cursor: pointer; -webkit-appearance: none; appearance: none; min-height: 40px;
+}
+button.kan-head:focus-visible { outline: 2px solid var(--red); outline-offset: -2px; }
+/* The folded column: the top card stays face-up as a real card (boxed, lifted),
+   every card behind it hides, and the deck below draws the fanned edges of the
+   ones underneath — up to three, narrowing — with a +N for the true depth. */
+.kan-col.folded .kan-body > .kan-card:not(:first-child) { display: none; }
+.kan-col.folded .kan-body > .kan-card:first-child {
+  background: var(--white); border: 1px solid var(--line); border-left: 3px solid transparent;
+  border-radius: var(--radius-sm); box-shadow: var(--shadow); padding: 10px 10px 9px; margin: 10px 0 0;
+  position: relative; z-index: 1;
+}
+.kan-col.folded .kan-body > .kan-card.pri-HIGH:first-child { border-left-color: var(--red); }
+.kan-col.folded .kan-body > .kan-card.pending-card:first-child { background: var(--red-soft); border-left-color: var(--red); }
+.kan-col.folded .kan-body > .kan-card.wo-card:first-child { border-style: dashed; border-left: 3px solid var(--red); }
+.kan-deck { position: relative; height: 22px; margin: -4px 0 0; cursor: pointer; }
+.kan-deck i {
+  position: absolute; display: block; height: 9px; border: 1px solid var(--line); border-top: 0;
+  border-radius: 0 0 8px 8px; background: var(--white); box-shadow: var(--shadow);
+}
+.kan-deck i:nth-child(1) { top: 0; left: 5px; right: 5px; z-index: 3; }
+.kan-deck i:nth-child(2) { top: 4px; left: 10px; right: 10px; z-index: 2; }
+.kan-deck i:nth-child(3) { top: 8px; left: 15px; right: 15px; z-index: 1; }
+.kan-more {
+  position: absolute; right: 2px; top: 6px; font-size: 11px; font-weight: 700; color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
 .kan-card {
   display: block; border-top: 1px solid var(--slate-100); padding: 10px 0 9px;
   font-size: 14px; border-left: 3px solid transparent; padding-left: 9px; margin-left: -9px;
