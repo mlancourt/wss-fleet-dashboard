@@ -382,6 +382,13 @@ form.write input:focus, form.write select:focus, form.write textarea:focus {
 form.write textarea { min-height: 80px; resize: vertical; }
 .form-note { font-size: 12.5px; color: var(--ink-3); margin-top: 10px; }
 .form-note[hidden] { display: none; }
+/* D103: the Parts strip — one muted line, a button so the window cycles on tap. */
+.pstat { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 8px 0 2px; font: inherit; font-size: 12.5px; color: var(--ink-3); cursor: pointer; line-height: 1.5; }
+.pstat-w { font-weight: 600; color: var(--ink-2); }
+.pstat-dot { opacity: .5; }
+.pstat-ok { color: var(--ok, var(--ink-2)); }
+.pstat-bad { color: var(--bad, var(--ink-2)); }
+.pstat-money { color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
 /* ------------------------------------------------ recurring revenue (D21) */
 

@@ -236,3 +236,46 @@ export function inFlightCounts(rows) {
     inTransit: list.filter((o) => o.stage === 'IN-TRANSIT' || boxesOpen(o) > 0).length,
   };
 }
+
+/* ------------------------------------------------------------- stats strip --
+ * D103 (2026-10-15). `parts_summary.stats` is the engine's read of the WHOLE
+ * ledger (every P file, not the 14-day window this page gets): per window,
+ * `windows[w]` = { days, opened, per_day, complete, lost, dead } for everyone and
+ * `money[w]` = { quoted, avg_value, won_value } for owner/sales only — the
+ * Worker deletes `stats.money` for a service token, and the engine omits it
+ * until that strip is live. Absent money draws nothing; it is not zero.
+ * One muted line under the board, not a scoreboard (Matt, 10/15): the board's
+ * job is what needs quoting and what's in a box; the figures wait to be asked.
+ */
+
+export const P_STAT_WINDOWS = ['30d', '90d', 'all'];
+export const P_STAT_LABEL = { '30d': '30d', '90d': '90d', all: 'All time' };
+
+/** The next window on a tap: 30d → 90d → all → 30d. An unknown one starts over. */
+export function nextStatWindow(w) {
+  const i = P_STAT_WINDOWS.indexOf(w);
+  return P_STAT_WINDOWS[(i < 0 ? 0 : i + 1) % P_STAT_WINDOWS.length];
+}
+
+/**
+ * The strip's segments for one window, as { text, kind } in draw order — or
+ * null when the snapshot has no stats (pre-D103) or nothing was ever opened.
+ *   counts  "8 orders" · "1.0/day" · "1 complete" · "1 lost" · "1 dead" (zero lost/dead are left out)
+ *   money   "avg $531" (only over orders that carry a value) · "won $1,809" (when > 0)
+ * `fmt` is the page's money formatter; the strip never formats a dollar itself.
+ */
+export function partsStripSegments(summary, win, fmt = (n) => `$${Math.round(n).toLocaleString('en-US')}`) {
+  const st = summary && summary.stats && typeof summary.stats === 'object' ? summary.stats : null;
+  const w = st && st.windows && typeof st.windows === 'object' ? st.windows[win] : null;
+  if (!w || typeof w.opened !== 'number') return null;
+  const seg = [];
+  seg.push({ text: `${w.opened} order${w.opened === 1 ? '' : 's'}`, kind: 'count' });
+  if (w.opened > 0 && typeof w.per_day === 'number') seg.push({ text: `${w.per_day.toFixed(w.per_day >= 10 ? 0 : 1)}/day`, kind: 'count' });
+  const m = st.money && typeof st.money === 'object' && st.money[win] && typeof st.money[win] === 'object' ? st.money[win] : null;
+  if (m && typeof m.avg_value === 'number' && isFinite(m.avg_value)) seg.push({ text: `avg ${fmt(m.avg_value)}`, kind: 'money' });
+  if (typeof w.complete === 'number') seg.push({ text: `${w.complete} complete`, kind: 'ok' });
+  if (m && typeof m.won_value === 'number' && m.won_value > 0) seg.push({ text: `won ${fmt(m.won_value)}`, kind: 'money' });
+  if (w.lost > 0) seg.push({ text: `${w.lost} lost`, kind: 'bad' });
+  if (w.dead > 0) seg.push({ text: `${w.dead} dead`, kind: 'out' });
+  return seg;
+}

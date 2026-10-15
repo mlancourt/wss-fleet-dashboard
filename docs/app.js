@@ -118,12 +118,13 @@ import {
   partsOptions, isOpenOrder, isStock, partsValue, orderById, firstLine, partsColumns, closedOrders, partsBadge,
   canEditOrder, canCloseOrder, canComplete, partsStageOptions, isGated, stageFields, gateText,
   partsInFlight, inFlightCounts, shipmentsOf, boxesOpen, latestShipment, canShipBox, P_SHIP_FROM,
+  partsStripSegments, nextStatWindow, P_STAT_LABEL, P_STAT_WINDOWS,
 } from './parts.js';
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-15-d102';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-15-d103';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -218,6 +219,11 @@ const rememberMapKinds = () => {
 
 // D65: the Parts strip's open/closed state lives for the SESSION, not the
 // device — it opens for a job and should be folded again tomorrow morning.
+// D103: which window the Parts strip shows — a standing choice per device, like the folded columns.
+const PARTS_STAT_KEY = 'wss.parts.statwin';
+function loadPartsStatWin() {
+  try { const v = localStorage.getItem(PARTS_STAT_KEY); return P_STAT_WINDOWS.includes(v) ? v : '30d'; } catch (_) { return '30d'; }
+}
 const PARTS_OPEN_KEY = 'wss.parts.open';
 function storedPartsOpen() {
   try { return sessionStorage.getItem(PARTS_OPEN_KEY) === '1'; } catch (_) { return false; }
@@ -272,6 +278,7 @@ const ui = {
   showInsights: false,   // §3.2 — collapsed by default
   showClosedLeads: false,
   showClosedParts: false, // D88: the Parts tab's Closed (14d) strip — collapsed by default
+  partsStatWin: loadPartsStatWin(), // D103: the Parts strip's window (30d · 90d · all) — tap cycles
   showCompleted: false,  // D62: the Service tab's Completed strip — collapsed by default, per session
   showDormant: false,    // D81: the pipeline's 💤 Dormant row — collapsed by default, per session
   completedQuery: '',    // D62: its search box
@@ -5183,7 +5190,23 @@ function viewParts() {
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
     <div class="form-note">Swipe the columns sideways. Tap a card for the whole order.</div>
+    ${raw(partsStatStrip())}
     ${raw(partsClosedStrip(all))}`;
+}
+
+/**
+ * D103 — one muted line under the board: `30d · 8 orders · 1.0/day · avg $531 · 1 complete · 1 lost`.
+ * Tap cycles 30d → 90d → all. The figures are the engine's read of the whole ledger
+ * (`parts_summary.stats`); money is absent for service (Worker) and draws nothing.
+ * A pre-D103 snapshot has no stats → no strip. Not a scoreboard, by ruling.
+ */
+function partsStatStrip() {
+  const win = ui.partsStatWin;
+  const seg = partsStripSegments(partsSummary(), win, fmtMoney);
+  if (!seg) return '';
+  return html`<button type="button" class="pstat" data-parts-stat-toggle="1" title="Tap for the next window">
+    <span class="pstat-w">${P_STAT_LABEL[win] || win}</span>${raw(seg.map((s) => html` <span class="pstat-dot">·</span> <span class="pstat-${s.kind}">${s.text}</span>`).join(''))}
+  </button>`;
 }
 
 /**
@@ -6382,6 +6405,7 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (ev.target.closest('[data-parts-closed-toggle]')) { ui.showClosedParts = !ui.showClosedParts; render(); return; }
+  if (ev.target.closest('[data-parts-stat-toggle]')) { ui.partsStatWin = nextStatWindow(ui.partsStatWin); try { localStorage.setItem(PARTS_STAT_KEY, ui.partsStatWin); } catch (_) { /* storage blocked */ } render(); return; }
 
   // D102: fold / unfold a kanban column. render() rewrites the board, which
   // would snap a phone's sideways scroll back to the first column — keep it.

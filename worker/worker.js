@@ -683,6 +683,9 @@ function stripPartsMoney(doc) {
     }
   }
   if (summary) delete summary.money_fields;
+  // D103: the Parts strip — counts stay (`stats.windows`), the two dollar figures go (`stats.money`),
+  // the `scoreboard.money` pattern. The engine omits `money` until this line is live (SHIP_STATS_MONEY).
+  if (summary && summary.stats && typeof summary.stats === 'object') delete summary.stats.money;
   return doc;
 }
 

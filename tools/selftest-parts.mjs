@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   partsColumns, closedOrders, partsBadge, partsStageOptions, stageFields, isGated, gateText, partsInFlight,
   inFlightCounts, shipmentsOf, boxesOpen, latestShipment, canShipBox, firstLine, partsValue, canCloseOrder, canComplete, sortOrders, partsOptions,
+  partsStripSegments, nextStatWindow, P_STAT_WINDOWS,
 } from '../docs/parts.js';
 
 let passed = 0;
@@ -107,3 +108,23 @@ check('first line of multi-line parts text; options fall back to ours', () => {
 });
 
 console.log(`${passed} checks passed.`);
+
+// ---------------------------------------------------------------- D103: the stats strip
+{
+  const stats = { as_of: '2026-10-15', windows: { '30d': { days: 8, opened: 8, per_day: 1, complete: 1, lost: 1, dead: 0 }, '90d': { days: 8, opened: 8, per_day: 1, complete: 1, lost: 1, dead: 0 }, all: { days: 8, opened: 8, per_day: 1, complete: 1, lost: 1, dead: 0 } },
+    money: { '30d': { quoted: 8, avg_value: 530.9, won_value: 1808.65 }, '90d': { quoted: 8, avg_value: 530.9, won_value: 1808.65 }, all: { quoted: 8, avg_value: 530.9, won_value: 1808.65 } } };
+  const fmt = (n) => `$${Math.round(n)}`;
+  const texts = (seg) => seg.map((x) => x.text);
+  assert.deepEqual(texts(partsStripSegments({ stats }, '30d', fmt)), ['8 orders', '1.0/day', 'avg $531', '1 complete', 'won $1809', '1 lost'], 'D103: owner strip in draw order; zero dead left out');
+  const svc = { stats: { windows: stats.windows } };   // the Worker deleted stats.money
+  assert.deepEqual(texts(partsStripSegments(svc, '30d', fmt)), ['8 orders', '1.0/day', '1 complete', '1 lost'], 'D103: service strip — no money segment, no $0');
+  assert.ok(partsStripSegments(svc, '30d', fmt).every((x) => x.kind !== 'money'), 'D103: nothing of kind money for service');
+  assert.equal(partsStripSegments({}, '30d', fmt), null, 'D103: pre-D103 snapshot → no strip');
+  assert.equal(partsStripSegments({ stats: { windows: {} } }, '30d', fmt), null, 'D103: window missing → no strip');
+  const empty = { stats: { windows: { '30d': { days: 30, opened: 0, per_day: 0, complete: 0, lost: 0, dead: 0 } }, money: { '30d': { quoted: 0, avg_value: null, won_value: 0 } } } };
+  assert.deepEqual(texts(partsStripSegments(empty, '30d', fmt)), ['0 orders', '0 complete'], 'D103: nothing opened → no per-day, no avg (null is not zero), no won');
+  assert.equal(nextStatWindow('30d'), '90d'); assert.equal(nextStatWindow('90d'), 'all'); assert.equal(nextStatWindow('all'), '30d');
+  assert.equal(nextStatWindow('bogus'), '30d', 'D103: an unknown window starts the cycle over');
+  assert.deepEqual(P_STAT_WINDOWS, ['30d', '90d', 'all']);
+  console.log('  ok  D103: stats strip segments, money absent for service, window cycle');
+}

@@ -1253,6 +1253,17 @@ function buildParts({ withParts, service_queue, leads }) {
       closed_recent: { CLOSED: rows.filter((o) => o.status === 'CLOSED').length, LOST: rows.filter((o) => o.status === 'LOST').length, DEAD: rows.filter((o) => o.status === 'DEAD').length },
       money_fields: ['value'],
       value_shipped: shipped,
+      // D103: the strip — the engine's whole-ledger read; `money` only when shipped (Worker strips it for service).
+      stats: (() => {
+        const w = (n) => ({ days: n, opened: rows.length, per_day: Number((rows.length / n).toFixed(2)),
+          complete: rows.filter((o) => o.status === 'CLOSED').length, lost: rows.filter((o) => o.status === 'LOST').length, dead: rows.filter((o) => o.status === 'DEAD').length });
+        const vals = rows.map((o) => o.value).filter((v) => typeof v === 'number');
+        const won = rows.filter((o) => o.status === 'CLOSED').map((o) => o.value).filter((v) => typeof v === 'number');
+        const m = { quoted: vals.length, avg_value: vals.length ? Number((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2)) : null, won_value: Number(won.reduce((a, b) => a + b, 0).toFixed(2)) };
+        const out = { as_of: '2026-10-15', windows: { '30d': w(9), '90d': w(9), all: w(9) }, money_shipped: shipped };
+        if (shipped) out.money = { '30d': m, '90d': m, all: m };
+        return out;
+      })(),
       stages: STAGES,
       sources: ['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE'],
       terms: ['CASH', 'ACCOUNT'],

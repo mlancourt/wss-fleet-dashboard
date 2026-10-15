@@ -494,7 +494,7 @@ await check('D88: /api/data — service loses parts value (+ money_fields) and t
     method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ meta: { schema_version: 7 },
       parts_orders: [{ order: 'P1001', status: 'OPEN', stage: 'QUOTED', value: 312.5, parts: '2x blade', log: [{ ts: 'x', who: 'Matt', text: 'quote 44040 sent' }] }],
-      parts_summary: { money_fields: ['value'], value_shipped: true } }) }), env);
+      parts_summary: { money_fields: ['value'], value_shipped: true, stats: { windows: { '30d': { opened: 8 } }, money: { '30d': { avg_value: 530.9, won_value: 1808.65 } } } } }) }), env);
   assert.equal(pub.status, 200);
   await ok('sales', PU({ value: 400 }), 'a pending value');
   const read = async (role) => {
@@ -505,12 +505,15 @@ await check('D88: /api/data — service loses parts value (+ money_fields) and t
   const row = svc.body.snapshot.parts_orders[0];
   assert.ok(!('value' in row), 'value stripped off the row');
   assert.ok(!('money_fields' in svc.body.snapshot.parts_summary), 'money_fields stripped');
+  assert.ok(!('money' in svc.body.snapshot.parts_summary.stats) && svc.body.snapshot.parts_summary.stats.windows['30d'].opened === 8, 'D103: stats.money stripped, stats.windows kept');
+  assert.ok(!/530\.9|1808\.65/.test(svc.text), 'D103: no strip figure in the raw bytes');
   assert.equal(row.log.length, 1, 'the log survives');
   assert.ok(svc.body.pending.filter((e) => e.action === 'parts_update').every((e) => !('value' in e.payload)), 'pending value stripped');
   assert.ok(!/312\.5|"value":400/.test(svc.text), 'no figure in the raw bytes');
   for (const role of ['owner', 'sales']) {
     const b = (await read(role)).body;
     assert.equal(b.snapshot.parts_orders[0].value, 312.5, `${role} keeps the value`);
+    assert.equal(b.snapshot.parts_summary.stats.money['30d'].avg_value, 530.9, `${role} keeps stats.money (D103)`);
   }
 });
 
