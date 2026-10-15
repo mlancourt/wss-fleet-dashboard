@@ -214,6 +214,7 @@ export function collect(snapshot) {
     take({
       kind: 'service', id: t.ticket, label: t.ticket,
       line: str(t.issue) || str(t.equipment) || '—',
+      equip: str(t.equipment) || str(t.issue),
       href: `#/ticket/${encodeURIComponent(t.ticket)}`,
       customer: str(t.customer), address: str(t.site),
     }, t.geo);
@@ -226,6 +227,7 @@ export function collect(snapshot) {
     take({
       kind, id: d.id, label: str(d.serial) || str(d.ticket) || (kind === 'pickup' ? 'Pick-up' : 'Delivery'),
       line: str(d.what) || '—',
+      equip: str(d.what),
       href: `#/dispatch/${encodeURIComponent(d.id)}`,
       customer: str(d.customer), address: str(d.address),
     }, d.geo);
@@ -236,6 +238,7 @@ export function collect(snapshot) {
     take({
       kind: 'lead', id: l.lead, label: l.lead,
       line: str(l.machine) || str(l.interest) || str(l.stage) || '—',
+      equip: str(l.machine) || str(l.interest),
       href: `#/lead/${encodeURIComponent(l.lead)}`,
       customer: str(l.customer), address: str(l.site),
       // A demo has a truck and a date attached to it — worth its own glyph.
@@ -248,6 +251,7 @@ export function collect(snapshot) {
     take({
       kind: 'rental', id: String(u.serial), label: String(u.serial),
       line: [u.brand, u.model].filter(Boolean).join(' ') || str(u.asset_item) || '—',
+      equip: [u.brand, u.model].filter(Boolean).join(' ') || str(u.asset_item),
       href: `#/unit/${encodeURIComponent(u.serial)}`,
       customer: str(u.customer), address: str(u.job_site),
     }, u.geo);
@@ -319,6 +323,30 @@ export function precisionNote(precision, legend) {
 
 /** The kind a stack draws as: the first of KINDS present, so the order is the priority. */
 export const stackKind = (s) => KINDS.find((k) => s.kinds.includes(k)) || 'rental';
+
+/**
+ * The hover blurb (D101): what a desktop pointer sees over a pin without
+ * tapping — customer · equipment, one line per row at that address.
+ *
+ * Deliberately thin: the tap sheet is where address, precision, Navigate and
+ * the plan-a-run controls live. The tip answers "who is that pin, and what
+ * machine" — the two things the ID chip cannot say — and nothing else, because
+ * a tip that grows into a card is a sheet that cannot be scrolled.
+ *
+ * A stack lists up to TIP_MAX rows and then says how many more. Rows with
+ * neither a customer nor equipment fall back to the ID so a line is never
+ * blank. Phones have no hover and get nothing from this — the sheet is theirs.
+ */
+export const TIP_MAX = 4;
+export function pinTip(st) {
+  const rows = st && Array.isArray(st.rows) ? st.rows : [];
+  const lines = rows.slice(0, TIP_MAX).map((r) => {
+    const parts = [r.customer, r.equip].map((v) => str(v)).filter(Boolean);
+    return parts.length ? parts.join(' · ') : str(r.label) || str(r.id) || '—';
+  });
+  if (rows.length > TIP_MAX) lines.push(`+${rows.length - TIP_MAX} more`);
+  return lines;
+}
 
 
 /** Off-map rows grouped for the list, in KINDS order. -> [{kind, label, rows}] */

@@ -96,7 +96,7 @@ import {
 } from './rentals.js';
 import {
   projector, boxToViewBox, viewBoxStr, clampViewBox, zoomAt,
-  collect, stack, stackKind, groupOff, geoMeta, hasGeo, precisionNote,
+  collect, stack, stackKind, groupOff, geoMeta, hasGeo, precisionNote, pinTip,
   navUrl, routeUrl, MAX_STOPS, KINDS as MAP_KINDS, KIND_LABEL as MAP_KIND_LABEL,
   EDGE_LABEL_ALLOWANCE,
 } from './map.js';
@@ -123,7 +123,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-15-d100';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-15-d101';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -314,6 +314,7 @@ let mapSvgState = 'idle';        // 'idle' | 'loading' | 'ready' | 'error'
 let mapProject = null;
 let mapOuter = null;             // the whole-state viewBox — the pan/zoom clamp
 let mapHome = null;              // meta.geo.default_view, projected
+let mapStacks = new Map();       // D101: stack key -> stack, for the hover tip (set by each map render)
 let mapView = null;
 let uploadSeq = 0;
 // D83: the quote composer. Drafts live in this page's memory only (no server
@@ -3817,6 +3818,7 @@ function viewDispatchMap() {
   const shown = pins.filter((p) => on.has(p.kind));
   const stacks = stack(shown);
   const offShown = off.filter((r) => on.has(r.kind));
+  mapStacks = new Map(stacks.map((st) => [st.key, st]));
 
   if (!mapHome) mapHome = mapDefaultView(g);
   if (!mapView) mapView = mapHome;
@@ -5897,6 +5899,55 @@ function bindMap() {
     const at = toSvg(ev.clientX, ev.clientY, mapView);
     apply(zoomAt(mapView, ev.deltaY < 0 ? 1.18 : 1 / 1.18, at.x, at.y));
   }, { passive: false });
+
+  /**
+   * D101 — the hover tip. One <g id="maptip"> appended LAST inside #pins, so
+   * it always draws over its neighbours (SVG has no z-index; order is the
+   * only stacking there is). It is built on pointerover and thrown away on
+   * pointerout, never kept in the view string, so a re-render cannot leave a
+   * stale tip behind and a gesture never has to reposition it — any touch
+   * on the map just drops it. Mouse (and pen) only: a finger has no hover,
+   * and the tap sheet already answers the phone.
+   */
+  const tipClear = () => { const t = svg.querySelector('#maptip'); if (t) t.remove(); };
+  const tipShow = (pin) => {
+    tipClear();
+    const st = mapStacks.get(pin.dataset.stack);
+    const lines = st ? pinTip(st) : [];
+    if (!lines.length) return;
+    const scale = pinScale();
+    const lh = 12;
+    const pad = 6;
+    const w = Math.max(...lines.map((l) => l.length)) * 5.2 + pad * 2;
+    const h = lines.length * lh + pad * 2 - 2;
+    // Above the head and to the right by default; flipped to the left or
+    // below when that would run off the edge of the current viewBox — a tip
+    // the frame clips is worse than none.
+    const px = Number(pin.dataset.x);
+    const py = Number(pin.dataset.y);
+    const v = mapView || mapOuter || { x: 0, y: 0, w: Infinity, h: Infinity };
+    const x0 = px + w * scale > v.x + v.w ? -w : 0;
+    let y0 = PIN_HEAD_Y - 12 - h;
+    if (py + y0 * scale < v.y) y0 = 8;
+    const text = lines.map((l, i) =>
+      `<text class="tip-tx${i === 0 ? ' first' : ''}" x="${(x0 + pad).toFixed(1)}" y="${(y0 + pad + lh * i + 9).toFixed(1)}">${esc(l)}</text>`).join('');
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.id = 'maptip';
+    g.setAttribute('transform', `translate(${px},${py}) scale(${scale})`);
+    g.innerHTML = `<rect class="tip-bg" x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="4"/>${text}`;
+    const layer = svg.querySelector('#pins');
+    if (layer) layer.appendChild(g);
+  };
+  svg.addEventListener('pointerover', (ev) => {
+    if (ev.pointerType === 'touch') return;
+    const pin = ev.target.closest('[data-stack]');
+    if (pin) tipShow(pin);
+  });
+  svg.addEventListener('pointerout', (ev) => {
+    const pin = ev.target.closest('[data-stack]');
+    if (pin && !(ev.relatedTarget && pin.contains(ev.relatedTarget))) tipClear();
+  });
+  svg.addEventListener('pointerdown', tipClear);
 
   // A pin tap that was really the end of a drag must not open a sheet.
   svg.addEventListener('click', (ev) => {
