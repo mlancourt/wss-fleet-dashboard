@@ -40,7 +40,7 @@
  *     needs the bundle: `npx wrangler deploy --dry-run --outdir dist`.
  */
 
-import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_VALID_DAYS, BANNER_PATH, safeListingUrl } from '../docs/quote-email.js';
+import { renderQuoteEmail, quoteTotals, defaultSubject, QUOTE_LINE_KINDS, NUMBER_PLACEHOLDER, DEFAULT_VALID_DAYS, BANNER_PATH, safeListingUrl, RENTAL_TERMS } from '../docs/quote-email.js';
 import { overlayLeads } from '../docs/quotes.js';
 import { renderQuotePdf } from './quote-pdf.js';
 
@@ -311,7 +311,8 @@ const MAX_QUOTE_OPTIONS = 40;                     // per machine line
 const MAX_QUOTE_UNIT = 10000000;
 const MAX_CC = 5;
 const QUOTE_KEYS = new Set(['lead', 'to', 'cc', 'subject', 'lines', 'tax', 'note', 'valid_days']);
-const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options', 'list', 'discount', 'note', 'listing']);   // v1.1: list/discount/note · v1.3: listing
+const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options', 'list', 'discount', 'note', 'listing',
+  'term', 'stock']);   // v1.1: list/discount/note · v1.3: listing · D100: term (rental; `list` = the matrix rate), stock (addon)
 const MAX_LINE_NOTE = 300;
 const QUOTE_OPTION_KEYS = new Set(['part', 'description', 'unit']);
 const CATALOG_KEY_RE = /^[a-z0-9][a-z0-9-]{0,159}$/;
@@ -1659,14 +1660,15 @@ async function crewCatalog({ me, env }) {
   if (!raw) return json({ error: 'catalog not published yet' }, 503);
   const cat = JSON.parse(raw);
   // v1.3: the light copy — url + image stay, specs + description come by key (crewCatalogOne).
-  const machines = Array.isArray(cat.machines) ? cat.machines.map((m) => {
+  const light = (list) => (Array.isArray(list) ? list.map((m) => {
     if (!m || typeof m !== 'object') return m;
     const out = { ...m };
     for (const k of CATALOG_HEAVY) delete out[k];
     return out;
-  }) : cat.machines;
+  }) : list);
   // `sender` = the caller's own From block, so the preview's signature is the one that sends.
-  return json({ ...cat, machines, valid_days: DEFAULT_VALID_DAYS, sender: senderFor(env, me.name) });
+  // D100: the rental listings are stripped the same way (rates stay — the composer prices from them).
+  return json({ ...cat, machines: light(cat.machines), rentals: light(cat.rentals), valid_days: DEFAULT_VALID_DAYS, sender: senderFor(env, me.name) });
 }
 
 /** GET /api/catalog/<key> — the one machine, whole (v1.3). Same gate as the list. */
@@ -1677,7 +1679,7 @@ async function crewCatalogOne({ env, me, rawKey }) {
   if (!CATALOG_KEY_RE.test(key)) return json({ error: 'bad key' }, 400);
   const cat = await env.FLEET_KV.get('catalog', 'json');
   if (!cat) return json({ error: 'catalog not published yet' }, 503);
-  const m = Array.isArray(cat.machines) ? cat.machines.find((x) => x && x.key === key) : null;
+  const m = [...(Array.isArray(cat.machines) ? cat.machines : []), ...(Array.isArray(cat.rentals) ? cat.rentals : [])].find((x) => x && x.key === key) || null;   // D100: rentals by key too
   if (!m) return json({ error: `${key} is not in the catalog` }, 404);
   return json(m);
 }
@@ -1729,7 +1731,8 @@ async function adminCatalog({ request, env }) {
   };
   walk(cat, 'catalog', 0);
   await env.FLEET_KV.put('catalog', textBody);
-  return json({ ok: true, built: typeof cat.built === 'string' ? cat.built : null, machines: cat.machines.length, series: Object.keys(cat.series).length });
+  return json({ ok: true, built: typeof cat.built === 'string' ? cat.built : null, machines: cat.machines.length, series: Object.keys(cat.series).length,
+    rentals: Array.isArray(cat.rentals) ? cat.rentals.length : 0, addons: Array.isArray(cat.addons) ? cat.addons.length : 0 });   // D100
 }
 
 
@@ -1803,6 +1806,8 @@ function cleanQuote(p, catalog) {
   if (!Array.isArray(p.lines) || !p.lines.length) throw httpError(400, 'a quote needs at least one line');
   if (p.lines.length > MAX_QUOTE_LINES) throw httpError(400, `a quote is limited to ${MAX_QUOTE_LINES} lines`);
   const byKey = new Map(((catalog && catalog.machines) || []).map((m) => [m.key, m]));
+  const byRental = new Map(((catalog && catalog.rentals) || []).map((r) => [r && r.key, r]));      // D100
+  const byStock = new Map(((catalog && catalog.addons) || []).filter((a) => a && a.stock).map((a) => [a.stock, a]));
   const lines = p.lines.map((l, i) => {
     const at = `lines[${i}]`;
     if (!l || typeof l !== 'object' || Array.isArray(l)) throw httpError(400, `${at} must be an object`);
@@ -1810,6 +1815,8 @@ function cleanQuote(p, catalog) {
     if (!QUOTE_LINE_KINDS.includes(l.kind)) throw httpError(400, `${at}.kind must be one of ${QUOTE_LINE_KINDS.join(', ')}`);
     if (l.options != null && l.kind !== 'machine') throw httpError(400, `${at}: options ride only on a machine line`);
     if (l.listing != null && typeof l.listing !== 'boolean') throw httpError(400, `${at}.listing must be true or false`);
+    if (l.term != null && l.kind !== 'rental') throw httpError(400, `${at}: term rides only on a rental line`);
+    if (l.stock != null && l.kind !== 'addon') throw httpError(400, `${at}: stock rides only on an addon line`);
     let qty = 1;
     if (l.qty != null) {
       if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 99) throw httpError(400, `${at}.qty must be 1–99`);
@@ -1819,7 +1826,8 @@ function cleanQuote(p, catalog) {
     let model = str(l.model, 80, `${at}.model`, false);
     let unit = l.unit == null || l.unit === '' ? null : money(l.unit, `${at}.unit`);
     const lineNote = str(l.note, MAX_LINE_NOTE, `${at}.note`, false);
-    if ((l.list != null || l.discount != null) && l.kind !== 'machine') throw httpError(400, `${at}: list / discount ride only on a machine line`);
+    if (l.discount != null && l.kind !== 'machine') throw httpError(400, `${at}: discount rides only on a machine line`);
+    if (l.list != null && l.kind !== 'machine' && l.kind !== 'rental') throw httpError(400, `${at}: list rides only on a machine or rental line`);
     let list = l.list == null || l.list === '' ? null : money(l.list, `${at}.list`);
     const discount = l.discount == null || l.discount === '' ? null : money(l.discount, `${at}.discount`);
     const out = { kind: l.kind };
@@ -1863,6 +1871,59 @@ function cleanQuote(p, catalog) {
         for (const k of Object.keys(o)) if (!QUOTE_OPTION_KEYS.has(k)) throw httpError(400, `${oat} does not take ${k}`);
         return { part: str(o.part, 40, `${oat}.part`, false), description: str(o.description, 200, `${oat}.description`, true), unit: money(o.unit, `${oat}.unit`) };
       });
+      return out;
+    }
+    if (l.kind === 'rental') {
+      // D100: a rental line — the listing by key (title / model / the matrix rates come from the catalog), the term,
+      // the rate per period Kevin is quoting (`unit`), qty = periods. `list` is the matrix figure for the term (shown
+      // as the list rate when the unit differs — the machine lines' MSRP, same key); a catalog key fills it, a typed
+      // one must match the catalog's. (`rate` is a D65 money key and never travels from a phone; `list` already does.)
+      if (!RENTAL_TERMS.includes(l.term)) throw httpError(400, `${at}.term must be one of ${RENTAL_TERMS.join(', ')}`);
+      const key = str(l.key, 160, `${at}.key`, false);
+      let rate = list;
+      let rates = null;
+      if (key) {
+        if (!CATALOG_KEY_RE.test(key)) throw httpError(400, `${at}.key is malformed`);
+        const r = byRental.get(key);
+        if (r) {
+          description = description || r.title || null;
+          model = model || r.model || null;
+          rates = r.rates && typeof r.rates === 'object' ? r.rates : null;
+          const mr = rates && typeof rates[l.term] === 'number' ? Math.round(rates[l.term] * 100) / 100 : null;
+          if (rate == null) rate = mr;
+          else if (mr != null && Math.abs(rate - mr) > 0.0101) throw httpError(400, `${at}: list ${rate.toFixed(2)} isn't the matrix ${l.term} rate (${mr.toFixed(2)}) — the catalog moved, pick it again`);
+          if (unit == null && rate != null) unit = rate;
+          out.key = key;
+        } else if (!description || unit == null) {
+          throw httpError(400, `${at}: ${key} is not in the rental catalog — give it a description and a rate, or pick it again`);
+        } else {
+          out.key = key;
+        }
+      }
+      if (!description) throw httpError(400, `${at}.description is required`);
+      if (unit == null) throw httpError(400, `${at}.unit is required — no matrix rate for this term, type one`);
+      Object.assign(out, { description, model, term: l.term, qty, unit });
+      if (rate != null) out.list = rate;
+      if (rates && RENTAL_TERMS.some((t) => typeof rates[t] === 'number')) out.matrix = Object.fromEntries(RENTAL_TERMS.map((t) => [t, typeof rates[t] === 'number' ? rates[t] : null]));
+      if (lineNote) out.note = lineNote;
+      if (out.key) out.listing = l.listing !== false;
+      return out;
+    }
+    if (l.kind === 'addon') {
+      // D100: an add-on — a supplies stock number (optional; the catalog fills description + price when known) or free text.
+      const stock = str(l.stock, 40, `${at}.stock`, false);
+      if (stock) {
+        const a = byStock.get(stock);
+        if (a) {
+          description = description || a.description || null;
+          if (unit == null && typeof a.list === 'number') unit = Math.round(a.list * 100) / 100;
+        }
+        out.stock = stock;
+      }
+      if (!description) throw httpError(400, `${at}.description is required`);
+      if (unit == null) throw httpError(400, `${at}.unit is required`);
+      Object.assign(out, { description, qty, unit });
+      if (lineNote) out.note = lineNote;
       return out;
     }
     if (l.kind === 'freight') description = description || 'Freight';
@@ -1909,9 +1970,9 @@ async function quoteSend({ request, env, me, raw }) {
 
   // v1.3 (D91): the full catalog record for every line whose listing rides along, and its photo for the
   // PDF — fetched before a number is reserved, so a slow image never holds the seq.
-  const byKey = new Map(((catalog && catalog.machines) || []).map((m) => [m && m.key, m]));
+  const byKey = new Map([...((catalog && catalog.machines) || []), ...((catalog && catalog.rentals) || [])].map((m) => [m && m.key, m]));   // D100: rentals too
   const listings = {};
-  for (const l of p.lines) if (l.kind === 'machine' && l.key && l.listing !== false && byKey.has(l.key)) listings[l.key] = byKey.get(l.key);
+  for (const l of p.lines) if ((l.kind === 'machine' || l.kind === 'rental') && l.key && l.listing !== false && byKey.has(l.key)) listings[l.key] = byKey.get(l.key);
   const photos = await listingPhotos(listings);
 
   const prev = await env.FLEET_KV.get('quote:seq');
@@ -1924,7 +1985,7 @@ async function quoteSend({ request, env, me, raw }) {
   const date = centralDate(0);
   const expires = centralDate(p.valid_days);
   const sent_at = new Date().toISOString();
-  const firstMachine = p.lines.find((l) => l.kind === 'machine');
+  const firstMachine = p.lines.find((l) => l.kind === 'machine' || l.kind === 'rental');   // D100: a rental titles the subject too
   const subject = (p.subject || defaultSubject(number, firstMachine && firstMachine.description)).split(NUMBER_PLACEHOLDER).join(number);
   const business = (catalog && catalog.business) || null;
   const q = {

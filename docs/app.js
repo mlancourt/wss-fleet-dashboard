@@ -58,6 +58,7 @@ document.addEventListener('visibilitychange', () => {
 import {
   composerView, newDraft, addMachine, addText, removeLine, toggleOption, groupsFor, draftPayload, draftProblem,
   resultsHtml, totalsHtml, syncPrice,
+  addRental, addAddon, setTerm, setSelfPickup, applyZone, addonResultsHtml,   // D100
 } from './composer.js';
 import { quoteState, quoteChipText, quoteStateLong, monDayOf, tokenOf, isTracked } from './quotes.js';
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
@@ -122,7 +123,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-15-d99';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-15-d100';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -4738,9 +4739,16 @@ function onComposerClick(el) {
   if (act === 'pick') {
     const m = cat && cat.machines.find((x) => x.key === el.dataset.key);
     if (m) { addMachine(d, m, l); fetchListing(m.key); }
-  } else if (act === 'listing' && line) line.listing = line.listing === false; else if (act === 'brand') d.brand = d.brand === el.dataset.brand ? null : el.dataset.brand;
+  } else if (act === 'pick-rental') {                                          // D100
+    const r = cat && (cat.rentals || []).find((x) => x.key === el.dataset.key);
+    if (r) { addRental(d, r, l, cat); fetchListing(r.key); }
+  } else if (act === 'pick-addon') {                                           // D100
+    const a = cat && (cat.addons || []).find((x) => (x.stock || '') === (el.dataset.stock || '') && x.description === el.dataset.desc);
+    if (a) addAddon(d, a);
+  } else if (act === 'self-pickup') setSelfPickup(d, !d.selfPickup, cat);        // D100
+  else if (act === 'listing' && line) line.listing = line.listing === false; else if (act === 'brand') d.brand = d.brand === el.dataset.brand ? null : el.dataset.brand;
   else if (act === 'add-text') addText(d);
-  else if (act === 'remove' && line) removeLine(d, line.id, l);
+  else if (act === 'remove' && line) removeLine(d, line.id, l, cat);
   else if (act === 'group' && line) {
     const k = `${line.id}|${el.dataset.group}`;
     if (d.open.has(k)) d.open.delete(k); else d.open.add(k);
@@ -4774,12 +4782,29 @@ function onComposerInput(t) {
       if (box && quoteCat.data) box.innerHTML = resultsHtml(d, quoteCat.data);
       return true;
     }
+    if (f === 'addonQuery') {                                                  // D100
+      d.addonQuery = v;
+      const box = $('#qc-addons');
+      if (box && quoteCat.data) box.innerHTML = addonResultsHtml(d, quoteCat.data);
+      return true;
+    }
     if (f === 'subject') d.subject = v;
     else if (f === 'note') { d.note = v; d.noteTouched = true; }
+    else if (f === 'zone') {                                                   // D100: a new zone refills the two amounts
+      d.zone = v || null; d.deliveryTouched = false; d.pickupTouched = false;
+      if (quoteCat.data) applyZone(quoteCat.data, d);
+      for (const k of ['delivery', 'pickup']) { const inp = document.querySelector(`[data-qc-field="${k}"]`); if (inp) inp.value = d[k]; }
+    } else if (f === 'delivery') { d.delivery = v; d.deliveryTouched = true; }
+    else if (f === 'pickup') { d.pickup = v; d.pickupTouched = true; }
     else if (['to', 'cc', 'freight'].includes(f)) d[f] = v;
   } else if (t.dataset.qcLine) {
     const l = d.lines.find((x) => x.id === Number(t.dataset.line));
     const f = t.dataset.qcLine;
+    if (l && f === 'term') {                                                    // D100: the term moves the rate + the delivery figures
+      setTerm(d, l.id, v, quoteCat.data);
+      render();
+      return true;
+    }
     if (l && ['qty', 'unit', 'description', 'discount', 'note'].includes(f)) {
       l[f] = v;
       // v1.1: MSRP − discount = unit. Write the OTHER field's new value straight into its input.

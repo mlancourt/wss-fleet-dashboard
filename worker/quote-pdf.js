@@ -10,7 +10,7 @@
  * throwing mid-send.
  */
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { lineBlocks, quoteTotals, fmtCents, fmtUsd, quoteTerms, TAX_EXEMPT_LINE, TAX_NOTE_LINE, FOOTER_LINE, quoteListings } from '../docs/quote-email.js';
+import { lineBlocks, quoteTotals, fmtCents, fmtUsd, quoteTerms, TAX_EXEMPT_LINE, TAX_NOTE_LINE, FOOTER_LINE, quoteListings, hasRental, RENTAL_NOTES, RENTAL_NOTES_HEAD } from '../docs/quote-email.js';
 import { LOGO_JPEG_B64 } from './quote-logo.js';
 
 const RED = rgb(0xB7 / 255, 0x1C / 255, 0x1C / 255);
@@ -119,17 +119,17 @@ export async function renderQuotePdf(q) {
     y -= 24;
   };
   const FOOT = M + 4;                          // the footer line's baseline
-  const newPage = (first) => {
+  const newPage = (first, head = true) => {
     page = doc.addPage(PAGE);
     center(FOOTER_LINE, FOOT, 9.5);
     y = PAGE[1] - M;
     if (!first) {
       text(`QUOTE # ${q.number} (continued)`, M, y - 10, 10, bold, GREY);
       y -= 30;
-      tableHead();
+      if (head) tableHead();        // D100: the footer block spilling alone draws no empty table head
     }
   };
-  const ensure = (h) => { if (y - h < FOOT + 30) newPage(false); };
+  const ensure = (h, head = true) => { if (y - h < FOOT + 30) newPage(false, head); };
 
   newPage(true);
 
@@ -195,11 +195,17 @@ export async function renderQuotePdf(q) {
     y -= h;
   }
 
+  // ---- D100: the rental notes ride at the top of the terms column (left of the totals) on a quote with a rental
+  // line — the Machinio footer block's own space, so a five-line rental quote still fits on one page.
+  const rentalNotes = hasRental(q.lines)
+    ? [`${RENTAL_NOTES_HEAD}:`, ...RENTAL_NOTES.flatMap((n) => wrap(`\u2022 ${n}`, font, 7.5, W / 2 + 20)), '']
+    : [];
+
   // ---- terms bottom-left, totals right (the Machinio footer block).
   const TERMS_W = W / 2 + 20;
-  const terms = quoteTerms(biz).flatMap((p, i, all) => [...wrap(p, font, 7.5, TERMS_W), ...(i === all.length - 2 ? [''] : [])]);
+  const terms = [...rentalNotes, ...quoteTerms(biz).flatMap((p, i, all) => [...wrap(p, font, 7.5, TERMS_W), ...(i === all.length - 2 ? [''] : [])])];
   const block = Math.max(terms.length * 9.5, 60);
-  ensure(block + 70);
+  ensure(block + 70, false);
   dotted(y + 4);
   y -= 14;
   const top = y;
@@ -214,7 +220,7 @@ export async function renderQuotePdf(q) {
   y = Math.min(y, ty - 20) - 30;
 
   // ---- Accepted By / Accepted Date (customers sign these and send them back as a PO).
-  ensure(40);
+  ensure(40, false);
   text('Accepted By', M, y, 10);
   page.drawLine({ start: { x: M + 62, y: y - 2 }, end: { x: M + W / 2 - 20, y: y - 2 }, thickness: 0.6, color: GREY });
   text('Accepted Date', M + W / 2 + 10, y, 10);

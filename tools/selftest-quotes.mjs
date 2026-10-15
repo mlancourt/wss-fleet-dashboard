@@ -16,7 +16,9 @@ import { overlayQuote, overlayLeads, quoteState, quoteChipText, mdOf, tokenOf, s
 import {
   searchMachines, groupsFor, noteTemplate, parseMoney, newDraft, addMachine, addText, toggleOption, removeLine,
   draftPayload, draftProblem, draftTotals, previewInput, subjectOf, parseDiscount, syncPrice,
+  searchAddons, zoneForCity, addRental, setTerm, addAddon, setSelfPickup, deliveryHtml, addonResultsHtml, resultsHtml,
 } from '../docs/composer.js';
+import { RENTAL_NOTES, RENTAL_NOTES_HEAD, hasRental } from '../docs/quote-email.js';
 
 let passed = 0;
 const check = async (name, fn) => { await fn(); passed++; console.log(`  ok  ${name}`); };
@@ -494,7 +496,7 @@ await check('composer: the note template, the money parser, and what stops Send'
   assert.equal(parseMoney('$5,433.50'), 5433.5); assert.equal(parseMoney(''), null); assert.ok(Number.isNaN(parseMoney('12.345'))); assert.ok(Number.isNaN(parseMoney('-1')));
   const d = newDraft(lead);
   assert.equal(d.to, 'pat@example.com');
-  assert.equal(draftProblem(d), 'Pick a machine (or add a line) first.');
+  assert.equal(draftProblem(d), 'Pick a machine or a rental (or add a line) first.');
   const line = addMachine(d, CATALOG.machines[2], lead);
   assert.equal(line.unit, '', 'no list price → empty, Kevin types one');
   assert.equal(draftProblem(d), 'Put a price on No-List Machine.');
@@ -847,6 +849,159 @@ await check('K: the image fetch fails (404 · not a JPEG · DNS · > 2 s) → th
   const mpdf = new Uint8Array(await env.FLEET_KV.get(`quotepdf:${mh.body.result.token}`, 'arrayBuffer'));
   assert.ok(!/machineryhost/i.test(mail.html + mail.text + (await pdfText(mpdf))), 'machineryhost nowhere');
   assert.equal(imageHits.length, hits, 'and never fetched');
+  await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG });
+});
+
+/* ============================================================ D100 — rental quotes */
+
+const RCAT = {
+  ...CATALOG,
+  rentals: [
+    { key: 'large-rider-rental', title: 'Large Rider Floor Scrubber Rental', manufacturer: 'Acme', model: 'XR-40D', stock: 'XR-40D', category: 'Floor Scrubber Rental', rate_class: 'Large Rider Scrubber',
+      rates: { day: 490, weekend: 735, week: 1550, month: 3250, lt6: 2440, lt12: 1625 }, image: null, url: 'https://example.com/listings/3622552-large-rider-floor-scrubber-rental',
+      specs: [{ k: 'CLEANING PATH', v: '40"' }, { k: 'TANK SIZES', v: '55 GAL' }], description: 'Our biggest rental — a 40" rider for big open floors.\n\n- 40" disk deck\n- 36V' },
+    { key: 'mid-rider-rental', title: 'Mid-Size Rider Floor Scrubber Rental', manufacturer: 'Acme', model: 'GTR-34D', stock: 'GTR-34D', category: 'Floor Scrubber Rental', rate_class: 'Mid-Size Rider Scrubber',
+      rates: { day: 400, weekend: 600, week: 1350, month: 2900, lt6: 2175, lt12: 1450 }, image: null, url: null, specs: [], description: null },
+    { key: 'no-rate-rental', title: 'Mystery Rental', manufacturer: 'Acme', model: 'M', stock: null, category: 'Rental', rate_class: null,
+      rates: { day: null, weekend: null, week: null, month: null, lt6: null, lt12: null }, image: null, url: null, specs: [], description: null },
+  ],
+  delivery: { zones: [
+    { zone: 'Local', minutes: 20, delivery: 75, pickup: 75, short_delivery: 90, short_pickup: 90 },
+    { zone: 'Mid-Range', minutes: 45, delivery: 125, pickup: 125, short_delivery: 150, short_pickup: 150 } ],
+    cities: { oconomowoc: 'Local', ixonia: 'Local', waukesha: 'Mid-Range', milwaukee: 'Mid-Range' }, surcharge: 0.2, max_minutes: 90 },
+  fees: [{ description: 'Tank Disposal / Excessive Cleaning Fee', amount: 250 }],
+  addons: [
+    { stock: 'ASFP0001', description: 'Auto-Scrub Detergent Fast Packs - For Floor Scrubbers', list: 58, group: 'Cleaning Solution' },
+    { stock: 'FLRPDS020', description: 'Floor Pads, 20" Red - Case of 5 pads', list: 44.2, group: 'Floor Pads' },
+  ],
+};
+const RLEAD = { lead: 'L1034', customer: 'Acme Foods', contact: 'Katherine Example', email: 'kat@example.com', site: 'Ocon', interest: 'RENTAL', machine: 'something for metal gunk' };
+
+await check('D100 composer: rentals search with the machines (Rentals chip narrows), pick → a week line at the matrix rate, zone auto from the lead’s city', () => {
+  const hits = searchMachines(RCAT, 'rider');
+  assert.deepEqual(hits.map((h) => [h.key, !!h.rental]), [['large-rider-rental', true], ['mid-rider-rental', true]], 'rentals surface on a plain search');
+  assert.ok(searchMachines(RCAT, 'x20').some((h) => h.key === 'acme-x20-walk-behind-scrubber-20-disk'), 'machines still do');
+  assert.ok(searchMachines(RCAT, '', 'Rentals').every((h) => h.rental) && searchMachines(RCAT, '', 'Rentals').length === 3, 'the Rentals chip');
+  assert.ok(searchMachines(RCAT, 'rider', 'Acme').every((h) => !h.rental), 'a brand chip is machines only');
+  assert.equal(zoneForCity(RCAT, 'Ocon'), 'Local', 'prefix of a listed city'); assert.equal(zoneForCity(RCAT, 'Milwaukee, WI'), 'Mid-Range'); assert.equal(zoneForCity(RCAT, 'Mars'), null); assert.equal(zoneForCity(RCAT, 'Oc'), null, 'two letters is a guess, not a match');
+  const d = newDraft(RLEAD);
+  assert.ok(d.note.includes('renting something for metal gunk') && !d.note.includes('demo'), 'a RENTAL lead gets the rental note from the start');
+  const r = RCAT.rentals[0];
+  const line = addRental(d, r, RLEAD, RCAT);
+  assert.equal(line.kind, 'rental'); assert.equal(line.term, 'week'); assert.equal(line.unit, '1550'); assert.equal(line.qty, '1'); assert.equal(line.listing, true);
+  assert.equal(d.zone, 'Local'); assert.equal(d.delivery, '75'); assert.equal(d.pickup, '75', 'week → standard figures');
+  assert.ok(d.note.includes('renting Large Rider Floor Scrubber Rental'), d.note);
+  setTerm(d, line.id, 'day', RCAT);
+  assert.equal(line.unit, '490'); assert.equal(d.delivery, '90'); assert.equal(d.pickup, '90', 'a day line → the short-term figures');
+  d.delivery = '100'; d.deliveryTouched = true;
+  setTerm(d, line.id, 'month', RCAT);
+  assert.equal(line.unit, '3250'); assert.equal(d.delivery, '100', 'a typed-over figure stays'); assert.equal(d.pickup, '75', 'the untouched one follows the term');
+  const nr = addRental(d, RCAT.rentals[2], RLEAD, RCAT);
+  assert.equal(nr.unit, '', 'no matrix rate → Kevin types one');
+  assert.ok(draftProblem(d).startsWith('Put a price on Mystery Rental'));
+  removeLine(d, nr.id, RLEAD, RCAT);
+  assert.equal(draftProblem(d), null);
+  const html = resultsHtml({ ...d, query: 'rider', brand: null }, RCAT);
+  assert.ok(html.includes('data-qc="pick-rental"') && html.includes('$1,550.00/week') && html.includes('>rental<'), 'the hit says rental and shows the week rate');
+});
+
+await check('D100 composer: add-ons search the supplies list; self-pickup zeroes delivery + pick-up; the payload — rental line (term, rate, listing), Delivery/Pick-up text lines with the zone + surcharge note, addon line with stock', () => {
+  assert.deepEqual(searchAddons(RCAT, 'pads 20').map((a) => a.stock), ['FLRPDS020']);
+  assert.deepEqual(searchAddons(RCAT, '').map((a) => a.stock), [], 'nothing typed, nothing listed');
+  assert.ok(addonResultsHtml({ addonQuery: 'fast' }, RCAT).includes('data-qc="pick-addon"'));
+  const d = newDraft(RLEAD);
+  const xr = addRental(d, RCAT.rentals[0], RLEAD, RCAT);
+  setTerm(d, xr.id, 'day', RCAT);
+  const gtr = addRental(d, RCAT.rentals[1], RLEAD, RCAT);
+  setTerm(d, gtr.id, 'day', RCAT);
+  gtr.listing = false;
+  const a = addAddon(d, RCAT.addons[0]);
+  a.qty = '2';
+  assert.ok(deliveryHtml(d, RCAT).includes('20% short-term surcharge'));
+  let p = draftPayload(d);
+  assert.deepEqual(p.lines, [
+    { kind: 'rental', key: 'large-rider-rental', description: 'Large Rider Floor Scrubber Rental', model: 'XR-40D', term: 'day', qty: 1, unit: 490, list: 490, listing: true },
+    { kind: 'rental', key: 'mid-rider-rental', description: 'Mid-Size Rider Floor Scrubber Rental', model: 'GTR-34D', term: 'day', qty: 1, unit: 400, list: 400, listing: false },
+    { kind: 'addon', description: 'Auto-Scrub Detergent Fast Packs - For Floor Scrubbers', qty: 2, unit: 58, stock: 'ASFP0001' },
+    { kind: 'text', description: 'Delivery (Local zone)', qty: 1, unit: 90, note: 'Includes the 20% short-term surcharge.' },
+    { kind: 'text', description: 'Pick-up (Local zone)', qty: 1, unit: 90, note: 'Includes the 20% short-term surcharge.' },
+  ]);
+  assert.equal(draftTotals(d).subtotal, 490 + 400 + 116 + 90 + 90, 'Katherine’s two-day idea, priced properly');
+  setSelfPickup(d, true, RCAT);
+  assert.equal(d.delivery, ''); assert.equal(d.pickup, '');
+  p = draftPayload(d);
+  assert.ok(!p.lines.some((l) => /^(Delivery|Pick-up)/.test(l.description)), 'self-pickup: no delivery, no pick-up line');
+  assert.ok(deliveryHtml(d, RCAT).includes('disabled'));
+  setSelfPickup(d, false, RCAT);
+  assert.equal(d.delivery, '90', 'off again → the zone refills');
+  d.delivery = 'abc';
+  assert.ok(draftProblem(d).startsWith('Delivery is a dollar amount'));
+  d.delivery = '';
+  assert.equal(draftProblem(d), null, 'an empty delivery is simply no line');
+  assert.ok(!draftPayload(d).lines.some((l) => l.description.startsWith('Delivery')));
+  // the preview carries the matrix rates so "Other terms available" draws the way the send will
+  const pv = previewInput(d, RLEAD, RCAT, { today: '2026-10-15', expires: '2026-11-14', me: { name: 'Kevin' } });
+  assert.deepEqual(pv.lines[0].matrix, RCAT.rentals[0].rates);
+  assert.ok(hasRental(pv.lines));
+  const { html, text } = renderQuoteEmail(pv);
+  assert.ok(html.includes('Other terms available: $735/weekend · $1,550/week · $3,250/month · $2,440/6-mo · $1,625/12-mo'), 'matrix rule 10');
+  assert.ok(html.includes(RENTAL_NOTES_HEAD) && RENTAL_NOTES.every((n) => html.includes(n.replace(/&/g, '&amp;').replace(/"/g, '&quot;'))), 'the standing notes');
+  assert.ok(text.includes(`  - ${RENTAL_NOTES[0]}`));
+  const mOnly = renderQuoteEmail({ ...pv, lines: [LINES[0]] });
+  assert.ok(!mOnly.html.includes(RENTAL_NOTES_HEAD), 'a machine quote carries no rental notes — byte for byte the D94 email');
+});
+
+await check('D100 Worker: a rental line fills title / model / matrix rate by key, stores term + list + matrix + listing; a wrong rate, a bad term, stock off an addon, term on a machine → 400; the email + PDF carry the rental block', async () => {
+  const okc = await asJson(await call('POST', '/api/admin/catalog', { admin: true, body: RCAT }));
+  assert.equal(okc.status, 200); assert.equal(okc.body.rentals, 3); assert.equal(okc.body.addons, 2);
+  const got = await asJson(await call('GET', '/api/catalog', { role: 'sales' }));
+  assert.equal(got.body.rentals.length, 3);
+  assert.ok(!('specs' in got.body.rentals[0]) && !('description' in got.body.rentals[0]) && got.body.rentals[0].rates.day === 490, 'K: light copy, rates kept');
+  assert.deepEqual(got.body.delivery.zones.map((z) => z.zone), ['Local', 'Mid-Range']);
+  const one = await asJson(await call('GET', '/api/catalog/large-rider-rental', { role: 'sales' }));
+  assert.equal(one.status, 200); assert.equal(one.body.specs.length, 2, 'a rental by key, whole');
+  const lines = [
+    { kind: 'rental', key: 'large-rider-rental', term: 'day', listing: true },
+    { kind: 'rental', key: 'mid-rider-rental', term: 'day', qty: 1, unit: 400, list: 400, listing: false, note: 'Day two' },
+    { kind: 'addon', stock: 'ASFP0001', qty: 2 },
+    { kind: 'addon', description: 'Pad kit', unit: 45 },
+    { kind: 'text', description: 'Delivery (Local zone)', qty: 1, unit: 90, note: 'Includes the 20% short-term surcharge.' },
+    { kind: 'text', description: 'Pick-up (Local zone)', qty: 1, unit: 90, note: 'Includes the 20% short-term surcharge.' },
+  ];
+  const r = await send('sales', PAYLOAD({ lines, subject: `Wisconsin Scrub & Sweep — Quote ${NUMBER_PLACEHOLDER} · Large Rider Floor Scrubber Rental` }));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const ev = r.body;
+  assert.deepEqual(ev.payload.lines[0], { kind: 'rental', key: 'large-rider-rental', description: 'Large Rider Floor Scrubber Rental', model: 'XR-40D', term: 'day', qty: 1, unit: 490, list: 490,
+    matrix: { day: 490, weekend: 735, week: 1550, month: 3250, lt6: 2440, lt12: 1625 }, listing: true });
+  assert.equal(ev.payload.lines[1].listing, false); assert.equal(ev.payload.lines[1].note, 'Day two');
+  assert.deepEqual(ev.payload.lines[2], { kind: 'addon', stock: 'ASFP0001', description: 'Auto-Scrub Detergent Fast Packs - For Floor Scrubbers', qty: 2, unit: 58 });
+  assert.deepEqual(ev.payload.lines[3], { kind: 'addon', description: 'Pad kit', qty: 1, unit: 45 });
+  assert.equal(ev.result.subtotal, 490 + 400 + 116 + 45 + 90 + 90);
+  const mail = sent.at(-1).body;
+  assert.ok(mail.html.includes('#XR-40D (RENTAL)') && mail.html.includes('Rental rate: $490 per day') && mail.html.includes('Other terms available: $735/weekend'));
+  assert.ok(mail.html.includes(RENTAL_NOTES_HEAD) && mail.html.includes('Full listing →'), 'notes + the XR listing card (GTR’s is off)');
+  assert.equal((mail.html.match(/Full listing →/g) || []).length, 1);
+  const pdf = new Uint8Array(await env.FLEET_KV.get(`quotepdf:${ev.result.token}`, 'arrayBuffer'));
+  const t = await pdfText(pdf);
+  assert.ok(t.includes('Rental terms') && t.includes('Equipment Details') && t.includes('Rental rate: $490 per day'), t.slice(0, 400));
+  assert.ok(t.includes('28 days (20 working days + 8 weekend days)'), 'matrix rule 11 on paper');
+  // a changed unit shows the matrix rate as "list"
+  const r2 = await send('sales', PAYLOAD({ subject: null, lines: [{ kind: 'rental', key: 'large-rider-rental', term: 'week', unit: 1400 }] }));
+  assert.equal(r2.status, 201); assert.equal(r2.body.payload.lines[0].list, 1550); assert.ok(sent.at(-1).body.html.includes('Rental rate: $1,400 per week (list $1,550)'));
+  assert.ok(sent.at(-1).body.subject.includes('Large Rider Floor Scrubber Rental'), 'a rental titles the subject');
+  // refusals
+  const bad = async (ls, why) => { const x = await send('sales', PAYLOAD({ lines: ls })); assert.equal(x.status, 400, why); assert.ok(x.body.error, why); return x.body.error; };
+  assert.ok((await bad([{ kind: 'rental', key: 'large-rider-rental', term: 'fortnight' }], 'term enum')).includes('term must be one of'));
+  assert.ok((await bad([{ kind: 'rental', key: 'large-rider-rental', term: 'day', list: 450 }], 'list ≠ matrix')).includes("isn't the matrix day rate"));
+  assert.ok((await bad([{ kind: 'rental', key: 'large-rider-rental', term: 'day', rate: 490 }], 'rate is a D65 money key')).includes('D65'));
+  assert.ok((await bad([{ kind: 'rental', key: 'large-rider-rental', term: 'day', discount: 10 }], 'discount on a rental')).includes('rides only on a machine line'));
+  assert.ok((await bad([{ kind: 'rental', key: 'no-rate-rental', term: 'day' }], 'no matrix rate, no unit')).includes('type one'));
+  assert.ok((await bad([{ kind: 'rental', key: 'ghost-rental', term: 'day' }], 'unknown key')).includes('not in the rental catalog'));
+  assert.ok((await bad([{ kind: 'machine', key: 'acme-x20-walk-behind-scrubber-20-disk', term: 'day' }], 'term on a machine')).includes('rides only on a rental line'));
+  assert.ok((await bad([{ kind: 'text', description: 'x', unit: 1, stock: 'A' }], 'stock on text')).includes('rides only on an addon line'));
+  assert.ok((await bad([{ kind: 'rental', key: 'large-rider-rental', term: 'day', options: [] }], 'options on a rental')).includes('options ride only on a machine line'));
+  const ok3 = await send('sales', PAYLOAD({ lines: [{ kind: 'rental', key: 'no-rate-rental', term: 'day', unit: 300 }] }));
+  assert.equal(ok3.status, 201, 'no matrix rate + a typed unit is fine'); assert.ok(!('list' in ok3.body.payload.lines[0]) && !('matrix' in ok3.body.payload.lines[0]));
   await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG });
 });
 

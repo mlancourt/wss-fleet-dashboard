@@ -1461,6 +1461,11 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
 .qc-hit-t { display: block; font-weight: 650; color: var(--slate-900); }
 .qc-hit-s { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--ink-3); }
 .qc-hit-p { font-variant-numeric: tabular-nums; color: var(--slate-700); }
+.qc-hit-rental .qc-hit-t .chip { margin-left: 6px; vertical-align: middle; }   /* D100 */
+.qc select { width: 100%; min-height: var(--tap); padding: 10px 12px; font: inherit; margin-top: 6px;
+  border: 1px solid var(--slate-300); border-radius: var(--radius-sm); background: var(--white); color: var(--ink); }
+.qc select:focus { outline: 2px solid var(--red); outline-offset: -1px; border-color: var(--red); }
+.qc select:disabled, .qc input:disabled { opacity: .55; }
 .qc-addtext { margin-top: 12px; }
 .qc .qc-tax { margin-top: 10px; }
 .qc .qc-listing { margin-top: 4px; }

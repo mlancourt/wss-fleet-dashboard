@@ -2283,12 +2283,37 @@ const mockCatalog = {
       { name: 'Brushes - 20 Inch Disk', deck_min: 20, deck_max: 20, deck_type: 'D', items: [{ part: 'KX-B20', description: 'Pad driver 20"', list: 95 }] },
     ] },
   },
+  // D100 (2026-10-15): rental listings (invented rates), the delivery zones + a few cities, the fees, two add-ons.
+  rentals: [
+    { key: 'large-rider-floor-scrubber-rental', title: 'Large Rider Floor Scrubber Rental', manufacturer: 'Kodiak', model: 'KR-40D', stock: 'KR-40D', category: 'Floor Scrubber Rental', rate_class: 'Large Rider Scrubber',
+      rates: { day: 500, weekend: 750, week: 1600, month: 3300, lt6: 2475, lt12: 1650 }, image: null, url: 'https://example.com/listings/large-rider-floor-scrubber-rental',
+      specs: [{ k: 'CLEANING PATH', v: '40"' }, { k: 'TANK SIZES', v: '55 GAL SOLUTION / 60 GAL RECOVERY' }, { k: 'RUN TIME', v: 'UP TO 4 HOURS' }],
+      description: 'Our biggest rental: a 40" rider for warehouses and big open floors.\n\n- 40" disk deck\n- 36V battery, charger included' },
+    { key: 'small-walk-behind-floor-scrubber-rental', title: 'Small Walk-Behind Floor Scrubber Rental', manufacturer: 'Kodiak', model: 'KX20-R', stock: 'KX20-R', category: 'Floor Scrubber Rental', rate_class: 'Small Walk-Behind Scrubber',
+      rates: { day: 250, weekend: 375, week: 650, month: 1225, lt6: 920, lt12: 615 }, image: null, url: 'https://example.com/listings/small-walk-behind-floor-scrubber-rental',
+      specs: [{ k: 'CLEANING PATH', v: '20"' }], description: 'The easy one: fits through a standard door, charges overnight.' },
+    { key: 'walk-behind-floor-sweeper-rental', title: 'Walk-Behind Floor Sweeper Rental', manufacturer: 'Nordvale', model: 'SW-34', stock: null, category: 'Floor Sweeper Rental', rate_class: 'Walk-Behind Sweeper',
+      rates: { day: 250, weekend: 375, week: 725, month: 1450, lt6: 1090, lt12: 725 }, image: null, url: null, specs: [], description: null },
+  ],
+  delivery: { zones: [
+    { zone: 'Local', minutes: 20, delivery: 75, pickup: 75, short_delivery: 90, short_pickup: 90 },
+    { zone: 'Mid-Range', minutes: 45, delivery: 125, pickup: 125, short_delivery: 150, short_pickup: 150 },
+    { zone: 'Extended', minutes: 75, delivery: 175, pickup: 175, short_delivery: 210, short_pickup: 210 },
+    { zone: 'Max Range', minutes: 90, delivery: 250, pickup: 250, short_delivery: 300, short_pickup: 300 } ],
+    cities: { oconomowoc: 'Local', ixonia: 'Local', watertown: 'Local', waukesha: 'Mid-Range', brookfield: 'Mid-Range', milwaukee: 'Extended', madison: 'Extended', racine: 'Max Range' },
+    surcharge: 0.2, max_minutes: 90 },
+  fees: [{ description: 'Tank Disposal / Excessive Cleaning Fee', amount: 250 }],
+  addons: [
+    { stock: 'ASFP0001', description: 'Auto-Scrub Detergent Fast Packs - For Floor Scrubbers', list: 58, group: 'Cleaning Solution' },
+    { stock: 'DLQ4X1', description: 'Liquid Cleaner - Neutral pH - Light Duty - For Floor Scrubbers', list: 109, group: 'Cleaning Solution' },
+    { stock: 'FLRPDS020', description: 'Floor Pads, 20" Red - Case of 5 pads', list: 44.2, group: 'Floor Pads' },
+  ],
   business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', url: 'https://example.com', street: '1 Example Way', city_line: 'Ixonia, WI 53036', city: 'Ixonia', region: 'WI' },
   valid_days: 30,
   sender: { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' },
 };
 fs.writeFileSync(path.join(outdir, 'mock-catalog.json'), JSON.stringify(mockCatalog, null, 2) + '\n');
-console.log(`mock-catalog.json: ${mockCatalog.machines.length} fake machines, ${Object.keys(mockCatalog.series).length} series`);
+console.log(`mock-catalog.json: ${mockCatalog.machines.length} fake machines, ${Object.keys(mockCatalog.series).length} series, ${mockCatalog.rentals.length} rentals, ${mockCatalog.addons.length} add-ons`);
 
 for (const [name, snapshot] of [
   ['mock-full.json', full.snapshot],

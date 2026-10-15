@@ -10,7 +10,22 @@
  * Money is computed in integer cents and only formatted at the edge.
  */
 
-export const QUOTE_LINE_KINDS = ['machine', 'text', 'freight'];
+export const QUOTE_LINE_KINDS = ['machine', 'rental', 'addon', 'text', 'freight'];   // D100 (2026-10-15): rental + addon
+// D100 — the rental terms, in the Rental-Rate-Matrix's order. `lt6` / `lt12` are the signed-commitment tiers (per 28-day cycle).
+export const RENTAL_TERMS = ['day', 'weekend', 'week', 'month', 'lt6', 'lt12'];
+export const TERM_LABEL = { day: 'day', weekend: 'weekend', week: 'week', month: 'month (28 days)', lt6: '28-day cycle · 6-month commitment', lt12: '28-day cycle · 12-month commitment' };
+export const TERM_SHORT = { day: 'day', weekend: 'weekend', week: 'week', month: 'month', lt6: '6-mo', lt12: '12-mo' };
+export const SHORT_TERMS = new Set(['day', 'weekend']);    // the 20% delivery / pick-up surcharge (matrix rule 2)
+/** The standing rental notes (Rental-Rate-Matrix.md "Additional Fees & Policies" + quoting rules 11–12), word for word. */
+export const RENTAL_NOTES = [
+  'Hands-on operator instructions are provided at delivery at no additional charge.',
+  'Charger included with battery-powered equipment.',
+  'A monthly rental covers 28 days (20 working days + 8 weekend days).',
+  'Floor cleaning solution and pads are not included unless listed above — available from WSS.',
+  'A $250 fee applies if equipment is returned with liquid in the tanks or in an excessively dirty condition.',
+  'Self-pickup at our Ixonia shop waives delivery and pick-up fees (requires a dock-height truck, lift-gate, or approved trailer).',
+];
+export const RENTAL_NOTES_HEAD = 'Rental terms';
 // D94 (2026-10-14): no tax rate on a quote. WI is 5% + the ship-to COUNTY (Waukesha 5.0 · Jefferson 5.5 ·
 // Milwaukee Co. 5.9 · City of Milwaukee 7.9) and the invoice computes it automatically, so a quoted rate was
 // a guess that the invoice then contradicted. The quote states the pre-tax total and says tax is added.
@@ -88,6 +103,18 @@ export function lineBlocks(lines) {
     const qty = Number.isInteger(l && l.qty) ? l.qty : 1;
     const each = lineUnitCents(l);
     const detail = [];
+    if (l.kind === 'rental') {
+      // D100: "#XR-40D (RENTAL)" · "Rental rate: $490 per day" (+ "(list $X)" when Kevin changed it off the matrix) · the
+      // other terms for the same unit (matrix rule 10, from `matrix`) · the note. qty = how many periods.
+      if (l.model) detail.push({ text: `#${l.model} (RENTAL)`, tone: 'sub' });
+      const term = TERM_LABEL[l.term] || l.term || 'period';
+      const rate = typeof l.list === 'number' ? toCents(l.list) : null;
+      detail.push({ text: `Rental rate: ${fmtWhole(toCents(l.unit))} per ${term}${rate != null && rate !== toCents(l.unit) ? ` (list ${fmtWhole(rate)})` : ''}`, tone: 'plain' });
+      const others = RENTAL_TERMS.filter((t) => t !== l.term && l.matrix && typeof l.matrix[t] === 'number')
+        .map((t) => `${fmtWhole(toCents(l.matrix[t]))}/${TERM_SHORT[t]}`);
+      if (others.length) detail.push({ text: `Other terms available: ${others.join(' · ')}`, tone: 'plain' });
+    }
+    if (l.kind === 'addon' && l.stock) detail.push({ text: `#${l.stock}`, tone: 'sub' });
     if (l.kind === 'machine') {
       if (l.model) detail.push({ text: `#${l.model} (NEW)`, tone: 'sub' });
       const list = typeof l.list === 'number' ? toCents(l.list) : null;
@@ -170,7 +197,7 @@ export function quoteListings(lines, listings) {
   if (!listings) return [];
   const out = [];
   for (const l of lines || []) {
-    if (!l || l.kind !== 'machine' || !l.key || l.listing === false) continue;
+    if (!l || (l.kind !== 'machine' && l.kind !== 'rental') || !l.key || l.listing === false) continue;   // D100: rentals carry their listing too
     const m = Object.prototype.hasOwnProperty.call(listings, l.key) ? listings[l.key] : null;
     if (!m || typeof m !== 'object') continue;
     const specs = (Array.isArray(m.specs) ? m.specs : [])
@@ -221,6 +248,9 @@ function listingCardHtml(c, red) {
   </td></tr>`;
 }
 
+/** D100: any rental line on the quote → the standing rental notes ride under the line table (email + PDF + preview). */
+export const hasRental = (lines) => (lines || []).some((l) => l && l.kind === 'rental');
+
 /** Plain-text note → paragraphs. Blank lines split; single newlines become <br>. */
 function noteHtml(note) {
   return String(note || '').trim().split(/\n\s*\n/).filter(Boolean)
@@ -262,6 +292,15 @@ export function renderQuoteEmail(q) {
   <tr><td style="padding:10px 18px 0 18px;font-size:12px;color:#666">${esc(LISTING_PDF_NOTE)}</td></tr>`
     : '';
 
+  // D100: the rental notes, once, under the totals — only when a rental line is on the quote.
+  const notesHtml = hasRental(q.lines)
+    ? `
+  <tr><td style="padding:12px 18px 0 18px;font-size:12px;line-height:1.5;color:#555">
+    <div style="font-weight:bold;color:#1a1a1a;margin-bottom:4px">${esc(RENTAL_NOTES_HEAD)}</div>
+    ${RENTAL_NOTES.map((n) => `<div>• ${esc(n)}</div>`).join('')}
+  </td></tr>`
+    : '';
+
   const totRow = (label, value, strong) => `
       <tr>
         <td colspan="3" style="padding:6px;text-align:right;font-size:14px${strong ? ';font-weight:bold' : ''}">${esc(label)}</td>
@@ -291,7 +330,7 @@ export function renderQuoteEmail(q) {
       ${totRow(q.tax ? TAX_NOTE_LINE : TAX_EXEMPT_LINE, '—')}
       ${totRow('Total', fmtUsd(t.total), true)}
     </table>
-  </td></tr>${cardsHtml}
+  </td></tr>${notesHtml}${cardsHtml}
   <tr><td align="center" style="padding:22px 18px">
     <a href="${esc(pdf)}" style="display:inline-block;background:${red};color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;padding:14px 22px;border-radius:6px">View / download quote (PDF)</a>
   </td></tr>
@@ -318,6 +357,7 @@ ${q.pixel_url ? `<img src="${esc(q.pixel_url)}" width="1" height="1" alt="" styl
     q.tax ? TAX_NOTE_LINE : TAX_EXEMPT_LINE,
     `${pad('Total:', 12)} ${fmtUsd(t.total)}`,
     '',
+    ...(hasRental(q.lines) ? [RENTAL_NOTES_HEAD, ...RENTAL_NOTES.map((n) => `  - ${n}`), ''] : []),
     ...cards.flatMap((c) => [c.title, ...(c.model ? [`#${c.model}`] : []), ...c.specs.slice(0, LISTING_SPECS_IN_EMAIL).map((x) => `  ${x.k}: ${x.v}`), ...(c.url ? [c.url] : []), '']),
     ...(cards.length ? [LISTING_PDF_NOTE, ''] : []),
     `View / download the quote (PDF): ${pdf}`,

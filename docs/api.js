@@ -255,7 +255,8 @@ export async function loadMachine({ url, token, apiBase = API_BASE, fetch = defa
   if (mockVariant(url, apiBase)) {
     const res = await fetch('mock/mock-catalog.json', { cache: 'no-store' });
     if (!res.ok) throw fail('error', `mock catalog ${res.status}`);
-    m = ((await res.json()).machines || []).find((x) => x && x.key === key) || null;
+    const cat = await res.json();
+    m = [...(cat.machines || []), ...(cat.rentals || [])].find((x) => x && x.key === key) || null;   // D100: rentals by key too
     if (!m) throw fail('error', `${key} is not in the mock catalog`);
   } else {
     if (!token) throw fail('no-token', 'No token.');

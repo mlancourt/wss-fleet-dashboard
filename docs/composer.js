@@ -15,10 +15,13 @@
  */
 import {
   renderQuoteEmail, quoteTotals, fmtUsd, defaultSubject, NUMBER_PLACEHOLDER, esc, BANNER_PATH,
-  DEFAULT_VALID_DAYS, TAX_NOTE_LINE, TAX_EXEMPT_LINE,
+  DEFAULT_VALID_DAYS, TAX_NOTE_LINE, TAX_EXEMPT_LINE, RENTAL_TERMS, TERM_LABEL, TERM_SHORT, SHORT_TERMS,
 } from './quote-email.js';
 
-export const BRAND_CHIPS = ['Factory Cat', 'Kodiak', 'Tomcat', 'other'];
+export const BRAND_CHIPS = ['Factory Cat', 'Kodiak', 'Tomcat', 'other', 'Rentals'];   // D100: Rentals narrows to the rental listings
+export const RENTAL_CHIP = 'Rentals';
+export const DEFAULT_TERM = 'week';          // the site's floor (no day rate advertised); Kevin changes it
+export const ADDON_LIMIT = 12;
 const NAMED_BRANDS = new Set(['Factory Cat', 'Kodiak', 'Tomcat']);
 export const SEARCH_LIMIT = 20;
 export const MAX_LINES = 25;
@@ -32,13 +35,68 @@ const norm = (s) => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' '
 export function searchMachines(catalog, query, brand = null) {
   const words = norm(query).split(' ').filter(Boolean);
   const out = [];
-  for (const m of (catalog && catalog.machines) || []) {
-    if (brand && (brand === 'other' ? NAMED_BRANDS.has(m.manufacturer) : m.manufacturer !== brand)) continue;
-    const hay = norm([m.title, m.model, m.stock].join(' '));
+  // D100: the rental listings search alongside the machines (Kevin types "XR" either way); each hit says
+  // which it is. The Rentals chip narrows to rentals only; a brand chip narrows to that brand's machines.
+  const rentals = (brand == null || brand === RENTAL_CHIP) ? ((catalog && catalog.rentals) || []).map((r) => ({ ...r, rental: true })) : [];
+  const machines = brand === RENTAL_CHIP ? [] : ((catalog && catalog.machines) || []);
+  for (const m of [...rentals, ...machines]) {
+    if (!m.rental && brand && (brand === 'other' ? NAMED_BRANDS.has(m.manufacturer) : m.manufacturer !== brand)) continue;
+    const hay = norm([m.title, m.model, m.stock, m.rental ? `rental ${m.rate_class || ''}` : ''].join(' '));
     if (words.every((w) => hay.includes(w))) out.push(m);
     if (out.length >= SEARCH_LIMIT) break;
   }
   return out;
+}
+
+/** D100: the add-ons (cleaners, pads) — every typed word must hit the title or stock number. */
+export function searchAddons(catalog, query) {
+  const words = norm(query).split(' ').filter(Boolean);
+  if (!words.length) return [];
+  const out = [];
+  for (const a of (catalog && catalog.addons) || []) {
+    const hay = norm([a.description, a.stock, a.group].join(' '));
+    if (words.every((w) => hay.includes(w))) out.push(a);
+    if (out.length >= ADDON_LIMIT) break;
+  }
+  return out;
+}
+
+/**
+ * D100: the delivery zone for a lead's site/city from the matrix's city list — a city name, or a prefix of
+ * one when the lead carries an abbreviation ("Ocon" → Oconomowoc → Local). null when nothing matches.
+ */
+export function zoneForCity(catalog, city) {
+  const d = catalog && catalog.delivery;
+  if (!d || !d.cities) return null;
+  const c = norm(city);
+  if (!c) return null;
+  if (d.cities[c]) return d.cities[c];
+  const first = c.split(/[ ,]/)[0];
+  if (first.length < 3) return null;
+  const hit = Object.keys(d.cities).find((k) => k.startsWith(first));
+  return hit ? d.cities[hit] : null;
+}
+
+/** The zone row by name, or null. */
+export const zoneRow = (catalog, zone) => ((catalog && catalog.delivery && catalog.delivery.zones) || []).find((z) => z.zone === zone) || null;
+
+/** D100: a rental quote with a day or weekend line pays the short-term delivery / pick-up figures (matrix rule 2). */
+export const isShortTerm = (draft) => draft.lines.some((l) => l.kind === 'rental' && SHORT_TERMS.has(l.term));
+
+/** The delivery + pick-up amounts the zone says, for the draft's term mix → {delivery, pickup, short} (numbers) or null. */
+export function zoneAmounts(catalog, draft) {
+  const z = zoneRow(catalog, draft.zone);
+  if (!z) return null;
+  const short = isShortTerm(draft);
+  return { delivery: short ? z.short_delivery : z.delivery, pickup: short ? z.short_pickup : z.pickup, short };
+}
+
+/** Re-fill delivery + pick-up from the zone — only the fields Kevin hasn't typed over. */
+export function applyZone(catalog, draft) {
+  const a = zoneAmounts(catalog, draft);
+  if (!a) return;
+  if (!draft.deliveryTouched) draft.delivery = money2(a.delivery);
+  if (!draft.pickupTouched) draft.pickup = money2(a.pickup);
 }
 
 /**
@@ -69,7 +127,7 @@ export function groupsFor(catalog, machine) {
 }
 
 /** "Hi Pat,\n\nThanks for reaching out about …" — Kevin edits or wipes it. */
-export function noteTemplate(lead, pickedTitle = null) {
+export function noteTemplate(lead, pickedTitle = null, rental = false) {
   const l = lead || {};
   const first = String(l.contact || '').trim().split(/\s+/)[0] || 'there';
   // The picked machine wins once there is one (the lead's free-text `machine` is what they asked about,
@@ -77,6 +135,10 @@ export function noteTemplate(lead, pickedTitle = null) {
   const about = pickedTitle || l.machine || 'the machine';
   const what = pickedTitle || l.machine || 'it';
   const ask = typeof l.note === 'string' && l.note.trim() ? ` You asked about: "${l.note.trim().split('\n')[0].slice(0, 160)}".` : '';
+  // D100: a rental reads like a rental — no demo line (the delivery IS the walkthrough: operator instructions at delivery).
+  if (rental) {
+    return `Hi ${first},\n\nThanks for reaching out about renting ${about}. Here's the rental quote for ${l.customer || 'you'} — rate, delivery and pick-up are itemized below.${ask}\n\nLet me know the dates you're thinking and I'll get it on the schedule.`;
+  }
   return `Hi ${first},\n\nThanks for reaching out about ${about}. Here's the quote for ${what} for ${l.customer || 'you'}.${ask}\n\nHappy to set up a demo — just reply or call me.`;
 }
 
@@ -105,9 +167,53 @@ const money2 = (n) => { if (typeof n !== 'number' || !isFinite(n)) return ''; co
 export function newDraft(lead) {
   return {
     lead: lead.lead, to: lead.email || '', cc: '', subject: null, query: '', brand: null,
-    lines: [], freight: '', tax: true, note: noteTemplate(lead), noteTouched: false,
+    lines: [], freight: '', tax: true, note: noteTemplate(lead, null, lead.interest === 'RENTAL'), noteTouched: false,
     open: new Set(), view: 'edit', confirm: false, sending: false, error: null, seq: 0,
+    // D100: the rental half — zone (auto from the lead's city), delivery / pick-up (auto from the zone, editable), add-on search.
+    zone: null, delivery: '', pickup: '', deliveryTouched: false, pickupTouched: false, selfPickup: false, addonQuery: '',
   };
+}
+
+/** D100: pick a rental listing → a rental line at the matrix rate for the default term. */
+export function addRental(draft, r, lead, catalog = null) {
+  if (draft.lines.length >= MAX_LINES) return null;
+  const rates = r.rates || {};
+  const term = typeof rates[DEFAULT_TERM] === 'number' ? DEFAULT_TERM : (RENTAL_TERMS.find((t) => typeof rates[t] === 'number') || DEFAULT_TERM);
+  const line = {
+    id: ++draft.seq, kind: 'rental', key: r.key, description: r.title || '', model: r.model || '', stock: r.stock || '',
+    rate_class: r.rate_class || null, rates, term, qty: '1', unit: money2(rates[term]), note: '', listing: true,
+  };
+  draft.lines.push(line);
+  if (!draft.zone && catalog) draft.zone = zoneForCity(catalog, lead && lead.site);
+  if (catalog) applyZone(catalog, draft);
+  retemplate(draft, lead);
+  draft.query = '';
+  return line;
+}
+
+/** D100: change the term on a rental line → the unit follows the matrix (Kevin can still type over it). */
+export function setTerm(draft, lineId, term, catalog = null) {
+  const l = draft.lines.find((x) => x.id === lineId);
+  if (!l || l.kind !== 'rental' || !RENTAL_TERMS.includes(term)) return;
+  l.term = term;
+  if (typeof (l.rates || {})[term] === 'number') l.unit = money2(l.rates[term]);
+  if (catalog) applyZone(catalog, draft);
+}
+
+/** D100: an add-on from the supplies list → an addon line at the site's price. */
+export function addAddon(draft, a) {
+  if (draft.lines.length >= MAX_LINES) return null;
+  const line = { id: ++draft.seq, kind: 'addon', stock: a.stock || '', description: a.description || '', qty: '1', unit: money2(a.list), note: '' };
+  draft.lines.push(line);
+  draft.addonQuery = '';
+  return line;
+}
+
+/** D100: self-pickup at the shop → no delivery, no pick-up (matrix: waives both). Off again → the zone refills them. */
+export function setSelfPickup(draft, on, catalog = null) {
+  draft.selfPickup = !!on;
+  if (draft.selfPickup) { draft.delivery = ''; draft.pickup = ''; draft.deliveryTouched = false; draft.pickupTouched = false; }
+  else if (catalog) applyZone(catalog, draft);
 }
 
 /** Pick a catalog machine → a machine line priced at list (Q7: Kevin edits the number). */
@@ -132,15 +238,18 @@ export function addText(draft) {
   return line;
 }
 
-export function removeLine(draft, id, lead = null) {
+export function removeLine(draft, id, lead = null, catalog = null) {
   draft.lines = draft.lines.filter((l) => l.id !== id);
   retemplate(draft, lead);
+  if (catalog && !draft.selfPickup) applyZone(catalog, draft);
 }
 
 /** Re-write the note for the current first machine — only while Kevin hasn't touched it. */
 export function retemplate(draft, lead) {
-  if (!draft.noteTouched && lead) draft.note = noteTemplate(lead, firstTitle(draft));
+  if (!draft.noteTouched && lead) draft.note = noteTemplate(lead, firstTitle(draft), hasRentalLine(draft) || (!draft.lines.length && lead.interest === 'RENTAL'));
 }
+
+export const hasRentalLine = (draft) => draft.lines.some((l) => l.kind === 'rental');
 
 /**
  * Keep MSRP − discount = unit (v1.1 §1). Editing the discount moves the unit; editing the unit
@@ -176,7 +285,7 @@ export function toggleOption(draft, lineId, item) {
 }
 
 const firstTitle = (draft) => {
-  const m = draft.lines.find((l) => l.kind === 'machine');
+  const m = draft.lines.find((l) => l.kind === 'machine' || l.kind === 'rental');
   return m ? m.description : null;
 };
 
@@ -205,11 +314,30 @@ export function draftPayload(draft) {
       if (l.key) out.listing = l.listing !== false;
       return out;
     }
-    const t = { kind: 'text', description: String(l.description || '').trim(), qty: Number.isInteger(qty) ? qty : 1, unit };
+    if (l.kind === 'rental') {
+      const r = { kind: 'rental', key: l.key || undefined, description: l.description, model: l.model || undefined, term: l.term,
+        qty: Number.isInteger(qty) ? qty : 1, unit };
+      if (typeof (l.rates || {})[l.term] === 'number') r.list = l.rates[l.term];   // the matrix rate — `list`, like a machine's MSRP
+      const n = String(l.note || '').trim();
+      if (n) r.note = n;
+      if (l.key) r.listing = l.listing !== false;
+      return r;
+    }
+    const t = { kind: l.kind === 'addon' ? 'addon' : 'text', description: String(l.description || '').trim(), qty: Number.isInteger(qty) ? qty : 1, unit };
+    if (l.kind === 'addon' && l.stock) t.stock = l.stock;
     const n = String(l.note || '').trim();
     if (n) t.note = n;
     return t;
   });
+  // D100: delivery + pick-up as two text lines (matrix rule 1 — always separate), the zone named, the surcharge noted.
+  if (hasRentalLine(draft) && !draft.selfPickup) {
+    const z = draft.zone ? ` (${draft.zone} zone)` : '';
+    const short = isShortTerm(draft) ? 'Includes the 20% short-term surcharge.' : null;
+    const dl = parseMoney(draft.delivery);
+    if (dl != null && !Number.isNaN(dl)) lines.push({ kind: 'text', description: `Delivery${z}`, qty: 1, unit: dl, ...(short ? { note: short } : {}) });
+    const pu = parseMoney(draft.pickup);
+    if (pu != null && !Number.isNaN(pu)) lines.push({ kind: 'text', description: `Pick-up${z}`, qty: 1, unit: pu, ...(short ? { note: short } : {}) });
+  }
   const f = parseMoney(draft.freight);
   if (f != null) lines.push({ kind: 'freight', description: 'Freight', qty: 1, unit: f });
   return {
@@ -223,10 +351,11 @@ export function draftProblem(draft) {
   if (!EMAIL_RE.test(String(draft.to || '').trim())) return 'Put the customer\'s email in To.';
   const bad = ccList(draft).find((c) => !EMAIL_RE.test(c));
   if (bad) return `"${bad}" in Cc isn't an email address.`;
-  if (!draft.lines.length) return 'Pick a machine (or add a line) first.';
+  if (!draft.lines.length) return 'Pick a machine or a rental (or add a line) first.';
   for (const l of draft.lines) {
-    const what = l.description || (l.kind === 'text' ? 'the extra line' : 'the machine');
-    if (l.kind === 'text' && !String(l.description || '').trim()) return 'Say what the extra line is for.';
+    const what = l.description || (l.kind === 'text' ? 'the extra line' : l.kind === 'addon' ? 'the add-on' : l.kind === 'rental' ? 'the rental' : 'the machine');
+    if ((l.kind === 'text' || l.kind === 'addon') && !String(l.description || '').trim()) return 'Say what the extra line is for.';
+    if (l.kind === 'rental' && !RENTAL_TERMS.includes(l.term)) return `Pick a rental term on ${what}.`;
     const u = parseMoney(l.unit);
     if (u == null || Number.isNaN(u)) return `Put a price on ${what}.`;
     if (l.kind === 'machine' && typeof l.list === 'number') {
@@ -243,6 +372,10 @@ export function draftProblem(draft) {
     }
   }
   if (Number.isNaN(parseMoney(draft.freight))) return 'Freight is a dollar amount — or leave it empty.';
+  if (hasRentalLine(draft) && !draft.selfPickup) {
+    if (Number.isNaN(parseMoney(draft.delivery))) return 'Delivery is a dollar amount — or tick self-pickup.';
+    if (Number.isNaN(parseMoney(draft.pickup))) return 'Pick-up is a dollar amount — or tick self-pickup.';
+  }
   if (String(draft.note || '').length > 4000) return 'The note is over 4,000 characters.';
   return null;
 }
@@ -261,7 +394,11 @@ export function draftTotals(draft) {
  *  `listings` = {key → full machine} from GET /api/catalog/<key> (v1.3) — the card the send draws. */
 export function previewInput(draft, lead, catalog, { today, expires, me, listings = null } = {}) {
   const p = draftPayload(draft);
+  // D100: the preview's rental lines carry the matrix rates (`matrix`) the Worker will read back from the catalog by
+  // key (the "Other terms available" line) — the payload itself never sends them.
+  const ratesByKey = new Map(draft.lines.filter((l) => l.kind === 'rental' && l.key).map((l) => [l.key, l.rates || {}]));
   const lines = p.lines.map((l) => ({ ...l, unit: Number.isFinite(l.unit) ? l.unit : 0,
+    ...(l.kind === 'rental' && l.key && ratesByKey.has(l.key) ? { matrix: ratesByKey.get(l.key) } : {}),
     options: (l.options || []).map((o) => ({ ...o, unit: Number.isFinite(o.unit) ? o.unit : 0 })) }));
   return {
     number: null, date: today, expires, valid_days: DEFAULT_VALID_DAYS,
@@ -295,6 +432,32 @@ function lineCard(draft, catalog, l) {
       <label>What it is<input data-qc-line="description" data-line="${l.id}" maxlength="200" value="${attr(l.description)}" placeholder="Delivery + setup, Mequon"></label>
       ${qtyUnit}
       ${noteField}`);
+  }
+  if (l.kind === 'addon') {
+    return head(`
+      <div class="qc-line-h"><strong>${esc(l.description)}</strong>${rm}</div>
+      <div class="qc-sub">${[l.stock && `Stock ${esc(l.stock)}`, 'add-on'].filter(Boolean).join(' · ')}</div>
+      ${qtyUnit}
+      ${noteField}`);
+  }
+  if (l.kind === 'rental') {
+    // D100: term picker (matrix rates shown beside each), qty = periods, the rate editable, listing toggle.
+    const rates = l.rates || {};
+    const terms = RENTAL_TERMS.map((t) => `<option value="${t}"${l.term === t ? ' selected' : ''}>${esc(TERM_LABEL[t])}${typeof rates[t] === 'number' ? ` — ${esc(fmtUsd(rates[t]))}` : ''}</option>`).join('');
+    const listRate = typeof rates[l.term] === 'number' ? rates[l.term] : null;
+    const listing = l.key ? `
+    <label class="qc-chk qc-listing"><input type="checkbox" data-qc="listing" data-line="${l.id}"${l.listing !== false ? ' checked' : ''}>
+      <span>Include listing <span class="qc-part">photo · specs · description</span></span></label>` : '';
+    return head(`
+      <div class="qc-line-h"><strong>${esc(l.description)}</strong>${rm}</div>
+      <div class="qc-sub">${[l.model && `Model ${esc(l.model)}`, l.rate_class && esc(l.rate_class), 'rental'].filter(Boolean).join(' · ')}</div>
+      <label>Rental term<select data-qc-line="term" data-line="${l.id}">${terms}</select></label>
+      <div class="qc-2">
+        <label>How many ${esc(TERM_SHORT[l.term] || 'period')}s<input data-qc-line="qty" data-line="${l.id}" inputmode="numeric" value="${attr(l.qty)}"></label>
+        <label>Rate per ${esc(TERM_SHORT[l.term] || 'period')}<input data-qc-line="unit" data-line="${l.id}" inputmode="decimal" value="${attr(l.unit)}" placeholder="0.00"></label>
+      </div>
+      ${listRate != null ? `<div class="form-note">Matrix rate ${esc(fmtUsd(listRate))} per ${esc(TERM_SHORT[l.term])} — the quote shows it as the list rate if you change it.</div>` : '<div class="form-note">No matrix rate for this term — type one.</div>'}
+      ${noteField}${listing}`);
   }
   const groups = groupsFor(catalog, l);
   const ticked = new Set(l.options.map((o) => o.part));
@@ -337,11 +500,56 @@ export function resultsHtml(draft, catalog) {
   if (!q && !draft.brand) return '<div class="form-note">Type a model, a name or a stock number.</div>';
   const hits = searchMachines(catalog, draft.query, draft.brand);
   if (!hits.length) return '<div class="form-note">Nothing matches. Not in the catalog? Add a line below and type it in.</div>';
-  return hits.map((m) => `
+  return hits.map((m) => (m.rental ? `
+    <button type="button" class="qc-hit qc-hit-rental" data-qc="pick-rental" data-key="${attr(m.key)}">
+      <span class="qc-hit-t">${esc(m.title)} <span class="chip rent">rental</span></span>
+      <span class="qc-hit-s">${esc([m.model, m.rate_class].filter(Boolean).join(' · '))}<span class="qc-hit-p">${esc(rentalPriceText(m))}</span></span>
+    </button>` : `
     <button type="button" class="qc-hit" data-qc="pick" data-key="${attr(m.key)}">
       <span class="qc-hit-t">${esc(m.title)}</span>
       <span class="qc-hit-s">${esc([m.model, m.stock].filter(Boolean).join(' · '))}<span class="qc-hit-p">${esc(priceText(m.list))}</span></span>
+    </button>`)).join('');
+}
+
+const rentalPriceText = (r) => {
+  const rates = r.rates || {};
+  const t = typeof rates.week === 'number' ? 'week' : RENTAL_TERMS.find((x) => typeof rates[x] === 'number');
+  return t ? `${fmtUsd(rates[t])}/${TERM_SHORT[t]}` : 'no matrix rate';
+};
+
+/** D100: the add-on search results. */
+export function addonResultsHtml(draft, catalog) {
+  if (!norm(draft.addonQuery)) return '<div class="form-note">Cleaners, fast packs, pads — type a word.</div>';
+  const hits = searchAddons(catalog, draft.addonQuery);
+  if (!hits.length) return '<div class="form-note">Nothing matches. Add a line below and type it in.</div>';
+  return hits.map((a) => `
+    <button type="button" class="qc-hit" data-qc="pick-addon" data-stock="${attr(a.stock || '')}" data-desc="${attr(a.description)}">
+      <span class="qc-hit-t">${esc(a.description)}</span>
+      <span class="qc-hit-s">${esc([a.stock, a.group].filter(Boolean).join(' · '))}<span class="qc-hit-p">${esc(fmtUsd(a.list))}</span></span>
     </button>`).join('');
+}
+
+/** D100: the delivery & pick-up card — only when a rental line is on the quote. */
+export function deliveryHtml(draft, catalog) {
+  if (!hasRentalLine(draft)) return '';
+  const zones = ((catalog && catalog.delivery && catalog.delivery.zones) || []);
+  const opts = [`<option value=""${!draft.zone ? ' selected' : ''}>— pick a zone —</option>`,
+    ...zones.map((z) => `<option value="${attr(z.zone)}"${draft.zone === z.zone ? ' selected' : ''}>${esc(z.zone)}${z.minutes ? ` · up to ${z.minutes} min from Ixonia` : ''} — ${esc(fmtUsd(z.delivery))} each way</option>`)].join('');
+  const short = isShortTerm(draft);
+  const self = draft.selfPickup;
+  return `
+    <h2>Delivery &amp; pick-up</h2>
+    <section class="card qc-sec" id="qc-delivery">
+      <label>Zone<select data-qc-field="zone"${self ? ' disabled' : ''}>${opts}</select></label>
+      <div class="qc-2">
+        <label>Delivery<input data-qc-field="delivery" inputmode="decimal" value="${attr(draft.delivery)}" placeholder="0.00"${self ? ' disabled' : ''}></label>
+        <label>Pick-up<input data-qc-field="pickup" inputmode="decimal" value="${attr(draft.pickup)}" placeholder="0.00"${self ? ' disabled' : ''}></label>
+      </div>
+      <label class="qc-chk"><input type="checkbox" data-qc="self-pickup"${self ? ' checked' : ''}><span>Customer picks up at the shop — no delivery or pick-up charge</span></label>
+      <div class="form-note">${self ? 'Self-pickup needs a dock-height truck, lift-gate, or approved trailer — the quote says so.'
+        : short ? 'Day / weekend rental: the 20% short-term surcharge is in these figures (matrix rule).'
+          : zones.length ? 'Zone by one-way drive time from Ixonia; beyond 90 minutes, call it in.' : 'No delivery zones in the catalog — type the amounts.'}</div>
+    </section>`;
 }
 
 export function totalsHtml(draft, catalog) {
@@ -418,13 +626,20 @@ export function composerView(draft, lead, cat, opts = {}) {
       <label>Subject<input data-qc-field="subject" type="text" maxlength="200" value="${attr(subjectOf(draft))}"></label>
     </section>
 
-    <h2>Machine</h2>
+    <h2>Machine or rental</h2>
     ${draft.lines.map((l) => lineCard(draft, catalog, l)).join('')}
     <section class="card qc-sec">
-      <label>${draft.lines.length ? 'Add another machine' : 'Find the machine'}<input data-qc-field="query" type="search" autocomplete="off" value="${attr(draft.query)}" placeholder="K12, MICRO-HD, stock #…"></label>
+      <label>${draft.lines.length ? 'Add another machine or rental' : 'Find the machine or rental'}<input data-qc-field="query" type="search" autocomplete="off" value="${attr(draft.query)}" placeholder="K12, MICRO-HD, XR rental, stock #…"></label>
       <div class="qc-brands">${chips}</div>
       <div class="qc-results" id="qc-results">${resultsHtml(draft, catalog)}</div>
       <button type="button" class="btn ghost qc-addtext" data-qc="add-text">+ A line that isn't in the catalog</button>
+    </section>
+    ${deliveryHtml(draft, catalog)}
+
+    <h2>Add-ons</h2>
+    <section class="card qc-sec">
+      <label>Cleaning solution, pads, supplies<input data-qc-field="addonQuery" type="search" autocomplete="off" value="${attr(draft.addonQuery)}" placeholder="fast packs, 20&quot; pads, degreaser…"></label>
+      <div class="qc-results" id="qc-addons">${addonResultsHtml(draft, catalog)}</div>
     </section>
 
     <section class="card qc-sec">
