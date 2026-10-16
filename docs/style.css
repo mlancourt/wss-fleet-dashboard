@@ -1042,6 +1042,35 @@ table.ins td.n { color: var(--slate-700); }
 .mapchips .fchip.on { background: var(--kc); border-color: var(--kc); color: var(--white); }
 .mapchips .fchip .c { background: rgba(255, 255, 255, .28); color: inherit; }
 .mapchips .fchip:not(.on) .c { background: var(--slate-100); color: var(--kc); }
+/* D107: kind chip + its ▾ share one hue and one outline, read as one control. */
+.mapchips .fgrp { display: inline-flex; flex: 0 0 auto; align-items: stretch; }
+.mapchips .fgrp .fchip { border-radius: 999px 0 0 999px; border-right: 0; }
+.mapchips .fcaret {
+  min-height: 36px; min-width: 32px; padding: 0 8px; margin: 0;
+  background: var(--white); border: 1.5px solid var(--kc); border-left: 1px solid var(--kc); border-radius: 0 999px 999px 0;
+  color: var(--kc); font-size: 13px; line-height: 1; cursor: pointer;
+}
+.mapchips .fgrp.open .fcaret { background: var(--kc); color: var(--white); }
+.mapchips .fgrp.open .fcaret, .mapchips .fgrp.narrowed .fcaret { font-weight: 900; }
+.mapchips .fgrp.narrowed .fchip .c::before { content: '⦿ '; font-size: 9px; opacity: .9; }
+/* the stage row — the open kind's colour, smaller chips, scrolls like the row above */
+.mapstages {
+  display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; margin: -2px 0 6px; -webkit-overflow-scrolling: touch;
+  border-left: 3px solid var(--kc); padding-left: 10px;
+}
+.mapstages .schip {
+  flex: 0 0 auto; min-height: 30px; padding: 0 10px; border-radius: 999px;
+  background: var(--white); border: 1.5px solid var(--slate-300); color: var(--ink);
+  font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.mapstages .schip.on { background: var(--kc); border-color: var(--kc); color: var(--white); }
+.mapstages .schip .c {
+  margin-left: 5px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 1px 5px; border-radius: 999px; background: var(--slate-100); color: var(--slate-600);
+}
+.mapstages .schip.on .c { background: rgba(255, 255, 255, .28); color: inherit; }
+/* a phone scrolls the row sideways like the chips above it; a desktop has the room to wrap */
+@media (min-width: 640px) { .mapstages { flex-wrap: wrap; overflow-x: visible; } }
 .mk-service  { --kc: var(--pin-service); }
 .mk-pickup   { --kc: var(--pin-pickup); }
 .mk-delivery { --kc: var(--pin-delivery); }

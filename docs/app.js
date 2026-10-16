@@ -99,6 +99,8 @@ import {
   collect, stack, stackKind, groupOff, geoMeta, hasGeo, precisionNote, pinTip,
   navUrl, routeUrl, MAX_STOPS, KINDS as MAP_KINDS, KIND_LABEL as MAP_KIND_LABEL,
   EDGE_LABEL_ALLOWANCE,
+  STAGE_OPTIONS as MAP_STAGE_OPTIONS, stageLabel as mapStageLabel, normalizeStages, stagesToStore,
+  stageNarrowed, filterPins, toggleStage,
 } from './map.js';
 import {
   docRows, docUrl, pendingDocRows, pendingDetachIds, resolveKind, sanitizeName, retypeName, cameraName,
@@ -124,7 +126,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-15-d106';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-16-d107';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -216,6 +218,16 @@ function storedMapKinds() {
 const rememberMapKinds = () => {
   try { localStorage.setItem(MAP_KINDS_KEY, [...ui.mapKinds].join(',')); } catch (_) { /* ignore */ }
 };
+// D107: the stage filter under each kind — `{kind: [stages]}`, only the narrowed
+// kinds stored. Same device-scoped memory as the kind chips, same fallback: a
+// kind whose stored set is unreadable or empty is simply "all".
+const MAP_STAGES_KEY = 'wss.dispatch.mapstages';
+function storedMapStages() {
+  try { return normalizeStages(JSON.parse(localStorage.getItem(MAP_STAGES_KEY) || '{}')); } catch (_) { return normalizeStages(null); }
+}
+const rememberMapStages = () => {
+  try { localStorage.setItem(MAP_STAGES_KEY, JSON.stringify(stagesToStore(ui.mapStages))); } catch (_) { /* ignore */ }
+};
 
 // D65: the Parts strip's open/closed state lives for the SESSION, not the
 // device — it opens for a job and should be folded again tomorrow morning.
@@ -262,6 +274,8 @@ function storedLeadFilter() {
 const ui = {
   dispatchView: storedDispatchView(),  // 'list' | 'map' (D52)
   mapKinds: storedMapKinds(),          // Set of the five pin kinds currently on
+  mapStages: storedMapStages(),        // D107: { kind: Set | null } — null = every stage
+  mapStageOpen: null,                  // D107: the kind whose stage row is unfolded (session only)
   mapSheet: null,                      // the stack key whose detail sheet is open
   mapPlan: false,                      // "Plan a run" select mode
   mapStops: [],                        // stack keys, in tap order
@@ -3855,26 +3869,42 @@ function viewDispatchMap() {
 
   const { pins, off } = collect(state.snapshot);
   const on = ui.mapKinds;
-  const shown = pins.filter((p) => on.has(p.kind));
+  const shown = filterPins(pins, on, ui.mapStages);
   const stacks = stack(shown);
-  const offShown = off.filter((r) => on.has(r.kind));
+  const offShown = filterPins(off, on, ui.mapStages);
   mapStacks = new Map(stacks.map((st) => [st.key, st]));
 
   if (!mapHome) mapHome = mapDefaultView(g);
   if (!mapView) mapView = mapHome;
 
+  // D107: a narrowed kind reads `3/9` — what its stage row lets through, of
+  // what the kind has. The whole figure stays visible so a filter never looks
+  // like a quiet day.
   const counts = {};
-  for (const k of MAP_KINDS) counts[k] = pins.filter((p) => p.kind === k).length;
+  const passing = {};
+  for (const k of MAP_KINDS) {
+    counts[k] = pins.filter((p) => p.kind === k).length;
+    passing[k] = filterPins(pins.filter((p) => p.kind === k), new Set([k]), ui.mapStages).length;
+  }
 
-  const chips = MAP_KINDS.map((k) => html`
-    <button type="button" class="fchip${on.has(k) ? ' on' : ''} mk-${k}" data-mapkind="${k}"
-      aria-pressed="${on.has(k) ? 'true' : 'false'}">${MAP_KIND_LABEL[k]}<span class="c">${counts[k]}</span></button>`).join('');
+  const chips = MAP_KINDS.map((k) => {
+    const narrowed = stageNarrowed(ui.mapStages, k);
+    const open = ui.mapStageOpen === k;
+    return html`
+    <span class="fgrp mk-${k}${narrowed ? ' narrowed' : ''}${open ? ' open' : ''}">
+      <button type="button" class="fchip${on.has(k) ? ' on' : ''} mk-${k}" data-mapkind="${k}"
+        aria-pressed="${on.has(k) ? 'true' : 'false'}">${MAP_KIND_LABEL[k]}<span class="c">${narrowed ? `${passing[k]}/${counts[k]}` : counts[k]}</span></button>
+      <button type="button" class="fcaret" data-mapstage-open="${k}" aria-expanded="${open ? 'true' : 'false'}"
+        aria-label="${open ? 'Hide' : 'Show'} ${MAP_KIND_LABEL[k]} stages" title="Filter by stage">▾</button>
+    </span>`;
+  }).join('');
 
   const stops = ui.mapStops.map((key) => stacks.find((st) => st.key === key)).filter(Boolean);
 
   return html`
     ${raw(head)}
     <div class="mapchips">${raw(chips)}</div>
+    ${raw(stageRow(pins))}
     <div class="mapwrap">
       ${raw(mapSurface(g, stacks))}
       <div class="mapbtns">
@@ -3886,6 +3916,31 @@ function viewDispatchMap() {
     ${raw(planStrip(stops, g))}
     ${ui.mapSheet ? raw(stackSheet(stacks.find((st) => st.key === ui.mapSheet), g)) : ''}
     ${raw(offMapList(offShown))}`;
+}
+
+/**
+ * D107: the stage row for the one unfolded kind — nothing when none is.
+ *
+ * `All` is a real chip, lit when the kind is not narrowed; every stage the
+ * kind can hold draws with its count, a 0 included — an empty stage you can
+ * see is information, a missing one is a question. Counts are of the KIND's
+ * pins, before the stage filter: what the chip would let through if tapped.
+ */
+function stageRow(pins) {
+  const k = ui.mapStageOpen;
+  if (!k || !MAP_STAGE_OPTIONS[k]) return '';
+  const mine = pins.filter((p) => p.kind === k);
+  const set = ui.mapStages[k];
+  const narrowed = stageNarrowed(ui.mapStages, k);
+  const all = html`<button type="button" class="schip${narrowed ? '' : ' on'}" data-mapstage-all="${k}"
+    aria-pressed="${narrowed ? 'false' : 'true'}">All</button>`;
+  const chips = MAP_STAGE_OPTIONS[k].map((st) => {
+    const lit = narrowed && set.has(st);
+    const n = mine.filter((p) => p.stage === st).length;
+    return html`<button type="button" class="schip${lit ? ' on' : ''}" data-mapstage="${k}:${st}"
+      aria-pressed="${lit ? 'true' : 'false'}">${mapStageLabel(k, st)}<span class="c">${n}</span></button>`;
+  }).join('');
+  return html`<div class="mapstages mk-${k}" role="group" aria-label="${MAP_KIND_LABEL[k]} stages">${raw(all)}${raw(chips)}</div>`;
 }
 
 /**
@@ -6593,11 +6648,36 @@ document.addEventListener('click', async (ev) => {
     const k = mk.dataset.mapkind;
     if (ui.mapKinds.has(k)) ui.mapKinds.delete(k); else ui.mapKinds.add(k);
     if (!ui.mapKinds.size) ui.mapKinds = new Set(MAP_KINDS);   // a blank map reads as a broken one
+    // A kind switched off has no stages to show.
+    if (!ui.mapKinds.has(k) && ui.mapStageOpen === k) ui.mapStageOpen = null;
     rememberMapKinds();
-    // A filtered-out stop is not on the map any more, so it is not in the run.
-    ui.mapStops = ui.mapStops.filter((key) => stackKeysOnScreen().has(key));
-    if (ui.mapSheet && !stackKeysOnScreen().has(ui.mapSheet)) ui.mapSheet = null;
+    afterMapFilter();
+    return;
+  }
+
+  // D107: the ▾ unfolds one kind's stage row (and switches the kind on — a
+  // stage filter on an invisible kind is a question with no answer).
+  const so = ev.target.closest('[data-mapstage-open]');
+  if (so) {
+    const k = so.dataset.mapstageOpen;
+    ui.mapStageOpen = ui.mapStageOpen === k ? null : k;
+    if (ui.mapStageOpen && !ui.mapKinds.has(k)) { ui.mapKinds.add(k); rememberMapKinds(); }
     render();
+    return;
+  }
+  const sa = ev.target.closest('[data-mapstage-all]');
+  if (sa) {
+    ui.mapStages[sa.dataset.mapstageAll] = null;
+    rememberMapStages();
+    afterMapFilter();
+    return;
+  }
+  const ms = ev.target.closest('[data-mapstage]');
+  if (ms) {
+    const [k, st] = String(ms.dataset.mapstage).split(':');
+    ui.mapStages[k] = toggleStage(ui.mapStages[k], k, st);
+    rememberMapStages();
+    afterMapFilter();
     return;
   }
 
@@ -6871,7 +6951,15 @@ document.addEventListener('input', (ev) => {
 /** The stack keys currently drawable — used to drop stops a filter just hid. */
 function stackKeysOnScreen() {
   const { pins } = collect(state.snapshot);
-  return new Set(stack(pins.filter((p) => ui.mapKinds.has(p.kind))).map((st) => st.key));
+  return new Set(stack(filterPins(pins, ui.mapKinds, ui.mapStages)).map((st) => st.key));
+}
+
+/** After any map filter change: a filtered-out stop is not on the map any more, so it is not in the run. */
+function afterMapFilter() {
+  const keys = stackKeysOnScreen();
+  ui.mapStops = ui.mapStops.filter((key) => keys.has(key));
+  if (ui.mapSheet && !keys.has(ui.mapSheet)) ui.mapSheet = null;
+  render();
 }
 
 /** Add or remove a stop, in tap order. Nine is Google's ceiling, not ours. */

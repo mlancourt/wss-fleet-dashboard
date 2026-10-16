@@ -27,7 +27,10 @@ import {
   projector, boxToViewBox, viewBoxStr, clampViewBox, zoomAt,
   collect, stack, stackKind, groupOff, geoMeta, hasGeo, usableGeo, precisionNote, pinTip, TIP_MAX,
   navUrl, routeUrl, MAX_STOPS, KINDS, EDGE_LABEL_ALLOWANCE, visibleBox,
+  STAGE_OPTIONS, STAGE_LABEL, stageLabel, normalizeStages, stagesToStore, stageNarrowed, stageOn, filterPins, toggleStage,
 } from '../docs/map.js';
+import { STAGES as SERVICE_STAGES, DISPATCH_STATUSES } from '../docs/service.js';
+import { LEAD_STAGES } from '../docs/leads.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(HERE, '..', 'docs');
@@ -554,6 +557,102 @@ check('D101: the hover tip is customer + equipment per row, capped, never blank'
   assert.deepEqual(t.rows[0], { customer: 'C0', equip: 'E0' });
   assert.equal(t.more, 2);
   assert.deepEqual(pinTip(null), { rows: [], more: 0 });
+});
+
+check('D107: every pin row carries its stage, drawn from the field its own tab sorts by', () => {
+  const { pins, off } = collect(SNAP);
+  for (const p of [...pins, ...off]) assert.ok('stage' in p, `${p.kind} ${p.id} carries stage`);
+  // A fixture row with no stage field carries null — never undefined, never a guess.
+  const src = (v) => (typeof v === 'string' && v.trim() ? v : null);
+  const svc = pins.find((p) => p.kind === 'service');
+  assert.equal(svc.stage, src(SNAP.service_queue.find((t) => t.ticket === svc.id).stage));
+  const dsp = pins.find((p) => p.kind === 'pickup' || p.kind === 'delivery');
+  assert.equal(dsp.stage, src(SNAP.dispatch.find((d) => d.id === dsp.id).status));
+  const lead = pins.find((p) => p.kind === 'lead');
+  assert.equal(lead.stage, src(SNAP.leads.find((l) => l.lead === lead.id).stage));
+  const rental = pins.find((p) => p.kind === 'rental');
+  assert.equal(rental.stage, src(SNAP.units.find((u) => String(u.serial) === rental.id).unit_state));
+  const staged = collect({ service_queue: [{ ticket: 'S1', status: 'OPEN', stage: 'SCHEDULED', site: 'x', geo: GEO(43.1, -88.5) }] }).pins[0];
+  assert.equal(staged.stage, 'SCHEDULED');
+});
+
+check('D107: the stage options are exactly what a row ON the map can hold', () => {
+  for (const k of KINDS) assert.ok(Array.isArray(STAGE_OPTIONS[k]) && STAGE_OPTIONS[k].length, `${k} has options`);
+  // Service: every stage but COMPLETE (an OPEN ticket is never COMPLETE), in the tab's order.
+  assert.deepEqual(STAGE_OPTIONS.service, SERVICE_STAGES.filter((s) => s !== 'COMPLETE'));
+  // Dispatch: everything but DONE (collect() drops DONE rows).
+  assert.deepEqual(STAGE_OPTIONS.pickup, DISPATCH_STATUSES.filter((s) => s !== 'DONE'));
+  assert.deepEqual(STAGE_OPTIONS.delivery, STAGE_OPTIONS.pickup);
+  // Leads: the open board, in the tab's order.
+  assert.deepEqual(STAGE_OPTIONS.lead, LEAD_STAGES);
+  // Rentals: the three out states — the only states a unit has a job site in.
+  assert.deepEqual(STAGE_OPTIONS.rental, ['ON-RENT', 'ON-DEMO', 'LOANER-OUT']);
+  // Every option has a label, and the labels are the tabs' words.
+  for (const k of KINDS) for (const st of STAGE_OPTIONS[k]) assert.notEqual(stageLabel(k, st), st, `${k}:${st} is labelled`);
+  assert.equal(STAGE_LABEL.lead.RECEIVED, 'New Lead');
+  assert.equal(STAGE_LABEL.service.RECEIVED, 'New');
+  assert.equal(stageLabel('rental', 'ON-DEMO'), 'On demo');
+  assert.equal(stageLabel('rental', null), '—');
+});
+
+check('D107: a stored filter normalises to {kind: Set|null}; junk, empty and "all of them" read as all', () => {
+  const n = normalizeStages({ service: ['SCHEDULED', 'BOGUS'], lead: [...STAGE_OPTIONS.lead], pickup: [], rental: 'nope' });
+  assert.deepEqual([...n.service], ['SCHEDULED']);
+  assert.equal(n.lead, null, 'every option = all');
+  assert.equal(n.pickup, null);
+  assert.equal(n.rental, null);
+  assert.equal(n.delivery, null);
+  for (const k of KINDS) assert.ok(k in normalizeStages(null));
+  assert.deepEqual(stagesToStore(n), { service: ['SCHEDULED'] });
+  assert.ok(stageNarrowed(n, 'service'));
+  assert.ok(!stageNarrowed(n, 'lead'));
+  assert.deepEqual(normalizeStages(JSON.parse(JSON.stringify(stagesToStore(n)))), n);
+});
+
+check('D107: stageOn — no filter passes all; a narrowed kind passes its stages; an unknown stage always draws', () => {
+  const all = normalizeStages(null);
+  assert.ok(stageOn(all, { kind: 'service', stage: 'SCHEDULED' }));
+  const f = normalizeStages({ service: ['SCHEDULED', 'IN-PROGRESS'] });
+  assert.ok(stageOn(f, { kind: 'service', stage: 'IN-PROGRESS' }));
+  assert.ok(!stageOn(f, { kind: 'service', stage: 'RECEIVED' }));
+  assert.ok(stageOn(f, { kind: 'lead', stage: 'RECEIVED' }), 'another kind is untouched');
+  assert.ok(stageOn(f, { kind: 'service', stage: 'SOMETHING-NEW' }), 'a stage we do not know draws by default');
+  assert.ok(stageOn(f, { kind: 'service', stage: null }));
+  assert.ok(!stageOn(f, null));
+});
+
+check('D107: filterPins applies kind AND stage, on pins and on the off-map list alike', () => {
+  const { pins, off } = collect(SNAP);
+  const every = filterPins(pins, new Set(KINDS), normalizeStages(null));
+  assert.equal(every.length, pins.length);
+  const svcOnly = filterPins(pins, new Set(['service']), normalizeStages(null));
+  assert.ok(svcOnly.length && svcOnly.every((p) => p.kind === 'service'));
+  const svc = pins.filter((p) => p.kind === 'service');
+  const st = svc[0].stage;
+  const narrowed = filterPins(pins, new Set(['service', 'lead']), normalizeStages({ service: [st] }));
+  assert.ok(narrowed.filter((p) => p.kind === 'service').every((p) => p.stage === st));
+  assert.equal(narrowed.filter((p) => p.kind === 'service').length, svc.filter((p) => p.stage === st).length);
+  assert.equal(narrowed.filter((p) => p.kind === 'lead').length, pins.filter((p) => p.kind === 'lead').length);
+  assert.ok(Array.isArray(filterPins(off, new Set(KINDS), normalizeStages(null))));
+  assert.deepEqual(filterPins(null, null, null), []);
+  // No kinds given = every kind (never a blank map by accident).
+  assert.equal(filterPins(pins, null, null).length, pins.length);
+});
+
+check('D107: toggleStage — from all, a tap means "just this one"; the last one off, or the last one on, is all again', () => {
+  let s = toggleStage(null, 'pickup', 'OPEN');
+  assert.deepEqual([...s], ['OPEN']);
+  s = toggleStage(s, 'pickup', 'SCHEDULED');
+  assert.equal(s, null, 'both of two = all');
+  s = toggleStage(toggleStage(null, 'rental', 'ON-RENT'), 'rental', 'ON-DEMO');
+  assert.deepEqual([...s].sort(), ['ON-DEMO', 'ON-RENT']);
+  s = toggleStage(s, 'rental', 'ON-RENT');
+  assert.deepEqual([...s], ['ON-DEMO']);
+  s = toggleStage(s, 'rental', 'ON-DEMO');
+  assert.equal(s, null, 'the last one off = all');
+  assert.equal(toggleStage(null, 'rental', 'BOGUS'), null, 'an unknown stage changes nothing');
+  const keep = new Set(['ON-RENT']);
+  assert.equal(toggleStage(keep, 'rental', 'BOGUS'), keep);
 });
 
 console.log(`\n${passed} checks passed`);

@@ -33,6 +33,11 @@
  *    "assign this run to a rig" would be a dispatch event; it is not in D52.)
  */
 
+// D107: the tabs' own stage words, so a map chip and a kanban head agree.
+// Both modules are pure (service.js pulls only dates.js); this stays DOM-free.
+import { STAGE_LABEL as SERVICE_STAGE_LABEL } from './service.js';
+import { STAGE_LABEL as LEAD_STAGE_LABEL } from './leads.js';
+
 /**
  * A finite number, or null.
  *
@@ -215,6 +220,7 @@ export function collect(snapshot) {
       kind: 'service', id: t.ticket, label: t.ticket,
       line: str(t.issue) || str(t.equipment) || '—',
       equip: str(t.equipment) || str(t.issue),
+      stage: str(t.stage),
       href: `#/ticket/${encodeURIComponent(t.ticket)}`,
       customer: str(t.customer), address: str(t.site),
     }, t.geo);
@@ -228,6 +234,7 @@ export function collect(snapshot) {
       kind, id: d.id, label: str(d.serial) || str(d.ticket) || (kind === 'pickup' ? 'Pick-up' : 'Delivery'),
       line: str(d.what) || '—',
       equip: str(d.what),
+      stage: str(d.status),
       href: `#/dispatch/${encodeURIComponent(d.id)}`,
       customer: str(d.customer), address: str(d.address),
     }, d.geo);
@@ -239,6 +246,7 @@ export function collect(snapshot) {
       kind: 'lead', id: l.lead, label: l.lead,
       line: str(l.machine) || str(l.interest) || str(l.stage) || '—',
       equip: str(l.machine) || str(l.interest),
+      stage: str(l.stage),
       href: `#/lead/${encodeURIComponent(l.lead)}`,
       customer: str(l.customer), address: str(l.site),
       // A demo has a truck and a date attached to it — worth its own glyph.
@@ -252,6 +260,7 @@ export function collect(snapshot) {
       kind: 'rental', id: String(u.serial), label: String(u.serial),
       line: [u.brand, u.model].filter(Boolean).join(' ') || str(u.asset_item) || '—',
       equip: [u.brand, u.model].filter(Boolean).join(' ') || str(u.asset_item),
+      stage: str(u.unit_state),
       href: `#/unit/${encodeURIComponent(u.serial)}`,
       customer: str(u.customer), address: str(u.job_site),
     }, u.geo);
@@ -261,6 +270,113 @@ export function collect(snapshot) {
 }
 
 const arr = (v) => (Array.isArray(v) ? v : []);
+
+/* ===================================================== stage filters ===== */
+
+/**
+ * The second filter row (D107): within a kind, which STAGE of work draws.
+ *
+ * Every pin row carries `stage` — the field each kind already sorts itself by
+ * on its own tab: a ticket's `stage`, a dispatch row's `status`, a lead's
+ * `stage`, an out unit's `unit_state`. The options per kind are exactly the
+ * values a row on the map can hold: an OPEN ticket is never COMPLETE, a
+ * dispatch row on the map is never DONE, a unit on the map is only ever in
+ * one of the three out states. A closed or finished thing is not on the map
+ * to begin with (collect() already decided that), so it is not a filter.
+ *
+ * Labels are the tabs' own words, imported, so the map never invents a
+ * second name for a stage.
+ */
+export const STAGE_OPTIONS = {
+  service: ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'WAITING-ON-PARTS',
+    'READY-TO-SCHEDULE', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-INVOICE'],
+  pickup: ['OPEN', 'SCHEDULED'],
+  delivery: ['OPEN', 'SCHEDULED'],
+  lead: ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED'],
+  rental: ['ON-RENT', 'ON-DEMO', 'LOANER-OUT'],
+};
+
+export const STAGE_LABEL = {
+  service: { ...SERVICE_STAGE_LABEL, RECEIVED: 'New' },
+  pickup: { OPEN: 'Open', SCHEDULED: 'Scheduled' },
+  delivery: { OPEN: 'Open', SCHEDULED: 'Scheduled' },
+  lead: LEAD_STAGE_LABEL,
+  rental: { 'ON-RENT': 'On rent', 'ON-DEMO': 'On demo', 'LOANER-OUT': 'Loaner out' },
+};
+
+export const stageLabel = (kind, stage) => (STAGE_LABEL[kind] && STAGE_LABEL[kind][stage]) || stage || '—';
+
+/**
+ * A stored stage filter → `{ kind: Set | null }`, one key per kind.
+ *
+ * `null` means "everything" — the default, and what a kind falls back to the
+ * moment its set would be empty or unreadable. An empty set would be a kind
+ * switched on with nothing drawn, which reads exactly like a broken map, and
+ * the kind chip already exists for "none of these". Unknown stages are
+ * dropped (a renamed enum must not quietly hide a kind forever); a set that
+ * names every option is the same as null and is stored that way.
+ */
+export function normalizeStages(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const kind of KINDS) {
+    const opts = STAGE_OPTIONS[kind];
+    const list = Array.isArray(src[kind]) ? src[kind].filter((s) => opts.includes(s)) : null;
+    out[kind] = list && list.length && list.length < opts.length ? new Set(list) : null;
+  }
+  return out;
+}
+
+/** The storable shape of a filter: only the narrowed kinds, as arrays. */
+export function stagesToStore(stages) {
+  const out = {};
+  for (const kind of KINDS) {
+    const s = stages && stages[kind];
+    if (s instanceof Set && s.size) out[kind] = [...s];
+  }
+  return out;
+}
+
+/** Is this kind narrowed below "all"? */
+export const stageNarrowed = (stages, kind) => !!(stages && stages[kind] instanceof Set && stages[kind].size);
+
+/**
+ * Does a row pass the stage filter? A kind with no filter passes everything;
+ * a row whose stage is not one we know passes too — a stage the engine adds
+ * tomorrow draws by default rather than vanishing until someone finds the
+ * chip for it.
+ */
+export function stageOn(stages, row) {
+  if (!row) return false;
+  const s = stages && stages[row.kind];
+  if (!(s instanceof Set) || !s.size) return true;
+  if (!STAGE_OPTIONS[row.kind] || !STAGE_OPTIONS[row.kind].includes(row.stage)) return true;
+  return s.has(row.stage);
+}
+
+/** The rows that draw: kind switched on AND stage passing. */
+export function filterPins(rows, kinds, stages) {
+  const on = kinds instanceof Set ? kinds : new Set(KINDS);
+  return arr(rows).filter((r) => r && on.has(r.kind) && stageOn(stages, r));
+}
+
+/**
+ * Toggle one stage in a kind's filter, returning the new Set-or-null.
+ *
+ * Starting from "all" (null), tapping a stage means "just this one" — the
+ * other option, "everything but this one", is a double negative nobody
+ * standing in a warehouse wants to reason about. From a narrowed set, a tap
+ * adds or removes; removing the last one, or adding the last missing one,
+ * goes back to null.
+ */
+export function toggleStage(current, kind, stage) {
+  const opts = STAGE_OPTIONS[kind];
+  if (!opts || !opts.includes(stage)) return current instanceof Set && current.size ? current : null;
+  if (!(current instanceof Set) || !current.size) return new Set([stage]);
+  const next = new Set(current);
+  if (next.has(stage)) next.delete(stage); else next.add(stage);
+  return next.size && next.size < opts.length ? next : null;
+}
 
 /**
  * Collapse rows that share a coordinate into one pin.
