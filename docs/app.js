@@ -126,7 +126,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-16-d108';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-16-d109';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -4803,11 +4803,28 @@ function fetchListing(key) {
     .catch(() => { /* no card in the preview; the send still reads the catalog itself */ });
 }
 
+// D109 (2026-10-16): the catalog is checked against the server, not trusted for a day. Two layers kept Kevin on a
+// stale list — localStorage's 24 h TTL (its `built` check compared the cache with itself) and `quoteCat`, which
+// never left 'ready' for the life of the page (a PWA stays open for days). Two Karcher units added at 06:21/07:43
+// were in KV by 08:05 and still not in his search at 11:00. Now: the cached copy draws at once, and opening the
+// composer re-fetches it (force) whenever the last server check is older than QUOTE_CAT_RECHECK_MS; a
+// changed `built` redraws. A failed recheck keeps the copy on screen.
+const QUOTE_CAT_RECHECK_MS = 5 * 60 * 1000;
+let quoteCatCheckedAt = 0;   // last FORCED (server) load; 0 = only ever served from cache
 function startQuoteCatalog(force = false) {
-  quoteCat = { state: 'loading', data: null, error: null };
+  const had = quoteCat.state === 'ready' ? quoteCat.data : null;
+  if (!had) quoteCat = { state: 'loading', data: null, error: null };
+  if (force) quoteCatCheckedAt = Date.now();
   loadCatalog(ctx(), { force })
-    .then((data) => { quoteCat = { state: 'ready', data, error: null }; render(); })
-    .catch((err) => { quoteCat = { state: 'error', data: null, error: err.message }; render(); });
+    .then((data) => {
+      const changed = !had || had.built !== data.built;
+      quoteCat = { state: 'ready', data, error: null };
+      if (changed) render();
+    })
+    .catch((err) => {
+      if (had) return;   // keep the copy we have; the next composer open retries
+      quoteCat = { state: 'error', data: null, error: err.message }; render();
+    });
 }
 
 function viewComposer(id) {
@@ -4822,6 +4839,7 @@ function viewComposer(id) {
     return html`<a class="crumb" href="#/lead/${raw(enc(l.lead))}">‹ ${l.lead}</a><div class="info">This lead is ${LEAD_STATUS_LABEL[l.status] || l.status} — a closed lead takes no quotes.</div>`;
   }
   if (quoteCat.state === 'idle') startQuoteCatalog();
+  else if (quoteCat.state === 'ready' && Date.now() - quoteCatCheckedAt > QUOTE_CAT_RECHECK_MS) startQuoteCatalog(true);
   if (!quoteDrafts.has(id)) quoteDrafts.set(id, newDraft(l));
   const today = todayCentral();
   return msgBlock() + composerView(quoteDrafts.get(id), l, quoteCat, { today, expires: addDays(today, 30), me: state.me, listings: quoteListings });
