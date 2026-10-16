@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 2,
-    "generated_at": "2026-10-16T11:39:30.264Z",
+    "generated_at": "2026-10-16T14:14:04.705Z",
     "run_id": "mock-legacy-2026-10-16",
     "fleet_totals": {
       "units": 39,
@@ -1751,7 +1751,13 @@
       "job_site": "4400 Innovation Dr, Waukesha WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0110",
+        "email": "dana@example.com",
+        "source": "site"
+      }
     },
     {
       "agreement": 4106,
@@ -1768,7 +1774,13 @@
       "job_site": "4400 Innovation Dr, Madison WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0111",
+        "email": "marcus@example.com",
+        "source": "billing"
+      }
     },
     {
       "agreement": 4109,
@@ -1787,7 +1799,13 @@
       "alerts": [
         "split cycle — partial period billed"
       ],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      }
     },
     {
       "agreement": 4112,
@@ -1806,7 +1824,8 @@
       "alerts": [
         "no billing seed — next due unknown"
       ],
-      "docs": []
+      "docs": [],
+      "contact": null
     },
     {
       "agreement": 4115,
@@ -1823,7 +1842,13 @@
       "job_site": "1201 Riverside Blvd, Waukesha WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0114",
+        "email": "dana@example.com",
+        "source": "site"
+      }
     },
     {
       "agreement": 4118,
@@ -1840,7 +1865,13 @@
       "job_site": "4400 Innovation Dr, Madison WI",
       "customer_po": "PO-70384",
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0115",
+        "email": "marcus@example.com",
+        "source": "billing"
+      }
     },
     {
       "agreement": 4121,
@@ -1857,7 +1888,13 @@
       "job_site": "W229 N1433 Westwood Dr, Beloit WI",
       "customer_po": "PO-14260",
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      }
     },
     {
       "agreement": 4124,
@@ -1876,7 +1913,8 @@
       "alerts": [
         "past max cycles — confirm extension or pick up"
       ],
-      "docs": []
+      "docs": [],
+      "contact": null
     },
     {
       "agreement": "R092526A",
@@ -1901,7 +1939,13 @@
           "bytes": 96410,
           "added": "2026-10-13"
         }
-      ]
+      ],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0118",
+        "email": "dana@example.com",
+        "source": "site"
+      }
     },
     {
       "agreement": 4130,
@@ -1918,7 +1962,13 @@
       "job_site": "1400 Industrial Dr, Madison WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0119",
+        "email": "marcus@example.com",
+        "source": "billing"
+      }
     },
     {
       "agreement": null,
@@ -1937,7 +1987,8 @@
       "alerts": [
         "UNBILLED RENTAL — unit is out with no agreement"
       ],
-      "docs": []
+      "docs": [],
+      "contact": null
     },
     {
       "agreement": 4139,
@@ -1954,7 +2005,8 @@
       "job_site": "W229 N1433 Westwood Dr, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": null
     },
     {
       "agreement": 4142,
@@ -1971,7 +2023,13 @@
       "job_site": "77 Logistics Ln, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0122",
+        "email": "dana@example.com",
+        "source": "site"
+      }
     },
     {
       "agreement": 4145,
@@ -1988,7 +2046,13 @@
       "job_site": "4400 Innovation Dr, Beloit WI",
       "customer_po": "PO-42840",
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0123",
+        "email": "marcus@example.com",
+        "source": "billing"
+      }
     },
     {
       "agreement": 4148,
@@ -2005,7 +2069,13 @@
       "job_site": "4400 Innovation Dr, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      }
     },
     {
       "agreement": 4151,
@@ -2022,7 +2092,8 @@
       "job_site": "1201 Riverside Blvd, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": null
     },
     {
       "agreement": 4154,
@@ -2039,7 +2110,13 @@
       "job_site": "820 Commerce Pkwy, Milwaukee WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0126",
+        "email": "dana@example.com",
+        "source": "site"
+      }
     },
     {
       "agreement": 4157,
@@ -2056,7 +2133,13 @@
       "job_site": "1201 Riverside Blvd, Beloit WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0127",
+        "email": "marcus@example.com",
+        "source": "billing"
+      }
     },
     {
       "agreement": 4160,
@@ -2073,7 +2156,13 @@
       "job_site": "1201 Riverside Blvd, Oconomowoc WI",
       "customer_po": null,
       "alerts": [],
-      "docs": []
+      "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      }
     }
   ],
   "reservations": {
@@ -2605,7 +2694,7 @@
   "rejections": [
     {
       "id": "rej-mock-1",
-      "ts": "2026-10-16T11:39:30.264Z",
+      "ts": "2026-10-16T14:14:04.705Z",
       "actor": "Matt",
       "role": "owner",
       "action": "parts_update",
@@ -2614,7 +2703,7 @@
     },
     {
       "id": "rej-mock-2",
-      "ts": "2026-10-16T11:39:30.264Z",
+      "ts": "2026-10-16T14:14:04.705Z",
       "actor": "Zac",
       "role": "service",
       "action": "ticket_update",

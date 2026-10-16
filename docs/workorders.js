@@ -242,6 +242,37 @@ export function unitHistory(serial, workOrders, tickets) {
     .map((t) => ({ kind: 'ticket', id: t.ticket, closed: t.closed || null, ticket: t }));
   return [...wos, ...tks].sort((a, b) => byDateAsc(b.closed, a.closed) || String(b.id || '').localeCompare(String(a.id || '')));
 }
+/**
+ * D108 — where a fleet machine IS while a work order is open on it, so a tech
+ * driving to an on-rent PM knows the address and who to call. Only for a unit
+ * that is out (ON-RENT · ON-DEMO · LOANER-OUT); a machine in the shop has no
+ * site. The address is the unit's `job_site` (the agreement's as a fallback);
+ * the contact is the agreement's `contact` block — the engine has already
+ * picked site contact → bill-to contact → ordered-by. Agreement ids are opaque
+ * (D59): matched as text, never as numbers. `geo` rides along only when it is
+ * on the map (navigation is by coordinate, never the address string — map.js).
+ */
+export const OUT_STATES = ['ON-RENT', 'ON-DEMO', 'LOANER-OUT'];
+export function woSite(unit, agreements) {
+  if (!unit || !OUT_STATES.includes(unit.unit_state)) return null;
+  const ag = unit.agreement != null
+    ? (Array.isArray(agreements) ? agreements : []).find((a) => a && a.agreement != null && String(a.agreement) === String(unit.agreement)) || null
+    : null;
+  const address = unit.job_site || (ag && ag.job_site) || null;
+  const customer = unit.customer || (ag && ag.customer) || null;
+  if (!address && !customer) return null;
+  const c = ag && ag.contact && typeof ag.contact === 'object' ? ag.contact : null;
+  const contact = c && (c.name || c.phone || c.email)
+    ? { name: c.name || null, phone: c.phone || null, email: c.email || null, source: c.source || null } : null;
+  const g = unit.geo && typeof unit.geo === 'object' && unit.geo.in_wi !== false ? unit.geo : null;
+  return { state: unit.unit_state, customer, address, agreement: ag ? ag.agreement : (unit.agreement ?? null),
+    hasAgreement: !!ag, contact, geo: g };
+}
+/** `tel:` target — digits and a leading + only; null when nothing dialable is left. */
+export function telTarget(phone) {
+  const d = String(phone == null ? '' : phone).replace(/[^\d+]/g, '');
+  return d.replace(/\D/g, '').length >= 7 ? d : null;
+}
 /** The caption under the history: each list's window, from the summaries (legacy fallbacks 30 / 7, per D62). */
 export function historyCaption(woSummary, serviceSummary) {
   const w = num(woSummary && woSummary.closed_window_days) ?? 30;

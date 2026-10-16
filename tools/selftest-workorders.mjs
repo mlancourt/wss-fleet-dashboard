@@ -11,7 +11,7 @@ import {
   isStockLine, sourceOf, pendingLineLabel, PART_VERB_LABEL,
   PURPOSES, PURPOSE_LABEL, closeBlocker, readyOffered, stripCounts, stripTone, openWorkOrders, pendingBySerial, byTs,
   DELIVERED_DAYS, trackerGroups, trackerCounts, inspectTone, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
-  customerOrders, orderCounts, pipelineOrderChip, orderOf, ORDER_VENDORS, VENDORS,
+  customerOrders, orderCounts, pipelineOrderChip, orderOf, ORDER_VENDORS, VENDORS, woSite, telTarget, OUT_STATES,
 } from '../docs/workorders.js';
 
 let passed = 0;
@@ -481,6 +481,38 @@ check('D92: SCHEDULE describes itself; the chip carries the date', () => {
   assert.equal(describeWoEvent({ action: 'work_order', payload: { action: 'SCHEDULE', clear: true } }), 'clear the scheduled date');
   assert.ok(woChipText(wo('W1006', { purpose: 'PM', inspection: { status: 'PENDING' }, scheduled: '2026-10-21' })).endsWith('📅 2026-10-21'));
   assert.ok(!woChipText(wo('W1006', { purpose: 'PM', inspection: { status: 'PENDING' } })).includes('📅'));
+});
+
+check('D108: woSite — only an OUT unit has a site; address from the unit, contact from its agreement (matched as text)', () => {
+  const ag = [{ agreement: 4008, customer: 'Acme Foods', job_site: '1 Main St Cudahy WI 53110',
+    contact: { name: 'Pat Lee', phone: '414-555-0100', email: 'pat@example.com', source: 'billing' } },
+  { agreement: 'R092526A', customer: 'Birch Co', job_site: 'x', contact: null }];
+  const u = (o) => ({ serial: '154976', unit_state: 'ON-RENT', customer: 'Acme Foods', job_site: '1 Main St Cudahy WI 53110',
+    agreement: 4008, geo: { lat: 42.95, lng: -87.86, precision: 'street', in_wi: true }, ...o });
+  assert.deepEqual(OUT_STATES, ['ON-RENT', 'ON-DEMO', 'LOANER-OUT']);
+  const s = woSite(u(), ag);
+  assert.equal(s.address, '1 Main St Cudahy WI 53110');
+  assert.equal(s.customer, 'Acme Foods');
+  assert.equal(s.agreement, 4008); assert.equal(s.hasAgreement, true);
+  assert.deepEqual(s.contact, { name: 'Pat Lee', phone: '414-555-0100', email: 'pat@example.com', source: 'billing' });
+  assert.equal(s.geo.lat, 42.95);
+  assert.equal(woSite(u({ agreement: '4008' }), ag).contact.name, 'Pat Lee', 'an opaque id matches as text');
+  for (const st of ['AVAILABLE', 'RESERVED', 'IN-SHOP']) assert.equal(woSite(u({ unit_state: st }), ag), null, `${st}: no site`);
+  assert.equal(woSite(null, ag), null);
+  assert.equal(woSite(u({ agreement: 'R092526A' }), ag).contact, null, 'no contact block → null, never an empty one');
+  const loan = woSite(u({ unit_state: 'LOANER-OUT', agreement: 9999 }), ag);
+  assert.equal(loan.hasAgreement, false, 'a loaner has no agreement row'); assert.equal(loan.contact, null);
+  assert.equal(woSite(u({ job_site: null }), ag).address, '1 Main St Cudahy WI 53110', "the agreement's job site backs up the unit's");
+  assert.equal(woSite(u({ geo: { lat: 1, lng: 2, in_wi: false } }), ag).geo, null, 'off the map → no navigate');
+  assert.equal(woSite(u({ customer: null, job_site: null, agreement: null }), ag), null, 'nothing to say → null');
+  assert.equal(woSite(u({ agreement: 4008 }), [{ agreement: 4008, contact: { name: null, phone: null, email: null } }]).contact, null);
+});
+
+check('D108: telTarget keeps digits and a leading +; too short → null', () => {
+  assert.equal(telTarget('(414) 918-3203'), '4149183203');
+  assert.equal(telTarget('+1 262.555.0110'), '+12625550110');
+  assert.equal(telTarget('ext 12'), null);
+  assert.equal(telTarget(null), null);
 });
 
 console.log(`${passed} checks passed.`);

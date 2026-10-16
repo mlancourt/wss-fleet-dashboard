@@ -2797,7 +2797,7 @@ await check('D75: two strips under the utilization card — Work orders, then Pa
   const s = snap.work_order_summary;
   const st = partsStripOf(out);
   assert.ok(st.includes('🔧 Work orders ▸'), 'reads 🔧 Work orders ▸');
-  assert.ok(st.includes(`>${s.open} open · ${s.inspections_pending} inspection pending<`), 'pill = open · inspections pending — no parts segment');
+  assert.ok(st.includes(`>${s.open} open · ${s.inspections_pending} inspection${s.inspections_pending === 1 ? '' : 's'} pending<`), 'pill = open · inspections pending — no parts segment');
   assert.ok(!st.includes('parts open<'), 'the parts count moved to the tracker');
   assert.ok(/parts-n amber/.test(st) && !/parts-n red/.test(st), 'Work orders tones by the inspection rule only (W1001 PENDING 3 days → amber, never red)');
   assert.ok(!st.includes('id="parts-body"'), 'collapsed by default');
@@ -4729,6 +4729,39 @@ await check('D98 Ship from shop: owner/sales from APPROVED on, never closed, nev
   assert.deepEqual(posted[2].payload, { order: 'P1003', note: 'called' });
   assert.ok(!posted.some((e) => MONEY_RE.test(JSON.stringify(e))), 'no $ in anything posted');
   await leaveApi();
+});
+
+await check('D108: a work order on a machine out on rent carries its site — city on the card, an On site card with the contact on the WO page, Contact on the agreement', async () => {
+  const snap = await asFull('service');
+  const w = snap.work_orders.find((x) => x.id === 'W1006');
+  assert.ok(w, 'the mock carries W1006 on an on-rent unit');
+  const u = snap.units.find((x) => x.serial === w.serial);
+  assert.equal(u.unit_state, 'ON-RENT');
+  const ag = snap.agreements.find((a) => a.agreement === u.agreement);
+  assert.ok(ag && ag.contact && ag.contact.phone, 'its agreement carries a phone');
+  const board = await serviceUnder('WSS');
+  const card = board.slice(board.indexOf('href="#/wo/W1006"'), board.indexOf('</a>', board.indexOf('href="#/wo/W1006"')));
+  assert.ok(/<span class="kan-city" title="[^"]+">[^<]+<\/span>/.test(card), 'the card shows the city, the full address as its title');
+  const page = await renderRoute('#/wo/W1006');
+  assert.ok(page.includes('<h2>On site <span class="count">on rent</span></h2>'), 'an On site card');
+  const site = page.slice(page.indexOf('class="card wo-site"'));
+  assert.ok(site.includes(`<dd class="">${u.job_site}</dd>`) || site.includes(u.job_site), 'the job-site address');
+  assert.ok(site.includes(`href="#/agreement/${encodeURIComponent(String(ag.agreement))}"`), 'the customer links to the agreement');
+  assert.ok(site.includes(`>${ag.contact.name}<`), 'the contact by name');
+  assert.ok(site.includes(`href="tel:${ag.contact.phone.replace(/[^\d+]/g, '')}"`), 'tap to call');
+  assert.ok(site.includes(`href="mailto:${encodeURIComponent(ag.contact.email)}"`), 'tap to mail');
+  if (u.geo && u.geo.in_wi !== false) assert.ok(site.includes('📍 Navigate'), 'Navigate by the coordinate');
+  assert.ok(page.indexOf('On site') < page.indexOf('Inspection'), 'above the sheet — the first thing a tech driving there needs');
+  const inShop = snap.work_orders.find((x) => x.status === 'OPEN' && ['IN-SHOP', 'AVAILABLE', 'RESERVED'].includes((snap.units.find((y) => y.serial === x.serial) || {}).unit_state));
+  assert.ok(inShop, 'the mock has a work order on a machine at home');
+  assert.ok(!(await renderRoute(`#/wo/${inShop.id}`)).includes('On site'), 'a machine in the shop has no site');
+  const agPage = await renderRoute(`#/agreement/${encodeURIComponent(String(ag.agreement))}`);
+  assert.ok(agPage.includes(`>${ag.contact.name}<`) && agPage.includes('Reach them'), 'the agreement page shows the contact too');
+  const bare = snap.agreements.find((a) => a.contact === null && a.status !== 'PENDING' && a.agreement != null);
+  if (bare) assert.ok(!(await renderRoute(`#/agreement/${encodeURIComponent(String(bare.agreement))}`)).includes('Reach them'), 'no contact → no rows');
+  w.status = 'CLOSED';
+  assert.ok(!(await renderRoute('#/wo/W1006')).includes('On site'), 'a closed work order has nowhere to drive');
+  await asFull('owner');
 });
 
 console.log(`\n${passed} checks passed.`);

@@ -77,7 +77,7 @@ import {
   closeShown, closeEnabled, closeBlocker, readyOffered, cancelShown, pendingOpens, pendingOpenFor, pendingForWo,
   pendingBySerial as woPendingBySerial, byTs, describeWoEvent, stripCounts as woStripCounts,
   openWorkOrders, isStockLine, sourceOf, pendingLineLabel,
-  unitHistory, historyCaption, HISTORY_FIRST, laborWho, laborKindOf, LABOR_KIND_LABEL, travelHours,
+  unitHistory, historyCaption, HISTORY_FIRST, woSite, telTarget, laborWho, laborKindOf, LABOR_KIND_LABEL, travelHours,
   laborPayloads, laborProblem, trackerGroups, trackerCounts, inspectTone,
   ORDER_VENDORS, orderOf, customerOrders, orderCounts, pipelineOrderChip,
 } from './workorders.js';
@@ -126,7 +126,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-16-d107';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-16-d108';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -1836,6 +1836,8 @@ function viewAgreement(seg) {
       ${raw(kvRow('Customer', a.customer))}
       ${raw(kvRow('Unit', a.serial != null ? raw(html`<a href="#/unit/${raw(enc(a.serial))}">#${a.serial}</a>${u ? ` · ${unitName(u)}` : ''}`) : ''))}
       ${raw(kvRow('Job site', a.job_site))}
+      ${a.contact && typeof a.contact === 'object' ? raw(kvRow(a.contact.source === 'site' ? 'Site contact' : 'Contact', a.contact.name)) : ''}
+      ${a.contact && typeof a.contact === 'object' && reachLinks(a.contact) ? raw(kvRow('Reach them', raw(reachLinks(a.contact)))) : ''}
       ${raw(kvRow('Customer PO', a.customer_po))}
       ${raw(kvRow('Lead', a.lead ? raw(html`<a href="#/lead/${raw(enc(a.lead))}">${a.lead}</a>`) : ''))}
       ${raw(kvRow('Cycle', rateText(a)))}
@@ -2453,6 +2455,8 @@ function woCard(w) {
   const onRent = u && u.unit_state === 'ON-RENT' && u.customer;
   const ins = w.inspection && w.inspection.status;
   const late = typeof w.scheduled_in_days === 'number' && w.scheduled_in_days < 0;
+  const site = woSite(u, agreements());                                   // D108: where it is when it's out
+  const city = site && siteCity(site.address);
   return html`
     <a class="kan-card wo-card" href="#/wo/${raw(enc(w.id))}">
       <div class="kan-row">
@@ -2466,9 +2470,47 @@ function woCard(w) {
         ${w.scheduled ? raw(html`<span class="kan-sched${late ? ' late' : ''}" title="scheduled">📅 ${fmtMD(w.scheduled)}${w.scheduled_tech ? ` · ${w.scheduled_tech}` : ''}</span>`) : ''}
         ${(Number(w.parts_open) || 0) > 0 ? raw(html`<span class="kan-parts">🔩 ${w.parts_open}</span>`) : ''}
         ${ins === 'PENDING' ? raw('<span class="kan-insp" title="inspection pending">📋</span>') : ''}
+        ${city ? raw(html`<span class="kan-city" title="${site.address}">${city}</span>`) : ''}
         ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
       </div>
     </a>`;
+}
+
+/** D108 — a contact's phone (tap to call) · email (tap to mail); '' when neither. */
+function reachLinks(c) {
+  if (!c) return '';
+  const tel = telTarget(c.phone);
+  return [
+    c.phone ? (tel ? html`<a href="tel:${raw(encodeURIComponent(tel))}">${c.phone}</a>` : html`${c.phone}`) : '',
+    c.email ? html`<a href="mailto:${raw(encodeURIComponent(c.email))}">${c.email}</a>` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/**
+ * D108 — the "On site" card on a work order whose machine is out: customer,
+ * the job-site address (+ Navigate by the engine's coordinate), and the
+ * agreement's contact with tap-to-call / tap-to-mail. Null → nothing drawn:
+ * a machine in the shop has no site.
+ */
+function woSiteCard(s) {
+  if (!s) return '';
+  const nav = s.geo ? navUrl(s.geo.lat, s.geo.lng) : null;
+  const c = s.contact;
+  const reach = reachLinks(c);
+  const who = s.hasAgreement
+    ? raw(html`<a href="#/agreement/${raw(enc(String(s.agreement)))}">${s.customer || '—'}</a> · ${String(s.agreement)}`)
+    : (s.customer || '');
+  const stateWord = { 'ON-RENT': 'on rent', 'ON-DEMO': 'on demo', 'LOANER-OUT': 'on loan' }[s.state] || '';
+  return html`
+    <h2>On site${stateWord ? raw(html` <span class="count">${stateWord}</span>`) : ''}</h2>
+    <div class="card wo-site"><dl class="kv">
+      ${raw(kvRow('Customer', who))}
+      ${raw(kvRow('Site', s.address))}
+      ${raw(kvRow(c && c.source === 'site' ? 'Site contact' : 'Contact', c && c.name))}
+      ${raw(kvRow('Reach them', reach ? raw(reach) : ''))}
+    </dl>
+    ${nav ? raw(html`<div class="actions row"><a class="btn ghost" href="${nav}" target="_blank" rel="noopener noreferrer">📍 Navigate</a></div>`) : ''}
+    </div>`;
 }
 
 /** The one write with no id of its own (§8). Badged, never counted as truth. */
@@ -2896,6 +2938,7 @@ function viewNumberedWorkOrder(c, crumb) {
       ${raw(otherPend.map(pendRow).join(''))}
       <div style="margin-top:6px">Applies at the next run — the page still shows the current truth.</div></div>`) : ''}
     ${wo.note ? raw(html`<div class="note"><strong>Note</strong>${wo.note}</div>`) : ''}
+    ${isOpen ? raw(woSiteCard(woSite(u, agreements()))) : ''}
 
     ${raw(sheetCardHtml(c, sheetPend))}
 
@@ -2976,6 +3019,7 @@ function viewNewWorkOrder(c, crumb) {
       ${raw(others.map(pendRow).join(''))}
     </div>
     ${p.note ? raw(html`<div class="note"><strong>Note</strong>${p.note}</div>`) : ''}
+    ${raw(woSiteCard(woSite(u, agreements())))}
 
     ${raw(sheetCardHtml(c, c.pend.filter((e) => isInspect(e))))}
 

@@ -1,7 +1,7 @@
 {
   "meta": {
     "schema_version": 7,
-    "generated_at": "2026-10-16T11:39:30.265Z",
+    "generated_at": "2026-10-16T14:14:04.706Z",
     "run_id": "mock-empty-2026-10-16",
     "fleet_totals": {
       "units": 39
@@ -1750,6 +1750,12 @@
       "customer_po": "PO-70122",
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0110",
+        "email": "dana@example.com",
+        "source": "site"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1777,6 +1783,12 @@
       "customer_po": "PO-92102",
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0111",
+        "email": "marcus@example.com",
+        "source": "billing"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1806,6 +1818,12 @@
         "split cycle — partial period billed"
       ],
       "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1835,6 +1853,7 @@
         "no billing seed — next due unknown"
       ],
       "docs": [],
+      "contact": null,
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1862,6 +1881,12 @@
       "customer_po": "PO-35397",
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0114",
+        "email": "dana@example.com",
+        "source": "site"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1889,6 +1914,12 @@
       "customer_po": null,
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0115",
+        "email": "marcus@example.com",
+        "source": "billing"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1916,6 +1947,12 @@
       "customer_po": null,
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1945,6 +1982,7 @@
         "past max cycles — confirm extension or pick up"
       ],
       "docs": [],
+      "contact": null,
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -1980,6 +2018,12 @@
           "added": "2026-10-13"
         }
       ],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0118",
+        "email": "dana@example.com",
+        "source": "site"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2007,6 +2051,12 @@
       "customer_po": "PO-14529",
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0119",
+        "email": "marcus@example.com",
+        "source": "billing"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2045,7 +2095,8 @@
       "on_rent_since": null,
       "days_on_rent": null,
       "off_rent": null,
-      "delivery": null
+      "delivery": null,
+      "contact": null
     },
     {
       "agreement": 4139,
@@ -2063,6 +2114,7 @@
       "customer_po": null,
       "alerts": [],
       "docs": [],
+      "contact": null,
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2090,6 +2142,12 @@
       "customer_po": "PO-47440",
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0122",
+        "email": "dana@example.com",
+        "source": "site"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2117,6 +2175,12 @@
       "customer_po": "PO-10699",
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0123",
+        "email": "marcus@example.com",
+        "source": "billing"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2144,6 +2208,12 @@
       "customer_po": null,
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2171,6 +2241,7 @@
       "customer_po": "PO-80927",
       "alerts": [],
       "docs": [],
+      "contact": null,
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2198,6 +2269,12 @@
       "customer_po": null,
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Dana Whitfield",
+        "phone": "262-555-0126",
+        "email": "dana@example.com",
+        "source": "site"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2225,6 +2302,12 @@
       "customer_po": null,
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Marcus Bell",
+        "phone": "262-555-0127",
+        "email": "marcus@example.com",
+        "source": "billing"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2252,6 +2335,12 @@
       "customer_po": null,
       "alerts": [],
       "docs": [],
+      "contact": {
+        "name": "Priya Nair",
+        "phone": null,
+        "email": null,
+        "source": "ordered_by"
+      },
       "status": "ACTIVE",
       "lead": null,
       "out_date": null,
@@ -2833,7 +2922,7 @@
   "rejections": [
     {
       "id": "rej-mock-1",
-      "ts": "2026-10-16T11:39:30.265Z",
+      "ts": "2026-10-16T14:14:04.706Z",
       "actor": "Matt",
       "role": "owner",
       "action": "parts_update",
@@ -2842,7 +2931,7 @@
     },
     {
       "id": "rej-mock-2",
-      "ts": "2026-10-16T11:39:30.265Z",
+      "ts": "2026-10-16T14:14:04.706Z",
       "actor": "Zac",
       "role": "service",
       "action": "ticket_update",

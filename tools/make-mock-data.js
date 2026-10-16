@@ -399,6 +399,19 @@ function build({ withServiceQueue }) {
   agreements[2].last_invoice = `${invoiceNo(agreements[2].agreement, agreements[2].cycles_billed)}.1`;
   agreements[2].alerts = ['split cycle — partial period billed'];
 
+  // D108: who to call at the site. The engine picks site contact → bill-to
+  // contact → ordered-by name, and says which (`source`). Most legacy Integra
+  // agreements only ever carried an ordered-by name; some carry nothing.
+  const CONTACTS = [['Dana Whitfield', 'site'], ['Marcus Bell', 'billing'], ['Priya Nair', 'ordered_by'], null];
+  agreements.forEach((a, i) => {
+    const pick = CONTACTS[i % CONTACTS.length];
+    if (!pick) { a.contact = null; return; }
+    const [name, source] = pick;
+    a.contact = source === 'ordered_by'
+      ? { name, phone: null, email: null, source }
+      : { name, phone: `262-555-01${String(10 + i).slice(-2)}`, email: `${name.split(' ')[0].toLowerCase()}@example.com`, source };
+  });
+
   // A bare QuickBooks invoice number instead of the R<agmt>-<cycle> form.
   agreements[5].last_invoice = '519665';
 
@@ -611,6 +624,7 @@ function build({ withServiceQueue }) {
     }
   }
   for (const u of units) if (!('pending_agreement' in u)) u.pending_agreement = null;
+  for (const a of agreements) if (!('contact' in a)) a.contact = null;   // D108: always present, may be null
 
   // Schema 3: the list is the ONLY source. No `reservation` singular is emitted.
   for (const u of units) u.reservations.sort((a, b) => a.start.localeCompare(b.start));
@@ -1130,7 +1144,7 @@ function build({ withServiceQueue }) {
     buildLeads({ withLeads: withServiceQueue, demoHold, demoUnit: availReady[1], service_queue });
 
   // ------------------------------------------------- work orders (D65)
-  const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units });
+  const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units, agreements });
 
   // ---------------------------------------------------- parts sales (D88)
   const { parts_orders, parts_summary } = buildParts({ withParts: withServiceQueue, service_queue, leads });
@@ -1447,7 +1461,7 @@ function buildActivity({ withActivity, units, service_queue, leads, work_orders,
  * NO money key anywhere: no cost, no cost_source_inv, no rate. The vault holds
  * those (D66) and the builder never emits them — nor does this file.
  */
-function buildWorkOrders({ withWorkOrders, units }) {
+function buildWorkOrders({ withWorkOrders, units, agreements = [] }) {
   for (const u of units) {
     u.work_order = null; u.wo_parts_open = 0; u.wo_inspection = null; u.last_inspection = null;
     u.hours = null; u.hours_as_of = null;
@@ -1468,6 +1482,10 @@ function buildWorkOrders({ withWorkOrders, units }) {
   const pmUnit = take((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY' && !u.service_ticket);
   const ticketUnit = take((u) => u.service_ticket && u.unit_state === 'IN-SHOP');
   const closedUnit = take((u) => u.unit_state === 'ON-RENT');
+  // D108: an un-ticketed PM on a machine out on rent, whose agreement carries a
+  // phone — the case that sent a tech to an on-rent PM with no address on the card.
+  const siteUnit = take((u) => u.unit_state === 'ON-RENT' && !u.service_ticket && u.agreement != null
+    && agreements.some((a) => a.agreement === u.agreement && a.contact && a.contact.phone));
 
   const line = (n, o) => ({
     line: n, manufacturer: 'FACTORY-CAT', part_number: '', description: null, qty: 1,
@@ -1656,6 +1674,12 @@ function buildWorkOrders({ withWorkOrders, units }) {
         [ts(-6, '16:30'), 'Josh', 'inspection DONE by Josh — 412.5 h written to the unit; 7/11 rows answered; 2 flag(s)'],
         [ts(-5, '16:10'), 'Matt', 'CLOSED by Matt'],
       ]),
+    }));
+  }
+  if (siteUnit) {
+    out.push(wo('W1006', siteUnit, {
+      age: 1, purpose: 'PM', opened_by: 'Matt', note: 'customer asked for the quarterly PM on site',
+      log: logOf([[ts(-1, '09:17'), 'Matt', 'opened by Matt (PM) — 0 part line(s), inspection pending']]),
     }));
   }
   if (closedUnit) {
