@@ -35,6 +35,13 @@
  * into a lead log, the right fix is upstream in the engine — not a strip here,
  * and never a regex redaction over free text.
  *
+ * D111 (2026-10-19, Matt) NARROWED the free-text half: "notes about rates or
+ * prices is completely fine when it is entered by a user. I just don't want the
+ * AI putting commission figures anywhere." A typed "$650/week" now ships as
+ * typed. The free-text checks below (lead log · parts log · activity) assert
+ * COMMISSION_RE — a $ or % within 30 chars of "commission"/"comm", same
+ * sentence — the exact rule of the engine's svc.has_commission_figure().
+ *
  * D65 extends the gate to `work_orders[]` for EVERY role: no money key, and no
  * figure anywhere in its text (part descriptions, labor notes, the log).
  * D67 checks the inspection sheet and the shipped row library by KEY only (no
@@ -54,8 +61,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** The figure shape the contract forbids in a lead log. */
+/** The figure shape the D65/D79 cost checks forbid (work orders, ticket orders). */
 const MONEY_RE = /\$\s?\d/;
+
+/** D111: the only free-text money rule — a commission FIGURE. Mirrors wss_service.has_commission_figure. */
+const FIG = String.raw`\$\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%`;
+const COMM = String.raw`\bcomm(?:ission|issions|s)?\b`;
+const COMMISSION_RE = new RegExp(`(?:${FIG})[^.;!?\n]{0,30}?${COMM}|${COMM}[^.;!?\n]{0,30}?(?:${FIG})`, 'i');
 
 /** D67: every money-named KEY (any case, any depth) — the paths, for the failure line. */
 const MONEY_KEY_RE = /^(cost|cost_source_inv|rate|price|amount)$/i;
@@ -145,17 +157,17 @@ try {
   ok(!('commission_rates' in (svc.snapshot.leads_summary || {})), 'leads_summary.commission_rates is gone');
   ok(!('money_fields' in (svc.snapshot.leads_summary || {})), 'leads_summary.money_fields is gone');
 
-  /* ------ the v2.5 assertion: no figure in the lead-log TEXT ------------- */
+  /* ------ v2.5 → D111: no COMMISSION figure in the lead-log TEXT -------- */
 
   ok(leads.some((l) => Array.isArray(l.log)), 'the lead log survives the gate (v2.5 reversal)');
 
   const leadRows = leads.flatMap((l) => (l.log || []).map((r) => ({ lead: l.lead, ...r })));
-  const withFigure = leadRows.filter((r) => MONEY_RE.test(String(r.text || '')));
+  const withFigure = leadRows.filter((r) => COMMISSION_RE.test(String(r.text || '')));
   ok(withFigure.length === 0,
-    `no lead-log row matches /\\$\\s?\\d/ (${leadRows.length} rows checked)`);
+    `no lead-log row carries a commission figure (D111) (${leadRows.length} rows checked)`);
   for (const r of withFigure) console.log(`         ${r.lead}: ${r.text}`);
   if (withFigure.length) {
-    console.log('         ^ the engine is writing figures into a lead log again.');
+    console.log('         ^ a commission figure reached a lead log — commission_sweep should have redacted it.');
     console.log('           Fix it upstream — do NOT re-add a strip or a redaction here.');
   }
 
@@ -237,21 +249,20 @@ try {
     const po = Array.isArray(doc.snapshot.parts_orders) ? doc.snapshot.parts_orders : [];
     const n = Array.isArray(doc.snapshot.parts_orders) ? po.length : 'no key';
     ok(!/"(cost_total|cost_source_inv)"\s*:/.test(JSON.stringify(po)), `${role}: no cost_total / cost_source_inv on any parts order (${n})`);
-    const bad = po.filter((r) => MONEY_RE.test(JSON.stringify(r.log || [])));
-    ok(bad.length === 0, `${role}: no parts_orders[].log text matches /\\$\\s?\\d/ (${n})`);
+    const bad = po.filter((r) => (r.log || []).some((x) => COMMISSION_RE.test(String((x && x.text) || ''))));
+    ok(bad.length === 0, `${role}: no parts_orders[].log row carries a commission figure (D111) (${n})`);
     for (const r of bad) console.log(`         ${r.order}`);
   }
 
-  /* ------ D78: the activity tape is money-free BY CONTRACT, every role ----
-   * The engine's builder refuses to publish a figure in an activity line; this
-   * holds it to that on the real file. Never role-gated, never stripped — so
-   * if this ever fails the fix is upstream, not a redaction here. A pre-D78
-   * snapshot has no key, which passes vacuously and says so. */
+  /* ------ D78 → D111: the activity tape carries no COMMISSION figure -----
+   * Typed prices ride as typed since D111; a commission figure never does
+   * (apply_events strips it, commission_sweep backs it up). Never role-gated,
+   * never stripped here. A pre-D78 snapshot has no key — passes vacuously. */
   for (const [role, doc] of [['owner', owner], ['sales', sales], ['service', svc]]) {
     const act = Array.isArray(doc.snapshot.activity) ? doc.snapshot.activity : [];
     const n = Array.isArray(doc.snapshot.activity) ? act.length : 'no key';
-    const bad = act.filter((r) => MONEY_RE.test(String((r && r.text) || '')));
-    ok(bad.length === 0, `${role}: no activity[] text matches /\\$\\s?\\d/ (${n})`);
+    const bad = act.filter((r) => COMMISSION_RE.test(String((r && r.text) || '')));
+    ok(bad.length === 0, `${role}: no activity[] text carries a commission figure (D111) (${n})`);
     for (const r of bad) console.log(`         ${r.record}: ${r.text}`);
   }
 } finally {

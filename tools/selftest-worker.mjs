@@ -517,7 +517,7 @@ await check('D88: /api/data — service loses parts value (+ money_fields) and t
   }
 });
 
-await check('D88: publish refuses cost_total / cost_source_inv anywhere on a parts order, and a figure in its log — not in `parts`', async () => {
+await check('D88: publish refuses cost_total / cost_source_inv anywhere on a parts order; D111: a typed price in its log or `parts` publishes', async () => {
   const pub = async (doc) => {
     const res = await worker.fetch(new Request('https://w.example/api/admin/publish', {
       method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' }, body: JSON.stringify(doc),
@@ -534,9 +534,8 @@ await check('D88: publish refuses cost_total / cost_source_inv anywhere on a par
   }
   const deep = await pub(snap({ invoice_doc: { status: 'CREATED', extra: { cost_total: 9 } } }));
   assert.equal(deep.status, 400, 'at any depth');
-  const fig = await pub(snap({ log: [{ ts: 'x', who: 'Matt', text: 'quoted $312' }] }));
-  assert.equal(fig.status, 400);
-  assert.ok(fig.body.error.includes('dollar figure'), fig.body.error);
+  const fig = await pub(snap({ log: [{ ts: 'x', who: 'Matt', text: '1 case liquid cleaner - $129' }] }));
+  assert.equal(fig.status, 200, 'D111: a price Matt typed into a parts note is honest data — it publishes');
 });
 
 console.log(`${passed} checks passed.`);

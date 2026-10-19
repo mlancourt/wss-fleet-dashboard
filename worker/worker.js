@@ -646,12 +646,12 @@ function stripLeadMoney(doc) {
       for (const f of fields) deletePath(lead, f);
       // NOT `log`. v2.4 stripped it here because the engine was writing figures
       // into that free text ("… value → $…"), which would have handed back the
-      // number the line above deletes. v2.5 fixed it upstream instead: a lead
-      // log row now reads "value set" / "value updated", and the builder
-      // refuses to publish a lead log containing a dollar figure at all. So a
-      // tech gets their own lead notes back, and the guarantee lives where it
-      // belongs — in the data, not in a strip over free text we would have to
-      // keep guessing at. tools/money-gate.mjs holds us to it.
+      // number the line above deletes. v2.5 fixed it upstream: the engine's own
+      // rows read "value set" / "value updated". D111 (2026-10-19, Matt): a
+      // price a PERSON types into a note is fine and ships as typed, to every
+      // role; what never ships in free text is a COMMISSION figure — the
+      // engine's commission_sweep redacts it before publish. tools/money-gate.mjs
+      // holds us to that.
     }
   }
   if (summary) {
@@ -667,9 +667,9 @@ function stripLeadMoney(doc) {
  * D88 — the same gate over parts sales (Parts-Site-Spec §6.2): every key named
  * in `parts_summary.money_fields` (today `value`), UNIONED with ours so a missing
  * list cannot open the gate, off every `parts_orders[]` row — then the list
- * itself, like the leads one. `log` stays: it is money-free by contract and the
- * publish refusal below holds the engine to that. `parts` (free text Matt types)
- * is not a money field and is not touched.
+ * itself, like the leads one. `log` stays (D111: typed prices are honest data;
+ * the engine keeps commission figures out of every string). `parts` (free text
+ * Matt types) is not a money field and is not touched.
  */
 const PARTS_MONEY_DEFAULT = ['value'];
 function stripPartsMoney(doc) {
@@ -791,9 +791,11 @@ function refuseTicketMoney(queue) {
 /**
  * D88 (Parts-Site-Spec §6.3): a parts order's cost is vault-only, exactly like
  * D79's ticket order — `cost_total` / `cost_source_inv` at ANY depth of a
- * `parts_orders[]` row refuses the publish, by name. The figure scan covers the
- * LOG only (money-free by contract, like lead logs): `parts` is free text Matt
- * may type a price into, and refusing that would freeze the board on honest data.
+ * `parts_orders[]` row refuses the publish, by name. No free-text figure scan:
+ * the D88 log scan was RETIRED by D111 (2026-10-19, Matt — "notes about rates or
+ * prices is completely fine when it is entered by a user"); refusing a typed
+ * price froze the whole board on honest data. Commission figures are the
+ * engine's job (commission_sweep), never a refusal here.
  */
 function refusePartsMoney(rows) {
   if (!Array.isArray(rows)) return;
@@ -810,9 +812,6 @@ function refusePartsMoney(rows) {
   rows.forEach((r, i) => {
     const id = r && typeof r.order === 'string' ? r.order : String(i);
     walk(r, `parts_orders[${id}]`, 0);
-    if (r && r.log != null && FIGURE_RE.test(JSON.stringify(r.log))) {
-      throw httpError(400, `refused: parts_orders[${id}].log carries a dollar figure (D88)`);
-    }
   });
 }
 

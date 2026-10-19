@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-10-16T11:14:04.720Z",
+    "ts": "2026-10-19T15:55:54.430Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,13 +9,13 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "start": "2026-10-19",
-      "end": "2026-10-22"
+      "start": "2026-10-22",
+      "end": "2026-10-25"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-10-16T13:34:04.720Z",
+    "ts": "2026-10-19T18:15:54.430Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-10-16T14:02:04.720Z",
+    "ts": "2026-10-19T18:43:54.430Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-10-16T14:08:04.720Z",
+    "ts": "2026-10-19T18:49:54.430Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -55,13 +55,13 @@
     "payload": {
       "dispatch_id": "m-si-2201",
       "rig": "TRAILER-6000",
-      "date": "2026-10-17",
+      "date": "2026-10-20",
       "driver": "Kevin"
     }
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-10-16T14:11:04.720Z",
+    "ts": "2026-10-19T18:52:54.430Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-10-16T14:12:04.720Z",
+    "ts": "2026-10-19T18:53:54.430Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-10-16T13:49:04.720Z",
+    "ts": "2026-10-19T18:30:54.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-10-16T14:05:04.720Z",
+    "ts": "2026-10-19T18:46:54.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -121,14 +121,14 @@
     "payload": {
       "lead": "L1005",
       "stage": "DEMO-SCHEDULED",
-      "demo_date": "2026-10-18",
+      "demo_date": "2026-10-21",
       "demo_serial": "900107",
       "note": "They asked to see it run"
     }
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-10-16T14:07:04.720Z",
+    "ts": "2026-10-19T18:48:54.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -136,13 +136,13 @@
     "payload": {
       "agreement": "R092526A",
       "action": "OFF-RENT",
-      "date": "2026-10-16",
+      "date": "2026-10-19",
       "note": "Plant called — done with it"
     }
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-10-16T14:09:04.721Z",
+    "ts": "2026-10-19T18:50:54.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-10-16T14:11:04.721Z",
+    "ts": "2026-10-19T18:52:54.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -171,7 +171,7 @@
     "payload": {
       "action": "LABOR",
       "work_order": "W1001",
-      "date": "2026-10-16",
+      "date": "2026-10-19",
       "who": "Josh",
       "hours": 0.75,
       "note": "valve seat cleaned"
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-10-16T14:10:04.721Z",
+    "ts": "2026-10-19T18:51:54.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-10-16T14:12:04.721Z",
+    "ts": "2026-10-19T18:53:54.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -221,7 +221,7 @@
   },
   {
     "id": "evt-mock-15",
-    "ts": "2026-10-16T14:13:04.721Z",
+    "ts": "2026-10-19T18:54:54.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "doc_detach",
@@ -233,7 +233,7 @@
   },
   {
     "id": "evt-mock-16",
-    "ts": "2026-10-16T14:11:04.721Z",
+    "ts": "2026-10-19T18:52:54.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "quote_send",
@@ -267,20 +267,20 @@
     "result": {
       "number": "Q2004",
       "token": "44444444444444444444444444444444",
-      "sent_at": "2026-10-16T14:11:04.721Z",
+      "sent_at": "2026-10-19T18:52:54.431Z",
       "by": "Kevin",
       "to": "m.idle@harborline.example",
       "subtotal": 5455,
       "tax": 0,
       "total": 5455,
       "tax_rate": null,
-      "expires": "2026-11-15",
+      "expires": "2026-11-18",
       "pdf": "/q/44444444444444444444444444444444.pdf"
     }
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-10-16T14:10:04.721Z",
+    "ts": "2026-10-19T18:51:54.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",
@@ -294,7 +294,7 @@
   },
   {
     "id": "evt-mock-p1",
-    "ts": "2026-10-16T14:02:04.721Z",
+    "ts": "2026-10-19T18:43:54.431Z",
     "actor": "Josh",
     "role": "service",
     "action": "parts_open",
@@ -321,7 +321,7 @@
   },
   {
     "id": "evt-mock-p2",
-    "ts": "2026-10-16T14:08:04.721Z",
+    "ts": "2026-10-19T18:49:54.431Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "parts_update",
