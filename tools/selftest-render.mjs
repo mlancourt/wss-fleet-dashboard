@@ -1304,7 +1304,7 @@ await check('a schema-2 snapshot has no log field at all and still renders Notes
   assert.ok(out.includes('No notes yet.') || !out.includes('<h2>Notes'), 'an absent field is not a crash');
 });
 
-await check('a service token KEEPS the lead log — it is money-free by contract (v2.5)', async () => {
+await check('a service token KEEPS the lead log — the engine\'s own rows are figure-free (v2.5; D111 lets typed prices through)', async () => {
   // v2.4 stripped it, because the engine was writing figures into that free
   // text. v2.5 fixed it upstream: a lead log row reads "value set" now, and the
   // builder refuses to publish one carrying a figure. So Josh gets his own lead

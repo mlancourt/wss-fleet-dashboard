@@ -134,6 +134,11 @@ are allowed to write, and the guarantee lives in the data rather than in a
 regex over free text. If a figure ever reappears in a lead log, **fix the
 engine**; do not re-add a strip or a redaction here.
 
+**D111 (2026-10-19) narrowed this.** Matt: a price a *person* types into a
+note is fine and ships as typed, to every role. What never ships in free text
+is a **commission** figure — the engine's `commission_sweep()` redacts one and
+warns (never blocks a publish). The engine's own lines still read `value set`.
+
 What the gate does **not** promise: that no dollar sign appears anywhere under
 `leads[]`. `machine` and `close_note` are free text a person types, and they
 legitimately carry a customer's stated budget or a competitor's price. Those are
@@ -164,7 +169,7 @@ ADMIN_SECRET=… npm run money-gate -- ~/.wss-runs/real-snapshot-schema5.json
 ```
 
 It publishes the file you name, checks all three roles — including that no
-lead-log row matches `/\$\s?\d/` — and restores the mock snapshot afterwards
+lead-log row carries a commission figure (D111; was `/\$\s?\d/`) — and restores the mock snapshot afterwards
 so no real data is left in the KV it touched. Nothing is written to disk, and
 the tool carries no data of its own.
 

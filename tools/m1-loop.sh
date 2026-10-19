@@ -574,8 +574,9 @@ fi
 expect "service: no money on any lead, no scoreboard.money" 200 \
   "b.snapshot.leads.every(l=>!('value' in l) && !('potential_commission' in l)) && !('money' in b.snapshot.scoreboard) && !('commission_rates' in b.snapshot.leads_summary) && !('money_fields' in b.snapshot.leads_summary)" \
   "$WORKER/api/data" -H "$(auth $T_SERVICE)"
-# v2.5: the lead log is money-free BY CONTRACT — the engine writes "value set"
-# and its builder refuses to publish a row carrying a figure — so the v2.4
+# MOCK-ONLY: the fixture's lead logs are figure-free on purpose. On REAL data
+# D111 (2026-10-19) allows typed prices; only commission figures are banned —
+# tools/money-gate.mjs asserts that. History: v2.5 made the log money-free — the v2.4
 # fail-closed strip of leads[].log is reversed and a tech keeps their own notes.
 # The assertion moved onto the TEXT, which is where the guarantee now lives.
 expect "service: the lead log survives (v2.5 reversal)" 200 \
@@ -629,8 +630,8 @@ for RN in owner sales service; do
     "Array.isArray(b.snapshot.work_orders) && b.snapshot.work_orders.length>0 && !/\\\$\\s?\\d/.test(JSON.stringify(b.snapshot.work_orders)) && !/\"(cost|cost_source_inv|rate|price)\"/.test(JSON.stringify(b.snapshot.work_orders))" \
     "$WORKER/api/data" -H "$(auth $R)"
 done
-# D78: the activity tape ships to EVERY role untouched (never role-gated) and is
-# money-free by contract — no line of its text carries a figure.
+# D78: the activity tape ships to EVERY role untouched (never role-gated). MOCK-ONLY
+# figure check — real data may carry typed prices since D111 (commission figures never).
 for RN in owner sales service; do
   case $RN in owner) R=$T_OWNER;; sales) R=$T_SALES;; service) R=$T_SERVICE;; esac
   expect "$RN: activity[] ships whole, no /\\\$\\s?\\d/ in any line" 200 \

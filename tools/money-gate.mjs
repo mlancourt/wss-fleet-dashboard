@@ -39,8 +39,9 @@
  * prices is completely fine when it is entered by a user. I just don't want the
  * AI putting commission figures anywhere." A typed "$650/week" now ships as
  * typed. The free-text checks below (lead log · parts log · activity) assert
- * COMMISSION_RE — a $ or % within 30 chars of "commission"/"comm", same
- * sentence — the exact rule of the engine's svc.has_commission_figure().
+ * COMMISSION_RE — a money figure within 60 chars of commission/comm/comm., same
+ * sentence (or a bare number right after it) — the rule of the engine's
+ * wss_service.has_commission_figure().
  *
  * D65 extends the gate to `work_orders[]` for EVERY role: no money key, and no
  * figure anywhere in its text (part descriptions, labor notes, the log).
@@ -65,9 +66,11 @@ import path from 'node:path';
 const MONEY_RE = /\$\s?\d/;
 
 /** D111: the only free-text money rule — a commission FIGURE. Mirrors wss_service.has_commission_figure. */
-const FIG = String.raw`\$\s?[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%`;
-const COMM = String.raw`\bcomm(?:ission|issions|s)?\b`;
-const COMMISSION_RE = new RegExp(`(?:${FIG})[^.;!?\n]{0,30}?${COMM}|${COMM}[^.;!?\n]{0,30}?(?:${FIG})`, 'i');
+const COMM = String.raw`\bcomm(?:ission|issions|s)?\b\.?`;
+const FIG = String.raw`(?:\$|\bUSD\s?)\s?\d[\d,]*(?:\.\d+)?(?:\s?[kK]\b)?|\b\d+(?:\.\d+)?\s?(?:%|percent\b)`;
+const BRK = String.raw`[.;!?](?=\s|$)`;
+const GAP = `(?:(?!${FIG})(?!${BRK}).){0,60}?`;
+const COMMISSION_RE = new RegExp(`(?:${FIG})${GAP}${COMM}|${COMM}${GAP}(?:${FIG})|${COMM}\\s*(?:of|is|=|≈|~|:)?\\s*\\d`, 'i');
 
 /** D67: every money-named KEY (any case, any depth) — the paths, for the failure line. */
 const MONEY_KEY_RE = /^(cost|cost_source_inv|rate|price|amount)$/i;
@@ -235,7 +238,7 @@ try {
    * The Worker deletes every key in `parts_summary.money_fields` (today
    * `value`) off each `parts_orders[]` row for a service token, and the list
    * itself. `cost_total` / `cost_source_inv` are vault-only for EVERY role (the
-   * publish refuses them by name), and the log is money-free by contract. The
+   * publish refuses them by name); the log is commission-free (D111 — typed prices ride as typed). The
    * free-text `parts` is deliberately not scanned — Matt may type a price into
    * it, and that is honest data. No key at all passes vacuously and says so. */
   {
