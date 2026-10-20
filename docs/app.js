@@ -21,7 +21,8 @@ import {
   fmtInstantCentral, hoursSince, fmtMoney, isDateStr, fmtDateDow, fmtMD, addDays,
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
-import { loadData, postEvent as apiPostEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog, loadMachine } from './api.js';
+import { loadData, postEvent as apiPostEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog, loadMachine, loadCustomers, loadCustomer } from './api.js';
+import { searchCustomers, pushRecent, docStatus, docTitle, salesCaption, onTracker, fmtCents, RECENT_KEY, RECHECK_MS as CUST_RECHECK_MS } from './customers.js';   // D115
 
 /* ---- D87: the board settles by itself ---------------------------------------
  * Since 2026-10-13 the engine runs the moment the Worker takes an event (ntfy
@@ -126,7 +127,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-16-d109';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-20-d115';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -296,6 +297,7 @@ const ui = {
   showCompleted: false,  // D62: the Service tab's Completed strip — collapsed by default, per session
   showDormant: false,    // D81: the pipeline's 💤 Dormant row — collapsed by default, per session
   completedQuery: '',    // D62: its search box
+  customerQuery: '',     // D115: the Customers search box
   showParts: storedPartsOpen(),   // D65: the landing Parts strip — collapsed by default, remembered per session
   showPartsDelivered: false,      // D65: Delivered (30d) — in the Parts tracker since D75; always starts folded
   showTracker: storedTrackerOpen(),   // D75: the Parts tracker strip — collapsed by default, remembered per session
@@ -379,6 +381,10 @@ let uploadSeq = 0;
 // fetched once per page (api.js caches it for a day by its `built` stamp).
 const quoteDrafts = new Map();
 let quoteCat = { state: 'idle', data: null, error: null };
+// D115: the customer index + the cards this page has opened. Same lifecycle as quoteCat.
+let custIdx = { state: 'idle', data: null, error: null };
+let custIdxCheckedAt = 0;
+const custCards = new Map();   // id → { state, data, error }
 // The file chosen but not yet given a kind. Held here rather than in `ui` so a
 // File object never lands in something we might one day serialise.
 let pendingPick = null;
@@ -4285,6 +4291,137 @@ function runPrefillForUnit(u, hold) {
 
 /* ---- holds view (v2): expired first and loud, then upcoming by date ---- */
 
+/* ======================================================= 9c. customers (D115) == */
+
+/* The customer index: cached copy draws at once; the server is asked again when the last check is older
+ * than CUST_RECHECK_MS (the D109 rule — a PWA stays open for days). A failed recheck keeps the copy. */
+function startCustomers(force = false) {
+  const had = custIdx.state === 'ready' ? custIdx.data : null;
+  if (!had) custIdx = { state: 'loading', data: null, error: null };
+  if (force) custIdxCheckedAt = Date.now();
+  loadCustomers(ctx(), { force })
+    .then((data) => {
+      const changed = !had || had.built !== data.built;
+      custIdx = { state: 'ready', data, error: null };
+      if (changed) render();
+    })
+    .catch((err) => {
+      if (had) return;
+      custIdx = { state: 'error', data: null, error: err.message, code: err.code }; render();
+    });
+}
+
+function startCustomer(id) {
+  custCards.set(id, { state: 'loading', data: null, error: null });
+  loadCustomer(ctx(), id)
+    .then((data) => { custCards.set(id, { state: 'ready', data, error: null }); render(); })
+    .catch((err) => { custCards.set(id, { state: 'error', data: null, error: err.message, code: err.code }); render(); });
+}
+
+function recentCustomers() {
+  try { return pushRecent(JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'), null); } catch (_) { return []; }
+}
+function rememberCustomer(card) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(pushRecent(recentCustomers(), card))); } catch (_) { /* blocked */ }
+}
+
+const customerHref = (id) => `#/customer/${enc(id)}`;
+
+function customerRow(c, sub) {
+  return html`<a class="drow cu-row" href="${raw(customerHref(c.id))}">
+    <div class="cu-name">${c.name || '—'}${c.company && c.company !== c.name ? raw(html` <span class="muted">· ${c.company}</span>`) : ''}</div>
+    <div class="cu-sub muted">${sub}</div></a>`;
+}
+
+/** The hits under the search box — patched in place on every keystroke (never a render()). */
+function customerResults() {
+  const idx = custIdx.data;
+  const q = ui.customerQuery.trim();
+  if (!q) {
+    const recent = recentCustomers();
+    if (!recent.length) return '';
+    return html`<div class="sub">Recent</div>${raw(recent.map((c) => customerRow(c, c.city || '')).join(''))}`;
+  }
+  const hits = searchCustomers(idx, q);
+  if (!hits.length) return html`<div class="empty"><strong>No customer matches “${q}”.</strong>Try fewer words — it searches name, company and city.</div>`;
+  const cap = idx && idx.customers && hits.length >= 25 ? html`<div class="sub muted">First 25 — keep typing.</div>` : '';
+  return hits.map((c) => customerRow(c, [c.city, c.last ? `last sale ${c.last}` : null].filter(Boolean).join(' · '))).join('') + cap;
+}
+
+function customersGate(st) {
+  if (st.state === 'error' && st.code === 'forbidden') return emptyState('Customer history is Kevin’s and Matt’s.');
+  if (st.state === 'error' && st.code === 'no-customers') return emptyState('Customers aren’t published yet.', 'The engine pushes them from QuickBooks on its next run.');
+  if (st.state === 'error') return html`${raw(emptyState('Couldn’t load customers.', st.error || ''))}<button class="btn sm ghost" type="button" data-cu-reload>Try again</button>`;
+  return null;
+}
+
+function viewCustomers() {
+  if (custIdx.state === 'idle') startCustomers();
+  else if (custIdx.state === 'ready' && Date.now() - custIdxCheckedAt > CUST_RECHECK_MS) startCustomers(true);
+  const gate = customersGate(custIdx);
+  const head = html`<h1>Customers</h1><div class="sub">QuickBooks sales history · ${custIdx.data ? raw(html`${custIdx.data.count || (custIdx.data.customers || []).length} customers · as of ${fmtInstantCentral(custIdx.data.built || '')}`) : 'loading…'}</div>`;
+  if (gate) return head + gate;
+  if (custIdx.state === 'loading') return head + '<div class="loading">Loading customers…</div>';
+  return html`${raw(head)}
+    <input type="search" class="completed-q cu-q" id="cu-q" value="${ui.customerQuery}" placeholder="Search name, company or city" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div id="cu-results" class="card cu-results">${raw(customerResults())}</div>`;
+}
+
+function customerDocRow(d) {
+  const st = docStatus(d);
+  const lines = Array.isArray(d.lines) ? d.lines : [];
+  const meta = [d.po ? `PO ${d.po}` : null, d.ordered_by ? `ordered by ${d.ordered_by}` : null].filter(Boolean).join(' · ');
+  return html`<div class="cu-doc">
+    <div class="cu-doc-top"><span class="prow-po">${docTitle(d)}</span> · ${d.date || '—'} · <span class="num">${fmtCents(d.total)}</span>
+      ${st.label ? raw(html` <span class="chip cu-${st.tone}">${st.label}</span>`) : ''}
+      ${st.tone === 'open' && typeof d.balance === 'number' && d.balance > 0 && d.balance !== d.total ? raw(html` <span class="muted">${fmtCents(d.balance)} due</span>`) : ''}</div>
+    ${meta ? raw(html`<div class="cu-sub muted">${meta}</div>`) : ''}
+    ${lines.length ? raw(html`<div class="cu-lines">${raw(lines.map((l) => html`<div class="cu-line"><span class="cu-qty">${typeof l.qty === 'number' ? l.qty + ' ×' : ''}</span><span class="cu-desc">${l.desc || '—'}</span><span class="num muted">${fmtCents(l.amount)}</span></div>`).join(''))}</div>`) : ''}
+  </div>`;
+}
+
+function viewCustomer(id) {
+  const crumb = '<a class="crumb" href="#/customers">‹ Customers</a>';
+  if (!id) return crumb + emptyState('No customer picked.');
+  if (!custCards.has(id)) startCustomer(id);
+  const st = custCards.get(id);
+  if (st.state === 'error' && st.code === 'not-found') return crumb + emptyState(`Customer ${id} isn’t published.`, 'It may be brand new — the engine pushes new customers on its next run.');
+  const gate = customersGate(st);
+  if (gate) return crumb + gate;
+  if (st.state !== 'ready') return crumb + '<div class="loading">Loading…</div>';
+  const c = st.data;
+  rememberCustomer(c);
+  const tel = telTarget(c.phone);
+  const where = [c.city, c.state].filter(Boolean).join(', ');
+  const docs = Array.isArray(c.docs) ? c.docs : [];
+  const tr = onTracker(state.snapshot, c);
+  const trRows = [
+    ...tr.tickets.map((t) => html`<a class="drow cu-row" href="#/ticket/${raw(enc(t.ticket))}"><span class="prow-po">${t.ticket}</span> · ${t.equipment || ''} · <span class="muted">${(t.stage || '').toLowerCase()}</span></a>`),
+    ...tr.agreements.map((a) => (a.agreement == null
+      ? html`<div class="drow cu-row"><span class="prow-po">⚠️ unbilled rental</span> · ${a.serial ? '#' + a.serial : ''}</div>`
+      : html`<a class="drow cu-row" href="${raw(agreementHref(a.agreement))}"><span class="prow-po">${a.agreement}</span> · ${a.serial ? '#' + a.serial : ''} · <span class="muted">${(a.status || 'ACTIVE').toLowerCase()}</span></a>`)),
+    ...tr.parts.map((p) => html`<a class="drow cu-row" href="${raw(partsHref(p.order))}"><span class="prow-po">${p.order}</span> · ${(p.parts || '').split('\n')[0]} · <span class="muted">${(p.stage || '').toLowerCase()}</span></a>`),
+    ...tr.leads.map((l) => html`<a class="drow cu-row" href="#/lead/${raw(enc(l.lead))}"><span class="prow-po">${l.lead}</span> · ${l.machine || l.interest || ''} · <span class="muted">${(l.stage || '').toLowerCase()}</span></a>`),
+  ];
+  return html`${raw(crumb)}
+    <h1>${c.name || '—'}${c.active === false ? raw(' <span class="chip">inactive</span>') : ''}</h1>
+    ${c.company && c.company !== c.name ? raw(html`<div class="sub">${c.company}</div>`) : ''}
+    <h2>Reach them</h2>
+    <div class="card"><dl class="kv">
+      ${raw(kvRow('Contact', c.contact || ''))}
+      ${raw(kvRow('Phone', c.phone ? raw(tel ? html`<a href="${tel}">${c.phone}</a>` : html`${c.phone}`) : ''))}
+      ${raw(kvRow('Email', c.email ? raw(html`<a href="mailto:${c.email}">${c.email}</a>`) : ''))}
+      ${raw(kvRow('Where', where))}
+    </dl></div>
+    <h2>Sales</h2>
+    <div class="card cu-sales">
+      <div class="sub">${salesCaption(c)}${typeof c.balance === 'number' && c.balance > 0 ? raw(html` · <span class="cu-open">${fmtCents(c.balance)} open</span>`) : ''}</div>
+      ${docs.length ? raw(docs.map(customerDocRow).join('')) : raw('<div class="empty muted">No invoices in QuickBooks yet.</div>')}
+      ${c.sales_count > docs.length ? raw(html`<div class="sub muted">Last ${docs.length} of ${c.sales_count} — the rest are in QuickBooks.</div>`) : ''}
+    </div>
+    ${trRows.length ? raw(html`<h2>On the Tracker</h2><div class="card">${raw(trRows.join(''))}</div>`) : ''}`;
+}
+
 function viewHolds() {
   const r = holdsRollup();
   const unitLink = (h) => html`<a href="#/unit/${raw(encodeURIComponent(h.serial))}"><span class="unit-serial">#${h.serial}</span>${h.model ? raw(html` ${h.model}`) : ''}</a>`;
@@ -5818,6 +5955,9 @@ function renderHeader() {
   const n = state.pending.length;
   badge.hidden = n === 0;
   badge.textContent = `⏳ ${n} pending`;
+  // D115: the customer lookup is sales + owner (the Worker 403s the rest) — hide the door for everyone else.
+  const cu = $('#cust-btn');
+  if (cu) cu.hidden = !(state.me && (state.me.role === 'sales' || state.me.role === 'owner'));
 }
 
 function renderTabs(route) {
@@ -5827,7 +5967,9 @@ function renderTabs(route) {
     : route.startsWith('#/dispatch') ? 'dispatch'
     : route.startsWith('#/leads') || route.startsWith('#/lead/') ? 'leads'
     : route.startsWith('#/service') || route.startsWith('#/ticket') ? 'service' : 'fleet';
-  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === tab));
+  // D115: the customer lookup lives off the header 🔍, not a tab — it lights none.
+  const customers = route.startsWith('#/customers') || route.startsWith('#/customer/');
+  document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('on', !customers && el.dataset.tab === tab));
   // The count badge moved from Service to Dispatch at v1.6 (§1): everything
   // still needing a truck, OPEN + SCHEDULED. DONE rows linger and don't count.
   const badge = $('#tab-dispatch-badge');
@@ -5892,6 +6034,8 @@ function render() {
     const [lid, sub] = decodeURIComponent(arg || '').split('/');
     out = sub === 'quote' ? viewComposer(lid) : viewLead(lid);
   }
+  else if (section === 'customers') out = viewCustomers();                                  // D115
+  else if (section === 'customer') out = viewCustomer(decodeURIComponent(arg || ''));        // D115
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
   else if (section === 'wo') out = viewWorkOrder(arg || '');
@@ -6384,6 +6528,8 @@ document.addEventListener('click', async (ev) => {
   // A74: dismiss one of my rejected-tap notices.
   const rejBtn = ev.target.closest('[data-rej-dismiss]');
   if (rejBtn) { rejDismiss(rejBtn.dataset.rejDismiss); render(); return; }
+  // D115: "Try again" on the Customers views.
+  if (ev.target.closest('[data-cu-reload]')) { startCustomers(true); custCards.clear(); render(); return; }
   // D83: the quote composer handles its own taps (data-qc); nothing else uses the attribute.
   const qcEl = ev.target.closest('[data-qc]');
   if (qcEl && onComposerClick(qcEl)) return;
@@ -6998,6 +7144,13 @@ document.addEventListener('input', (ev) => {
   if (ifield) { onInspField(ifield, false); return; }
   // D62: typing in the Completed search redraws the list only — a full render()
   // would rebuild the input under the thumb and drop the keyboard.
+  // D115: the Customers search — same rule, redraw the hits only.
+  if (ev.target.id === 'cu-q') {
+    ui.customerQuery = ev.target.value;
+    const box = $('#cu-results');
+    if (box) box.innerHTML = customerResults();
+    return;
+  }
   if (ev.target.id === 'completed-q') {
     ui.completedQuery = ev.target.value;
     const list = $('#completed-list');

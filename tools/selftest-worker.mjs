@@ -538,4 +538,48 @@ await check('D88: publish refuses cost_total / cost_source_inv anywhere on a par
   assert.equal(fig.status, 200, 'D111: a price Matt typed into a parts note is honest data — it publishes');
 });
 
+await check('D115: customers — 503 before the push; the push writes index + cards and drops removed; sales/owner read, service/intake 403', async () => {
+  const get = async (role, path) => {
+    const res = await worker.fetch(new Request(`https://w.example${path}`, { headers: { Authorization: `Bearer ${TOK[role]}` } }), env);
+    return { status: res.status, body: await res.json() };
+  };
+  const push = async (doc) => {
+    const res = await worker.fetch(new Request('https://w.example/api/admin/customers', {
+      method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' }, body: JSON.stringify(doc),
+    }), env);
+    return { status: res.status, body: await res.json() };
+  };
+  assert.equal((await get('sales', '/api/customers')).status, 503, 'index before any push');
+  assert.equal((await get('sales', '/api/customer/12')).status, 503, 'card before any push');
+  const card = (id, name) => ({ id, name, company: null, contact: null, email: null, phone: null, city: 'Ixonia', state: 'WI', active: true, balance: 0,
+    first_sale: '2026-01-05', last_sale: '2026-10-01', sales_count: 2,
+    docs: [{ type: 'INVOICE', num: '44001', date: '2026-10-01', total: 314.5, balance: 0, status: 'PAID', po: null, ordered_by: null, lines: [{ desc: 'Pads 20" red', qty: 5, amount: 60 }] }] });
+  const ok = await push({ built: '2026-10-20T18:00:00Z', index: { built: '2026-10-20T18:00:00Z', count: 2, customers: [{ id: '12', name: 'Acme Foods', city: 'Ixonia', last: '2026-10-01' }, { id: '13', name: 'Beta Cleaning', city: null, last: null }] },
+    cards: { 12: card('12', 'Acme Foods'), 13: card('13', 'Beta Cleaning') }, removed: ['99'] });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual([ok.body.index, ok.body.cards, ok.body.removed], [2, 2, 1]);
+  const idx = await get('sales', '/api/customers');
+  assert.equal(idx.status, 200); assert.equal(idx.body.customers.length, 2);
+  const one = await get('owner', '/api/customer/12');
+  assert.equal(one.status, 200); assert.equal(one.body.docs[0].num, '44001');
+  assert.equal((await get('sales', '/api/customer/404')).status, 404, 'unknown id once published');
+  assert.equal((await get('sales', '/api/customer/abc')).status, 400, 'malformed id');
+  assert.equal((await get('service', '/api/customers')).status, 403, 'service: no index');
+  assert.equal((await get('service', '/api/customer/12')).status, 403, 'service: no card');
+  assert.equal((await get('intake', '/api/customers')).status, 403, 'intake: nothing');
+  // an incremental push: cards only, no index → the index stays; removed drops a card
+  const inc = await push({ cards: { 14: card('14', 'Gamma Corp') }, removed: ['13'] });
+  assert.equal(inc.status, 200); assert.equal(inc.body.index, null);
+  assert.equal((await get('sales', '/api/customer/14')).status, 200);
+  assert.equal((await get('sales', '/api/customer/13')).status, 404, 'removed');
+  assert.equal((await get('sales', '/api/customers')).body.customers.length, 2, 'index untouched by a cards-only push');
+  // refusals: our cost never leaves the vault; a bad id; a malformed index
+  const bad = await push({ cards: { 15: { ...card('15', 'X'), docs: [{ cost: 1 }] } } });
+  assert.equal(bad.status, 400); assert.ok(bad.body.error.includes('cards.15.docs[0].cost'), bad.body.error);
+  assert.equal((await push({ cards: { 'x1': card('x1', 'X') } })).status, 400, 'bad id');
+  assert.equal((await push({ index: { customers: 'nope' } })).status, 400, 'index shape');
+  assert.equal((await push({ removed: ['14'] })).status, 200, 'removed alone is fine');
+  assert.equal((await get('sales', '/api/customer/14')).status, 404);
+});
+
 console.log(`${passed} checks passed.`);

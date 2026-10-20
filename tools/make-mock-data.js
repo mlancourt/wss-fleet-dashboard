@@ -2352,6 +2352,47 @@ const mockCatalog = {
   sender: { mailbox: 'kevin@example.com', name: 'Kevin Example', title: 'Territory Manager', phone: '(555) 010-0001' },
 };
 fs.writeFileSync(path.join(outdir, 'mock-catalog.json'), JSON.stringify(mockCatalog, null, 2) + '\n');
+// ---------------------------------------------------------------- D115: customers (FAKE — hard rule 1)
+// The index + one card per customer, the shape the engine pushes and the Worker serves. The names are the
+// snapshot's own fake CUSTOMERS so the card's "On the Tracker" block has rows to draw in mock mode.
+const CU_CONTACTS = ['Dana Whitfield', 'Marcus Bell', 'Priya Nair', 'Theo Lindqvist'];
+const CU_CITIES = ['Oconomowoc', 'Watertown', 'Waukesha', 'Milwaukee', 'Madison', 'Ixonia', null];
+const CU_ITEMS = [
+  ['Equipment Rental — 26" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)', 1, 1550],
+  ['Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001', 1, 12995],
+  ['Pads, 20" red — case of 5', 2, 88.4],
+  ['Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors', 1, 272.1],
+  ['Service labor — squeegee rebuild', 2.5, 287.5],
+  ['Delivery', 1, 125], ['Pick-up', 1, 125],
+];
+const cuDocs = (n, seedDay) => Array.from({ length: Math.min(n, 5) }, (_, i) => {
+  const lines = Array.from({ length: 1 + ((i + seedDay) % 3) }, (_, j) => CU_ITEMS[(i * 3 + j + seedDay) % CU_ITEMS.length])
+    .map(([desc, qty, amount]) => ({ desc, qty, amount }));
+  const total = Math.round(lines.reduce((a, l) => a + l.amount, 0) * 1.055 * 100) / 100;
+  const status = i === 0 && seedDay % 3 === 0 ? 'OPEN' : (i === 2 && seedDay % 4 === 0 ? 'VOID' : 'PAID');
+  const day = 20 - i * 23 - seedDay;
+  const date = new Date(Date.UTC(2026, 9, 20)); date.setUTCDate(date.getUTCDate() + day - 20);
+  return { type: i === 1 && seedDay % 5 === 0 ? 'SALES-RECEIPT' : 'INVOICE', num: String(44000 - i * 37 - seedDay), date: date.toISOString().slice(0, 10),
+    total: status === 'VOID' ? 0 : total, balance: status === 'OPEN' ? total : 0, status,
+    po: seedDay % 2 ? `PO-${1000 + seedDay}` : `Verbal-${CU_CONTACTS[seedDay % CU_CONTACTS.length].split(' ')[0]}`,
+    ordered_by: CU_CONTACTS[seedDay % CU_CONTACTS.length], lines };
+});
+const cuCards = {};
+const cuIndex = CUSTOMERS.map((name, i) => {
+  const id = String(100 + i);
+  const n = i % 7 === 6 ? 0 : 1 + (i * 5) % 11;
+  const docs = cuDocs(n, i);
+  const card = { id, name, company: i % 4 === 0 ? `${name} LLC` : null, contact: CU_CONTACTS[i % CU_CONTACTS.length],
+    email: `ap@${name.toLowerCase().replace(/[^a-z]+/g, '')}.example.com`, phone: `(555) 01${String(i).padStart(2, '0')}-${String(1000 + i * 37).slice(-4)}`,
+    city: CU_CITIES[i % CU_CITIES.length], state: 'WI', active: i % 9 !== 8, balance: docs.filter((d) => d.status === 'OPEN').reduce((a, d) => a + d.balance, 0),
+    first_sale: n ? '2024-03-11' : null, last_sale: n ? docs[0].date : null, sales_count: n, docs };
+  cuCards[id] = card;
+  return { id, name, company: card.company, city: card.city, last: card.last_sale };
+}).sort((a, b) => a.name.localeCompare(b.name));
+const mockCustomers = { index: { built: '2026-10-20T17:00:00Z', count: cuIndex.length, customers: cuIndex }, cards: cuCards };
+fs.writeFileSync(path.join(outdir, 'mock-customers.json'), JSON.stringify(mockCustomers, null, 2) + '\n');
+console.log(`mock-customers.json: ${cuIndex.length} fake customers`);
+
 console.log(`mock-catalog.json: ${mockCatalog.machines.length} fake machines, ${Object.keys(mockCatalog.series).length} series, ${mockCatalog.rentals.length} rentals, ${mockCatalog.addons.length} add-ons`);
 
 for (const [name, snapshot] of [

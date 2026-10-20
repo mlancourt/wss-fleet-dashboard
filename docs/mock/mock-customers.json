@@ -1,0 +1,1960 @@
+{
+  "index": {
+    "built": "2026-10-20T17:00:00Z",
+    "count": 19,
+    "customers": [
+      {
+        "id": "100",
+        "name": "Acme Foods",
+        "company": "Acme Foods LLC",
+        "city": "Oconomowoc",
+        "last": "2026-10-20"
+      },
+      {
+        "id": "101",
+        "name": "Bluebird Logistics",
+        "company": null,
+        "city": "Watertown",
+        "last": "2026-10-19"
+      },
+      {
+        "id": "102",
+        "name": "Cedar Ridge Manufacturing",
+        "company": null,
+        "city": "Waukesha",
+        "last": "2026-10-18"
+      },
+      {
+        "id": "103",
+        "name": "Dorsey Plastics",
+        "company": null,
+        "city": "Milwaukee",
+        "last": "2026-10-17"
+      },
+      {
+        "id": "104",
+        "name": "Evergreen Distribution",
+        "company": "Evergreen Distribution LLC",
+        "city": "Madison",
+        "last": "2026-10-16"
+      },
+      {
+        "id": "105",
+        "name": "Fairmont Dairy",
+        "company": null,
+        "city": "Ixonia",
+        "last": "2026-10-15"
+      },
+      {
+        "id": "106",
+        "name": "Granite Peak Warehouse",
+        "company": null,
+        "city": null,
+        "last": null
+      },
+      {
+        "id": "107",
+        "name": "Harborview Foods",
+        "company": null,
+        "city": "Oconomowoc",
+        "last": "2026-10-13"
+      },
+      {
+        "id": "108",
+        "name": "Ironwood Packaging",
+        "company": "Ironwood Packaging LLC",
+        "city": "Watertown",
+        "last": "2026-10-12"
+      },
+      {
+        "id": "109",
+        "name": "Juniper Metalworks",
+        "company": null,
+        "city": "Waukesha",
+        "last": "2026-10-11"
+      },
+      {
+        "id": "110",
+        "name": "Kestrel Print",
+        "company": null,
+        "city": "Milwaukee",
+        "last": "2026-10-10"
+      },
+      {
+        "id": "111",
+        "name": "Lakeshore Beverage",
+        "company": null,
+        "city": "Madison",
+        "last": "2026-10-09"
+      },
+      {
+        "id": "112",
+        "name": "Maplewood Schools",
+        "company": "Maplewood Schools LLC",
+        "city": "Ixonia",
+        "last": "2026-10-08"
+      },
+      {
+        "id": "113",
+        "name": "Northgate Fulfillment",
+        "company": null,
+        "city": null,
+        "last": null
+      },
+      {
+        "id": "114",
+        "name": "Oakhill Casting",
+        "company": null,
+        "city": "Oconomowoc",
+        "last": "2026-10-06"
+      },
+      {
+        "id": "115",
+        "name": "Pinnacle Cold Storage",
+        "company": null,
+        "city": "Watertown",
+        "last": "2026-10-05"
+      },
+      {
+        "id": "116",
+        "name": "Quarry Road Aggregates",
+        "company": "Quarry Road Aggregates LLC",
+        "city": "Waukesha",
+        "last": "2026-10-04"
+      },
+      {
+        "id": "117",
+        "name": "Redtail Automotive",
+        "company": null,
+        "city": "Milwaukee",
+        "last": "2026-10-03"
+      },
+      {
+        "id": "118",
+        "name": "Summit Fabrication",
+        "company": null,
+        "city": "Madison",
+        "last": "2026-10-02"
+      }
+    ]
+  },
+  "cards": {
+    "100": {
+      "id": "100",
+      "name": "Acme Foods",
+      "company": "Acme Foods LLC",
+      "contact": "Dana Whitfield",
+      "email": "ap@acmefoods.example.com",
+      "phone": "(555) 0100-1000",
+      "city": "Oconomowoc",
+      "state": "WI",
+      "active": true,
+      "balance": 1635.25,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-20",
+      "sales_count": 1,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "44000",
+          "date": "2026-10-20",
+          "total": 1635.25,
+          "balance": 1635.25,
+          "status": "OPEN",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        }
+      ]
+    },
+    "101": {
+      "id": "101",
+      "name": "Bluebird Logistics",
+      "company": null,
+      "contact": "Marcus Bell",
+      "email": "ap@bluebirdlogistics.example.com",
+      "phone": "(555) 0101-1037",
+      "city": "Watertown",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-19",
+      "sales_count": 6,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43999",
+          "date": "2026-10-19",
+          "total": 13802.99,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1001",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43962",
+          "date": "2026-09-26",
+          "total": 567.06,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1001",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43925",
+          "date": "2026-09-03",
+          "total": 1635.25,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1001",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43888",
+          "date": "2026-08-11",
+          "total": 590.38,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1001",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43851",
+          "date": "2026-07-19",
+          "total": 15476.85,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1001",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        }
+      ]
+    },
+    "102": {
+      "id": "102",
+      "name": "Cedar Ridge Manufacturing",
+      "company": null,
+      "contact": "Priya Nair",
+      "email": "ap@cedarridgemanufacturing.example.com",
+      "phone": "(555) 0102-1074",
+      "city": "Waukesha",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-18",
+      "sales_count": 11,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43998",
+          "date": "2026-10-18",
+          "total": 683.64,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43961",
+          "date": "2026-09-25",
+          "total": 131.88,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43924",
+          "date": "2026-09-02",
+          "total": 13802.99,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43887",
+          "date": "2026-08-10",
+          "total": 567.06,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43850",
+          "date": "2026-07-18",
+          "total": 1635.25,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        }
+      ]
+    },
+    "103": {
+      "id": "103",
+      "name": "Dorsey Plastics",
+      "company": null,
+      "contact": "Theo Lindqvist",
+      "email": "ap@dorseyplastics.example.com",
+      "phone": "(555) 0103-1111",
+      "city": "Milwaukee",
+      "state": "WI",
+      "active": true,
+      "balance": 287.07,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-17",
+      "sales_count": 5,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43997",
+          "date": "2026-10-17",
+          "total": 287.07,
+          "balance": 287.07,
+          "status": "OPEN",
+          "po": "PO-1003",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43960",
+          "date": "2026-09-24",
+          "total": 1767.13,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1003",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43923",
+          "date": "2026-09-01",
+          "total": 683.64,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1003",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43886",
+          "date": "2026-08-09",
+          "total": 131.88,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1003",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43849",
+          "date": "2026-07-17",
+          "total": 13802.99,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1003",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        }
+      ]
+    },
+    "104": {
+      "id": "104",
+      "name": "Evergreen Distribution",
+      "company": "Evergreen Distribution LLC",
+      "contact": "Dana Whitfield",
+      "email": "ap@evergreendistribution.example.com",
+      "phone": "(555) 0104-1148",
+      "city": "Madison",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-16",
+      "sales_count": 10,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43996",
+          "date": "2026-10-16",
+          "total": 435.19,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43959",
+          "date": "2026-09-23",
+          "total": 15438.24,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43922",
+          "date": "2026-08-31",
+          "total": 0,
+          "balance": 0,
+          "status": "VOID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43885",
+          "date": "2026-08-08",
+          "total": 1767.13,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43848",
+          "date": "2026-07-16",
+          "total": 683.64,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        }
+      ]
+    },
+    "105": {
+      "id": "105",
+      "name": "Fairmont Dairy",
+      "company": null,
+      "contact": "Marcus Bell",
+      "email": "ap@fairmontdairy.example.com",
+      "phone": "(555) 0105-1185",
+      "city": "Ixonia",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-15",
+      "sales_count": 4,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43995",
+          "date": "2026-10-15",
+          "total": 1899,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1005",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "SALES-RECEIPT",
+          "num": "43958",
+          "date": "2026-09-22",
+          "total": 13709.72,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1005",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43921",
+          "date": "2026-08-30",
+          "total": 435.19,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1005",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43884",
+          "date": "2026-08-07",
+          "total": 15438.24,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1005",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        }
+      ]
+    },
+    "106": {
+      "id": "106",
+      "name": "Granite Peak Warehouse",
+      "company": null,
+      "contact": "Priya Nair",
+      "email": "ap@granitepeakwarehouse.example.com",
+      "phone": "(555) 0106-1222",
+      "city": null,
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": null,
+      "last_sale": null,
+      "sales_count": 0,
+      "docs": []
+    },
+    "107": {
+      "id": "107",
+      "name": "Harborview Foods",
+      "company": null,
+      "contact": "Theo Lindqvist",
+      "email": "ap@harborviewfoods.example.com",
+      "phone": "(555) 0107-1259",
+      "city": "Oconomowoc",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-13",
+      "sales_count": 3,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43993",
+          "date": "2026-10-13",
+          "total": 15344.97,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1007",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43956",
+          "date": "2026-09-20",
+          "total": 722.25,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1007",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43919",
+          "date": "2026-08-28",
+          "total": 131.88,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1007",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        }
+      ]
+    },
+    "108": {
+      "id": "108",
+      "name": "Ironwood Packaging",
+      "company": "Ironwood Packaging LLC",
+      "contact": "Dana Whitfield",
+      "email": "ap@ironwoodpackaging.example.com",
+      "phone": "(555) 0108-1296",
+      "city": "Watertown",
+      "state": "WI",
+      "active": false,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-12",
+      "sales_count": 8,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43992",
+          "date": "2026-10-12",
+          "total": 14090.05,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43955",
+          "date": "2026-09-19",
+          "total": 303.31,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43918",
+          "date": "2026-08-27",
+          "total": 0,
+          "balance": 0,
+          "status": "VOID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43881",
+          "date": "2026-08-04",
+          "total": 722.25,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43844",
+          "date": "2026-07-12",
+          "total": 131.88,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        }
+      ]
+    },
+    "109": {
+      "id": "109",
+      "name": "Juniper Metalworks",
+      "company": null,
+      "contact": "Marcus Bell",
+      "email": "ap@junipermetalworks.example.com",
+      "phone": "(555) 0109-1333",
+      "city": "Waukesha",
+      "state": "WI",
+      "active": true,
+      "balance": 93.26,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-11",
+      "sales_count": 2,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43991",
+          "date": "2026-10-11",
+          "total": 93.26,
+          "balance": 93.26,
+          "status": "OPEN",
+          "po": "PO-1009",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43954",
+          "date": "2026-09-18",
+          "total": 263.75,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1009",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        }
+      ]
+    },
+    "110": {
+      "id": "110",
+      "name": "Kestrel Print",
+      "company": null,
+      "contact": "Priya Nair",
+      "email": "ap@kestrelprint.example.com",
+      "phone": "(555) 0110-1370",
+      "city": "Milwaukee",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-10",
+      "sales_count": 7,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43990",
+          "date": "2026-10-10",
+          "total": 590.38,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        },
+        {
+          "type": "SALES-RECEIPT",
+          "num": "43953",
+          "date": "2026-09-17",
+          "total": 15476.85,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43916",
+          "date": "2026-08-25",
+          "total": 93.26,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43879",
+          "date": "2026-08-02",
+          "total": 263.75,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43842",
+          "date": "2026-07-10",
+          "total": 14090.05,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        }
+      ]
+    },
+    "111": {
+      "id": "111",
+      "name": "Lakeshore Beverage",
+      "company": null,
+      "contact": "Theo Lindqvist",
+      "email": "ap@lakeshorebeverage.example.com",
+      "phone": "(555) 0111-1407",
+      "city": "Madison",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-09",
+      "sales_count": 1,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43989",
+          "date": "2026-10-09",
+          "total": 567.06,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1011",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        }
+      ]
+    },
+    "112": {
+      "id": "112",
+      "name": "Maplewood Schools",
+      "company": "Maplewood Schools LLC",
+      "contact": "Dana Whitfield",
+      "email": "ap@maplewoodschools.example.com",
+      "phone": "(555) 0112-1444",
+      "city": "Ixonia",
+      "state": "WI",
+      "active": true,
+      "balance": 131.88,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-08",
+      "sales_count": 6,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43988",
+          "date": "2026-10-08",
+          "total": 131.88,
+          "balance": 131.88,
+          "status": "OPEN",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43951",
+          "date": "2026-09-15",
+          "total": 13802.99,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43914",
+          "date": "2026-08-23",
+          "total": 0,
+          "balance": 0,
+          "status": "VOID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43877",
+          "date": "2026-07-31",
+          "total": 1635.25,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43840",
+          "date": "2026-07-08",
+          "total": 590.38,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        }
+      ]
+    },
+    "113": {
+      "id": "113",
+      "name": "Northgate Fulfillment",
+      "company": null,
+      "contact": "Marcus Bell",
+      "email": "ap@northgatefulfillment.example.com",
+      "phone": "(555) 0113-1481",
+      "city": null,
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": null,
+      "last_sale": null,
+      "sales_count": 0,
+      "docs": []
+    },
+    "114": {
+      "id": "114",
+      "name": "Oakhill Casting",
+      "company": null,
+      "contact": "Priya Nair",
+      "email": "ap@oakhillcasting.example.com",
+      "phone": "(555) 0114-1518",
+      "city": "Oconomowoc",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-06",
+      "sales_count": 5,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43986",
+          "date": "2026-10-06",
+          "total": 15438.24,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43949",
+          "date": "2026-09-13",
+          "total": 287.07,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43912",
+          "date": "2026-08-21",
+          "total": 1767.13,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43875",
+          "date": "2026-07-29",
+          "total": 683.64,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43838",
+          "date": "2026-07-06",
+          "total": 131.88,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        }
+      ]
+    },
+    "115": {
+      "id": "115",
+      "name": "Pinnacle Cold Storage",
+      "company": null,
+      "contact": "Theo Lindqvist",
+      "email": "ap@pinnaclecoldstorage.example.com",
+      "phone": "(555) 0115-1555",
+      "city": "Watertown",
+      "state": "WI",
+      "active": true,
+      "balance": 13709.72,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-05",
+      "sales_count": 10,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43985",
+          "date": "2026-10-05",
+          "total": 13709.72,
+          "balance": 13709.72,
+          "status": "OPEN",
+          "po": "PO-1015",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        },
+        {
+          "type": "SALES-RECEIPT",
+          "num": "43948",
+          "date": "2026-09-12",
+          "total": 435.19,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1015",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43911",
+          "date": "2026-08-20",
+          "total": 15438.24,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1015",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43874",
+          "date": "2026-07-28",
+          "total": 287.07,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1015",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43837",
+          "date": "2026-07-05",
+          "total": 1767.13,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1015",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        }
+      ]
+    },
+    "116": {
+      "id": "116",
+      "name": "Quarry Road Aggregates",
+      "company": "Quarry Road Aggregates LLC",
+      "contact": "Dana Whitfield",
+      "email": "ap@quarryroadaggregates.example.com",
+      "phone": "(555) 0116-1592",
+      "city": "Waukesha",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-04",
+      "sales_count": 4,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43984",
+          "date": "2026-10-04",
+          "total": 380.33,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43947",
+          "date": "2026-09-11",
+          "total": 1899,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43910",
+          "date": "2026-08-19",
+          "total": 0,
+          "balance": 0,
+          "status": "VOID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43873",
+          "date": "2026-07-27",
+          "total": 435.19,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Dana",
+          "ordered_by": "Dana Whitfield",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        }
+      ]
+    },
+    "117": {
+      "id": "117",
+      "name": "Redtail Automotive",
+      "company": null,
+      "contact": "Marcus Bell",
+      "email": "ap@redtailautomotive.example.com",
+      "phone": "(555) 0117-1629",
+      "city": "Milwaukee",
+      "state": "WI",
+      "active": false,
+      "balance": 0,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-03",
+      "sales_count": 9,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43983",
+          "date": "2026-10-03",
+          "total": 722.25,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1017",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43946",
+          "date": "2026-09-10",
+          "total": 131.88,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1017",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43909",
+          "date": "2026-08-18",
+          "total": 380.33,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1017",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43872",
+          "date": "2026-07-26",
+          "total": 1899,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1017",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43835",
+          "date": "2026-07-03",
+          "total": 13709.72,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1017",
+          "ordered_by": "Marcus Bell",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        }
+      ]
+    },
+    "118": {
+      "id": "118",
+      "name": "Summit Fabrication",
+      "company": null,
+      "contact": "Priya Nair",
+      "email": "ap@summitfabrication.example.com",
+      "phone": "(555) 0118-1666",
+      "city": "Madison",
+      "state": "WI",
+      "active": true,
+      "balance": 303.31,
+      "first_sale": "2024-03-11",
+      "last_sale": "2026-10-02",
+      "sales_count": 3,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43982",
+          "date": "2026-10-02",
+          "total": 303.31,
+          "balance": 303.31,
+          "status": "OPEN",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43945",
+          "date": "2026-09-09",
+          "total": 15344.97,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Equipment Rental — 26\" walk-behind scrubber · 2026-09-01 to 2026-09-05 (1 week)",
+              "qty": 1,
+              "amount": 1550
+            },
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43908",
+          "date": "2026-08-17",
+          "total": 722.25,
+          "balance": 0,
+          "status": "PAID",
+          "po": "Verbal-Priya",
+          "ordered_by": "Priya Nair",
+          "lines": [
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
+            },
+            {
+              "desc": "Service labor — squeegee rebuild",
+              "qty": 2.5,
+              "amount": 287.5
+            },
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -613,6 +613,8 @@ curl -s -X POST $W/api/admin/events/ack -H "X-Admin-Secret: $S" -H 'Content-Type
 | `GET /api/admin/doc/<id>` | secret | same bytes as the token GET (the engine's down-leg) |
 | `DELETE /api/admin/doc/<id>` | secret | `200 {id, deleted:true}`, `404` if unknown. Drops both keys. |
 | `GET /api/admin/docs` | secret | `{count, docs:[…docmeta…]}` oldest first |
+| `GET /api/customers` · `GET /api/customer/:id` | token (sales/owner) | D115: the QuickBooks customer index · one card (last 5 sales docs). `403` service/intake, `503` before the engine's first push, `404` unknown |
+| `POST /api/admin/customers` | `X-Admin-Secret` | D115: the engine's push — `{built, index, cards: {id: card}, removed: [ids]}`; writes `customers:index` + `cust:<id>`; 400 on a cost-shaped key |
 | `GET /api/catalog` | token (sales/owner) | D83: the quote composer's catalog + `tax_rate`, `valid_days`, your own `sender`. `403` service/intake, `401` no token, `503` before the engine's first push |
 | `POST /api/admin/catalog` | secret | D83: the engine's push (only when its hash moves). `400` on a `net`/`disc` key anywhere, by path |
 | `GET /api/admin/quotepdf/<token>` | secret | D83: a sent quote's PDF bytes (the engine files it beside the Q file) |

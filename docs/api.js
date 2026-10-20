@@ -241,7 +241,70 @@ export async function loadCatalog({ url, token, apiBase = API_BASE, fetch = defa
   try { storage.setItem(CATALOG_KEY, JSON.stringify({ at: now, built: catalogMem.built, data: catalogMem })); } catch (_) { /* full or blocked */ }
   return catalogMem;
 }
-export const __resetCatalog = () => { catalogMem = null; machineMem.clear(); };
+export const __resetCatalog = () => { catalogMem = null; machineMem.clear(); customersMem = null; customerMem.clear(); };
+
+/* ---- D115: customers ------------------------------------------------------
+ * GET /api/customers (sales/owner) → the index `{built, count, customers[]}`;
+ * GET /api/customer/<id> → one card. Same shape as the catalog pair: the index
+ * is cached in page memory + localStorage keyed by `built` (24 h, the D109
+ * recheck is the caller's), cards in page memory for the session. Mock mode
+ * reads docs/mock/mock-customers.json (FAKE names — hard rule 1).
+ */
+export const CUSTOMERS_KEY = 'wss.customers.index';
+export const CUSTOMERS_TTL_MS = 24 * 3600 * 1000;
+let customersMem = null;
+const customerMem = new Map();
+
+async function mockCustomers(fetch) {
+  const res = await fetch('mock/mock-customers.json', { cache: 'no-store' });
+  if (!res.ok) throw fail('error', `mock customers ${res.status} — run: npm run mock`);
+  return res.json();
+}
+
+export async function loadCustomers({ url, token, apiBase = API_BASE, fetch = defaultFetch, storage = globalThis.localStorage, now = Date.now() }, { force = false } = {}) {
+  if (customersMem && !force) return customersMem;
+  if (mockVariant(url, apiBase)) {
+    const m = await mockCustomers(fetch);
+    customersMem = m.index;
+    return customersMem;
+  }
+  if (!force) {
+    try {
+      const hit = JSON.parse(storage.getItem(CUSTOMERS_KEY) || 'null');
+      if (hit && hit.data && hit.built === hit.data.built && now - hit.at < CUSTOMERS_TTL_MS) { customersMem = hit.data; return customersMem; }
+    } catch (_) { /* storage blocked or junk — fetch */ }
+  }
+  if (!token) throw fail('no-token', 'No token.');
+  const res = await fetch(`${apiBase}/api/customers`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+  if (res.status === 403) throw fail('forbidden', 'Customer history is Kevin\'s and Matt\'s.');
+  if (res.status === 503) throw fail('no-customers', 'Customers aren\'t published yet.');
+  if (res.status === 404) throw fail('no-customers', 'Customers aren\'t published yet.');   // a pre-D115 Worker
+  if (!res.ok) throw fail('error', `customers ${res.status}`);
+  customersMem = await res.json();
+  try { storage.setItem(CUSTOMERS_KEY, JSON.stringify({ at: now, built: customersMem.built, data: customersMem })); } catch (_) { /* full or blocked */ }
+  return customersMem;
+}
+
+export async function loadCustomer({ url, token, apiBase = API_BASE, fetch = defaultFetch }, id, { force = false } = {}) {
+  const key = String(id);
+  if (customerMem.has(key) && !force) return customerMem.get(key);
+  let c;
+  if (mockVariant(url, apiBase)) {
+    const m = await mockCustomers(fetch);
+    c = (m.cards && m.cards[key]) || null;
+    if (!c) throw fail('not-found', `customer ${key} is not in the mock`);
+  } else {
+    if (!token) throw fail('no-token', 'No token.');
+    const res = await fetch(`${apiBase}/api/customer/${encodeURIComponent(key)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    if (res.status === 403) throw fail('forbidden', 'Customer history is Kevin\'s and Matt\'s.');
+    if (res.status === 404) throw fail('not-found', `Customer ${key} isn't published.`);
+    if (res.status === 503) throw fail('no-customers', 'Customers aren\'t published yet.');
+    if (!res.ok) throw fail('error', `customer/${key} ${res.status}`);
+    c = await res.json();
+  }
+  customerMem.set(key, c);
+  return c;
+}
 
 /* ---- v1.3 (D91): one machine's full record ---------------------------------
  * GET /api/catalog/<key> → the machine with `specs` + `description`, which the

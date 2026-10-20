@@ -322,6 +322,14 @@ const MAX_CATALOG_BYTES = 8 * 1024 * 1024;
 // the full record is ~350 KB). GET /api/catalog/<key> and quote_send read them back by key.
 const CATALOG_HEAVY = ['specs', 'description'];
 const CATALOG_ONE_RE = /^\/api\/catalog\/(.+)$/;
+// D115 (2026-10-20) — customers: the engine's QuickBooks sales-history push. One index key + one card per customer.
+// The engine is the ONLY QuickBooks client in the stack (Intuit rotates the refresh token; a second client burns it),
+// so this Worker never talks to QBO — it serves what the engine pushed, to sales + owner only (invoice totals are money).
+const CUSTOMER_ONE_RE = /^\/api\/customer\/(.+)$/;
+const CUSTOMER_ID_RE = /^\d{1,12}$/;
+const CUSTOMERS_NEVER = /^(net|disc|cost|cost_total|margin|commission)$/i;   // what WE paid never leaves the vault (D45/D83)
+const MAX_CUSTOMERS_BYTES = 8 * 1024 * 1024;
+const MAX_CUSTOMER_CARDS = 2000;                  // per push; the engine sends only changed cards after the first
 const LISTING_PHOTO_TIMEOUT_MS = 2000;            // a slow image is no photo, never a slow send
 const LISTING_PHOTO_MAX_BYTES = 4 * 1024 * 1024;
 const RATE_LIMIT_PER_MIN = 30;                    // per IP on the customer routes
@@ -353,6 +361,9 @@ const ROUTES = [
   ['GET',  '/api/catalog',          'crew',  crewCatalog],
   ['POST', '/api/admin/catalog',    'admin', adminCatalog],
   ['POST', '/api/resend/webhook',   'public', resendWebhook],
+  // D115 — the customer index (the phone searches it) and the engine's push of it + the cards.
+  ['GET',  '/api/customers',        'crew',  crewCustomers],
+  ['POST', '/api/admin/customers',  'admin', adminCustomers],
 ];
 
 export default {
@@ -419,6 +430,19 @@ async function route(request, env, url) {
     const me = await crewAuth(request, url, env);
     if (!me) return json({ error: 'unauthorized' }, 401);
     return crewCatalogOne({ env, me, rawKey: catOne[1] });
+  }
+
+  // D115 — one customer's card (last 5 sales docs). Same shape of gate as the catalog.
+  const custOne = CUSTOMER_ONE_RE.exec(path);
+  if (custOne) {
+    if (method !== 'GET') {
+      const res = json({ error: 'method not allowed' }, 405);
+      res.headers.set('Allow', 'GET');
+      return res;
+    }
+    const me = await crewAuth(request, url, env);
+    if (!me) return json({ error: 'unauthorized' }, 401);
+    return crewCustomerOne({ env, me, rawId: custOne[1] });
   }
 
   // /api/event/<id> — the only path with a variable segment, so it is matched
@@ -1684,6 +1708,70 @@ async function crewCatalogOne({ env, me, rawKey }) {
   const m = [...(Array.isArray(cat.machines) ? cat.machines : []), ...(Array.isArray(cat.rentals) ? cat.rentals : [])].find((x) => x && x.key === key) || null;   // D100: rentals by key too
   if (!m) return json({ error: `${key} is not in the catalog` }, 404);
   return json(m);
+}
+
+/* ------------------------------------------------------- customers (D115) */
+
+function customersGate(me) {
+  if (me.role !== 'sales' && me.role !== 'owner') return json({ error: `role ${me.role} cannot read customers` }, 403);
+  return null;
+}
+
+/** GET /api/customers — the index `{built, count, customers: [{id, name, city, last}]}`. Sales + owner. */
+async function crewCustomers({ me, env }) {
+  const gate = customersGate(me);
+  if (gate) return gate;
+  const raw = await env.FLEET_KV.get('customers:index');
+  if (!raw) return json({ error: 'customers not published yet' }, 503);
+  return new Response(raw, { status: 200, headers: { ...jsonHeaders(), 'Cache-Control': 'private, no-store' } });
+}
+
+/** GET /api/customer/<id> — one card. 400 malformed id, 404 unknown, 503 before the first push. */
+async function crewCustomerOne({ env, me, rawId }) {
+  const gate = customersGate(me);
+  if (gate) return gate;
+  let id;
+  try { id = decodeURIComponent(rawId); } catch { id = ''; }
+  if (!CUSTOMER_ID_RE.test(id)) return json({ error: 'bad customer id' }, 400);
+  const raw = await env.FLEET_KV.get(`cust:${id}`);
+  if (!raw) {
+    const idx = await env.FLEET_KV.get('customers:index');
+    return json({ error: idx ? `customer ${id} is not published` : 'customers not published yet' }, idx ? 404 : 503);
+  }
+  return new Response(raw, { status: 200, headers: { ...jsonHeaders(), 'Cache-Control': 'private, no-store' } });
+}
+
+/**
+ * POST /api/admin/customers — the engine's push: `{built, index: {built, count, customers[]}, cards: {id: card}, removed: [ids]}`.
+ * Writes the index whole, one key per card, deletes the removed ids. Refuses a cost-shaped key anywhere, by path.
+ */
+async function adminCustomers({ request, env }) {
+  const textBody = await request.text();
+  if (textBody.length > MAX_CUSTOMERS_BYTES) throw httpError(413, 'customers push too large');
+  let body;
+  try { body = JSON.parse(textBody); } catch { throw httpError(400, 'customers push is not valid JSON'); }
+  if (!body || typeof body !== 'object') throw httpError(400, 'customers push must be an object');
+  const index = body.index;
+  const cards = body.cards && typeof body.cards === 'object' && !Array.isArray(body.cards) ? body.cards : {};
+  const removed = Array.isArray(body.removed) ? body.removed : [];
+  if (index !== undefined && (!index || typeof index !== 'object' || !Array.isArray(index.customers))) throw httpError(400, 'index needs customers[]');
+  const ids = Object.keys(cards);
+  if (ids.length > MAX_CUSTOMER_CARDS) throw httpError(413, `too many cards in one push (${ids.length} > ${MAX_CUSTOMER_CARDS})`);
+  for (const id of [...ids, ...removed]) if (!CUSTOMER_ID_RE.test(String(id))) throw httpError(400, `bad customer id ${JSON.stringify(id)}`);
+  const walk = (v, at, depth) => {
+    if (!v || typeof v !== 'object' || depth > 10) return;
+    for (const [k, x] of Object.entries(v)) {
+      const here = Array.isArray(v) ? `${at}[${k}]` : `${at}.${k}`;
+      if (!Array.isArray(v) && CUSTOMERS_NEVER.test(k)) throw httpError(400, `refused: ${here} — our cost never leaves the vault (D115)`);
+      walk(x, here, depth + 1);
+    }
+  };
+  walk(index, 'index', 0);
+  walk(cards, 'cards', 0);
+  for (const id of ids) await env.FLEET_KV.put(`cust:${id}`, JSON.stringify(cards[id]));
+  for (const id of removed) await env.FLEET_KV.delete(`cust:${id}`);
+  if (index) await env.FLEET_KV.put('customers:index', JSON.stringify(index));
+  return json({ ok: true, built: typeof body.built === 'string' ? body.built : null, index: index ? index.customers.length : null, cards: ids.length, removed: removed.length });
 }
 
 /**

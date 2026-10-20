@@ -28,6 +28,12 @@
         </span>
         <span class="brand-name">WSS Fleet Tracker<span class="brand-ver" id="brand-ver" hidden></span></span>
       </a>
+      <!-- D115: the customer lookup — sales + owner; app.js hides it for the rest. -->
+      <a class="refresh cust-btn" id="cust-btn" href="#/customers" title="Customers" aria-label="Look up a customer" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.6-4.6"/>
+        </svg>
+      </a>
       <button class="refresh" id="refresh" type="button" title="Reload data" aria-label="Reload data">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>

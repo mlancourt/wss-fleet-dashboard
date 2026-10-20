@@ -4764,4 +4764,48 @@ await check('D108: a work order on a machine out on rent carries its site — ci
   await asFull('owner');
 });
 
+await check('D115 Customers: #/customers searches the index (keystrokes patch #cu-results); #/customer/<id> draws the card; service sees no door; a cards-less customer says so', async () => {
+  const snap = await asFull('sales');
+  let out = await renderRoute('#/customers');
+  await settle();
+  out = await renderRoute('#/customers');
+  assert.ok(out.includes('<h1>Customers</h1>') && out.includes('id="cu-q"'), 'the search box');
+  assert.ok(out.includes('QuickBooks sales history'), 'the caption');
+  // type: the input handler patches the results container only
+  const idx = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-customers.json'), 'utf8'));
+  const first = idx.index.customers[0];
+  const box = el('div'); nodes['#cu-results'] = box;
+  for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value: first.name.slice(0, 5), closest: () => null } });
+  assert.ok(box._html.includes(`href="#/customer/${first.id}"`) && box._html.includes(first.name), 'a hit for the typed name');
+  for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value: 'zzzz-nobody', closest: () => null } });
+  assert.ok(box._html.includes('No customer matches'), 'no hits says so');
+  for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value: '', closest: () => null } });
+  // the card
+  const withDocs = idx.index.customers.find((c) => idx.cards[c.id].docs.length >= 2);
+  out = await renderRoute(`#/customer/${withDocs.id}`);
+  await settle();
+  out = await renderRoute(`#/customer/${withDocs.id}`);
+  const card = idx.cards[withDocs.id];
+  assert.ok(out.includes(`<h1>${card.name}`) && out.includes('href="#/customers">‹ Customers'), 'header + crumb');
+  assert.ok(out.includes('Reach them') && out.includes(`mailto:${card.email}`), 'the contact block');
+  assert.ok(out.includes('<h2>Sales</h2>') && out.includes(`${card.sales_count} sale`), 'the sales caption');
+  assert.ok(out.includes(card.docs[0].date) && out.includes(`INV ${card.docs[0].num}`) || out.includes(`RCPT ${card.docs[0].num}`), 'the newest doc, date verbatim');
+  assert.ok(out.includes(card.docs[0].lines[0].desc.split('\n')[0].slice(0, 20)), 'a line description');
+  assert.ok(!/undefined|NaN/.test(out), 'nothing undefined');
+  // recent list remembers the open
+  const recent = JSON.parse(localStorage.getItem('wss.customers.recent'));
+  assert.equal(recent[0].id, String(withDocs.id));
+  // On the Tracker: the mock's customers are the snapshot's — at least one card has rows
+  const hasTracker = snap.service_queue.some((t) => t.customer === card.name) || snap.agreements.some((a) => a.customer === card.name) || snap.leads.some((l) => l.customer === card.name);
+  assert.equal(out.includes('On the Tracker'), hasTracker, 'tracker rows iff the snapshot names the customer');
+  // no sales → the empty line
+  const none = idx.index.customers.find((c) => idx.cards[c.id].docs.length === 0);
+  out = await renderRoute(`#/customer/${none.id}`); await settle(); out = await renderRoute(`#/customer/${none.id}`);
+  assert.ok(out.includes('No invoices in QuickBooks yet.'));
+  // tabs: neither route lights a tab (renderTabs toggles with !customers)
+  const unknown = await renderRoute('#/customer/999999'); await settle();
+  assert.ok((await renderRoute('#/customer/999999')).includes('isn’t published'), 'unknown id');
+  await asFull('owner');
+});
+
 console.log(`\n${passed} checks passed.`);
