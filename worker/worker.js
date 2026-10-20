@@ -329,7 +329,8 @@ const CUSTOMER_ONE_RE = /^\/api\/customer\/(.+)$/;
 const CUSTOMER_ID_RE = /^\d{1,12}$/;
 const CUSTOMERS_NEVER = /^(net|disc|cost|cost_total|margin|commission)$/i;   // what WE paid never leaves the vault (D45/D83)
 const MAX_CUSTOMERS_BYTES = 8 * 1024 * 1024;
-const MAX_CUSTOMER_CARDS = 2000;                  // per push; the engine sends only changed cards after the first
+const MAX_CUSTOMER_CARDS = 500;                   // per push — KV puts are subrequests (1,000/request cap); the engine batches 400
+const CUSTOMER_PUT_PARALLEL = 25;                 // a 1,515-card backfill put one key at a time took > 2 min and timed the engine out (10/20)
 const LISTING_PHOTO_TIMEOUT_MS = 2000;            // a slow image is no photo, never a slow send
 const LISTING_PHOTO_MAX_BYTES = 4 * 1024 * 1024;
 const RATE_LIMIT_PER_MIN = 30;                    // per IP on the customer routes
@@ -1768,8 +1769,12 @@ async function adminCustomers({ request, env }) {
   };
   walk(index, 'index', 0);
   walk(cards, 'cards', 0);
-  for (const id of ids) await env.FLEET_KV.put(`cust:${id}`, JSON.stringify(cards[id]));
-  for (const id of removed) await env.FLEET_KV.delete(`cust:${id}`);
+  for (let i = 0; i < ids.length; i += CUSTOMER_PUT_PARALLEL) {
+    await Promise.all(ids.slice(i, i + CUSTOMER_PUT_PARALLEL).map((id) => env.FLEET_KV.put(`cust:${id}`, JSON.stringify(cards[id]))));
+  }
+  for (let i = 0; i < removed.length; i += CUSTOMER_PUT_PARALLEL) {
+    await Promise.all(removed.slice(i, i + CUSTOMER_PUT_PARALLEL).map((id) => env.FLEET_KV.delete(`cust:${id}`)));
+  }
   if (index) await env.FLEET_KV.put('customers:index', JSON.stringify(index));
   return json({ ok: true, built: typeof body.built === 'string' ? body.built : null, index: index ? index.customers.length : null, cards: ids.length, removed: removed.length });
 }
