@@ -1,4 +1,4 @@
-/* Document attachments — `docs[]` on a ticket, a lead or an agreement (schema 6).
+/* Document attachments — `docs[]` on a ticket, a lead, an agreement, a parts order or (D116) a fleet work order (schema 6).
  *
  * Shared by tickets and leads because the row shape is identical:
  *   { id, name, kind, bytes, added }
@@ -69,7 +69,7 @@ export function humanBytes(n) {
 }
 
 /**
- * The document rows of a ticket, a lead or an agreement, ready to render.
+ * The document rows of a ticket, a lead, an agreement, a parts order or a work order, ready to render.
  *
  * Missing `docs` is `[]` — a schema-5 snapshot still on KV has no `docs` key
  * anywhere and must render exactly as it did before (forward/backward

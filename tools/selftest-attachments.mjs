@@ -163,7 +163,7 @@ check('"Other" on an image means PHOTO; on a PDF it stays OTHER', () => {
   assert.equal(resolveKind('', 'application/pdf'), 'OTHER');
 });
 
-check('a record is a ticket or a lead, and nothing else', () => {
+check('a record is a ticket, lead, parts order or work order, and nothing else', () => {
   for (const good of ['S1018', 'L1005', 'S0001', 'P1001', 'W1006']) assert.ok(DOC_RECORD_RE.test(good), good);
   for (const bad of ['X1', 'S101', 'S10188', 's1018', 'S1018 ', '../evt', '']) {
     assert.ok(!DOC_RECORD_RE.test(bad), bad);

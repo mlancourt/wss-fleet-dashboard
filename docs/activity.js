@@ -196,7 +196,7 @@ export function pendingActivityRows(pending, me, activity) {
 
 /**
  * Where a row goes, by the SHAPE of its record — not by its action (a
- * doc_attach is about a ticket or a lead; a work_order row may name a serial).
+ * doc_attach is about a ticket, lead, parts order or (D116) work order; a work_order row may name a serial).
  *   S1031 → the ticket · L1009 → the lead · W1003 → the work order · P1001 → the parts order ·
  *   a serial that is one of ours → the unit · anything else (a dispatch id, an
  *   agreement number, null) → no link: a plain row.
