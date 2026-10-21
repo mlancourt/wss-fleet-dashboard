@@ -114,7 +114,7 @@ export function docUrl(apiBase, id, token) {
 /* ===================================================== upload (S2) ======== */
 
 /** A ticket ("S1018"), a lead ("L1005") or — D88 — a parts order ("P1001"): what a doc can be attached to. */
-export const DOC_RECORD_RE = /^[SLP]\d{4}$/;
+export const DOC_RECORD_RE = /^[SLPW]\d{4}$/;   // D116 (2026-10-21): + a fleet work order (W1006)
 
 /**
  * The three buttons on the kind sheet, in order. PHOTO is deliberately NOT a

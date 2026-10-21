@@ -285,7 +285,7 @@ const DOC_SOURCES = new Set(['vault', 'crew']);
 const CREW_DOC_KINDS = new Set(['WORKORDER', 'PARTS-LIST', 'PHOTO', 'OTHER']);
 // A ticket ("S1018") or a lead ("L1005"). Shape only, as ever: whether that
 // record exists is the vault's call, not this file's.
-const DOC_RECORD_RE = /^[SLP]\d{4}$/;   // D88: + a parts order (P1001)
+const DOC_RECORD_RE = /^[SLPW]\d{4}$/;  // D88: + a parts order (P1001) · D116: + a fleet work order (W1006)
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const DOC_NAME_MAX = 120;
 
@@ -1212,7 +1212,7 @@ function cleanPayload(action, p, role, serial) {
     const doc_id = str(obj.doc_id, 64, 'doc_id', true);
     if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
     const record = str(obj.record, 16, 'record', true).toUpperCase();
-    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead or parts order id (S1018 / L1005 / P1001)');
+    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead, parts order or work order id (S1018 / L1005 / P1001 / W1006)');
     return {
       record,
       doc_id,
@@ -1228,7 +1228,7 @@ function cleanPayload(action, p, role, serial) {
     const doc_id = str(obj.doc_id, 64, 'doc_id', true);
     if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
     const record = str(obj.record, 16, 'record', true).toUpperCase();
-    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead or parts order id (S1018 / L1005 / P1001)');
+    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead, parts order or work order id (S1018 / L1005 / P1001 / W1006)');
     return { record, doc_id };
   }
 
@@ -2470,7 +2470,7 @@ async function crewDocPost({ request, me, env }) {
   const name = docName(request.headers.get('X-Doc-Name'));
 
   const record = (request.headers.get('X-Doc-Record') || '').trim().toUpperCase();
-  if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'X-Doc-Record must be a ticket, lead or parts order id (S1018 / L1005 / P1001)');
+  if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'X-Doc-Record must be a ticket, lead, parts order or work order id (S1018 / L1005 / P1001 / W1006)');
 
   const kind = (request.headers.get('X-Doc-Kind') || '').trim().toUpperCase();
   if (!CREW_DOC_KINDS.has(kind)) throw httpError(400, `X-Doc-Kind must be one of ${[...CREW_DOC_KINDS].join(', ')}`);

@@ -323,7 +323,8 @@ await check('D77: doc_detach — any role, {record, doc_id} only, no store check
   await refused('service', D({ record: 'S1034', doc_id: 'NOTHEX0000000000' }), 'bad doc_id', 400, 'doc_id');
   await refused('service', D({ record: 'S1034', doc_id: '../snapshot' }), 'path doc_id', 400, 'doc_id');
   await refused('service', D({ record: 'S1034' }), 'no doc_id', 400, 'doc_id');
-  await refused('service', D({ record: 'W1001', doc_id: '4f2a91c07be3d518' }), 'a work order is not a record', 400, 'record');
+  assert.equal((await ok('service', D({ record: 'W1001', doc_id: '4f2a91c07be3d518' }), 'D116: a fleet work order is a record')).payload.record, 'W1001');
+  await refused('service', D({ record: 'R4050', doc_id: '4f2a91c07be3d518' }), 'an agreement is not a record', 400, 'record');
   await refused('service', D({ doc_id: '4f2a91c07be3d518' }), 'no record', 400, 'record');
   await refused('owner', D({ record: 'S1034', doc_id: '4f2a91c07be3d518', price: 5 }), 'money on a detach', 400, '"price"');
   await refused('owner', { action: 'doc_delete', payload: { record: 'S1034', doc_id: '4f2a91c07be3d518' } }, 'unknown action', 400, 'unknown action');
