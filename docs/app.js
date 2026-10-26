@@ -53,6 +53,22 @@ async function postEvent(...args) {
   scheduleSettle();
   return stored;
 }
+/* ---- D119 (2026-10-26): a stage sheet reads the board before it opens -----
+ * The sheets pre-fill from the record (stageFields: "never invented"), so they
+ * are only as fresh as the snapshot. P1016: the web order adopted the record at
+ * 10:30 — an engine-side pull, nobody tapped — and Matt's page, open since
+ * before, offered the ORDERED gate with paid + invoice blank, asking him for
+ * what the engine had already written. A tap settles (D87), a return to the
+ * foreground re-reads, but a board that just sits there ages in silence. So:
+ * a stage tap on a snapshot older than FRESH_MS re-reads first, then opens.
+ * A failed read keeps the copy we have (refresh() leaves state.snapshot) and
+ * the sheet still opens — the engine refuses a bad gate either way.
+ */
+const FRESH_MS = 60 * 1000;
+async function openStageSheet(form) {
+  if (Date.now() - (state.loadedAt || 0) > FRESH_MS && !state.loading) await refresh();
+  ui.form = form; ui.msg = null; render();
+}
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && !ui.form && !state.loading) refresh().catch(() => {});
 });
@@ -127,7 +143,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-21-d116';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-26-d119';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -175,6 +191,7 @@ const state = {
   error: null,
   source: null,      // 'mock:full' | 'mock:empty' | 'mock:legacy' | 'api'
   loading: false,
+  loadedAt: 0,       // D119: Date.now() of the last successful read
   explainedPending: false,
 };
 
@@ -6088,6 +6105,7 @@ async function refresh() {
     const d = await loadData(ctx());
     state.me = d.me;
     state.snapshot = d.snapshot;
+    state.loadedAt = Date.now();   // D119: how old the board is, for the stage sheets' fresh-read
     state.pending = d.pending;
     state.source = d.source;
     state.error = null;
@@ -6646,9 +6664,7 @@ document.addEventListener('click', async (ev) => {
   const stg = ev.target.closest('[data-stage]');
   if (stg && !stg.disabled) {
     const ticket = decodeURIComponent(window.location.hash.split('/').pop());
-    ui.form = { kind: 'stage', id: ticket, arg: stg.dataset.stage };
-    ui.msg = null;
-    render();
+    openStageSheet({ kind: 'stage', id: ticket, arg: stg.dataset.stage });   // D119: fresh board first
     return;
   }
 
@@ -6666,9 +6682,7 @@ document.addEventListener('click', async (ev) => {
   const lstg = ev.target.closest('[data-lead-stage]');
   if (lstg && !lstg.disabled) {
     const lead = decodeURIComponent(window.location.hash.split('/').pop());
-    ui.form = { kind: 'lead-stage', id: lead, arg: lstg.dataset.leadStage };
-    ui.msg = null;
-    render();
+    openStageSheet({ kind: 'lead-stage', id: lead, arg: lstg.dataset.leadStage });   // D119: fresh board first
     return;
   }
 
@@ -6676,9 +6690,7 @@ document.addEventListener('click', async (ev) => {
   const pstg = ev.target.closest('[data-parts-stage]');
   if (pstg && !pstg.disabled) {
     const order = decodeURIComponent(window.location.hash.split('/').pop());
-    ui.form = { kind: 'parts-stage', id: order, arg: pstg.dataset.partsStage };
-    ui.msg = null;
-    render();
+    openStageSheet({ kind: 'parts-stage', id: order, arg: pstg.dataset.partsStage });   // D119: fresh board first
     return;
   }
   if (ev.target.closest('[data-parts-closed-toggle]')) { ui.showClosedParts = !ui.showClosedParts; render(); return; }
