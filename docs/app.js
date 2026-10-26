@@ -65,8 +65,12 @@ async function postEvent(...args) {
  * the sheet still opens — the engine refuses a bad gate either way.
  */
 const FRESH_MS = 60 * 1000;
+let loadPromise = null;   // the read in flight, so a stage tap during a settle/visibility refresh waits for it instead of opening stale (fresh-eyes 10/26)
 async function openStageSheet(form) {
-  if (Date.now() - (state.loadedAt || 0) > FRESH_MS && !state.loading) await refresh();
+  const at = window.location.hash;
+  if (loadPromise) await loadPromise;
+  else if (Date.now() - (state.loadedAt || 0) > FRESH_MS) await refresh();
+  if (window.location.hash !== at) return;   // the tech navigated away during the read — never open a sheet on a record they left
   ui.form = form; ui.msg = null; render();
 }
 document.addEventListener('visibilitychange', () => {
@@ -6099,6 +6103,11 @@ function render() {
 /* =============================================================== 12. boot == */
 
 async function refresh() {
+  if (loadPromise) return loadPromise;   // one read at a time; callers share it
+  loadPromise = refreshInner().finally(() => { loadPromise = null; });
+  return loadPromise;
+}
+async function refreshInner() {
   state.loading = true;
   renderHeader();
   try {
