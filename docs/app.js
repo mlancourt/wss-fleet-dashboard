@@ -35,21 +35,41 @@ import { searchCustomers, pushRecent, docStatus, docTitle, salesCaption, onTrack
  * while anything is still pending. Nothing here changes what a tap means. */
 let settleTimer = null;
 let settleTries = 0;   // bounded: a tap buys at most ~6 looks, then the next tap or reload takes over
+let settleAfter = null;   // D120: the Worker's `ts` of the newest tap — the board is settled only once it is newer than this
+/* D120 (2026-10-28): settled = the board CONTAINS the tap, not merely 'the queue is empty'.
+ * /api/data is two KV reads (snapshot + evt: list) that go consistent at different moments;
+ * on W1008 the ack cleared the pending list a few seconds before the new snapshot was
+ * visible at the edge, the loop read pending [] and quit, and the page kept the old board
+ * (TR 156970 still NEEDS-PREP four minutes after its close had published). Now a tap also
+ * records when the Worker took it, and the loop keeps looking until meta.generated_at
+ * passes that stamp. Same 6-try bound. A snapshot with no generated_at falls back to the
+ * old rule so an odd payload can never poll forever. */
+function unsettled() {
+  if (state.pending && state.pending.length) return true;
+  if (!settleAfter) return false;
+  const gen = state.snapshot && state.snapshot.meta && state.snapshot.meta.generated_at;
+  const t = gen ? Date.parse(gen) : NaN;
+  if (Number.isNaN(t)) return false;                              // unknowable — do not spin on it
+  if (t >= settleAfter) { settleAfter = null; return false; }     // the board has caught up with the tap
+  return true;
+}
 function scheduleSettle(ms = 15000) {
   clearTimeout(settleTimer);
   settleTimer = setTimeout(async () => {
     settleTimer = null;
-    if (!(state.pending && state.pending.length)) return;          // nothing left to settle
+    if (!unsettled()) return;                                      // nothing left to settle
     if (settleTries++ >= 6) return;                                // the engine is down or slow — stop polling
     if (ui.form || state.loading || document.visibilityState === 'hidden') { scheduleSettle(5000); return; }
     await refresh();
-    if (state.pending && state.pending.length) scheduleSettle(10000); // engine still chewing — look again
+    if (unsettled()) scheduleSettle(10000);                        // engine still chewing — look again
   }, ms);
   if (settleTimer && typeof settleTimer.unref === 'function') settleTimer.unref(); // Node (the test seam): never hold the process open
 }
 async function postEvent(...args) {
   const stored = await apiPostEvent(...args);
   settleTries = 0;
+  const ts = stored && stored.ts ? Date.parse(stored.ts) : NaN;    // D120: the Worker's clock, never the phone's
+  if (!Number.isNaN(ts)) settleAfter = Math.max(settleAfter || 0, ts);
   scheduleSettle();
   return stored;
 }
@@ -147,7 +167,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-26-d119';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-28-d120';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
