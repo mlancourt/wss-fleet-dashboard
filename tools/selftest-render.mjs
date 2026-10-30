@@ -12,12 +12,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { STAGES, STAGE_LABEL, PIPELINE_STAGES, columnsFor, sections as dispatchSections } from '../docs/service.js';
 import { BOARD_STAGES, NO_DATA } from '../docs/leads.js';
 import { utilization, utilizationFrom } from '../docs/metrics.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOCS = path.join(HERE, '..', 'docs');
+// A95 (2026-10-30): the committed docs/mock/ is a snapshot whose dates are baked at
+// generation, so every date-relative check here rotted ~5 days after each regen.
+// The suite now regenerates the mock into a temp dir on every run and reads from
+// there — the test clock and the fixture's clock are the same clock. docs/mock/
+// stays for the browser's ?mock= mode and is never touched by a test run.
+const MOCK = fs.mkdtempSync(path.join(os.tmpdir(), 'wss-mock-'));
+execFileSync(process.execPath, [path.join(HERE, 'make-mock-data.js'), MOCK], { stdio: 'ignore' });
+process.on('exit', () => fs.rmSync(MOCK, { recursive: true, force: true }));
 
 let passed = 0;
 const check = async (name, fn) => { await fn(); passed++; console.log(`  ok  ${name}`); };
@@ -112,7 +122,8 @@ const mapNodes = {};
 
 // The page fetches its own mock file relative to docs/.
 globalThis.fetch = async (url) => {
-  const file = path.join(DOCS, String(url).split('?')[0]);
+  const rel = String(url).split('?')[0];
+  const file = rel.startsWith('mock/') ? path.join(MOCK, rel.slice(5)) : path.join(DOCS, rel);   // A95: fresh mock
   if (!fs.existsSync(file)) return { ok: false, status: 404 };
   const text = fs.readFileSync(file, 'utf8');
   return { ok: true, status: 200, json: async () => JSON.parse(text), text: async () => text };
@@ -1493,7 +1504,7 @@ async function attach({ record, file, source = 'file', kindChoice = 'WORKORDER' 
  */
 const realFetch = globalThis.fetch;
 async function apiMode(handler) {
-  const snapshot = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const snapshot = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-full.json'), 'utf8'));
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
     if (u.endsWith('/api/data')) {
@@ -2606,7 +2617,7 @@ await check('D64: a legacy snapshot renders Rentals as before — all On rent, O
 
 /** API mode as a given identity, capturing every POST /api/event body. */
 async function apiAs(me, extraPending = []) {
-  const snapshot = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const snapshot = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-full.json'), 'utf8'));
   const posted = [];
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
@@ -3474,7 +3485,7 @@ const sheetCardOf = (out) => {
 
 /** A fake Worker for the sheet's saves: POSTs are stored and echoed; DELETE answers delStatus(id). */
 async function apiInsp(me, extraPending = [], { delStatus = () => 200, mutate = null } = {}) {
-  const snapshot = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const snapshot = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-full.json'), 'utf8'));
   if (mutate) mutate(snapshot);
   const posted = [];
   const deleted = [];
@@ -3882,7 +3893,7 @@ await check('D69: Done saves what is unsaved FIRST, then posts INSPECT DONE with
 });
 
 await check('D69: a NEW work order — the sheet saves keyed on the serial (no W-number), Done works, then it locks', async () => {
-  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const snap0 = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-full.json'), 'utf8'));
   const u = newUnitOf(snap0);
   const open = evt('2026-09-27T11:00:00.000Z:o1', '2026-09-27T11:00:00.000Z', 'Zac', 'service', u.serial, { action: 'OPEN', purpose: 'RETURN', note: null, parts: [] });
   const { posted, deleted } = await apiInsp({ name: 'Zac', role: 'service' }, [open]);
@@ -3914,7 +3925,7 @@ await check('D69: a NEW work order — the sheet saves keyed on the serial (no W
 });
 
 await check('D69: someone else\'s NEW work order is read-only here; undoing mine takes back everything keyed on its serial', async () => {
-  const snap0 = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
+  const snap0 = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-full.json'), 'utf8'));
   const u = newUnitOf(snap0);
   const open = evt('2026-09-27T11:00:00.000Z:o1', '2026-09-27T11:00:00.000Z', 'Zac', 'service', u.serial, { action: 'OPEN', purpose: 'PM', parts: [] });
   const save = evt('2026-09-27T11:01:00.000Z:s1', '2026-09-27T11:01:00.000Z', 'Zac', 'service', u.serial, { action: 'INSPECT', step: 'SAVE', readings: { hours_key: 9 } });
@@ -4351,7 +4362,7 @@ await check('D83: the composer renders from the catalog — To prefilled, note t
   // Pick a machine through the real click handler's state functions, then preview.
   const { addMachine, toggleOption, groupsFor, previewHtml } = await import('../docs/composer.js');
   const d = app.__quoteDrafts().get('L1005');
-  const cat = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-catalog.json'), 'utf8'));
+  const cat = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-catalog.json'), 'utf8'));
   const lead = app.__state().snapshot.leads.find((l) => l.lead === 'L1005');
   const line = addMachine(d, cat.machines[0], lead);
   toggleOption(d, line.id, groupsFor(cat, line)[0].items[1]);
@@ -4772,7 +4783,7 @@ await check('D115 Customers: #/customers searches the index (keystrokes patch #c
   assert.ok(out.includes('<h1>Customers</h1>') && out.includes('id="cu-q"'), 'the search box');
   assert.ok(out.includes('QuickBooks sales history'), 'the caption');
   // type: the input handler patches the results container only
-  const idx = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-customers.json'), 'utf8'));
+  const idx = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-customers.json'), 'utf8'));
   const first = idx.index.customers[0];
   const box = el('div'); nodes['#cu-results'] = box;
   for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value: first.name.slice(0, 5), closest: () => null } });

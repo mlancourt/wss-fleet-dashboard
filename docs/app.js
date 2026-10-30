@@ -47,7 +47,8 @@ let settleAfter = null;   // D120: the Worker's `ts` of the newest tap — the b
 function unsettled() {
   if (state.pending && state.pending.length) return true;
   if (!settleAfter) return false;
-  const gen = state.snapshot && state.snapshot.meta && state.snapshot.meta.generated_at;
+  const meta = (state.snapshot && state.snapshot.meta) || {};
+  const gen = meta.applied_through || meta.generated_at;         // A96: event-to-event when the engine ships it; clock-to-clock on an older snapshot
   const t = gen ? Date.parse(gen) : NaN;
   if (Number.isNaN(t)) return false;                              // unknowable — do not spin on it
   if (t >= settleAfter) { settleAfter = null; return false; }     // the board has caught up with the tap
@@ -167,7 +168,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-10-29-d123';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-10-30-a96';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.

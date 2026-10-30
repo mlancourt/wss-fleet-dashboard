@@ -1177,6 +1177,7 @@ function build({ withServiceQueue }) {
     meta: {
       schema_version: 7,
       generated_at: new Date().toISOString(),
+      applied_through: new Date().toISOString(),   // A96
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
       fleet_totals: totals,
       utilization,
