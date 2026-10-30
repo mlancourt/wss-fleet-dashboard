@@ -23,7 +23,7 @@
 
 export const LEAD_STAGES = ['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED'];
 export const LEAD_STATUSES = ['OPEN', 'WON', 'LOST', 'DEAD', 'SPAM'];   // SPAM (D84): the engine never ships one; tolerated, never drawn
-export const LEAD_SOURCES = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO'];
+export const LEAD_SOURCES = ['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO', 'WEB-CHAT', 'VOICEMAIL'];   // WEB-CHAT: D82 · VOICEMAIL: D123
 export const LEAD_INTERESTS = ['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS'];
 export const LOST_REASONS = ['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER'];
 export const LEAD_PRIORITIES = ['HIGH', 'MEDIUM', 'LOW'];
@@ -59,7 +59,7 @@ export const STATUS_LABEL = { OPEN: 'Open', WON: 'Won', LOST: 'Lost', DEAD: 'Dea
 export const SOURCE_LABEL = {
   'WEB-FORM': 'web form', 'PAID-SEARCH': 'paid search', PHONE: 'phone', EMAIL: 'email',
   'WALK-IN': 'walk-in', REFERRAL: 'referral', OUTBOUND: 'outbound',
-  'SERVICE-UPSELL': 'service upsell', MACHINIO: 'Machinio',
+  'SERVICE-UPSELL': 'service upsell', MACHINIO: 'Machinio', 'WEB-CHAT': 'web chat', VOICEMAIL: 'voicemail',
 };
 export const INTEREST_LABEL = {
   'SALE-NEW': 'New sale', 'SALE-USED': 'Used sale', RENTAL: 'Rental', SERVICE: 'Service', PARTS: 'Parts',

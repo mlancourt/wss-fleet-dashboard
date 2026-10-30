@@ -23,7 +23,7 @@
  */
 
 export const P_STAGES = ['REQUESTED', 'QUOTED', 'APPROVED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED'];
-export const P_SOURCES = ['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE', 'WEB-CHAT'];   // WEB-CHAT: D99
+export const P_SOURCES = ['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE', 'WEB-CHAT', 'VOICEMAIL'];   // WEB-CHAT: D99 · VOICEMAIL: D123
 export const P_TERMS = ['CASH', 'ACCOUNT'];
 export const P_SUPPLY = ['VENDOR', 'SHOP-STOCK'];
 export const P_SHIP_TO = ['CUSTOMER', 'SHOP'];
@@ -38,7 +38,7 @@ export const P_STAGE_LABEL = {
   ORDERED: 'Ordered', 'IN-TRANSIT': 'In transit', DELIVERED: 'Delivered',
 };
 export const P_SOURCE_LABEL = {
-  PHONE: 'phone', EMAIL: 'email', 'WEB-CART': 'web cart', 'WEB-FORM': 'web form', 'WALK-IN': 'walk-in', SERVICE: 'service', 'WEB-CHAT': 'web chat',
+  PHONE: 'phone', EMAIL: 'email', 'WEB-CART': 'web cart', 'WEB-FORM': 'web form', 'WALK-IN': 'walk-in', SERVICE: 'service', 'WEB-CHAT': 'web chat', VOICEMAIL: 'voicemail',
 };
 export const P_REASON_LABEL = {
   PRICE: 'Price', 'NO-RESPONSE': 'No response', 'SOURCED-ELSEWHERE': 'Got it elsewhere', OTHER: 'Other',

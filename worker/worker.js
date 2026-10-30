@@ -136,7 +136,7 @@ const DRIVERS = new Set(['Matt', 'Kevin', 'Josh', 'Zac']);
 // schema 5 — leads. Same rule as every list above: membership only. Whether a
 // lead may legally move to this stage today is the vault's call, never ours.
 const LEAD_STAGES = new Set(['RECEIVED', 'CONTACTED', 'QUOTED', 'DEMO-SCHEDULED', 'DEMO-DONE', 'PO-RECEIVED', 'INVOICED']);   // +PO-RECEIVED, D55
-const LEAD_SOURCES = new Set(['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO', 'WEB-CHAT']);   // WEB-CHAT: D82
+const LEAD_SOURCES = new Set(['WEB-FORM', 'PAID-SEARCH', 'PHONE', 'EMAIL', 'WALK-IN', 'REFERRAL', 'OUTBOUND', 'SERVICE-UPSELL', 'MACHINIO', 'WEB-CHAT', 'VOICEMAIL']);   // WEB-CHAT: D82 · VOICEMAIL: D123 (Wren, voicemail intake)
 const LEAD_INTERESTS = new Set(['SALE-NEW', 'SALE-USED', 'RENTAL', 'SERVICE', 'PARTS']);
 const LOST_REASONS = new Set(['PRICE', 'COMPETITOR', 'NO-BUDGET', 'TIMING', 'OTHER']);
 const LEAD_OUTCOMES = new Set(['LOST', 'DEAD', 'SPAM']);  // WON is reached by moving to INVOICED, not by closing; SPAM (D84) = never a lead
@@ -144,7 +144,7 @@ const ASSIGNEES = new Set(['Kevin', 'Matt']);
 // D88 — parts orders (Parts-Site-Spec §2/§3). The engine ships the same lists in
 // parts_summary; these are the Worker's copy, shape only.
 const P_STAGES = new Set(['REQUESTED', 'QUOTED', 'APPROVED', 'ORDERED', 'IN-TRANSIT', 'DELIVERED']);
-const P_SOURCES = new Set(['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE', 'WEB-CHAT']);   // WEB-CHAT: D99 (site chat parts hand-off)
+const P_SOURCES = new Set(['PHONE', 'EMAIL', 'WEB-CART', 'WEB-FORM', 'WALK-IN', 'SERVICE', 'WEB-CHAT', 'VOICEMAIL']);   // WEB-CHAT: D99 (site chat parts hand-off) · VOICEMAIL: D123
 const P_TERMS = new Set(['CASH', 'ACCOUNT']);
 const P_SUPPLY = new Set(['VENDOR', 'SHOP-STOCK']);
 const P_SHIP_TO = new Set(['CUSTOMER', 'SHOP']);
