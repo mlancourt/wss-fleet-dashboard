@@ -2545,6 +2545,20 @@ await check('D64: a Pending tile says how it leaves, and flags a passed out date
   assert.ok(puTile.includes(`data-id="OUT|${pu.agreement}"`) && puTile.includes('>Went out<'), 'Went out on a customer pick-up');
 });
 
+await check('A96: the settle test compares the tap to the board\'s own stamp — applied_through first, generated_at on an older snapshot, never spins without one', async () => {
+  const st = app.__state(); const keep = { pending: st.pending, meta: st.snapshot.meta };
+  const T = Date.parse('2026-10-30T14:00:00.000Z');
+  st.pending = [];
+  const say = (meta, after) => { st.snapshot.meta = meta; app.__settle.set(after); return app.__settle.unsettled(); };
+  assert.equal(say({ applied_through: '2026-10-30T13:59:59.000Z', generated_at: '2026-10-30T14:05:00.000Z' }, T), true, 'board older than the tap by its own stamp — keep looking, even though the clock is past');
+  assert.equal(say({ applied_through: '2026-10-30T14:00:00.000Z', generated_at: '2026-10-30T13:00:00.000Z' }, T), false, 'board holds the tap (equal stamp) — settled');
+  assert.equal(say({ applied_through: null, generated_at: '2026-10-30T13:59:00.000Z' }, T), true, 'null applied_through → the D120 clock rule still waits');
+  assert.equal(say({ generated_at: '2026-10-30T14:00:01.000Z' }, T), false, 'pre-A96 snapshot → the D120 clock rule settles');
+  assert.equal(say({}, T), false, 'no stamp at all → never spin');
+  assert.equal(say({ applied_through: '2026-10-30T13:00:00.000Z' }, null), false, 'no tap recorded → nothing to settle');
+  st.pending = keep.pending; st.snapshot.meta = keep.meta; app.__settle.set(null);
+});
+
 await check('D64: an On rent tile carries its age, and nags about the due-back date', async () => {
   const snap = await asFull('owner');
   const out = await renderRoute('#/rentals');

@@ -41,9 +41,11 @@ let settleAfter = null;   // D120: the Worker's `ts` of the newest tap — the b
  * on W1008 the ack cleared the pending list a few seconds before the new snapshot was
  * visible at the edge, the loop read pending [] and quit, and the page kept the old board
  * (TR 156970 still NEEDS-PREP four minutes after its close had published). Now a tap also
- * records when the Worker took it, and the loop keeps looking until meta.generated_at
- * passes that stamp. Same 6-try bound. A snapshot with no generated_at falls back to the
- * old rule so an odd payload can never poll forever. */
+ * records when the Worker took it, and the loop keeps looking until the board's own stamp
+ * passes it — meta.applied_through (A96, 2026-10-30: the newest Worker event the engine
+ * applied or rejected — event to event), or meta.generated_at on an older snapshot (the
+ * original D120 clock-to-clock rule). Same 6-try bound. A snapshot with neither falls back
+ * to the pending-only rule so an odd payload can never poll forever. */
 function unsettled() {
   if (state.pending && state.pending.length) return true;
   if (!settleAfter) return false;
@@ -7770,6 +7772,7 @@ refresh();
  * instead of a phone in a warehouse. Nothing in the page reads these. */
 export { render as __render, refresh as __refresh };
 export const __state = () => state;
+export const __settle = { unsettled, set: (ts) => { settleAfter = ts; } };   // A96: the test seam for the settle predicate
 export const __ui = () => ui;
 export const __flushSheets = async () => { flushAllSheets(); for (const l of sheetLocal.values()) await l.chain; };
 export const __sheetLocal = () => sheetLocal;
