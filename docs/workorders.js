@@ -320,11 +320,70 @@ export function laborProblem(travel, labor) {
  * TRAVEL first (the drive comes before the wrench). Same key, day, who and
  * note on both. [] when there's nothing valid to send — laborProblem says why.
  */
-export function laborPayloads({ key = {}, date = null, who, note = null, travel, labor }) {
+export function laborPayloads({ key = {}, date = null, who, note = null, travel, labor, damage = false }) {
   if (laborProblem(travel, labor)) return [];
+  // D126: the Damage toggle marks the LABOR (on the machine) hours only — Matt's
+  // standing rule: never bill the travel the job would have had anyway.
   return [['TRAVEL', travel], ['LABOR', labor]].filter(([, h]) => h > 0)
-    .map(([kind, hours]) => ({ action: 'LABOR', ...key, date, who, hours, kind, note }));
+    .map(([kind, hours]) => ({ action: 'LABOR', ...key, date, who, hours, kind, note, ...(damage && kind === 'LABOR' ? { damage: true } : {}) }));
 }
+
+/* ---- D126: rental damage ----
+ * A work order is a COST record; damage the renter caused is REVENUE. One
+ * boolean, `damage: true`, marks it on a part line, a labor entry or a flagged
+ * sheet row. The engine ships `damage` {lines, hours, flags, renter,
+ * billing_ticket} | null and `renter` {agreement, customer} | null — both
+ * absent on a pre-D126 snapshot, which reads exactly as "nothing marked".
+ * Counts only: never a price (the quote is Mission Control's). */
+export const isDamage = (x) => !!x && x.damage === true;
+export const damageOf = (wo) => (wo && wo.damage && typeof wo.damage === 'object' && !Array.isArray(wo.damage) ? wo.damage : null);
+export const renterOf = (wo) => {
+  const d = damageOf(wo);
+  const r = (d && d.renter) || (wo && wo.renter) || null;
+  return r && typeof r === 'object' && r.customer ? r : null;
+};
+const plural = (n, w) => `${fmtHours(n)} ${w}${n === 1 ? '' : 's'}`;
+/** "2 parts · 6 h" — the non-zero ones (spec §9's header). Findings only when nothing else is marked. */
+export function damageCounts(d) {
+  if (!d) return '';
+  const lines = num(d.lines) || 0;
+  const hours = num(d.hours) || 0;
+  const flags = num(d.flags) || 0;
+  const out = [lines ? plural(lines, 'part') : '', hours ? `${fmtHours(hours)} h` : ''].filter(Boolean);
+  if (!out.length && flags) out.push(plural(flags, 'finding'));
+  return out.join(' · ');
+}
+/**
+ * The header / card line, or null when nothing is marked:
+ *   { billed: 'S1063' }                                   CLOSED and handed off → "💥 billed → S1063"
+ *   { text: '💥 damage · 2 parts · 6 h', renter: 'Acme' }  marked, renter on record
+ *   { text: …, renter: null }                             marked, nobody to bill (amber)
+ */
+export function damageLine(wo) {
+  const d = damageOf(wo);
+  if (!d) return null;
+  if (d.billing_ticket) return { billed: d.billing_ticket, text: `💥 billed → ${d.billing_ticket}` };
+  const counts = damageCounts(d);
+  const r = renterOf(wo);
+  return { text: `💥 damage${counts ? ` · ${counts}` : ''}`, renter: r ? r.customer : null };
+}
+/**
+ * The Close sheet's damage part (spec §9): null = nothing marked (nothing new);
+ * { renter: null } = the amber note, no box; else the box's words.
+ */
+export function closeDamage(wo) {
+  const d = damageOf(wo);
+  if (!d || d.billing_ticket) return null;
+  const r = renterOf(wo);
+  if (!r) return { renter: null };
+  const lines = num(d.lines) || 0;
+  const hours = num(d.hours) || 0;
+  const flags = num(d.flags) || 0;
+  return { renter: r.customer,
+    label: `Open a damage ticket for ${r.customer} (${plural(lines, 'part')} · ${fmtHours(hours)} h · ${plural(flags, 'finding')})` };
+}
+/** A damage-only PART-STATE (no state, no source) — the per-line mark / unmark. */
+export const isDamageFlip = (p) => !!p && p.action === 'PART-STATE' && typeof p.damage === 'boolean' && !p.state && !p.source;
 
 /** "W1003 · RETURN · 📋 pending · 2 parts open · 1.5 h" — the unit page's chip (D69 §3). Engine counts only. */
 export function woChipText(wo, unit) {
@@ -338,6 +397,7 @@ export function woChipText(wo, unit) {
   bits.push(`${open} part${open === 1 ? '' : 's'} open`);
   if (hours != null) bits.push(`${fmtHours(hours)} h`);
   if (wo && wo.scheduled) bits.push(`📅 ${wo.scheduled}`);   // D92
+  if (damageOf(wo)) bits.push('💥');                          // D126
   return bits.join(' · ');
 }
 
@@ -538,7 +598,8 @@ export const pendingBySerial = (pending, serial) => (serial == null || !Array.is
 export const byTs = (a, b) => String(a.ts || a.id || '').localeCompare(String(b.ts || b.id || ''));
 
 /** Where a pending PART-STATE sends its line: "from stock" for a D68 pull, else the state. */
-export const pendingLineLabel = (p) => (p && p.source === 'SHOP-STOCK' ? 'from stock'
+export const pendingLineLabel = (p) => (isDamageFlip(p) ? (p.damage ? 'marked as damage' : 'unmarked')
+  : p && p.source === 'SHOP-STOCK' ? 'from stock'
   : (p && (PART_STATE_LABEL[p.state] || p.state)) || '');
 
 /** One line of English for a pending work_order tap, whatever verb it was. */
@@ -550,12 +611,14 @@ export function describeWoEvent(e) {
     case 'OPEN': return `new ${p.purpose ? `${PURPOSE_LABEL[p.purpose] || p.purpose} ` : ''}work order${n ? ` — ${parts}` : ''}`;
     case 'ADD-PARTS': {
       const stock = Array.isArray(p.parts) ? p.parts.filter((x) => x && x.source === 'SHOP-STOCK').length : 0;
-      return `${parts} added${stock ? ` (${stock} from stock)` : ''}`;
+      const dmg = Array.isArray(p.parts) ? p.parts.filter(isDamage).length : 0;
+      return `${parts} added${stock ? ` (${stock} from stock)` : ''}${dmg ? ` · 💥 ${dmg} damage` : ''}`;
     }
-    case 'PART-STATE': return `line ${p.line} → ${pendingLineLabel(p)}`;
-    case 'LABOR': return `${fmtHours(p.hours)} h${laborKindOf(p) === 'TRAVEL' ? ' travel' : ''} logged for ${p.who || 'someone'}`;
+    case 'PART-STATE': return isDamageFlip(p) ? `line ${p.line} ${pendingLineLabel(p)}` : `line ${p.line} → ${pendingLineLabel(p)}${p.damage === true ? ' · marked as damage' : ''}`;
+    case 'LABOR': return `${fmtHours(p.hours)} h${laborKindOf(p) === 'TRAVEL' ? ' travel' : ''} logged for ${p.who || 'someone'}${p.damage === true ? ' · 💥 damage' : ''}`;
     case 'SCHEDULE': return p.clear ? 'clear the scheduled date' : `scheduled for ${p.date || '?'}${p.tech ? ` (${p.tech})` : ''}`;   // D92
-    case 'CLOSE': return p.ready === false ? 'close (readiness left alone)' : 'close';
+    case 'CLOSE': return (p.ready === false ? 'close (readiness left alone)' : 'close')
+      + (p.bill === true ? '; damage ticket opens at the next run' : p.bill === false ? '; damage not billed' : '');   // D126
     case 'CANCEL': return 'cancel the work order';
     case 'INSPECT': return describeStep(p);
     default: return 'work order change';

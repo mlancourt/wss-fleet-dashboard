@@ -50,20 +50,36 @@ export function stagesFor(machineOwner) {
 }
 
 /**
+ * D126 — "nobody quotes us to us" is about WHO PAYS, not who owns the machine
+ * (the engine's wss_service.skips_apply, mirrored). The three skip stages are
+ * hidden when the ticket's customer is WSS / empty / null; a WSS-owned unit
+ * with a renter as customer (a rental-damage ticket) takes all ten.
+ */
+export const skipsApply = (customer) => {
+  const c = customer == null ? '' : String(customer).trim();
+  return !c || c.toUpperCase() === 'WSS';
+};
+/** The stages THIS ticket can take — keyed on its customer (D126), not machine_owner. */
+//   (A customer-owned ticket always has a paying customer — the engine requires
+//   one at open — so it never skips, whatever a stray row says.)
+export const stagesForTicket = (ticket) => (ticket && ticket.machine_owner !== 'CUSTOMER' && skipsApply(ticket.customer)
+  ? STAGES.filter((s) => !WSS_SKIP.has(s)) : STAGES.slice());
+
+/**
  * May this role move this ticket to this stage?
  *   stage changes at all   service | owner
  *   COMPLETE on a customer ticket   owner only (Matt closes after invoicing)
  */
 export function canStage(ticket, stage, role) {
   if (role !== 'service' && role !== 'owner') return false;
-  if (!stagesFor(ticket && ticket.machine_owner).includes(stage)) return false;
+  if (!stagesForTicket(ticket).includes(stage)) return false;
   if (stage === 'COMPLETE' && (!ticket || ticket.machine_owner !== 'WSS') && role !== 'owner') return false;
   return true;
 }
 
 /** The stage picker as data: what to draw, what's filled, what's disabled and why. */
 export function stageOptions(ticket, role) {
-  return stagesFor(ticket && ticket.machine_owner).map((stage) => ({
+  return stagesForTicket(ticket).map((stage) => ({
     stage,
     label: STAGE_LABEL[stage] || stage,
     current: !!ticket && ticket.stage === stage,
@@ -258,7 +274,11 @@ export function columnize(queue, { summary = null, filter = 'all', workOrders = 
   // display choice; dropping a ticket is data loss.
   const wos = boardWorkOrders(workOrders, filter);   // D92
   const extra = [...new Set(list.map((t) => t && t.stage).concat(wos.map(woStage)).filter((s) => s && !base.includes(s)))];
-  const byStage = base.concat(extra);
+  // D126: a stage the filter hides comes back IN ITS PLACE when a drawn card sits
+  // in it (a rental-damage ticket in NEEDS-QUOTE under Fleet); an unknown stage
+  // still trails at the end.
+  const byStage = STAGES.filter((s) => base.includes(s) || extra.includes(s))
+    .concat(base.filter((s) => !STAGES.includes(s)), extra.filter((s) => !STAGES.includes(s)));
   const open = summary && summary.open_by_stage;
   return byStage.map((stage) => {
     const tickets = list.filter((t) => t.stage === stage);

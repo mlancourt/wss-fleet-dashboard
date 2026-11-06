@@ -1378,7 +1378,7 @@ form.write .wo-line select, form.write .wo-line input { margin: 0; min-width: 0;
 .chip.stock { background: var(--ok-bg); color: var(--ok); }
 .chip.nopo { color: var(--ink-3); }
 @media (min-width: 700px) {
-  .wo-line { grid-template-columns: 150px 1fr 2fr 76px 170px; grid-template-areas: "mfr num desc qty src"; }
+  .wo-line { grid-template-columns: 150px 1fr 2fr 76px 260px; grid-template-areas: "mfr num desc qty src"; }
 }
 .stepper { display: flex; align-items: center; gap: 8px; }
 .stepper input { flex: 1 1 auto; text-align: center; font-variant-numeric: tabular-nums; margin: 0; }
@@ -1656,3 +1656,19 @@ a.alert.expired-holds { display: block; text-decoration: none; margin: 0 0 12px;
 .cu-line { display: grid; grid-template-columns: 3.2em 1fr auto; gap: 6px; font-size: 13px; padding: 2px 0; }
 .cu-qty { color: var(--slate-600); text-align: right; }
 .cu-desc { overflow-wrap: anywhere; }
+
+/* D126 — rental damage. Amber-on-bad red reads "this one gets billed" without
+   borrowing the brand red the buttons wear. Counts only; no money is drawn. */
+.chip.dmg { background: var(--bad-bg); color: #7F1D1D; font-weight: 600; text-decoration: none; }
+.chip.dmg.warn { background: var(--warn-bg); color: var(--warn); }
+a.chip.dmg { cursor: pointer; }
+.dmg { white-space: nowrap; }
+.kan-dmg { font-size: 12px; color: #7F1D1D; font-weight: 600; }
+.kan-dmg.warn { color: var(--warn); }
+.tg.dmg-tg.on { background: var(--bad); border-color: var(--bad); color: var(--white); }
+.dmg-wrap { display: flex; margin: 8px 0 2px; }
+.dmg-wrap .tg { flex: 1 1 auto; }
+.idmg { margin-top: 6px; }
+.idmg .tg { min-height: 36px; font-size: 13px; padding: 4px 10px; }
+form.write.inline.dmg-flip { background: none; border: 0; box-shadow: none; padding: 0; margin: 8px 0 0; }
+.check.dmg-bill { font-weight: 600; }

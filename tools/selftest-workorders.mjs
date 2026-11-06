@@ -12,6 +12,7 @@ import {
   PURPOSES, PURPOSE_LABEL, closeBlocker, readyOffered, stripCounts, stripTone, openWorkOrders, pendingBySerial, byTs,
   DELIVERED_DAYS, trackerGroups, trackerCounts, listFinal, inspectTone, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
   customerOrders, orderCounts, pipelineOrderChip, orderOf, ORDER_VENDORS, VENDORS, woSite, telTarget, OUT_STATES,
+  isDamage, damageOf, renterOf, damageCounts, damageLine, closeDamage, isDamageFlip,
 } from '../docs/workorders.js';
 
 let passed = 0;
@@ -529,6 +530,60 @@ check('D108: telTarget keeps digits and a leading +; too short → null', () => 
   assert.equal(telTarget('+1 262.555.0110'), '+12625550110');
   assert.equal(telTarget('ext 12'), null);
   assert.equal(telTarget(null), null);
+});
+
+check('D126: damageLine — counts → renter, amber with no renter, billed → S; null when nothing is marked or pre-D126', () => {
+  const renter = { agreement: 'R1', customer: 'Acme Foods' };
+  const open = { id: 'W1', status: 'OPEN', renter, damage: { lines: 2, hours: 6, flags: 1, renter, billing_ticket: null } };
+  assert.deepEqual(damageLine(open), { text: '💥 damage · 2 parts · 6 h', renter: 'Acme Foods' });
+  assert.deepEqual(damageLine({ ...open, renter: null, damage: { lines: 1, hours: 0, flags: 0, renter: null, billing_ticket: null } }),
+    { text: '💥 damage · 1 part', renter: null });
+  assert.equal(damageLine({ damage: { lines: 0, hours: 0, flags: 2, renter: null } }).text, '💥 damage · 2 findings', 'findings only when nothing else');
+  assert.deepEqual(damageLine({ status: 'CLOSED', damage: { ...open.damage, billing_ticket: 'S1063' } }), { billed: 'S1063', text: '💥 billed → S1063' });
+  assert.equal(damageLine({ id: 'W2', status: 'OPEN', damage: null, renter }), null);
+  assert.equal(damageLine({ id: 'W3', status: 'OPEN' }), null, 'pre-D126 row: no keys → nothing');
+  assert.equal(damageCounts({ lines: 0, hours: 1.5, flags: 0 }), '1.5 h');
+  assert.equal(renterOf({ renter }).customer, 'Acme Foods'); assert.equal(renterOf({}), null);
+  assert.equal(isDamage({ damage: true }), true); assert.equal(isDamage({ damage: 'true' }), false); assert.equal(isDamage({}), false);
+  assert.equal(damageOf({ damage: [] }), null, 'a list is not the roll-up');
+});
+
+check('D126: closeDamage — the box (renter), the note (none), nothing (no damage / already billed)', () => {
+  const renter = { agreement: 'R1', customer: 'Acme Foods' };
+  assert.deepEqual(closeDamage({ renter, damage: { lines: 2, hours: 6, flags: 1, renter, billing_ticket: null } }),
+    { renter: 'Acme Foods', label: 'Open a damage ticket for Acme Foods (2 parts · 6 h · 1 finding)' });
+  assert.equal(closeDamage({ damage: { lines: 1, hours: 0.5, flags: 0, renter, billing_ticket: null } }).label,
+    'Open a damage ticket for Acme Foods (1 part · 0.5 h · 0 findings)', 'the renter rides inside damage too');
+  assert.deepEqual(closeDamage({ renter: null, damage: { lines: 1, hours: 0, flags: 0, renter: null, billing_ticket: null } }), { renter: null });
+  assert.equal(closeDamage({ renter, damage: null }), null);
+  assert.equal(closeDamage({}), null, 'pre-D126');
+  assert.equal(closeDamage({ damage: { lines: 1, hours: 0, flags: 0, renter, billing_ticket: 'S1' } }), null);
+});
+
+check('D126: laborPayloads — Damage marks the LABOR hours only, never travel; off sends no key', () => {
+  const both = laborPayloads({ key: { work_order: 'W1' }, who: 'Josh', travel: 0.5, labor: 2, damage: true });
+  assert.equal(both[0].kind, 'TRAVEL'); assert.equal('damage' in both[0], false);
+  assert.equal(both[1].kind, 'LABOR'); assert.equal(both[1].damage, true);
+  const off = laborPayloads({ key: { work_order: 'W1' }, who: 'Josh', travel: 0, labor: 1 });
+  assert.equal(off.length, 1); assert.equal('damage' in off[0], false);
+  assert.equal(laborPayloads({ key: {}, who: 'Josh', travel: 1, labor: 0, damage: true })[0].damage, undefined, 'travel-only + Damage → nothing marked');
+});
+
+check('D126: pending copy — damage-only PART-STATE, damage on LABOR / ADD-PARTS, CLOSE with bill; the 💥 on the unit chip', () => {
+  const ev = (payload) => ({ action: 'work_order', payload });
+  assert.equal(isDamageFlip({ action: 'PART-STATE', line: 1, damage: true }), true);
+  assert.equal(isDamageFlip({ action: 'PART-STATE', line: 1, state: 'DELIVERED', damage: true }), false);
+  assert.equal(describeWoEvent(ev({ action: 'PART-STATE', line: 2, damage: true })), 'line 2 marked as damage');
+  assert.equal(describeWoEvent(ev({ action: 'PART-STATE', line: 2, damage: false })), 'line 2 unmarked');
+  assert.equal(pendingLineLabel({ action: 'PART-STATE', damage: true }), 'marked as damage');
+  assert.equal(describeWoEvent(ev({ action: 'LABOR', hours: 6, who: 'Josh', damage: true })), '6 h logged for Josh · 💥 damage');
+  assert.equal(describeWoEvent(ev({ action: 'ADD-PARTS', parts: [{ damage: true }, {}] })), '2 parts added · 💥 1 damage');
+  assert.equal(describeWoEvent(ev({ action: 'CLOSE', bill: true })), 'close; damage ticket opens at the next run');
+  assert.equal(describeWoEvent(ev({ action: 'CLOSE', bill: false })), 'close; damage not billed');
+  assert.equal(describeWoEvent(ev({ action: 'CLOSE' })), 'close', 'no bill key → today’s words');
+  const wo = { id: 'W1', purpose: 'REPAIR', parts_open: 0, hours_total: 3, inspection: { status: 'DONE', flags: 0 } };
+  assert.ok(!woChipText(wo, null).includes('💥'));
+  assert.ok(woChipText({ ...wo, damage: { lines: 1, hours: 0, flags: 0 } }, null).endsWith(' · 💥'));
 });
 
 console.log(`${passed} checks passed.`);

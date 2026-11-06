@@ -229,10 +229,10 @@ const INSP_SECTIONS = ['machine_class', 'body_style', 'battery', 'readings', 'ce
 const WO_KEYS = {
   OPEN: ['action', 'purpose', 'note', 'parts', 'inspection'],   // D69: `inspection` = a first SAVE (an object)
   'ADD-PARTS': ['action', 'work_order', 'parts'],
-  'PART-STATE': ['action', 'work_order', 'line', 'state', 'source', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],   // D68: source
-  LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'kind', 'note'],
+  'PART-STATE': ['action', 'work_order', 'line', 'state', 'source', 'date', 'vendor', 'vendor_ref', 'tracking', 'note', 'damage'],   // D68: source · D126: damage
+  LABOR: ['action', 'work_order', 'date', 'who', 'hours', 'kind', 'note', 'damage'],   // D126: damage
   SCHEDULE: ['action', 'work_order', 'date', 'tech', 'clear', 'note'],   // D92: date + tech, or clear: true
-  CLOSE: ['action', 'work_order', 'note', 'ready'],             // D69: ready (bool) — the close IS the ready call
+  CLOSE: ['action', 'work_order', 'note', 'ready', 'bill'],     // D69: ready (bool) — the close IS the ready call · D126: bill (bool)
   CANCEL: ['action', 'work_order', 'note'],
 };
 const WO_INSPECT_KEYS = {
@@ -241,7 +241,7 @@ const WO_INSPECT_KEYS = {
   SKIP: ['action', 'step', 'work_order', 'reason'],
   REOPEN: ['action', 'step', 'work_order', 'note'],
 };
-const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty', 'source']);   // D68: source
+const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty', 'source', 'damage']);   // D68: source · D126: damage
 /**
  * D65: NO MONEY FROM A PHONE, for any role, in any action. Cost is backfilled
  * in the vault from the vendor invoice (D66) and the shop rate lives there too;
@@ -887,6 +887,12 @@ function cleanPayload(action, p, role, serial) {
     return t;
   };
   const optStr = (v, max, field) => (v == null || v === '' ? null : str(v, max, field, true));
+  // D126: an optional boolean — absent stays absent (undefined); anything but true/false is a 400 by name.
+  const optBool = (v, field) => {
+    if (v == null) return undefined;
+    if (typeof v !== 'boolean') throw httpError(400, `${field} must be true or false`);
+    return v;
+  };
 
   /**
    * The inspection sheet's sections (D67 shapes; D69 they ride on work_order
@@ -988,11 +994,16 @@ function cleanPayload(action, p, role, serial) {
       const seen = new Set();
       out.items = list.map((it, i) => {
         if (!it || typeof it !== 'object' || Array.isArray(it)) throw httpError(400, `items[${i}] must be an object`);
-        for (const k of Object.keys(it)) if (!['id', 'result', 'note'].includes(k)) throw httpError(400, `items[${i}] does not take ${k}`);
+        for (const k of Object.keys(it)) if (!['id', 'result', 'note', 'damage'].includes(k)) throw httpError(400, `items[${i}] does not take ${k}`);
         if (typeof it.id !== 'string' || !INSP_ROW_ID_RE.test(it.id)) throw httpError(400, `items[${i}].id must look like ctl.key_switch`);
         if (seen.has(it.id)) throw httpError(400, `row ${it.id} is answered twice`);
         seen.add(it.id);
-        return { id: it.id, result: optOneOf(it.result, INSP_RESULTS, `items[${i}].result`), note: optStr(it.note, 120, `items[${i}].note`) };
+        const row = { id: it.id, result: optOneOf(it.result, INSP_RESULTS, `items[${i}].result`), note: optStr(it.note, 120, `items[${i}].note`) };
+        // D126: a renter-damage finding. Only meaningful beside a flag result —
+        // the engine drops it anywhere else; this file checks the type alone.
+        const dmg = optBool(it.damage, `items[${i}].damage`);
+        if (dmg !== undefined) row.damage = dmg;
+        return row;
       });
     }
     if ('comments' in src) out.comments = optStr(src.comments, 1000, `${at}comments`);
@@ -1315,6 +1326,9 @@ function cleanPayload(action, p, role, serial) {
         // D68: absent stays absent — the engine reads a missing source as VENDOR.
         const src = optOneOf(ln.source, WO_PART_SOURCES, `parts[${i}].source`);
         if (src) out.source = src;
+        // D126: the renter broke it — a boolean, never money. Absent = WSS's cost.
+        const dmg = optBool(ln.damage, `parts[${i}].damage`);
+        if (dmg !== undefined) out.damage = dmg;
         return out;
       });
     };
@@ -1361,7 +1375,21 @@ function cleanPayload(action, p, role, serial) {
       return { action: verb, step, ...key, note: note() };
     }
     if (verb === 'ADD-PARTS') return { action: verb, ...woKey(), parts: parts(true) };
-    if (verb === 'PART-STATE' && obj.source != null && obj.source !== '') {
+    // D126: `damage` on PART-STATE. A damage-only flip (no state, no source)
+    // marks / unmarks a line as the renter's and touches no state — any crew
+    // role, like the IN-TRANSIT / DELIVERED taps. Neither key → nothing to do.
+    const partDamage = verb === 'PART-STATE' ? optBool(obj.damage, 'damage') : undefined;
+    const noState = obj.state == null || obj.state === '';
+    const noSource = obj.source == null || obj.source === '';
+    if (verb === 'PART-STATE' && noState && noSource) {
+      if (partDamage === undefined) throw httpError(400, 'PART-STATE needs a state, source SHOP-STOCK, or damage — nothing to do');
+      for (const k of ['date', 'vendor', 'vendor_ref', 'tracking']) {
+        if (obj[k] != null && obj[k] !== '') throw httpError(400, `a damage-only PART-STATE has no ${k}`);
+      }
+      if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
+      return { action: verb, ...woKey(), line: obj.line, damage: partDamage, note: note() };
+    }
+    if (verb === 'PART-STATE' && !noSource) {
       // D68 "Use from stock": REQUESTED -> DELIVERED off the shelf. SHOP-STOCK is
       // the only source a tap may set here, `state` may be left off (or say
       // DELIVERED), and nothing vendor-shaped rides along — there was no order.
@@ -1375,10 +1403,12 @@ function cleanPayload(action, p, role, serial) {
       }
       if (role !== 'owner' && role !== 'service') throw httpError(403, `role ${role} cannot pull a part from stock`);
       if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
-      return {
+      const pull = {
         action: verb, ...woKey(), line: obj.line, state: 'DELIVERED', source: 'SHOP-STOCK',
         date: optDate(obj.date, 'date'), note: note(),
       };
+      if (partDamage !== undefined) pull.damage = partDamage;
+      return pull;
     }
     if (verb === 'PART-STATE') {
       const state = oneOf(obj.state, WO_PART_STATES, 'state');
@@ -1387,7 +1417,7 @@ function cleanPayload(action, p, role, serial) {
       if (state === 'ORDERED' && role !== 'owner') throw httpError(403, `role ${role} cannot mark a part ordered`);
       if (state !== 'ORDERED' && role !== 'owner' && role !== 'service') throw httpError(403, `role ${role} cannot move a part to ${state}`);
       if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
-      return {
+      const move = {
         action: verb,
         ...woKey(),
         line: obj.line,
@@ -1398,6 +1428,8 @@ function cleanPayload(action, p, role, serial) {
         tracking: optStr(obj.tracking, 60, 'tracking'),
         note: note(),
       };
+      if (partDamage !== undefined) move.damage = partDamage;
+      return move;
     }
     if (verb === 'LABOR') {
       const h = obj.hours;
@@ -1407,6 +1439,8 @@ function cleanPayload(action, p, role, serial) {
       // D71: travel vs labor hours. Absent = LABOR (the engine defaults it), so
       // the key is only stored when sent; case-insensitive, anything else a 400.
       if (obj.kind != null) out.kind = oneOf(String(obj.kind).toUpperCase(), WO_LABOR_KINDS, 'kind');
+      const dmg = optBool(obj.damage, 'damage');                     // D126: hours on renter damage
+      if (dmg !== undefined) out.damage = dmg;
       return out;
     }
     if (verb === 'SCHEDULE') {
@@ -1435,6 +1469,10 @@ function cleanPayload(action, p, role, serial) {
         if (typeof obj.ready !== 'boolean') throw httpError(400, 'ready must be true or false');
         out.ready = obj.ready;
       }
+      // D126: hand marked damage off to a ticket for the renter. Absent = the
+      // engine's default (true); anything but a boolean is a 400.
+      const bill = optBool(obj.bill, 'bill');
+      if (bill !== undefined) out.bill = bill;
       return out;
     }
     // CANCEL is owner, or whoever opened it while nothing has been ordered —

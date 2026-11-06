@@ -644,6 +644,7 @@ function build({ withServiceQueue }) {
   const service_queue = [];
   const dispatch = [];
   const dispatch_warnings = [];
+  let damageTicket = null;   // D126 — set inside, read by buildWorkOrders
 
   if (withServiceQueue) {
     // The two fleet machines that carry tickets: one DOWN in the shop, one that
@@ -691,6 +692,8 @@ function build({ withServiceQueue }) {
         // D81: the customer clock. waiting_days = calendar days in WAITING-ON-CUSTOMER (null elsewhere),
         // dormant = more than 14 of them, close_reason = "NO-RESPONSE" on an engine-closed dormant ticket.
         waiting_days: null, dormant: false, close_reason: null,
+        // D126: the W-number a rental-damage ticket was opened from — null on every other ticket.
+        damage_wo: null,
         ...t,
       };
       delete row.unit;
@@ -1045,6 +1048,32 @@ function build({ withServiceQueue }) {
       what: 'Parts pickup — Milwaukee supplier', customer: 'Halstead Parts Depot', address: 'Milwaukee WI',
       date: d(-2), driver: 'Zac', rig: 'JOSH-LIFTGATE', status: 'DONE', done: d(-2),
       note: 'Picked up both pump assemblies' });
+
+  // D126 — the rental-damage handoff. W1008 (built with the work orders below)
+  // closed three days ago with damage marked and a renter on record, so the
+  // engine opened this ticket: WSS-owned, the RENTER as customer, NEEDS-QUOTE,
+  // the damage block in `parts`, no price anywhere. The LAST home-and-ready
+  // unit with no ticket, so the fixtures that take the first one don't move.
+  {
+    const homeReady = units.filter((u) => u.unit_state === 'AVAILABLE' && u.readiness === 'READY' && !u.service_ticket && !(u.reservations || []).length);
+    const dmgUnit = homeReady[homeReady.length - 1];
+    if (dmgUnit) {
+      const renter = { agreement: 'R102126A', customer: 'Lakeshore Beverage' };
+      const block = ['Rental damage from W1008:', `- 1 × ${dmgUnit.brand === 'Kodiak' ? 'KODIAK' : 'FACTORY-CAT'} 290-1100 — Transaxle`,
+        `- 2 × ${dmgUnit.brand === 'Kodiak' ? 'KODIAK' : 'FACTORY-CAT'} 21-422S — Squeegee blade rear`, 'Labor: 2.5 h (damage)',
+        'Finding: Main power / key switch — PROBLEM (key snapped off in the switch)'].join('\n');
+      const t = ticket({
+        machine_owner: 'WSS', serial: dmgUnit.serial, customer: renter.customer,
+        equipment: `${dmgUnit.brand} ${dmgUnit.model} s/n ${dmgUnit.serial}`,
+        issue: `Rental damage — W1008 — ${renter.customer} (${renter.agreement}): 2 part lines, 2.5 h labor, 1 finding`,
+        stage: 'NEEDS-QUOTE', opened: -3, stage_since: -3, priority: 'MEDIUM', location: 'IN-SHOP',
+        intake_move: 'NONE', return_move: 'NONE', site: null, opened_by: 'Matt', parts: block, damage_wo: 'W1008',
+        log: [{ ts: `${d(-3)} 16:10`, who: 'engine', text: `opened from W1008 close — rental damage, ${renter.customer}` }],
+      });
+      dmgUnit.service_ticket = t.ticket;
+      damageTicket = { ticket: t.ticket, serial: dmgUnit.serial, renter };
+    }
+  }
   }
 
   // The nine-stage rollup the Service tab draws its column counts from.
@@ -1144,7 +1173,7 @@ function build({ withServiceQueue }) {
     buildLeads({ withLeads: withServiceQueue, demoHold, demoUnit: availReady[1], service_queue });
 
   // ------------------------------------------------- work orders (D65)
-  const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units, agreements });
+  const { work_orders, work_order_summary } = buildWorkOrders({ withWorkOrders: withServiceQueue, units, agreements, damageTicket });
 
   // ---------------------------------------------------- parts sales (D88)
   const { parts_orders, parts_summary } = buildParts({ withParts: withServiceQueue, service_queue, leads });
@@ -1462,16 +1491,17 @@ function buildActivity({ withActivity, units, service_queue, leads, work_orders,
  * NO money key anywhere: no cost, no cost_source_inv, no rate. The vault holds
  * those (D66) and the builder never emits them — nor does this file.
  */
-function buildWorkOrders({ withWorkOrders, units, agreements = [] }) {
+function buildWorkOrders({ withWorkOrders, units, agreements = [], damageTicket = null }) {
   for (const u of units) {
     u.work_order = null; u.wo_parts_open = 0; u.wo_inspection = null; u.last_inspection = null;
     u.hours = null; u.hours_as_of = null;
   }
   const empty = { open: 0, inspections_pending: 0, inspections_done_7d: 0, parts_requested: 0, parts_ordered: 0,
-    parts_in_transit: 0, delivered_30d: 0, open_by_stage: { 'WAITING-ON-PARTS': 0, SCHEDULED: 0, 'IN-PROGRESS': 0, 'READY-TO-SCHEDULE': 0 }, closed_window_days: 365 };
+    parts_in_transit: 0, delivered_30d: 0, open_by_stage: { 'WAITING-ON-PARTS': 0, SCHEDULED: 0, 'IN-PROGRESS': 0, 'READY-TO-SCHEDULE': 0 }, closed_window_days: 365,
+    damage_open: 0 };   // D126
   if (!withWorkOrders) return { work_orders: [], work_order_summary: empty };
 
-  const used = new Set();
+  const used = new Set(damageTicket ? [damageTicket.serial] : []);   // D126: W1008's unit is spoken for
   const take = (fn) => {
     const u = units.find((x) => !used.has(x.serial) && fn(x));
     if (u) used.add(u.serial);
@@ -1487,6 +1517,12 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [] }) {
   // phone — the case that sent a tech to an on-rent PM with no address on the card.
   const siteUnit = take((u) => u.unit_state === 'ON-RENT' && !u.service_ticket && u.agreement != null
     && agreements.some((a) => a.agreement === u.agreement && a.contact && a.contact.phone));
+  // D126: a repair on a machine out on rent that the renter broke (renter on record), and
+  // a return in the shop with damage marked but no renter the engine could resolve.
+  const damageUnit = take((u) => u.unit_state === 'ON-RENT' && !u.service_ticket && u.agreement != null && u.customer);
+  // (A home unit — the in-shop ones are spoken for by the pending-event fixtures.)
+  const noRenterUnit = take((u) => u.unit_state === 'AVAILABLE' && !u.service_ticket && !(u.reservations || []).length)
+    || take((u) => u.unit_state === 'AVAILABLE' && !u.service_ticket);
 
   const line = (n, o) => ({
     line: n, manufacturer: 'FACTORY-CAT', part_number: '', description: null, qty: 1,
@@ -1534,7 +1570,19 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [] }) {
         ? Math.round((TODAY - Date.parse(p.delivered + 'T00:00:00Z')) / DAY) : null;
     }
     // D71: a legacy row reads LABOR; the engine ships the key on every row.
-    row.labor = row.labor.map((l) => ({ ...l, kind: l.kind || 'LABOR' }));
+    row.labor = row.labor.map((l) => ({ ...l, kind: l.kind || 'LABOR', damage: l.damage === true }));
+    // D126: `damage` on every part and labor row (bool), `renter` on every work order, and the
+    // engine's `damage` roll-up — counts only — null when nothing is marked.
+    for (const p of row.parts) p.damage = p.damage === true;
+    row.renter = row.renter || null;
+    {
+      const lines = row.parts.filter((p) => p.damage && p.state !== 'CANCELLED').length;
+      const hours = row.labor.filter((l) => l.damage).reduce((n, l) => n + l.hours, 0);
+      const flags = (row.inspection.items || []).filter((i) => i.damage === true && FLAGS.includes(i.result)).length;
+      row.damage = lines || hours || flags
+        ? { lines, hours, flags, renter: row.renter, billing_ticket: row.billing_ticket || null } : null;
+      delete row.billing_ticket;
+    }
     row.parts_open = row.parts.filter((p) => p.state !== 'DELIVERED' && p.state !== 'CANCELLED').length;
     row.hours_total = row.labor.reduce((n, l) => n + l.hours, 0);
     // D92: the schedule fields + the derived stage, as the engine emits them.
@@ -1700,6 +1748,76 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [] }) {
     }));
   }
 
+  // D126 — rental damage. W1007: Josh found the renter's damage on a machine still out on rent
+  // (two parts, hours, a flagged finding — renter on record). W1008: closed three days ago and
+  // handed off → the NEEDS-QUOTE ticket built with the service queue. W1009: damage marked on a
+  // return, but no renter the engine could resolve — the Close sheet shows the amber note.
+  if (damageUnit) {
+    const m = mfr(damageUnit);
+    out.push(wo('W1007', damageUnit, {
+      age: 2, purpose: 'REPAIR', opened_by: 'Josh', note: 'forklift hit it — drive will not engage',
+      renter: { agreement: damageUnit.agreement, customer: damageUnit.customer },
+      inspection: sheet(damageUnit, {
+        status: 'DONE', done: d(-1), tech: 'Josh', readings: { hours_key: 702 },
+        items: [
+          { id: 'ctl.key_switch', result: 'PROBLEM', note: 'key snapped off in the switch', damage: true },
+          { id: 'ctl.drive_forward', result: 'REPAIR', note: 'worn contactor — age, not the renter' },
+        ],
+      }),
+      parts: [
+        line(1, { manufacturer: m, part_number: '290-1100', description: 'Transaxle', qty: 1, damage: true }),
+        line(2, { manufacturer: m, part_number: '21-422S', description: 'Squeegee blade rear', qty: 2,
+          state: 'DELIVERED', delivered: d(-1), source: 'SHOP-STOCK', damage: true }),
+        line(3, { manufacturer: m, part_number: '150-2210', description: 'Drive contactor', qty: 1 }),
+      ],
+      labor: [
+        { date: d(-1), who: 'Josh', hours: 0.75, kind: 'TRAVEL', note: 'out to the site' },
+        { date: d(-1), who: 'Josh', hours: 3, kind: 'LABOR', note: 'pulled the transaxle', damage: true },
+        { date: d(-1), who: 'Josh', hours: 0.5, kind: 'LABOR', note: 'contactor check' },
+      ],
+      log: logOf([
+        [ts(-2, '08:20'), 'Josh', 'opened by Josh (REPAIR) — 3 part line(s), inspection pending'],
+        [ts(-1, '15:30'), 'Josh', 'inspection DONE by Josh — 702 h written to the unit; 3/9 rows answered; 2 flag(s)'],
+      ]),
+    }));
+  }
+  if (damageTicket) {
+    const u = units.find((x) => x.serial === damageTicket.serial);
+    const m = mfr(u);
+    out.push(wo('W1008', u, {
+      age: 9, status: 'CLOSED', purpose: 'RETURN', closed: d(-3), opened_by: 'Zac',
+      note: 'back from Lakeshore — forks went through the deck',
+      renter: damageTicket.renter, billing_ticket: damageTicket.ticket,
+      inspection: sheet(u, {
+        status: 'DONE', done: d(-6), tech: 'Zac', readings: { hours_key: 1188 },
+        items: [{ id: 'ctl.key_switch', result: 'PROBLEM', note: 'key snapped off in the switch', damage: true }],
+      }),
+      parts: [
+        line(1, { manufacturer: m, part_number: '290-1100', description: 'Transaxle', qty: 1,
+          state: 'DELIVERED', ordered: d(-8), vendor: 'RPS', vendor_ref: 'SO-449930', delivered: d(-5), damage: true }),
+        line(2, { manufacturer: m, part_number: '21-422S', description: 'Squeegee blade rear', qty: 2,
+          state: 'DELIVERED', delivered: d(-6), source: 'SHOP-STOCK', damage: true }),
+      ],
+      labor: [
+        { date: d(-5), who: 'Zac', hours: 2.5, kind: 'LABOR', note: 'transaxle swap', damage: true },
+        { date: d(-6), who: 'Zac', hours: 1, kind: 'LABOR', note: 'return check + the sheet' },
+      ],
+      log: logOf([
+        [ts(-9, '10:05'), 'Zac', 'opened by Zac (RETURN) — 0 part line(s), inspection pending; renter Lakeshore Beverage'],
+        [ts(-3, '16:10'), 'Matt', 'CLOSED by Matt'],
+        [ts(-3, '16:10'), 'engine', `damage handed off → ${damageTicket.ticket} (NEEDS-QUOTE, Lakeshore Beverage)`],
+      ]),
+    }));
+  }
+  if (noRenterUnit) {
+    out.push(wo('W1009', noRenterUnit, {
+      age: 1, purpose: 'RETURN', opened_by: 'Zac', note: 'came back from a demo with a cracked cover',
+      inspection: sheet(noRenterUnit, { status: 'SKIPPED', skipped_reason: 'cover only — looked it over at the dock', done: d(0), tech: 'Zac' }),
+      labor: [{ date: d(0), who: 'Zac', hours: 1.5, kind: 'LABOR', note: 'cover swap', damage: true }],
+      log: logOf([[ts(-1, '13:40'), 'Zac', 'opened by Zac (RETURN) — 0 part line(s), inspection pending']]),
+    }));
+  }
+
   const lines = out.flatMap((w) => w.parts.map((p) => ({ w, p })));
   const cnt = (st) => lines.filter(({ p }) => p.state === st).length;
   return {
@@ -1715,6 +1833,7 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [] }) {
       open_by_stage: ['WAITING-ON-PARTS', 'SCHEDULED', 'IN-PROGRESS', 'READY-TO-SCHEDULE']                   // D92
         .reduce((o, st) => ({ ...o, [st]: out.filter((w) => w.stage === st).length }), {}),
       closed_window_days: 365,                                                                              // D70
+      damage_open: out.filter((w) => w.status === 'OPEN' && w.damage && !w.damage.billing_ticket).length,  // D126
     },
   };
 }

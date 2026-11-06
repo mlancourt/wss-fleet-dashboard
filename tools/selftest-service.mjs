@@ -9,6 +9,7 @@ import {
   missingMoves, openCount, dispatchFor, sortOpen, sortByKind, groupByDate, sections, rigClash,
   driverChoices, defaultDriver, canCancel, unbookedPickups, fleetSerialIn,
   WO_STAGES, woStage, boardWorkOrders, sortWorkOrders,
+  skipsApply, stagesForTicket,
 } from '../docs/service.js';
 
 let passed = 0;
@@ -174,9 +175,10 @@ check('columnize under Fleet draws seven columns but never drops a ticket', () =
   assert.deepEqual(columnize(q, { filter: 'WSS' }).map((c) => c.stage), columnsFor('WSS'));
   // A WSS ticket the engine parked in a hidden stage still gets a column —
   // hiding a column is a display choice, losing a ticket is data loss.
+  // D126: it comes back IN ITS PLACE (stage order), not tacked on after Complete.
   const odd = columnize(q.concat([T('S3', 'READY-TO-INVOICE', 'WSS')]), { filter: 'WSS' });
   assert.equal(odd.length, 8);
-  assert.equal(odd[7].stage, 'READY-TO-INVOICE');
+  assert.deepEqual(odd.map((c) => c.stage).slice(-2), ['READY-TO-INVOICE', 'COMPLETE']);
   assert.equal(odd.reduce((n, c) => n + c.tickets.length, 0), 3);
 });
 
@@ -534,6 +536,33 @@ check('D70: fleetSerialIn — a serial or asset # (5+ chars, any case) in the te
   assert.equal(fleetSerialIn(null, U), null);
   assert.equal(fleetSerialIn('900317', undefined), null, 'no units, no match');
   assert.equal(fleetSerialIn('900450 then 900317', U).serial, '900317', 'first unit in the fleet list wins');
+});
+
+check('D126: the WSS skip set keys on the customer (WSS / empty / null), not machine_owner', () => {
+  assert.equal(skipsApply('WSS'), true); assert.equal(skipsApply(' wss '), true);
+  assert.equal(skipsApply(''), true); assert.equal(skipsApply(null), true); assert.equal(skipsApply(undefined), true);
+  assert.equal(skipsApply('Acme Foods'), false);
+  const dmg = T('S9', 'NEEDS-QUOTE', 'WSS', { customer: 'Acme Foods', damage_wo: 'W1006' });
+  assert.deepEqual(stagesForTicket(dmg), STAGES, 'a renter-billed fleet ticket takes all ten');
+  for (const st of ['NEEDS-QUOTE', 'WAITING-ON-CUSTOMER', 'READY-TO-INVOICE']) assert.equal(canStage(dmg, st, 'service'), true, st);
+  assert.equal(stageOptions(dmg, 'owner').length, 10);
+  const ours = T('S8', 'IN-PROGRESS', 'WSS', { customer: 'WSS' });
+  assert.equal(stagesForTicket(ours).length, 7);
+  assert.equal(canStage(ours, 'NEEDS-QUOTE', 'owner'), false, 'nobody quotes us to us');
+  assert.equal(canStage(T('S7', 'IN-PROGRESS', 'WSS', { customer: null }), 'READY-TO-INVOICE', 'owner'), false);
+  // a customer-owned ticket always takes all ten (it has a paying customer by construction)
+  assert.equal(stagesForTicket(T('S6', 'RECEIVED', 'CUSTOMER')).length, 10);
+});
+
+check('D126: under Fleet, NEEDS-QUOTE shows (in its place) only while a drawn fleet card sits in it', () => {
+  const base = [T('S1', 'RECEIVED', 'WSS', { customer: 'WSS' }), T('S2', 'IN-PROGRESS', 'WSS', { customer: 'WSS' })];
+  assert.equal(columnize(base, { filter: 'WSS' }).some((c) => c.stage === 'NEEDS-QUOTE'), false, 'hidden with no card there');
+  const cols = columnize(base.concat([T('S3', 'NEEDS-QUOTE', 'WSS', { customer: 'Acme Foods', damage_wo: 'W1006' })]), { filter: 'WSS' });
+  assert.deepEqual(cols.map((c) => c.stage).slice(0, 4), ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', 'WAITING-ON-PARTS']);
+  assert.equal(cols.find((c) => c.stage === 'NEEDS-QUOTE').tickets[0].ticket, 'S3');
+  assert.equal(cols.some((c) => c.stage === 'WAITING-ON-CUSTOMER' || c.stage === 'READY-TO-INVOICE'), false, 'the other two stay hidden');
+  // the Customer chip never draws a WSS-owned ticket (the pipeline stays customer-only, D43)
+  assert.equal(columnize(cols.flatMap((c) => c.tickets), { filter: 'CUSTOMER' }).reduce((n, c) => n + c.tickets.length, 0), 0);
 });
 
 console.log(`\n${passed} checks passed.`);

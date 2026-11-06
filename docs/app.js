@@ -124,6 +124,7 @@ import {
   unitHistory, historyCaption, HISTORY_FIRST, woSite, telTarget, laborWho, laborKindOf, LABOR_KIND_LABEL, travelHours,
   laborPayloads, laborProblem, trackerGroups, trackerCounts, inspectTone,
   ORDER_VENDORS, orderOf, customerOrders, orderCounts, pipelineOrderChip,
+  isDamage, damageOf, damageLine, closeDamage, isDamageFlip,   // D126
 } from './workorders.js';
 import {
   CLASSES, CLASS_LABEL, BODY_STYLES, BODY_STYLE_LABEL,
@@ -170,7 +171,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-06-d125';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-06-d126';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -929,6 +930,7 @@ function trackerLine({ wo, part }) {
       </a>
       <div class="chips">
         ${part.state !== 'DELIVERED' ? raw(chip((PART_STATE_LABEL[part.state] || part.state).toLowerCase(), TRACKER_STATE_CLS[part.state] || '')) : ''}
+        ${isDamage(part) ? raw(chip('💥', 'dmg')) : ''}
         ${raw(partTrailChips(part))}
         ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
@@ -1050,6 +1052,7 @@ function woStripRow(wo) {
       <div class="chips">
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">${asset}</a>
         ${raw(chip(`📋 ${sheetChipText(b)}`, `insp ${stale ? 'amber' : sheetChipTone(b)}`))}
+        ${damageOf(wo) ? raw(chip('💥', 'dmg')) : ''}
         ${typeof wo.age_days === 'number' ? raw(chip(ageText(wo.age_days), `age${stale ? ' amber' : ''}`)) : ''}
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
       </div>
@@ -1536,9 +1539,19 @@ function partLineRow(mfr, desc = '') {
       <div class="wo-src" role="group" aria-label="Order or from stock">
         <button type="button" class="tg on" data-wo-src="VENDOR">Order</button>
         <button type="button" class="tg" data-wo-src="SHOP-STOCK">Stock</button>
+        ${raw(damageToggle('p_dmg', 'Damage'))}
       </div>
       <input type="hidden" name="p_src" value="VENDOR">
     </div>`;
+}
+/**
+ * D126 — the 💥 Damage toggle: off by default, a tap flips it in place (typed
+ * fields survive). The hidden input right after it is what the form reads —
+ * '1' when on. Used on part lines (p_dmg) and + Log hours (damage); a flagged
+ * inspection row has its own (data-idmg — it saves through the sheet).
+ */
+function damageToggle(name, label, on = false) {
+  return html`<button type="button" class="tg dmg-tg${on ? ' on' : ''}" data-dmg-toggle aria-pressed="${on ? 'true' : 'false'}">💥 ${label}</button><input type="hidden" name="${name}" value="${on ? '1' : ''}">`;
 }
 function partLinesEditor(mfr, required, desc = '') {
   return html`
@@ -2489,6 +2502,7 @@ function ticketCard(t) {
         ${t.assigned ? raw(html`<span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}
         ${hasMove ? raw('<span class="truck" title="has a truck move">🚚</span>') : ''}
         ${woId ? raw(html`<span class="kan-wo" title="work order ${woId}">🔧 ${woId}</span>`) : ''}
+        ${t.damage_wo ? raw(html`<span class="kan-dmg" title="rental damage from ${t.damage_wo}">💥 Rental damage · from ${t.damage_wo}</span>`) : ''}
         ${siteCity(t.site) ? raw(html`<span class="kan-city" title="${t.site}">${siteCity(t.site)}</span>`) : ''}
         ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
       </div>
@@ -2523,10 +2537,19 @@ function woCard(w) {
         ${w.scheduled ? raw(html`<span class="kan-sched${late ? ' late' : ''}" title="scheduled">📅 ${fmtMD(w.scheduled)}${w.scheduled_tech ? ` · ${w.scheduled_tech}` : ''}</span>`) : ''}
         ${(Number(w.parts_open) || 0) > 0 ? raw(html`<span class="kan-parts">🔩 ${w.parts_open}</span>`) : ''}
         ${ins === 'PENDING' ? raw('<span class="kan-insp" title="inspection pending">📋</span>') : ''}
+        ${raw(woCardDamage(w))}
         ${city ? raw(html`<span class="kan-city" title="${site.address}">${city}</span>`) : ''}
         ${pend.length ? raw('<span class="kan-pend">⏳</span>') : ''}
       </div>
     </a>`;
+}
+
+/** D126 — the WO card's foot: `💥 damage · 2 parts · 6 h → Acme` (amber with no renter), or `💥 billed → S1063`. */
+function woCardDamage(w) {
+  const d = damageLine(w);
+  if (!d) return '';
+  const text = d.billed ? d.text : d.renter ? `${d.text} → ${d.renter}` : `${d.text} · no renter on record`;
+  return html`<span class="kan-dmg${d.billed || d.renter ? '' : ' warn'}">${text}</span>`;
 }
 
 /** D108 — a contact's phone (tap to call) · email (tap to mail); '' when neither. */
@@ -2677,6 +2700,7 @@ function viewTicket(id) {
         ${isDormant(t) ? raw(chip('💤 Dormant', 'warn')) : ''}
         ${/* D69: read-only — the work orders on this ticket (or its unit's open one), each with its sheet. */
           raw(ticketWoChips(t, u))}
+        ${t.damage_wo ? raw(html`<a class="chip dmg" href="#/wo/${raw(enc(t.damage_wo))}">💥 Rental damage · from ${t.damage_wo}</a>`) : ''}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
     </div>${raw(orderBlock(t))}
@@ -2982,6 +3006,7 @@ function viewNumberedWorkOrder(c, crumb) {
       <div class="chips">
         <a class="chip asset" href="#/unit/${raw(enc(wo.serial))}">#${wo.serial}${u ? ` ${unitName(u)}` : ''}</a>
         ${wo.ticket ? raw(html`<a class="chip wrench" href="#/ticket/${raw(enc(wo.ticket))}">🔧 ${wo.ticket}</a>`) : ''}
+        ${raw(damageChip(wo))}
         ${isOpen ? '' : raw(chip('CLOSED', 'ok'))}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
@@ -3103,6 +3128,7 @@ const laborRow = (l) => html`
       <span class="lrow-w">${l.who || '—'}</span>
       ${raw(chip(LABOR_KIND_LABEL[laborKindOf(l)], `lkind ${laborKindOf(l) === 'TRAVEL' ? 'travel' : 'labor'}`))}
       <span class="lrow-h">${fmtHours(l.hours)} h</span>
+      ${isDamage(l) ? raw(chip('💥 damage', 'dmg')) : ''}
       ${l.note ? raw(html`<span class="lrow-n">${l.note}</span>`) : ''}
     </div>`;
 /** "+ Log hours" — on a RETURN / CHECKOUT / PM the sheet is most of the job, so it says so (D69 §4.4). */
@@ -3114,10 +3140,27 @@ function laborButton(c) {
 /** A work-order form's key: the W-number, or — not numbered yet — the serial (D69: exactly one). */
 const woKeyAttr = (c) => (c.isNew ? html`data-serial="${c.serial}"` : html`data-wo="${c.id}"`);
 
+/**
+ * D126 — the work order's damage line: `💥 damage · 2 parts · 6 h → Acme`
+ * (amber `no renter on record` when nobody can be billed); CLOSED and handed
+ * off → `💥 billed → S1063`, a link to that ticket. '' when nothing is marked.
+ */
+function damageChip(wo) {
+  const d = damageLine(wo);
+  if (!d) return '';
+  if (d.billed) return html`<a class="chip dmg" href="#/ticket/${raw(enc(d.billed))}">${d.text}</a>`;
+  return d.renter ? chip(`${d.text} → ${d.renter}`, 'dmg') : chip(`${d.text} · no renter on record`, 'dmg warn');
+}
+
 /** One part line on the work-order page, with the buttons its state + your role get. */
 function woPartRow(wo, part, pend, me) {
-  const mine = pend.filter((e) => pl(e).action === 'PART-STATE' && pl(e).line === part.line);
+  const lineEvts = pend.filter((e) => pl(e).action === 'PART-STATE' && pl(e).line === part.line);
+  const mine = lineEvts.filter((e) => !isDamageFlip(pl(e)));
+  const flip = lineEvts.find((e) => isDamageFlip(pl(e))) || null;    // D126
   const acts = mine.length ? [] : partActions(wo, part, role(), me);
+  // D126: mark / unmark as the renter's — any crew role, on an open work order, never on a cancelled line.
+  const canFlip = !flip && wo.status === 'OPEN' && part.state !== 'CANCELLED' && !!role();
+  const dmgNow = flip ? pl(flip).damage === true : isDamage(part);
   const cls = { REQUESTED: 'warn', ORDERED: 'hold', 'IN-TRANSIT': 'rent', DELIVERED: 'ok', CANCELLED: '' }[part.state] || '';
   const tone = lineTone(wo, part, PARTS_AMBER, PARTS_RED);
   const open = ui.form && ui.form.kind === 'wo-part' ? String(ui.form.id).split('|') : null;
@@ -3128,13 +3171,16 @@ function woPartRow(wo, part, pend, me) {
         <span class="drow-what"><span class="wo-ln">${part.line}</span> <span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
         ${raw(isStockLine(part) ? chip('stock', 'stock') : chip(PART_STATE_LABEL[part.state] || part.state, cls))}
       </div>
-      <div class="drow-meta">${part.description || ''}${part.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[part.manufacturer] || part.manufacturer}`) : ''}${sourceOf(part) === 'WARRANTY' ? ' · warranty' : ''}</div>
+      <div class="drow-meta">${part.description || ''}${dmgNow ? raw(' <span class="dmg">💥</span>') : ''}${part.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[part.manufacturer] || part.manufacturer}`) : ''}${sourceOf(part) === 'WARRANTY' ? ' · warranty' : ''}</div>
       <div class="chips">
         ${raw(isStockLine(part) ? chip('ordered — · vendor — · tracking —', 'cal nopo') : partTrailChips(part, true))}
         ${part.delivered ? raw(chip(`delivered ${fmtDate(part.delivered)}`, 'ok')) : ''}
         ${tone && typeof wo.age_days === 'number' ? raw(chip(`${ageText(wo.age_days)} unordered`, `age ${tone}`)) : ''}
       </div>
       ${mine.length ? raw(html`<div class="row-pending">⏳ → ${pendingLineLabel(pl(mine[0]))} — applies at the next run</div>`) : ''}
+      ${flip ? raw(html`<div class="row-pending">⏳ ${pendingLineLabel(pl(flip))} — applies at the next run</div>`) : ''}
+      ${canFlip ? raw(html`<form class="write inline dmg-flip" data-action="work_order" data-verb="PART-STATE" data-wo="${wo.id}" data-line="${part.line}" data-damage="${isDamage(part) ? '0' : '1'}">
+        <button class="btn sm ghost" type="submit">${isDamage(part) ? 'Not damage' : '💥 Mark as damage'}</button></form>`) : ''}
       ${acts.length ? raw(html`<div class="drow-btns">${raw(acts.map((st) => html`
         <button class="btn sm${st === 'CANCELLED' ? ' ghost' : ''}" type="button" data-sheet="wo-part" data-id="${wo.id}|${part.line}|${st}">${PART_VERB_LABEL[st]}</button>`).join(''))}</div>`) : ''}
       ${sheetState ? raw(woPartStateForm(wo, part, sheetState)) : ''}
@@ -3221,6 +3267,8 @@ function woLaborForm(c) {
       <div class="form-note">The day the work happened.</div>
       ${raw(hoursStepper('travel', 'Travel (drive time)', 0))}
       ${raw(hoursStepper('labor', 'Labor (on the machine)', 1))}
+      <div class="dmg-wrap">${raw(damageToggle('damage', 'Damage — the renter broke it'))}</div>
+      <div class="form-note">Damage marks the labor hours as the renter's — billed at the close. Travel never is.</div>
       <label>Who</label>
       ${raw(toggle('who', DRIVERS.map((n) => [n, n]), me))}
       <label for="wl-note">Note (optional)</label>
@@ -3288,6 +3336,7 @@ function woFooter(c, me) {
         <div class="confirm-line">Close <strong>${wo.id}</strong>${c.u ? ` on ${unitName(c.u)}` : ''}?</div>
         ${offerReady ? raw(html`<label class="check"><input type="checkbox" name="ready" value="1" checked>
           Mark READY${readiness && readiness !== 'READY' ? ` (now ${READY_LABEL[readiness] || readiness})` : ''}</label>`) : ''}
+        ${raw(closeDamageHtml(wo))}
         <label for="wc-note">Note (optional)</label>
         <textarea id="wc-note" name="note" maxlength="200"></textarea>
         ${raw(sheetButtons(`Close ${wo.id}`))}
@@ -3300,6 +3349,15 @@ function woFooter(c, me) {
         ${raw(sheetButtons(`Cancel ${wo.id}`))}
         <div class="form-note">An un-done inspection sheet goes with it.</div>
       </form>`) : ''}`;
+}
+
+/** D126 — the Close sheet's damage part: the box (renter on record), the amber note (none), or nothing. */
+function closeDamageHtml(wo) {
+  const cd = closeDamage(wo);
+  if (!cd) return '';
+  if (!cd.renter) return html`<div class="note dmg-note"><strong>💥 Damage marked, no renter on record — bill by hand.</strong></div>`;
+  return html`<label class="check dmg-bill"><input type="checkbox" name="bill" value="1" checked> ${cd.label}</label>
+        <div class="form-note">It opens in Needs quote for Mission Control — part numbers and hours, no prices.</div>`;
 }
 
 /* ================================== the inspection sheet, on the WO (D69) == */
@@ -3415,6 +3473,13 @@ function sectionCard(section, rows, sheet, l, dis, editable, c) {
         ? html`<input class="inote" type="text" maxlength="${MAX_ITEM_NOTE}" data-ifield="note:${r.id}" placeholder="${flag ? "what's wrong — Matt reads it to quote" : 'note'}" value="${a.note || ''}">`
         : (a.note ? html`<div class="inote-ro">${a.note}</div>` : ''))
       : (editable ? html`<button type="button" class="inote-add" data-inote="${r.id}">+ note</button>` : '');
+    // D126: a flagged row may be the renter's doing — a Damage? toggle under the note (never on a non-flag row).
+    const dmgOn = flag && a.damage === true;
+    const dmgCtl = flag
+      ? (editable
+        ? html`<div class="idmg"><button type="button" class="tg dmg-tg${dmgOn ? ' on' : ''}" data-idmg="${r.id}" aria-pressed="${dmgOn ? 'true' : 'false'}"${dis}>💥 Damage?</button></div>`
+        : (dmgOn ? html`<div class="idmg">${raw(chip('💥 damage', 'dmg'))}</div>` : ''))
+      : '';
     // D69: a flagged row grows "+ part" — the part goes on THIS work order.
     const part = flag && canPart
       ? html`<button type="button" class="inote-add ipart" data-sheet="wo-add" data-id="${c.key}" data-desc="${String(r.label || r.id).slice(0, 80)}">+ part</button>` : '';
@@ -3423,6 +3488,7 @@ function sectionCard(section, rows, sheet, l, dis, editable, c) {
       <div class="irow-top"><span class="irow-l">${r.label || r.id}${r.retired ? ' (retired)' : ''}</span>${noteOpen ? '' : raw(note)}${raw(part)}</div>
       <div class="iseg" role="group" aria-label="${r.label || r.id}">${raw(seg)}</div>
       ${noteOpen ? raw(note) : ''}
+      ${raw(dmgCtl)}
     </div>`;
   };
   return html`
@@ -6640,6 +6706,19 @@ document.addEventListener('click', async (ev) => {
     }, ['items']);
     return;
   }
+  // D126: a flagged row's Damage? — saves with the row (the items section).
+  const idmg = ev.target.closest('[data-idmg]');
+  if (idmg) {
+    if (idmg.disabled) return;
+    const id = idmg.dataset.idmg;
+    editSheet((l, sh) => {
+      const items = new Map(sh.items);
+      const cur = items.get(id) || { result: null, note: null };
+      items.set(id, { ...cur, damage: !(cur.damage === true) });
+      l.edits.items = items;
+    }, ['items']);
+    return;
+  }
   const inote = ev.target.closest('[data-inote]');
   if (inote) {
     const arg = woArg();
@@ -6786,6 +6865,16 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
+  // D126 💥 Damage on a form (part line, + Log hours): in place — typed fields survive.
+  const dtg = ev.target.closest('[data-dmg-toggle]');
+  if (dtg) {
+    const on = !dtg.classList.contains('on');
+    dtg.classList.toggle('on', on);
+    dtg.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const input = dtg.nextElementSibling;
+    if (input && input.tagName === 'INPUT') input.value = on ? '1' : '';
+    return;
+  }
   // D68 Order · Stock, per line. In place, like "+ line" — typed fields survive.
   const src = ev.target.closest('[data-wo-src]');
   if (src) {
@@ -7498,6 +7587,10 @@ function woEventBody(form, fd, s, orNull) {
   const serial = wo ? null : form.dataset.serial || null;
   const key = wo ? { work_order: wo } : {};
   if (verb === 'ADD-PARTS') return { serial, payload: { action: verb, ...key, parts: woLines(fd) } };
+  if (verb === 'PART-STATE' && form.dataset.damage != null) {
+    // D126: a damage-only flip — no state, no source; the line stays where it is.
+    return { serial, payload: { action: verb, ...key, line: Number(form.dataset.line), damage: form.dataset.damage === '1' } };
+  }
   if (verb === 'PART-STATE' && form.dataset.state === 'SHOP-STOCK') {
     // D68: a source, not a state — no `state` key; the engine lands it DELIVERED.
     return { serial, payload: { action: verb, ...key, line: Number(form.dataset.line), source: 'SHOP-STOCK', note: orNull('note') } };
@@ -7514,6 +7607,7 @@ function woEventBody(form, fd, s, orNull) {
     const payloads = laborPayloads({
       key, date: orNull('date'), who: s('who'), note: orNull('note'),
       travel: Number(s('travel') || 0), labor: Number(s('labor') || 0),
+      damage: s('damage') === '1',                                   // D126: marks the LABOR hours only
     });
     return { serial, payload: payloads[0], payloads };
   }
@@ -7539,6 +7633,10 @@ function woEventBody(form, fd, s, orNull) {
     // when it isn't drawn, no key rides and the engine leaves readiness alone.
     const box = form.querySelector('[name=ready]');
     if (box) payload.ready = !!box.checked;
+    // D126: the damage handoff. The box is drawn only when damage is marked and
+    // a renter is on record; no box → no key, and the engine's default stands.
+    const bill = form.querySelector('[name=bill]');
+    if (bill) payload.bill = !!bill.checked;
     return { serial, payload };
   }
   return { serial, payload: { action: verb, ...key, note: orNull('note') } };
@@ -7550,6 +7648,7 @@ function woLines(fd) {
   const descs = fd.getAll('p_desc');
   const qtys = fd.getAll('p_qty');
   const srcs = fd.getAll('p_src');
+  const dmgs = fd.getAll('p_dmg');
   return nums.map((n, i) => {
     const line = {
       manufacturer: String(mfrs[i] || 'OTHER'),
@@ -7559,6 +7658,8 @@ function woLines(fd) {
     };
     // D68: Order is the default and rides as no key at all (the engine reads VENDOR).
     if (srcs[i] === 'SHOP-STOCK') line.source = 'SHOP-STOCK';
+    // D126: Damage off rides as no key (absent = WSS's cost).
+    if (dmgs[i] === '1') line.damage = true;
     return line;
   }).filter((l) => l.part_number || l.description);
 }
@@ -7600,6 +7701,16 @@ const WO_MSG = {
   CLOSE: 'It closes at the next run.',
   CANCEL: 'It comes off the board at the next run.',
 };
+/** D126: the confirm line for a work-order tap — the damage taps say what they did. */
+function woMsg(form, payload) {
+  const p = payload || {};
+  if (form.dataset.verb === 'PART-STATE' && isDamageFlip(p)) {
+    return p.damage ? 'Marked as damage — applies at the next run.' : 'Unmarked — applies at the next run.';
+  }
+  if (form.dataset.verb === 'CLOSE' && p.bill === true) return 'It closes at the next run; the damage ticket opens at the next run.';
+  if (form.dataset.verb === 'CLOSE' && p.bill === false) return 'It closes at the next run; the damage is not billed.';
+  return WO_MSG[form.dataset.verb];
+}
 const INSPECT_MSG = {
   DONE: 'Sheet done. The hours reach the unit at the next run.',
   SKIP: 'No inspection — recorded at the next run.',
@@ -7730,13 +7841,13 @@ document.addEventListener('submit', async (ev) => {
     if (inline) {
       render();
       const msg = $('#write-msg');
-      const text = action === 'work_order' ? WO_MSG[form.dataset.verb] : 'Applies at the next run.';
+      const text = action === 'work_order' ? woMsg(form, payload) : 'Applies at the next run.';
       if (msg) msg.innerHTML = html`<div class="note"><strong>Submitted</strong>${text}</div>`;
     } else {
       ui.form = null;
       ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb])
         || (verb === 'INSPECT' && INSPECT_MSG[form.dataset.step])
-        || (action === 'work_order' && WO_MSG[form.dataset.verb]) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.') || SUBMIT_MSG[action] || 'Applies at the next run.' };
+        || (action === 'work_order' && woMsg(form, payload)) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.') || SUBMIT_MSG[action] || 'Applies at the next run.' };
       render();
     }
   } catch (err) {

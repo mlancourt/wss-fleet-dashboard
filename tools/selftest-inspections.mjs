@@ -246,4 +246,19 @@ check('an INSPECT tap in English', () => {
   assert.equal(describeStep({ step: 'REOPEN' }), 'sheet reopened');
 });
 
+check('D126: a flagged row carries damage on the wire; a non-flag row (or one re-answered IN-SPEC) drops it', () => {
+  const s = overlay(sheetFrom(ROW), {
+    items: [{ id: 'ctl.key', result: 'PROBLEM', note: 'key snapped off', damage: true },
+      { id: 'bat.terminals', result: 'IN-SPEC', damage: true }],
+  });
+  const items = sectionValue(s, 'items', LIB);
+  assert.deepEqual(items.find((i) => i.id === 'ctl.key'), { id: 'ctl.key', result: 'PROBLEM', note: 'key snapped off', damage: true });
+  assert.equal('damage' in items.find((i) => i.id === 'bat.terminals'), false, 'never beside a non-flag result');
+  // the tech changes their mind on the result: the mark stays in the page but no longer travels
+  s.items.set('ctl.key', { ...s.items.get('ctl.key'), result: 'IN-SPEC' });
+  assert.equal('damage' in sectionValue(s, 'items', LIB).find((i) => i.id === 'ctl.key'), false);
+  // a pre-D126 block (no key) reads as not damage
+  assert.equal(sheetFrom({ items: [{ id: 'ctl.key', result: 'REPAIR', note: null }] }).items.get('ctl.key').damage, false);
+});
+
 console.log(`${passed} checks passed.`);

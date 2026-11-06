@@ -185,7 +185,8 @@ export function parseSg(text) {
 /* -------------------------------------------------------------- the sheet */
 
 const blankReadings = () => Object.fromEntries(READING_KEYS.map((k) => [k, null]));
-const itemMap = (items) => new Map(arr(items).filter((i) => i.id).map((i) => [i.id, { result: i.result || null, note: i.note || null }]));
+// D126: `damage` rides the row (true only beside a flag result — the engine drops it elsewhere).
+const itemMap = (items) => new Map(arr(items).filter((i) => i.id).map((i) => [i.id, { result: i.result || null, note: i.note || null, damage: i.damage === true }]));
 const cellMap = (cells) => new Map(arr(cells).map((c) => [cellKey(c.battery, c.cell), { sg: num(c.sg), clarity: c.clarity || null, level: c.level || null }]));
 
 /**
@@ -322,7 +323,10 @@ export function sectionValue(sheet, key, sections) {
       const a = sheet.items.get(r.id);
       if (!a || (!a.result && !a.note)) continue;
       const note = a.note ? String(a.note).trim().slice(0, MAX_ITEM_NOTE) : null;
-      out.push({ id: r.id, result: a.result || null, note: note || null });
+      const row = { id: r.id, result: a.result || null, note: note || null };
+      // D126: the renter-damage mark only travels beside a flag — a row re-answered IN-SPEC drops it.
+      if (a.damage === true && isFlag(a.result)) row.damage = true;
+      out.push(row);
     }
     return out;
   }

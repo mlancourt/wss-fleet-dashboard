@@ -274,6 +274,45 @@ await check('D68: PART-STATE {source: SHOP-STOCK} — service + owner 201 (state
   await refused('owner', wo({ action: 'OPEN', purpose: 'REPAIR', parts: [{ ...STOCK, source: 'SHOP-STOCK', price: 9 }] }, '900100'), 'money on a stock line', 400, '"price"');
 });
 
+await check('D126: damage (boolean) on ADD-PARTS lines / PART-STATE / LABOR / INSPECT items; PART-STATE damage-only (any crew role); CLOSE bill', async () => {
+  const add = await ok('service', wo({ action: 'ADD-PARTS', work_order: 'W1002', parts: [{ ...STOCK, damage: true }, STOCK] }), 'damage line');
+  assert.equal(add.payload.parts[0].damage, true);
+  assert.equal('damage' in add.payload.parts[1], false, 'absent stays absent');
+  await refused('service', wo({ action: 'ADD-PARTS', work_order: 'W1002', parts: [{ ...STOCK, damage: 'yes' }] }), 'damage "yes" on a line', 400, 'parts[0].damage');
+  // damage-only flip: no state, any crew role — sales too
+  for (const role of ['sales', 'service', 'owner']) {
+    const e = await ok(role, wo({ action: 'PART-STATE', work_order: 'W1002', line: 2, damage: true }), `${role} damage-only`);
+    assert.deepEqual(e.payload, { action: 'PART-STATE', work_order: 'W1002', line: 2, damage: true, note: null });
+  }
+  const un = await ok('service', wo({ action: 'PART-STATE', work_order: 'W1002', line: 2, damage: false, note: 'wear after all' }), 'unmark');
+  assert.equal(un.payload.damage, false);
+  await refused('service', wo({ action: 'PART-STATE', work_order: 'W1002', line: 2, damage: 1 }), 'damage 1', 400, 'damage');
+  await refused('service', wo({ action: 'PART-STATE', work_order: 'W1002', line: 2, damage: true, tracking: '1Z' }), 'tracking on a damage-only flip', 400, 'tracking');
+  await refused('owner', wo({ action: 'PART-STATE', work_order: 'W1002', line: 2 }), 'neither state nor damage', 400, 'nothing to do');
+  // beside a state, the state's own role rule still holds
+  const both = await ok('service', wo({ action: 'PART-STATE', work_order: 'W1002', line: 2, state: 'DELIVERED', damage: true }), 'state + damage');
+  assert.equal(both.payload.state, 'DELIVERED'); assert.equal(both.payload.damage, true);
+  await refused('sales', wo({ action: 'PART-STATE', work_order: 'W1002', line: 2, state: 'DELIVERED', damage: true }), 'sales DELIVERED + damage', 403);
+  // LABOR
+  const lab = await ok('service', wo({ action: 'LABOR', work_order: 'W1002', who: 'Josh', hours: 6, damage: true }), 'damage labor');
+  assert.equal(lab.payload.damage, true);
+  const plain = await ok('service', wo({ action: 'LABOR', work_order: 'W1002', who: 'Josh', hours: 1 }), 'plain labor');
+  assert.equal('damage' in plain.payload, false);
+  await refused('service', wo({ action: 'LABOR', work_order: 'W1002', who: 'Josh', hours: 1, damage: 'no' }), 'damage "no" on LABOR', 400, 'damage');
+  // INSPECT items
+  const sv = await ok('service', insp('SAVE', { items: [{ id: 'ctl.key_switch', result: 'REPAIR', note: 'bent', damage: true }] }, '900102'), 'flag row damage');
+  assert.equal(sv.payload.items[0].damage, true);
+  await refused('service', insp('SAVE', { items: [{ id: 'ctl.key_switch', result: 'REPAIR', damage: 'y' }] }, '900102'), 'items damage "y"', 400, 'items[0].damage');
+  // CLOSE bill
+  const c1 = await ok('owner', wo({ action: 'CLOSE', work_order: 'W1003', bill: false }), 'bill false');
+  assert.equal(c1.payload.bill, false);
+  const c2 = await ok('owner', wo({ action: 'CLOSE', work_order: 'W1003' }), 'no bill key');
+  assert.equal('bill' in c2.payload, false);
+  await refused('owner', wo({ action: 'CLOSE', work_order: 'W1003', bill: 'yes' }), 'bill "yes"', 400, 'bill');
+  // still no money beside the new keys
+  await refused('service', wo({ action: 'LABOR', work_order: 'W1002', who: 'Josh', hours: 1, damage: true, rate: 90 }), 'money beside damage', 400, '"rate"');
+});
+
 await check('the undo valve (D46) covers a work-order tap — your own, still pending', async () => {
   const e = await ok('service', insp('SAVE', { comments: 'x' }, '900102'), 'serial-keyed SAVE');
   const del = (role) => worker.fetch(new Request(`https://w.example/api/event/${encodeURIComponent(e.id)}`, {

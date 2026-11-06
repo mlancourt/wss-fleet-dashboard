@@ -424,11 +424,15 @@ await check('Fleet shows the board only, seven columns, and only WSS tickets', a
   assert.ok(out.includes('Fleet status'), 'the board is the Fleet widget');
   assert.ok(!out.includes('Service pipeline'), 'the pipeline is customer work — hidden under Fleet');
   const cols = [...out.matchAll(/id="kan-([A-Z-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(cols, columnsFor('WSS'));
-  assert.equal(cols.length, 7, 'Fleet is seven — D48 added a stage a fleet ticket CAN take');
+  // D126: the mock's rental-damage ticket (WSS-owned, the renter as customer)
+  // sits in NEEDS-QUOTE, so that one hidden column comes back, in its place.
+  const snap0 = app.__state().snapshot;
+  const dmgInNq = snap0.service_queue.some((t) => t.machine_owner === 'WSS' && t.status === 'OPEN' && t.stage === 'NEEDS-QUOTE');
+  assert.ok(dmgInNq, 'the mock carries a fleet ticket in NEEDS-QUOTE (D126)');
+  assert.deepEqual(cols, ['RECEIVED', 'CONTACTED', 'NEEDS-QUOTE', ...columnsFor('WSS').slice(2)]);
+  assert.equal(cols.length, 8, 'Fleet is seven — D48 added a stage a fleet ticket CAN take — plus NEEDS-QUOTE while a damage ticket sits in it (D126)');
   assert.ok(cols.includes('READY-TO-SCHEDULE'), 'a fleet unit whose parts arrived is ready to schedule too (D48)');
-  assert.ok(!cols.includes('WAITING-ON-CUSTOMER') && !cols.includes('READY-TO-INVOICE'));
-  assert.ok(!cols.includes('NEEDS-QUOTE'), 'nobody quotes us to us (D47)');
+  assert.ok(!cols.includes('WAITING-ON-CUSTOMER') && !cols.includes('READY-TO-INVOICE'), 'still hidden — no fleet card sits there');
   // every card drawn belongs to a fleet ticket — or (D92) an un-ticketed fleet work order
   const snap = app.__state().snapshot;
   const wss = new Set(snap.service_queue.filter((t) => t.machine_owner === 'WSS').map((t) => t.ticket));
@@ -2879,8 +2883,8 @@ await check('D75: Parts tracker expanded — one fold per work order, oldest fir
   assert.ok(tr.includes('id="tracker-body"'));
   assert.ok(!tr.includes('🔩'), 'every group starts folded — no lines drawn');
   const order = [...tr.matchAll(/data-tracker-wo="(W\d{4})"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['W1003', 'W1001', 'W1002'], 'Active: oldest age_days first; Delivered (30d) folded');
-  assert.ok(tr.includes('Delivered (30d) <span class="count">2</span>'), 'Delivered (30d) counts work orders (W1004), not lines — plus the one DELIVERED customer order (D79)');
+  assert.deepEqual(order, ['W1003', 'W1001', 'W1002', 'W1007'], 'Active: oldest age_days first (D126 added W1007); Delivered (30d) folded');
+  assert.ok(tr.includes('Delivered (30d) <span class="count">3</span>'), 'Delivered (30d) counts work orders (W1004, D126 W1008), not lines — plus the one DELIVERED customer order (D79)');
   assert.ok(!tr.includes('W1005'), 'the 40-day-old closed work order never shows');
   assert.ok(!/>Active</i.test(tr), 'no label on the Active band');
   const w1 = trackerGroupOf(tr, 'W1001');
@@ -4837,6 +4841,128 @@ await check('D115 Customers: #/customers searches the index (keystrokes patch #c
   // tabs: neither route lights a tab (renderTabs toggles with !customers)
   const unknown = await renderRoute('#/customer/999999'); await settle();
   assert.ok((await renderRoute('#/customer/999999')).includes('isn’t published'), 'unknown id');
+  await asFull('owner');
+});
+
+/* ===================================================== D126 rental damage == */
+
+await check('D126: WO page — header chip → renter, 💥 on marked lines + labor, per-line mark/unmark, flagged sheet row; billed → S-link; WO + ticket cards', async () => {
+  const snap = await asFull('owner');
+  const w7 = snap.work_orders.find((w) => w.id === 'W1007');
+  const renter = w7.renter.customer;
+  let out = await renderRoute('#/wo/W1007');
+  assert.ok(out.includes(`<span class="chip dmg">💥 damage · 2 parts · 3 h → ${renter}</span>`), 'header: counts → the renter');
+  assert.equal([...out.matchAll(/<span class="dmg">💥<\/span>/g)].length, 2, 'two marked part lines: 💥 right after the description');
+  assert.equal([...out.matchAll(/<span class="chip dmg">💥 damage<\/span>/g)].length, 1, 'one marked labor row');
+  assert.ok(/data-line="1" data-damage="0">\s*<button class="btn sm ghost" type="submit">Not damage</.test(out), 'a marked line offers Not damage');
+  assert.ok(/data-line="3" data-damage="1">\s*<button class="btn sm ghost" type="submit">💥 Mark as damage</.test(out), 'an unmarked line offers Mark as damage');
+  assert.ok(!MONEY_RE.test(out), 'no money on the page');
+  // the flagged row shows its damage mark (sheet unfolded); a non-flag row never grows the toggle
+  app.__ui().sheetCard.set('W1007', true);
+  out = await renderRoute('#/wo/W1007');
+  assert.equal([...out.matchAll(/class="idmg"/g)].length, 1, 'read-only: only the flagged row marked as damage draws the mark (drive forward is a flag, not damage)');
+  assert.ok(/<div class="idmg"><span class="chip dmg">💥 damage<\/span><\/div>/.test(out), 'DONE sheet: the marked flag reads 💥 damage');
+  app.__ui().sheetCard.clear();
+  // W1008: closed + handed off
+  const w8 = snap.work_orders.find((w) => w.id === 'W1008');
+  const bt = w8.damage.billing_ticket;
+  out = await renderRoute('#/wo/W1008');
+  assert.ok(out.includes(`<a class="chip dmg" href="#/ticket/${bt}">💥 billed → ${bt}</a>`), 'billed → the ticket, a link');
+  // W1009: nobody to bill
+  out = await renderRoute('#/wo/W1009');
+  assert.ok(out.includes('<span class="chip dmg warn">💥 damage · 1.5 h · no renter on record</span>'), 'amber, no renter');
+  // the damage ticket
+  out = await renderRoute(`#/ticket/${bt}`);
+  assert.ok(out.includes(`<a class="chip dmg" href="#/wo/W1008">💥 Rental damage · from W1008</a>`), 'ticket chip → the work order');
+  assert.ok(/data-stage="NEEDS-QUOTE"/.test(out) && /data-stage="READY-TO-INVOICE"/.test(out), 'a renter-billed fleet ticket takes the customer stages (§5)');
+  assert.ok(out.includes('Rental damage from W1008:'), 'the damage block renders as the ticket parts text');
+  // the Service board, Fleet chip: the damage ticket card + the WO card foot
+  out = await serviceUnder('WSS');
+  assert.ok(out.includes('💥 Rental damage · from W1008'), 'ticket card carries the W');
+  assert.ok(out.includes(`<span class="kan-dmg">💥 damage · 2 parts · 3 h → ${renter}</span>`), 'W1007 card foot');
+  assert.ok(out.includes('<span class="kan-dmg warn">💥 damage · 1.5 h · no renter on record</span>'), 'W1009 card foot, amber');
+  await serviceUnder('all');
+  // a fleet ticket whose customer is WSS still hides the three stages (keyed on the customer, not machine_owner)
+  const plain = snap.service_queue.find((t) => t.machine_owner === 'WSS' && t.status === 'OPEN' && !t.damage_wo);
+  plain.customer = 'WSS';
+  out = await renderRoute(`#/ticket/${plain.ticket}`);
+  assert.ok(!/data-stage="NEEDS-QUOTE"/.test(out) && !/data-stage="WAITING-ON-CUSTOMER"/.test(out), 'customer WSS → nobody quotes us to us');
+  await asFull('owner');
+});
+
+await check('D126: Close sheet — the bill box with a renter (checked), the amber note without one, nothing new with no damage', async () => {
+  const snap = await asFull('owner');
+  const w7 = snap.work_orders.find((w) => w.id === 'W1007');
+  w7.parts = w7.parts.map((p) => ({ ...p, state: 'DELIVERED' }));
+  w7.parts_open = 0;
+  app.__ui().form = { kind: 'wo-close', id: 'W1007', arg: null };
+  let out = await renderRoute('#/wo/W1007');
+  assert.ok(new RegExp(`<input type="checkbox" name="bill" value="1" checked> Open a damage ticket for ${w7.renter.customer} \\(2 parts · 3 h · 1 finding\\)`).test(out), 'box, checked, with the counts');
+  assert.ok(!out.includes('dmg-note'));
+  app.__ui().form = { kind: 'wo-close', id: 'W1009', arg: null };
+  out = await renderRoute('#/wo/W1009');
+  assert.ok(out.includes('💥 Damage marked, no renter on record — bill by hand.') && !out.includes('name="bill"'), 'no renter: the note, no box');
+  const w2 = snap.work_orders.find((w) => w.id === 'W1002');
+  w2.parts = w2.parts.map((p) => ({ ...p, state: 'DELIVERED' }));
+  app.__ui().form = { kind: 'wo-close', id: 'W1002', arg: null };
+  out = await renderRoute('#/wo/W1002');
+  assert.ok(out.includes('name="ready"') && !out.includes('name="bill"') && !out.includes('dmg-note'), 'no damage: nothing new');
+  app.__ui().form = null;
+  await asFull('owner');
+});
+
+await check('D126: posts — ADD-PARTS damage line, PART-STATE damage-only, LABOR damage on the labor hours only, CLOSE {bill}; pending copy', async () => {
+  const { posted } = await apiInsp({ name: 'Josh', role: 'service' });
+  await submitForm({ action: 'work_order', verb: 'ADD-PARTS', wo: 'W1007' },
+    { p_num: ['290-1100', '21-422S'], p_mfr: ['FACTORY-CAT', 'FACTORY-CAT'], p_desc: ['Transaxle', ''], p_qty: ['1', '2'], p_src: ['VENDOR', 'VENDOR'], p_dmg: ['1', ''] });
+  await submitForm({ action: 'work_order', verb: 'PART-STATE', wo: 'W1007', line: '3', damage: '1' }, {});
+  await submitForm({ action: 'work_order', verb: 'PART-STATE', wo: 'W1007', line: '1', damage: '0' }, {});
+  await submitForm({ action: 'work_order', verb: 'LABOR', wo: 'W1007' }, { date: '', who: 'Josh', note: '', travel: '0.5', labor: '2', damage: '1' });
+  const p = posted.map((x) => x.payload);
+  assert.equal(p[0].parts[0].damage, true); assert.equal('damage' in p[0].parts[1], false, 'Damage off → no key');
+  assert.deepEqual(p[1], { action: 'PART-STATE', work_order: 'W1007', line: 3, damage: true });
+  assert.deepEqual(p[2], { action: 'PART-STATE', work_order: 'W1007', line: 1, damage: false });
+  assert.equal(p[3].kind, 'TRAVEL'); assert.equal('damage' in p[3], false, 'travel is never billed as damage');
+  assert.equal(p[4].kind, 'LABOR'); assert.equal(p[4].damage, true);
+  const out = await renderRoute('#/wo/W1007');
+  assert.ok(out.includes('line 3 marked as damage') && out.includes('line 1 unmarked'), 'pending copy');
+  assert.ok(out.includes('⏳ marked as damage — applies at the next run'), 'the line says so too');
+  await leaveApi();
+  const owner = await apiInsp({ name: 'Matt', role: 'owner' });
+  await submitForm({ action: 'work_order', verb: 'CLOSE', wo: 'W1007' }, { note: '' }, { bill: true });
+  await submitForm({ action: 'work_order', verb: 'CLOSE', wo: 'W1007' }, { note: '' }, { bill: false });
+  await submitForm({ action: 'work_order', verb: 'CLOSE', wo: 'W1002' }, { note: '' });
+  assert.deepEqual(owner.posted.map((x) => x.payload), [
+    { action: 'CLOSE', work_order: 'W1007', note: null, bill: true },
+    { action: 'CLOSE', work_order: 'W1007', note: null, bill: false },
+    { action: 'CLOSE', work_order: 'W1002', note: null },
+  ]);
+  const w7 = await renderRoute('#/wo/W1007');
+  assert.ok(w7.includes('close; damage ticket opens at the next run') && w7.includes('close; damage not billed'), 'pending close copy');
+  await leaveApi();
+});
+
+await check('D126: a pre-D126 snapshot (no damage / renter / damage_wo keys) draws no damage reading anywhere and no bill box', async () => {
+  const snap = await asFull('owner');
+  for (const w of snap.work_orders) {
+    delete w.damage; delete w.renter;
+    for (const p of w.parts) delete p.damage;
+    for (const l of w.labor) delete l.damage;
+    for (const it of (w.inspection && w.inspection.items) || []) delete it.damage;
+  }
+  for (const t of snap.service_queue) delete t.damage_wo;
+  delete snap.work_order_summary.damage_open;
+  for (const r of ['#/wo/W1007', '#/wo/W1008', '#/wo/W1009', '#/service', '#/']) {
+    const out = await renderRoute(r);
+    // The Mark as damage button is a control (it posts a D126 key the Worker takes) — the READINGS are what must vanish.
+    assert.ok(!/chip dmg|class="dmg"|kan-dmg|💥 Rental damage/.test(out), `${r}: no damage reading`);
+  }
+  const w7 = snap.work_orders.find((w) => w.id === 'W1007');
+  w7.parts = w7.parts.map((p) => ({ ...p, state: 'DELIVERED' }));
+  app.__ui().form = { kind: 'wo-close', id: 'W1007', arg: null };
+  const out = await renderRoute('#/wo/W1007');
+  assert.ok(!out.includes('name="bill"') && !out.includes('dmg-note'), 'no bill box, no note');
+  app.__ui().form = null;
   await asFull('owner');
 });
 
