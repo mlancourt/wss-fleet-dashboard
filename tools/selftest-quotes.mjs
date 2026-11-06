@@ -160,7 +160,7 @@ await check('the email: one template, escaped, PDF button, pixel only when given
   assert.ok(html.trim().endsWith('</body></html>') && html.lastIndexOf('o.gif') > html.lastIndexOf('View / download'), 'the pixel goes last');
   assert.ok(html.includes('$5,737.00') && html.includes('(included)') && html.includes('Plus applicable WI sales tax — added at invoicing'), 'D94: pre-tax total + the tax note');
   assert.ok(!html.includes('$6,052.54') && !/Sales tax \(/.test(html) && !/\d\.\d%/.test(html), 'D94: no tax figure, no rate, anywhere in the email');
-  assert.ok(html.includes('Prices are valid through the date shown above and do not include sales tax unless shown.'), 'the §6 terms');
+  assert.ok(html.includes('Prices are valid through the date shown above and do not include sales tax unless shown. Photos may show optional equipment; the quote lines above list exactly what is included.'), 'the §6 terms');
   assert.ok(html.includes('(555) 010-0000'), 'terms phone from the catalog business block, never hard-coded');
   assert.ok(text.includes('https://w.example/q/abc.pdf') && text.includes('$5,737.00') && text.includes('Plus applicable WI sales tax'), 'plain-text alternative carries the link, the total and the tax note');
   const preview = renderQuoteEmail({ ...q, number: null, pixel_url: null, pdf_url: null });
@@ -658,7 +658,7 @@ await check('v1.1 layout: the §6 terms verbatim — WSS’s own Machinio footer
   assert.deepEqual(t, [
     'Thank you for your business! We accept credit cards and ACH payments for most transactions. For account customers, checks can be mailed to Wisconsin Scrub & Sweep, 1 Fake St, Ixonia, WI 53036, within specified billing terms.',
     'Thank you for the opportunity to provide you with a quote! If you approve of this estimate, please respond directly to this email, and we will process your order. If you have any questions, please give us a call at (555) 010-0000 or email us: info@example.com',
-    'Prices are valid through the date shown above and do not include sales tax unless shown.',
+    'Prices are valid through the date shown above and do not include sales tax unless shown. Photos may show optional equipment; the quote lines above list exactly what is included.',
     'The Wisconsin Scrub & Sweep Team',
   ]);
   assert.ok(!quoteTerms(CATALOG.business).join(' ').includes('FOB'), 'the v1.0 sentence is gone');

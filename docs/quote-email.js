@@ -155,7 +155,7 @@ export function quoteTerms(business = null) {
     'Thank you for the opportunity to provide you with a quote! If you approve of this estimate, please respond directly to this email, '
       + 'and we will process your order.'
       + (b.phone || b.email ? ` If you have any questions, please give us a call${b.phone ? ` at ${b.phone}` : ''}${b.email ? ` or email us: ${b.email}` : ''}` : ''),
-    'Prices are valid through the date shown above and do not include sales tax unless shown.',
+    'Prices are valid through the date shown above and do not include sales tax unless shown. Photos may show optional equipment; the quote lines above list exactly what is included.',
     `The ${name} Team`,
   ];
 }
