@@ -343,6 +343,9 @@ h2.danger { color: var(--bad); }
 }
 .note  { background: var(--warn-bg); border-color: #FDE68A; color: #78350F; }
 .note strong { display: block; margin-bottom: 3px; color: #92400E; }
+/* D125: the parts-list banner on a work order — hold reads as the default amber note; final = order now, red. */
+.note.wo-list.final { background: var(--bad-bg); border-color: #FCA5A5; color: #7F1D1D; }
+.note.wo-list.final strong { color: var(--bad); }
 .alert { background: var(--bad-bg); border-color: #FECACA; color: #991B1B; font-weight: 600; margin: 8px 0 0; }
 .info  { background: var(--slate-50); border-color: var(--line); color: var(--slate-700); font-size: 13.5px; }
 

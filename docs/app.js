@@ -116,7 +116,7 @@ import { logRows, pendingNotes } from './notes.js';
 import {
   PURPOSES, PURPOSE_LABEL, MANUFACTURERS, MANUFACTURER_LABEL, VENDORS, VENDOR_LABEL, PART_STATE_LABEL, PART_VERB_LABEL,
   MAX_LINES, HOURS_MAX, HOURS_STEP,
-  workOrdersOf, woById, laborOf, requestedTone, lineTone, trackingUrl,
+  workOrdersOf, woById, laborOf, requestedTone, lineTone, listFinal, trackingUrl,
   fmtHours, woChipText, defaultPurpose, manufacturerFor, vendorFor, partActions,
   closeShown, closeEnabled, closeBlocker, readyOffered, cancelShown, pendingOpens, pendingOpenFor, pendingForWo,
   pendingBySerial as woPendingBySerial, byTs, describeWoEvent, stripCounts as woStripCounts,
@@ -170,7 +170,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-06-d124';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-06-d125';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -800,9 +800,10 @@ function partsTracker() {
   const c = trackerCounts(list);
   const oc = orderCounts(co.active);
   const pc = inFlightCounts(ps);
-  const tone = requestedTone(list, PARTS_AMBER, PARTS_RED);
+  // D125: a final list with REQUESTED lines is Matt's to order now (red); lines on a sheet still open are a hold (amber).
+  const tone = c.toOrder ? 'red' : c.inspecting ? 'amber' : requestedTone(list, PARTS_AMBER, PARTS_RED);
   const open = ui.showTracker;
-  const segs = [[c.ordered + oc.ordered + pc.ordered, 'ordered'], [c.inTransit + oc.inTransit + pc.inTransit, 'in transit'], [c.requested, 'requested']]
+  const segs = [[c.ordered + oc.ordered + pc.ordered, 'ordered'], [c.inTransit + oc.inTransit + pc.inTransit, 'in transit'], [c.toOrder, 'to order'], [c.inspecting, 'still inspecting']]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
   const pill = segs.length ? segs.join(' · ') : 'nothing open';
   const nDelivered = g.delivered.length + co.delivered.length;
@@ -894,9 +895,11 @@ function trackerGroup({ wo, lines, counts, worstTone, newestDelivered }, deliver
   const open = ui.trackerOpen.has(wo.id);
   const tally = [[counts.requested, 'requested'], [counts.ordered, 'ordered'], [counts.inTransit, 'in transit'], [counts.delivered, 'delivered']]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`).join(' · ');
-  const right = deliveredBand
+  // D125: the hold/order answer on the fold head — Matt reads it without opening the lines.
+  const listChip = (!deliveredBand && counts.requested) ? (listFinal(wo) ? chip('to order', 'bad') : chip('still inspecting', 'warn')) : '';
+  const right = listChip + (deliveredBand
     ? (newestDelivered ? chip(`delivered ${fmtDate(newestDelivered)}`, 'ok') : '')
-    : (wo.status !== 'CLOSED' && typeof wo.age_days === 'number' ? chip(ageText(wo.age_days), `age${worstTone ? ' ' + worstTone : ''}`) : '');
+    : (wo.status !== 'CLOSED' && typeof wo.age_days === 'number' ? chip(ageText(wo.age_days), `age${worstTone ? ' ' + worstTone : ''}`) : ''));
   return html`
     <div class="ptrk">
       <div class="ptrk-head" role="button" tabindex="0" data-tracker-wo="${wo.id}" aria-expanded="${open ? 'true' : 'false'}">
@@ -2993,6 +2996,7 @@ function viewNumberedWorkOrder(c, crumb) {
     ${raw(sheetCardHtml(c, sheetPend))}
 
     <h2>Parts${parts.length ? raw(html` <span class="count">${parts.length}</span>`) : ''}</h2>
+    ${raw(woListBanner(wo, parts, isOpen))}
     <div class="card dlist">
       ${parts.length ? raw(partRows) : raw('<div class="hold-empty">No parts on this work order — labor only.</div>')}
     </div>
@@ -3178,6 +3182,19 @@ function woPartStateForm(wo, part, st) {
     </form>`;
 }
 
+
+/**
+ * D125 — the one line Matt needs above the parts list: order now, or hold.
+ * Derived from the sheet (listFinal); shown only while REQUESTED lines exist.
+ */
+function woListBanner(wo, parts, isOpen) {
+  const n = isOpen ? parts.filter((p) => p && p.state === 'REQUESTED').length : 0;
+  if (!n) return '';
+  const who = wo.opened_by || 'the tech';
+  return listFinal(wo)
+    ? html`<div class="note wo-list final"><strong>🔩 ${n} to order — list is final.</strong> The inspection is done; nothing more is coming. Mark each line ordered and read the vendor PO ${wo.id}.</div>`
+    : html`<div class="note wo-list hold"><strong>🔩 ${n} requested — hold, ${who} is still inspecting.</strong> The list may grow until the sheet is marked Done (or skipped).</div>`;
+}
 
 function woAddPartsForm(c) {
   const u = c.u;

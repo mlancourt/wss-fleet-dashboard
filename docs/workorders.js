@@ -165,10 +165,22 @@ export function trackerGroups(list, amber, red) {
       .map(({ wo, lines, counts, newestDelivered }) => ({ wo, lines, counts, newestDelivered })),
   };
 }
-/** D75: the tracker's head pill — open lines on non-CLOSED work orders, counted from the rows. */
+/**
+ * D125 — is the parts list final? The engine ships `list_final` (the sheet is
+ * DONE or SKIPPED); an older row without the key is read off the sheet itself.
+ * While the tech is still inspecting, REQUESTED lines may keep coming — Matt
+ * holds the order. Final = order now. No field for the tech: finishing the
+ * sheet IS the signal.
+ */
+export const listFinal = (wo) => (wo && typeof wo.list_final === 'boolean')
+  ? wo.list_final
+  : !!wo && String((wo.inspection && wo.inspection.status) || 'PENDING') !== 'PENDING';
+
+/** D75: the tracker's head pill — open lines on non-CLOSED work orders, counted from the rows. D125 splits requested into toOrder / inspecting. */
 export function trackerCounts(list) {
   const g = stripGroups(list);
-  return { requested: g.requested.length, ordered: g.ordered.length, inTransit: g.inTransit.length };
+  const toOrder = g.requested.filter((r) => listFinal(r.wo)).length;
+  return { requested: g.requested.length, toOrder, inspecting: g.requested.length - toOrder, ordered: g.ordered.length, inTransit: g.inTransit.length };
 }
 
 /**

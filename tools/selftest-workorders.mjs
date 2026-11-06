@@ -10,7 +10,7 @@ import {
   closeShown, closeEnabled, cancelShown, pendingOpens, pendingOpenFor, pendingForWo, describeWoEvent,
   isStockLine, sourceOf, pendingLineLabel, PART_VERB_LABEL,
   PURPOSES, PURPOSE_LABEL, closeBlocker, readyOffered, stripCounts, stripTone, openWorkOrders, pendingBySerial, byTs,
-  DELIVERED_DAYS, trackerGroups, trackerCounts, inspectTone, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
+  DELIVERED_DAYS, trackerGroups, trackerCounts, listFinal, inspectTone, unitHistory, historyCaption, laborWho, laborKindOf, travelHours, laborPayloads, laborProblem, stepperValid,
   customerOrders, orderCounts, pipelineOrderChip, orderOf, ORDER_VENDORS, VENDORS, woSite, telTarget, OUT_STATES,
 } from '../docs/workorders.js';
 
@@ -338,8 +338,24 @@ check('D75: trackerCounts — open lines on non-CLOSED work orders only', () => 
     wo('W5001', { parts: [part(1, 'REQUESTED'), part(2, 'ORDERED'), part(3, 'IN-TRANSIT'), part(4, 'IN-TRANSIT'), part(5, 'DELIVERED'), part(6, 'CANCELLED')] }),
     wo('W5002', { status: 'CLOSED', age_days: null, parts: [part(1, 'REQUESTED'), part(2, 'ORDERED')] }),
   ];
-  assert.deepEqual(trackerCounts(list), { requested: 1, ordered: 1, inTransit: 2 });
-  assert.deepEqual(trackerCounts([]), { requested: 0, ordered: 0, inTransit: 0 });
+  assert.deepEqual(trackerCounts(list), { requested: 1, toOrder: 1, inspecting: 0, ordered: 1, inTransit: 2 }, 'fixture sheet is DONE → the one REQUESTED line is to order');
+  assert.deepEqual(trackerCounts([]), { requested: 0, toOrder: 0, inspecting: 0, ordered: 0, inTransit: 0 });
+});
+
+check('D125: listFinal — engine key first, else the sheet; trackerCounts splits requested into toOrder / inspecting', () => {
+  assert.equal(listFinal(wo('W1', { list_final: true, inspection: { status: 'PENDING' } })), true, 'engine key wins');
+  assert.equal(listFinal(wo('W1', { list_final: false, inspection: { status: 'DONE' } })), false);
+  assert.equal(listFinal(wo('W1', { inspection: { status: 'DONE' } })), true, 'pre-D125 row: read the sheet');
+  assert.equal(listFinal(wo('W1', { inspection: { status: 'SKIPPED' } })), true);
+  assert.equal(listFinal(wo('W1', { inspection: { status: 'PENDING' } })), false);
+  assert.equal(listFinal(wo('W1', { inspection: null })), false, 'no sheet at all = still pending');
+  assert.equal(listFinal(null), false);
+  const list = [
+    wo('W6001', { list_final: true, parts: [part(1, 'REQUESTED'), part(2, 'REQUESTED'), part(3, 'ORDERED')] }),
+    wo('W6002', { list_final: false, parts: [part(1, 'REQUESTED')] }),
+    wo('W6003', { status: 'CLOSED', age_days: null, list_final: true, parts: [part(1, 'REQUESTED')] }),
+  ];
+  assert.deepEqual(trackerCounts(list), { requested: 3, toOrder: 2, inspecting: 1, ordered: 1, inTransit: 0 });
 });
 
 check('D75: the Work orders strip tones by the inspection rule alone — a stale REQUESTED line no longer reaches it', () => {

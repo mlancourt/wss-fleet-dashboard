@@ -2839,8 +2839,15 @@ await check('D75: two strips under the utilization card — Work orders, then Pa
   const n = (st2) => open.filter((p) => p.state === st2).length + orders.filter((o) => o.state === st2).length
     + sales.filter((o) => saleState(o) === st2).length;
   assert.ok(orders.some((o) => o.state === 'ORDERED') && orders.some((o) => o.state === 'IN-TRANSIT'), 'mock carries both');
-  assert.ok(tr.includes(`>${n('ORDERED')} ordered · ${n('IN-TRANSIT')} in transit · ${n('REQUESTED')} requested<`), 'pill = ordered · in transit · requested');
-  assert.ok(/parts-n red/.test(tr), 'a REQUESTED line on an 8-day-old work order is red — on the tracker');
+  // D125: requested splits by the sheet — DONE/SKIPPED = to order, PENDING = still inspecting (zero segments drop).
+  const openWo = snap.work_orders.filter((w) => w.status !== 'CLOSED');
+  const isFinal = (w) => (typeof w.list_final === 'boolean' ? w.list_final : ((w.inspection && w.inspection.status) || 'PENDING') !== 'PENDING');
+  const toOrder = openWo.filter(isFinal).flatMap((w) => w.parts).filter((p) => p.state === 'REQUESTED').length;
+  const inspecting = n('REQUESTED') - toOrder;
+  const tail = [[toOrder, 'to order'], [inspecting, 'still inspecting']].filter(([k]) => k).map(([k, w]) => ` · ${k} ${w}`).join('');
+  assert.ok(tr.includes(`>${n('ORDERED')} ordered · ${n('IN-TRANSIT')} in transit${tail}<`), 'pill = ordered · in transit · to order · still inspecting');
+  assert.ok(toOrder > 0 || inspecting > 0, 'mock carries a REQUESTED line');
+  assert.ok(toOrder ? /parts-n red/.test(tr) : /parts-n amber/.test(tr), 'D125: a final list with REQUESTED lines is red; a sheet still open is amber');
   assert.ok(!tr.includes('id="tracker-body"'), 'collapsed by default');
   assert.ok(!out.includes('📋 Inspections'), 'the D67 strip is gone');
 });
