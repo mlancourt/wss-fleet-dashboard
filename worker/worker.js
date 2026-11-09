@@ -1900,12 +1900,17 @@ async function crewCatalogOne({ env, me, rawKey }) {
 
 /* ------------------------------------------------------- customers (D115) */
 
+// D128 (2026-11-09): the lookup opens to the techs. Owner · sales · service read the index and the card; intake
+// (the website's chat token) stays out. The card is served WHOLE to all three — no strip: Matt's 12:08 ruling is that
+// the only figures a service token never sees are commissions, and a customer card carries none (the admin push
+// refuses commission / net / disc / cost / margin by path, so none can get in).
+const CUSTOMER_ROLES = new Set(['owner', 'sales', 'service']);
 function customersGate(me) {
-  if (me.role !== 'sales' && me.role !== 'owner') return json({ error: `role ${me.role} cannot read customers` }, 403);
+  if (!CUSTOMER_ROLES.has(me.role)) return json({ error: `role ${me.role} cannot read customers — the lookup is the crew's (owner, sales, service)` }, 403);
   return null;
 }
 
-/** GET /api/customers — the index `{built, count, customers: [{id, name, city, last}]}`. Sales + owner. */
+/** GET /api/customers — the index `{built, count, customers: [{id, name, city, last}]}`. Owner · sales · service (D128). */
 async function crewCustomers({ me, env }) {
   const gate = customersGate(me);
   if (gate) return gate;

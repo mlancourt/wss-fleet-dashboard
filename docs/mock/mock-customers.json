@@ -1,7 +1,7 @@
 {
   "index": {
     "built": "2026-10-20T17:00:00Z",
-    "count": 19,
+    "count": 20,
     "customers": [
       {
         "id": "100",
@@ -44,6 +44,13 @@
         "company": null,
         "city": "Ixonia",
         "last": "2026-10-15"
+      },
+      {
+        "id": "119",
+        "name": "Fairmont Dairy — Jefferson plant",
+        "company": "Fairmont Dairy",
+        "city": "Jefferson",
+        "last": "2026-10-01"
       },
       {
         "id": "106",
@@ -1951,6 +1958,72 @@
               "desc": "Delivery",
               "qty": 1,
               "amount": 125
+            }
+          ]
+        }
+      ]
+    },
+    "119": {
+      "id": "119",
+      "name": "Fairmont Dairy — Jefferson plant",
+      "company": "Fairmont Dairy",
+      "contact": "Marcus Bell",
+      "email": "plant2@fairmontdairy.example.com",
+      "phone": "(555) 0199-0042",
+      "city": "Jefferson",
+      "state": "WI",
+      "active": true,
+      "balance": 0,
+      "first_sale": "2025-04-02",
+      "last_sale": "2026-10-01",
+      "sales_count": 2,
+      "docs": [
+        {
+          "type": "INVOICE",
+          "num": "43981",
+          "date": "2026-10-01",
+          "total": 263.75,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1019",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Delivery",
+              "qty": 1,
+              "amount": 125
+            },
+            {
+              "desc": "Pick-up",
+              "qty": 1,
+              "amount": 125
+            }
+          ]
+        },
+        {
+          "type": "INVOICE",
+          "num": "43944",
+          "date": "2026-09-08",
+          "total": 14090.05,
+          "balance": 0,
+          "status": "PAID",
+          "po": "PO-1019",
+          "ordered_by": "Theo Lindqvist",
+          "lines": [
+            {
+              "desc": "Factory Cat Mini-HD 26C · 24V wet · s/n 1-FAKE-0001",
+              "qty": 1,
+              "amount": 12995
+            },
+            {
+              "desc": "Pads, 20\" red — case of 5",
+              "qty": 2,
+              "amount": 88.4
+            },
+            {
+              "desc": "Part Number: 260-3112D\nDescription: Motor, 0.75HP, 270RPM, 36V, w/connectors",
+              "qty": 1,
+              "amount": 272.1
             }
           ]
         }

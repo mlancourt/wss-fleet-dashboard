@@ -5,8 +5,12 @@
  * finds the Tracker records that belong to the same customer. No DOM, no fetch — so
  * tools/selftest-customers.mjs can drive it.
  *
- * Money here is what the CUSTOMER paid (an invoice total). It reaches sales + owner only —
- * the Worker 403s every other role — and nothing in a card is ever our cost.
+ * Money here is what the CUSTOMER paid (an invoice total). D128 (2026-11-09): it reaches owner · sales ·
+ * service whole — Matt's 12:08 ruling, the only figures off a service token are commissions and a card has
+ * none; intake is 403. Nothing in a card is ever our cost.
+ *
+ * D128 also makes the box find OUR machines (searchUnits, over the snapshot the page already holds — no
+ * fetch) and gives a customer ticket its one-tap way to the card (ticketCustomerLink).
  */
 
 export const SEARCH_LIMIT = 25;
@@ -42,12 +46,55 @@ export function searchCustomers(index, query, limit = SEARCH_LIMIT) {
   return out;
 }
 
-/** The recent list, newest first, de-duplicated by id, capped. `prev` is whatever was stored (tolerates junk). */
+export const UNIT_LIMIT = 10;
+export const UNIT_MIN_CHARS = 3;
+
+/**
+ * D128 — our machines by serial / asset # / brand · model. Over non-RETIRED `units[]`:
+ * a hit when the folded query is a PREFIX of `serial` or `asset_item` (≥ 3 chars), or every word of it appears
+ * in `brand · model · asset_item · serial` (the composer's rule). Below 3 chars nothing — "1" would claim the fleet.
+ * Order: exact serial, then prefix hits, then word hits; serial breaks ties. Top 10.
+ */
+export function searchUnits(query, units, limit = UNIT_LIMIT) {
+  const q = fold(query).trim();
+  if (q.length < UNIT_MIN_CHARS || !Array.isArray(units)) return [];
+  const words = q.split(/\s+/).filter(Boolean);
+  const scored = [];
+  for (const u of units) {
+    if (!u || typeof u !== 'object' || u.serial == null || u.unit_state === 'RETIRED') continue;
+    const serial = fold(u.serial);
+    const asset = fold(u.asset_item);
+    let rank = -1;
+    if (serial === q) rank = 0;
+    else if (serial.startsWith(q) || (asset && asset.startsWith(q))) rank = 1;
+    else {
+      const hay = fold(`${u.brand || ''} ${u.model || ''} ${u.asset_item || ''} ${u.serial}`);
+      if (words.every((w) => hay.includes(w))) rank = 2;
+    }
+    if (rank >= 0) scored.push([rank, String(u.serial), u]);
+  }
+  scored.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
+  return scored.slice(0, limit).map((x) => x[2]);
+}
+
+/** A recent row's kind: D128 unit rows say so; a D115 row (no kind) is a customer. */
+export const recentKind = (r) => (r && r.kind === 'unit' ? 'unit' : 'customer');
+const recentKey = (r) => (recentKind(r) === 'unit' ? `u:${r.serial}` : `c:${r.id}`);
+
+/**
+ * The recent list, newest first, de-duplicated, capped. `prev` is whatever was stored (tolerates junk).
+ * D115 rows `{id, name, city}` are customers; D128 adds `{kind: "unit", serial, label}` beside them (same key, same cap).
+ */
 export function pushRecent(prev, hit, max = RECENT_MAX) {
-  const list = Array.isArray(prev) ? prev.filter((r) => r && typeof r === 'object' && r.id != null) : [];
-  if (!hit || hit.id == null) return list.slice(0, max);
-  const id = String(hit.id);
-  return [{ id, name: hit.name || '', city: hit.city || null }, ...list.filter((r) => String(r.id) !== id)].slice(0, max);
+  const list = Array.isArray(prev)
+    ? prev.filter((r) => r && typeof r === 'object' && (recentKind(r) === 'unit' ? r.serial != null : r.id != null))
+    : [];
+  let row = null;
+  if (hit && hit.kind === 'unit' && hit.serial != null) row = { kind: 'unit', serial: String(hit.serial), label: hit.label || '' };
+  else if (hit && hit.kind !== 'unit' && hit.id != null) row = { id: String(hit.id), name: hit.name || '', city: hit.city || null };
+  if (!row) return list.slice(0, max);
+  const key = recentKey(row);
+  return [row, ...list.filter((r) => recentKey(r) !== key)].slice(0, max);
 }
 
 /** PAID · OPEN · VOID → the chip's words + tone. */
@@ -95,4 +142,24 @@ export function onTracker(snapshot, card) {
     parts: pick(snapshot.parts_orders, (p) => p.customer).filter((p) => p.status === 'OPEN'),
     leads: pick(snapshot.leads, (l) => l.customer).filter((l) => l.status === 'OPEN' || !l.status),
   };
+}
+
+/** D128 — index rows whose name or company fold-matches `name` EXACTLY (D59 as-text; never a substring). */
+export function customerMatches(index, name) {
+  const want = norm(name);
+  const rows = index && Array.isArray(index.customers) ? index.customers : [];
+  if (!want) return [];
+  return rows.filter((c) => c && c.id != null && (norm(c.name) === want || norm(c.company) === want));
+}
+
+/**
+ * D128 — the ticket's 📇 Customer history row. Only a CUSTOMER-owned ticket, only an exact match:
+ * 0 (or no index yet) → null · 1 → the card · 2+ → the lookup pre-filled with the ticket's customer.
+ */
+export function ticketCustomerLink(ticket, index) {
+  if (!ticket || ticket.machine_owner !== 'CUSTOMER' || !index) return null;
+  const hits = customerMatches(index, ticket.customer);
+  if (!hits.length) return null;
+  if (hits.length === 1) return { href: `#/customer/${encodeURIComponent(hits[0].id)}`, label: '📇 Customer history', count: 1 };
+  return { href: `#/customers?q=${encodeURIComponent(ticket.customer)}`, label: `📇 Customer history (${hits.length} matches)`, count: hits.length };
 }

@@ -2574,7 +2574,18 @@ const cuIndex = CUSTOMERS.map((name, i) => {
     first_sale: n ? '2024-03-11' : null, last_sale: n ? docs[0].date : null, sales_count: n, docs };
   cuCards[id] = card;
   return { id, name, company: card.company, city: card.city, last: card.last_sale };
-}).sort((a, b) => a.name.localeCompare(b.name));
+});
+// D128: a second QuickBooks customer whose COMPANY is an existing name — so a ticket for that customer matches
+// two index rows exactly (the ticket's 📇 row then opens the lookup pre-filled, "(2 matches)").
+{
+  const twin = CUSTOMERS.find((n) => n === 'Fairmont Dairy');
+  const id = String(100 + CUSTOMERS.length);
+  const docs = cuDocs(2, CUSTOMERS.length);
+  cuCards[id] = { id, name: `${twin} — Jefferson plant`, company: twin, contact: CU_CONTACTS[1], email: 'plant2@fairmontdairy.example.com',
+    phone: '(555) 0199-0042', city: 'Jefferson', state: 'WI', active: true, balance: 0, first_sale: '2025-04-02', last_sale: docs[0].date, sales_count: 2, docs };
+  cuIndex.push({ id, name: cuCards[id].name, company: twin, city: 'Jefferson', last: docs[0].date });
+}
+cuIndex.sort((a, b) => a.name.localeCompare(b.name));
 const mockCustomers = { index: { built: '2026-10-20T17:00:00Z', count: cuIndex.length, customers: cuIndex }, cards: cuCards };
 fs.writeFileSync(path.join(outdir, 'mock-customers.json'), JSON.stringify(mockCustomers, null, 2) + '\n');
 console.log(`mock-customers.json: ${cuIndex.length} fake customers`);

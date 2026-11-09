@@ -1643,6 +1643,9 @@ a.alert.expired-holds { display: block; text-decoration: none; margin: 0 0 12px;
 .cu-row { display: block; color: inherit; text-decoration: none; }
 .cu-name { font-weight: 600; }
 .cu-sub { font-size: 12.5px; margin-top: 2px; }
+.cu-unit .chips { margin-top: 4px; }                     /* D128 */
+.cu-hist { margin-top: 8px; font-size: 14px; font-weight: 600; }
+.cu-hist a { color: var(--red); text-decoration: none; }
 .cu-sales .sub { margin-bottom: 4px; }
 .cu-open { color: var(--warn); font-weight: 700; }
 .cu-doc { padding: 10px 0; border-top: 1px solid var(--slate-100); }

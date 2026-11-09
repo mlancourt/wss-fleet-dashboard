@@ -4811,7 +4811,7 @@ await check('D115 Customers: #/customers searches the index (keystrokes patch #c
   let out = await renderRoute('#/customers');
   await settle();
   out = await renderRoute('#/customers');
-  assert.ok(out.includes('<h1>Customers</h1>') && out.includes('id="cu-q"'), 'the search box');
+  assert.ok(out.includes('<h1>Look up</h1>') && out.includes('id="cu-q"'), 'the search box (D128: titled Look up)');
   assert.ok(out.includes('QuickBooks sales history'), 'the caption');
   // type: the input handler patches the results container only
   const idx = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-customers.json'), 'utf8'));
@@ -4820,7 +4820,7 @@ await check('D115 Customers: #/customers searches the index (keystrokes patch #c
   for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value: first.name.slice(0, 5), closest: () => null } });
   assert.ok(box._html.includes(`href="#/customer/${first.id}"`) && box._html.includes(first.name), 'a hit for the typed name');
   for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value: 'zzzz-nobody', closest: () => null } });
-  assert.ok(box._html.includes('No customer matches'), 'no hits says so');
+  assert.ok(box._html.includes('No machine or customer matches'), 'no hits says so (D128: names both kinds)');
   for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value: '', closest: () => null } });
   // the card
   const withDocs = idx.index.customers.find((c) => idx.cards[c.id].docs.length >= 2);
@@ -4847,6 +4847,63 @@ await check('D115 Customers: #/customers searches the index (keystrokes patch #c
   // tabs: neither route lights a tab (renderTabs toggles with !customers)
   const unknown = await renderRoute('#/customer/999999'); await settle();
   assert.ok((await renderRoute('#/customer/999999')).includes('isn’t published'), 'unknown id');
+  await asFull('owner');
+});
+
+await check('D128 Look up: the 🔍 shows for service, not intake; our machines above customers; a units-only hit needs no index; the ticket 📇 row 0 / 1 / 2', async () => {
+  const btn = el('a'); nodes['#cust-btn'] = btn;
+  await asFull('intake'); await renderRoute('#/');
+  assert.equal(btn.hidden, true, 'intake: no door');
+  const snap = await asFull('service'); await renderRoute('#/');
+  assert.equal(btn.hidden, false, 'service: the door shows');
+  let out = await renderRoute('#/customers'); await settle(); out = await renderRoute('#/customers');
+  assert.ok(out.includes('<h1>Look up</h1>') && out.includes('id="cu-q"'), 'service gets the box, not a 403 line');
+  const idx = JSON.parse(fs.readFileSync(path.join(MOCK, 'mock-customers.json'), 'utf8'));
+  // a query that hits a unit AND a customer: both groups, machines first
+  const u = snap.units.find((x) => x.unit_state !== 'RETIRED');
+  const cust = idx.index.customers[0];
+  const box = el('div'); nodes['#cu-results'] = box;
+  const type = (value) => { for (const fn of listeners.get('input') || []) fn({ target: { id: 'cu-q', value, closest: () => null } }); };
+  type(String(u.serial));
+  assert.ok(box._html.includes(`href="#/unit/${encodeURIComponent(u.serial)}"`) && box._html.includes(`#${u.serial}`), 'the unit row → its page');
+  assert.ok(box._html.includes('class="chips"'), 'the unit row carries the Fleet chips');
+  assert.ok(!box._html.includes('Our machines'), 'one group → no group head');
+  // fake a both-kinds hit: rename a unit's brand to the customer's first word for this render only
+  const was = u.brand; u.brand = cust.name.split(' ')[0];
+  type(cust.name.split(' ')[0]);
+  const hm = box._html;
+  assert.ok(hm.indexOf('Our machines') >= 0 && hm.indexOf('Our machines') < hm.indexOf('Customers') && hm.indexOf('Customers') < hm.indexOf(`href="#/customer/${cust.id}"`), 'machines above customers');
+  u.brand = was;
+  type('zzzz-nobody');
+  assert.ok(box._html.includes('No machine or customer matches “zzzz-nobody”.'));
+  type('');
+  // the customer card is D115's for service too — invoice totals included (Matt 12:08: commissions only)
+  const withDocs = idx.index.customers.find((c) => idx.cards[c.id].docs.some((d) => d.total > 0));
+  out = await renderRoute(`#/customer/${withDocs.id}`); await settle(); out = await renderRoute(`#/customer/${withDocs.id}`);
+  assert.ok(out.includes('<h2>Sales</h2>') && /\$[\d,]+\.\d\d/.test(out), 'service sees the card whole');
+  // ticket shortcut: 1 match → the card; 2 matches → the pre-filled lookup; 0 → nothing; a WSS ticket → nothing
+  const norm = (x) => String(x || '').toLowerCase();
+  const count = (name) => idx.index.customers.filter((c) => norm(c.name) === norm(name) || norm(c.company) === norm(name)).length;
+  const cq = snap.service_queue.filter((t) => t.machine_owner === 'CUSTOMER');
+  const one = cq.find((t) => count(t.customer) === 1);
+  const two = cq.find((t) => count(t.customer) === 2);
+  const none = cq.find((t) => count(t.customer) === 0);
+  const ours = snap.service_queue.find((t) => t.machine_owner === 'WSS');
+  assert.ok(one && two && none && ours, 'the mock carries all four cases');
+  const id1 = idx.index.customers.find((c) => norm(c.name) === norm(one.customer) || norm(c.company) === norm(one.customer)).id;
+  out = await renderRoute(`#/ticket/${one.ticket}`);
+  assert.ok(out.includes(`<div class="cu-hist"><a href="#/customer/${id1}">📇 Customer history</a></div>`), '1 → the card');
+  assert.ok(out.indexOf('cu-hist') < out.indexOf('<h2>Ticket</h2>'), 'in the header area');
+  out = await renderRoute(`#/ticket/${two.ticket}`);
+  assert.ok(out.includes(`<a href="#/customers?q=${encodeURIComponent(two.customer)}">📇 Customer history (2 matches)</a>`), '2 → the lookup');
+  assert.ok(!(await renderRoute(`#/ticket/${none.ticket}`)).includes('cu-hist'), '0 → nothing');
+  assert.ok(!(await renderRoute(`#/ticket/${ours.ticket}`)).includes('cu-hist'), 'WSS-owned → nothing');
+  // the ?q= lands in the box
+  out = await renderRoute(`#/customers?q=${encodeURIComponent(two.customer)}`);
+  assert.ok(out.includes(`value="${two.customer}"`) && out.includes('<h1>Look up</h1>'), '?q= pre-fills the box');
+  assert.equal(app.__ui().customerQuery, two.customer);
+  app.__ui().customerQuery = '';
+  delete nodes['#cust-btn']; delete nodes['#cu-results'];
   await asFull('owner');
 });
 

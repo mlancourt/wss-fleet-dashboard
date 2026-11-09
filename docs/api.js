@@ -244,7 +244,7 @@ export async function loadCatalog({ url, token, apiBase = API_BASE, fetch = defa
 export const __resetCatalog = () => { catalogMem = null; machineMem.clear(); customersMem = null; customerMem.clear(); };
 
 /* ---- D115: customers ------------------------------------------------------
- * GET /api/customers (sales/owner) → the index `{built, count, customers[]}`;
+ * GET /api/customers (owner/sales/service since D128) → the index `{built, count, customers[]}`;
  * GET /api/customer/<id> → one card. Same shape as the catalog pair: the index
  * is cached in page memory + localStorage keyed by `built` (24 h, the D109
  * recheck is the caller's), cards in page memory for the session. Mock mode
@@ -276,7 +276,7 @@ export async function loadCustomers({ url, token, apiBase = API_BASE, fetch = de
   }
   if (!token) throw fail('no-token', 'No token.');
   const res = await fetch(`${apiBase}/api/customers`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-  if (res.status === 403) throw fail('forbidden', 'Customer history is Kevin\'s and Matt\'s.');
+  if (res.status === 403) throw fail('forbidden', 'Customer history isn\'t open to this link.');
   if (res.status === 503) throw fail('no-customers', 'Customers aren\'t published yet.');
   if (res.status === 404) throw fail('no-customers', 'Customers aren\'t published yet.');   // a pre-D115 Worker
   if (!res.ok) throw fail('error', `customers ${res.status}`);
@@ -296,7 +296,7 @@ export async function loadCustomer({ url, token, apiBase = API_BASE, fetch = def
   } else {
     if (!token) throw fail('no-token', 'No token.');
     const res = await fetch(`${apiBase}/api/customer/${encodeURIComponent(key)}`, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-    if (res.status === 403) throw fail('forbidden', 'Customer history is Kevin\'s and Matt\'s.');
+    if (res.status === 403) throw fail('forbidden', 'Customer history isn\'t open to this link.');
     if (res.status === 404) throw fail('not-found', `Customer ${key} isn't published.`);
     if (res.status === 503) throw fail('no-customers', 'Customers aren\'t published yet.');
     if (!res.ok) throw fail('error', `customer/${key} ${res.status}`);

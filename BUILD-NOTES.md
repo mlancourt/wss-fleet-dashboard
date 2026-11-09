@@ -2519,3 +2519,31 @@ in `wss_work_orders` · `wss_parts` · `wss_ap_sweep` · `wss_shipments` · `app
 `selftest-worker` 33 (+5 D127) · `selftest-render` 227 (+8 D127; D75 / D79 / D88 tracker pins
 re-pinned for the K band). `money-gate.mjs` + `smoke-real.mjs` walk `stock_orders[]` /
 `stock[]`.
+
+## D128 (2026-11-09) — Look up: our machines by serial; the customer history opens to service
+
+Built from `Lookup-Site-Spec.md` v1.1 (vault) against `CLAUDE.md` v6.12 → v6.13. Worker + page only;
+no engine file, no new action, schema 7.
+
+- **Worker:** `customersGate` = owner · sales · service (`CUSTOMER_ROLES`); intake 403, the message names
+  the role. No transform on either route — service gets the owner's bytes. `money-gate.mjs`: a header
+  comment exempts the customer card by Matt's 12:08 ruling (it never fetched those routes; now it is
+  written down that nothing should strip them).
+- **Page:** `searchUnits` / `recentKind` / `customerMatches` / `ticketCustomerLink` in `customers.js`;
+  `#/customers` titled **Look up**, the box always draws (the D115 gate lines now sit under the unit
+  hits instead of replacing the page); `?q=` read in `render()` only when the hash changed, so a
+  refresh never rewinds what was typed; the 📇 row sits under the ticket header chips.
+
+**Calls made (spec left them open or silent):**
+- The 3-char floor applies to the **whole** unit search, not only the prefix rule — a 1–2 char word
+  match ("1", "xr") would light most of the fleet. Customer search keeps D115's any-length rule.
+- The ticket 📇 row kicks the ordinary D115 index load when it is idle (the 24 h localStorage copy
+  first, the Worker only when there is none). Read the spec's "no new fetch" as "no new endpoint";
+  otherwise a tech who never opened Look up on that phone would never see the row.
+- A unit joins the recent list when it is **tapped from the lookup** (`data-cu-unit`), not on every
+  unit-page visit — the list is "what I looked up", not browsing history.
+- The 403 copy on the page is now *Customer history isn't open to this link.* (only intake can hit it).
+
+**Tests** — `selftest-worker` 34 (+1 D128; D115's two service-403 asserts moved into it as 200s) ·
+`selftest-customers` 8 (+3 D128) · `selftest-render` 228 (+1 D128; D115 re-pinned). BUILD
+`2026-11-09-d128`, SW `v85`.

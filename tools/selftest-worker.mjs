@@ -578,7 +578,7 @@ await check('D88: publish refuses cost_total / cost_source_inv anywhere on a par
   assert.equal(fig.status, 200, 'D111: a price Matt typed into a parts note is honest data — it publishes');
 });
 
-await check('D115: customers — 503 before the push; the push writes index + cards and drops removed; sales/owner read, service/intake 403', async () => {
+await check('D115: customers — 503 before the push; the push writes index + cards and drops removed; sales/owner read, intake 403', async () => {
   const get = async (role, path) => {
     const res = await worker.fetch(new Request(`https://w.example${path}`, { headers: { Authorization: `Bearer ${TOK[role]}` } }), env);
     return { status: res.status, body: await res.json() };
@@ -604,8 +604,7 @@ await check('D115: customers — 503 before the push; the push writes index + ca
   assert.equal(one.status, 200); assert.equal(one.body.docs[0].num, '44001');
   assert.equal((await get('sales', '/api/customer/404')).status, 404, 'unknown id once published');
   assert.equal((await get('sales', '/api/customer/abc')).status, 400, 'malformed id');
-  assert.equal((await get('service', '/api/customers')).status, 403, 'service: no index');
-  assert.equal((await get('service', '/api/customer/12')).status, 403, 'service: no card');
+  // (D128 opened both routes to service — pinned in its own block below.)
   assert.equal((await get('intake', '/api/customers')).status, 403, 'intake: nothing');
   // an incremental push: cards only, no index → the index stays; removed drops a card
   const inc = await push({ cards: { 14: card('14', 'Gamma Corp') }, removed: ['13'] });
@@ -620,6 +619,30 @@ await check('D115: customers — 503 before the push; the push writes index + ca
   assert.equal((await push({ index: { customers: 'nope' } })).status, 400, 'index shape');
   assert.equal((await push({ removed: ['14'] })).status, 200, 'removed alone is fine');
   assert.equal((await get('sales', '/api/customer/14')).status, 404);
+});
+
+await check('D128: customers open to service — 200 on the index and the card; the card byte-identical across owner/sales/service; intake 403 naming the role', async () => {
+  const getRaw = async (role, path) => {
+    const res = await worker.fetch(new Request(`https://w.example${path}`, { headers: { Authorization: `Bearer ${TOK[role]}` } }), env);
+    return { status: res.status, text: await res.text() };
+  };
+  // the D115 block above left card 12 (with an invoice total) and the index in KV
+  const idx = await getRaw('service', '/api/customers');
+  assert.equal(idx.status, 200, 'service reads the index');
+  const cards = {};
+  for (const role of ['owner', 'sales', 'service']) {
+    const r = await getRaw(role, '/api/customer/12');
+    assert.equal(r.status, 200, `${role} reads the card`);
+    cards[role] = r.text;
+  }
+  assert.equal(cards.service, cards.owner, 'no strip — service gets the owner\'s bytes');
+  assert.equal(cards.sales, cards.owner);
+  assert.ok(JSON.parse(cards.service).docs[0].total === 314.5, 'the invoice total ships to service (Matt 12:08)');
+  for (const path of ['/api/customers', '/api/customer/12']) {
+    const r = await getRaw('intake', path);
+    assert.equal(r.status, 403, `intake ${path}`);
+    assert.ok(JSON.parse(r.text).error.includes('intake'), 'the 403 names the role');
+  }
 });
 
 /* ----------------------------------------------------------- D127 stock -- */

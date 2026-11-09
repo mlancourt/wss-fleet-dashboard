@@ -57,6 +57,14 @@
  * D88 adds parts sales: `value` off every `parts_orders[]` row for service,
  * cost keys never (any role), and no figure in a parts-order LOG.
  *
+ * D128 (2026-11-09) EXEMPTS the customer card (`GET /api/customers`,
+ * `GET /api/customer/<id>`) — by Matt's 12:08 ruling: "the only figures a
+ * service token never sees are commissions, earned or potential". A card is
+ * what the CUSTOMER paid (invoice totals, balances) and carries no commission
+ * key (the admin push refuses commission / net / disc / cost / margin by path),
+ * so it ships whole to owner · sales · service. Nothing here fetches those
+ * routes, and nothing should be added that strips them. Every gate below stays.
+ *
  * TICKET logs are deliberately NOT checked: they carry quote amounts, those are
  * visible to every role by design, and `service_queue[].quote.amount` has
  * rendered for everyone since schema 3.

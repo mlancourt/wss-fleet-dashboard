@@ -22,7 +22,7 @@ import {
 } from './dates.js';
 import { holdsOf, holdStatus, currentHold, futureHolds, findOverlaps, validateWindow, groupByDate } from './holds.js';
 import { loadData, postEvent as apiPostEvent, deleteEvent, uploadDoc, mockVariant, resolveApiBase, loadCatalog, loadMachine, loadCustomers, loadCustomer } from './api.js';
-import { searchCustomers, pushRecent, docStatus, docTitle, salesCaption, onTracker, fmtCents, RECENT_KEY, RECHECK_MS as CUST_RECHECK_MS } from './customers.js';   // D115
+import { searchCustomers, pushRecent, docStatus, docTitle, salesCaption, onTracker, fmtCents, RECENT_KEY, RECHECK_MS as CUST_RECHECK_MS, searchUnits, recentKind, ticketCustomerLink } from './customers.js';   // D115 · D128
 
 /* ---- D87: the board settles by itself ---------------------------------------
  * Since 2026-10-13 the engine runs the moment the Worker takes an event (ntfy
@@ -177,7 +177,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-09-d127';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-09-d128';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -2733,6 +2733,14 @@ const sheetButtons = (label) => html`
 
 /* ---- ticket detail ---- */
 
+/** D128: "📇 Customer history" on a customer's ticket — an exact name/company match in the D115 index (cached). */
+function ticketCustomerRow(t) {
+  if (!t || t.machine_owner !== 'CUSTOMER' || !(state.me && state.me.role && state.me.role !== 'intake')) return '';
+  if (custIdx.state === 'idle') startCustomers();   // the D115 load: the 24 h localStorage copy first, the Worker only when it has none
+  const link = ticketCustomerLink(t, custIdx.state === 'ready' ? custIdx.data : null);
+  return link ? html`<div class="cu-hist"><a href="${raw(link.href)}">${link.label}</a></div>` : '';
+}
+
 function viewTicket(id) {
   const t = ticketById(id);
   if (!t) {
@@ -2764,6 +2772,7 @@ function viewTicket(id) {
         ${t.damage_wo ? raw(html`<a class="chip dmg" href="#/wo/${raw(enc(t.damage_wo))}">💥 Rental damage · from ${t.damage_wo}</a>`) : ''}
         ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
       </div>
+      ${raw(ticketCustomerRow(t))}
     </div>${raw(orderBlock(t))}
 
     ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
@@ -4513,6 +4522,12 @@ function recentCustomers() {
 function rememberCustomer(card) {
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(pushRecent(recentCustomers(), card))); } catch (_) { /* blocked */ }
 }
+/** D128: a unit picked from the lookup joins the same recent list. */
+function rememberUnit(serial) {
+  const u = unitBySerial(serial);
+  if (!u) return;
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(pushRecent(recentCustomers(), { kind: 'unit', serial: u.serial, label: `${unitName(u)}` }))); } catch (_) { /* blocked */ }
+}
 
 const customerHref = (id) => `#/customer/${enc(id)}`;
 
@@ -4522,37 +4537,74 @@ function customerRow(c, sub) {
     <div class="cu-sub muted">${sub}</div></a>`;
 }
 
+/** D128: one of our machines — "#150074 · Factory Cat XR-34 · asset TR-7" + the Fleet row's chips. */
+function lookupUnitRow(u) {
+  const bits = [`#${u.serial}`, unitName(u), u.asset_item ? `asset ${u.asset_item}` : null].filter(Boolean).join(' · ');
+  return html`<a class="drow cu-row cu-unit" href="#/unit/${raw(enc(u.serial))}" data-cu-unit="${u.serial}">
+    <div class="cu-name">${bits}</div>${raw(unitChips(u))}</a>`;
+}
+/** A recent unit row: the live unit when the snapshot still has it, else the label we stored. */
+function recentUnitRow(r) {
+  const u = unitBySerial(r.serial);
+  if (u) return lookupUnitRow(u);
+  return html`<a class="drow cu-row cu-unit" href="#/unit/${raw(enc(r.serial))}"><div class="cu-name">#${r.serial}${r.label ? ` · ${r.label}` : ''}</div></a>`;
+}
+
+/** The customer half's state line when the index can't answer (D128: drawn UNDER unit hits, never instead of them). */
+function customerIndexNote(st) {
+  if (st.state === 'loading' || st.state === 'idle') return '<div class="sub muted">Loading customers…</div>';
+  return customersGate(st) || '';
+}
+
 /** The hits under the search box — patched in place on every keystroke (never a render()). */
 function customerResults() {
   const idx = custIdx.data;
   const q = ui.customerQuery.trim();
   if (!q) {
     const recent = recentCustomers();
-    if (!recent.length) return '';
-    return html`<div class="sub">Recent</div>${raw(recent.map((c) => customerRow(c, c.city || '')).join(''))}`;
+    if (!recent.length) return custIdx.state === 'ready' ? '' : customerIndexNote(custIdx);
+    return html`<div class="sub">Recent</div>${raw(recent.map((r) => (recentKind(r) === 'unit' ? recentUnitRow(r) : customerRow(r, r.city || ''))).join(''))}`;
   }
-  const hits = searchCustomers(idx, q);
-  if (!hits.length) return html`<div class="empty"><strong>No customer matches “${q}”.</strong>Try fewer words — it searches name, company and city.</div>`;
+  // D128: our machines first — the snapshot is already in hand, so this never waits on the customer index.
+  const unitHits = searchUnits(q, units());
+  const hits = custIdx.state === 'ready' ? searchCustomers(idx, q) : [];
   const cap = idx && idx.customers && hits.length >= 25 ? html`<div class="sub muted">First 25 — keep typing.</div>` : '';
-  return hits.map((c) => customerRow(c, [c.city, c.last ? `last sale ${c.last}` : null].filter(Boolean).join(' · '))).join('') + cap;
+  const custRows = hits.map((c) => customerRow(c, [c.city, c.last ? `last sale ${c.last}` : null].filter(Boolean).join(' · '))).join('') + cap;
+  const unitRows = unitHits.map(lookupUnitRow).join('');
+  const note = custIdx.state === 'ready' ? '' : customerIndexNote(custIdx);
+  if (!unitHits.length && !hits.length) {
+    if (note) return note;
+    return q.length >= 3
+      ? html`<div class="empty"><strong>No machine or customer matches “${q}”.</strong>Try fewer words — serial, asset #, name, company or city.</div>`
+      : html`<div class="empty"><strong>No customer matches “${q}”.</strong>Try fewer words — it searches name, company and city.</div>`;
+  }
+  // A single group draws without a head; both → Our machines above Customers.
+  if (unitHits.length && hits.length) return html`<div class="sub">Our machines</div>${raw(unitRows)}<div class="sub">Customers</div>${raw(custRows)}`;
+  if (unitHits.length) return unitRows + note;
+  return custRows;
 }
 
 function customersGate(st) {
-  if (st.state === 'error' && st.code === 'forbidden') return emptyState('Customer history is Kevin’s and Matt’s.');
+  if (st.state === 'error' && st.code === 'forbidden') return emptyState('Customer history isn’t open to this link.', 'The lookup is the crew’s — owner, sales and service.');
   if (st.state === 'error' && st.code === 'no-customers') return emptyState('Customers aren’t published yet.', 'The engine pushes them from QuickBooks on its next run.');
   if (st.state === 'error') return html`${raw(emptyState('Couldn’t load customers.', st.error || ''))}<button class="btn sm ghost" type="button" data-cu-reload>Try again</button>`;
   return null;
 }
 
+/** D128: `#/customers?q=…` pre-fills the box (the ticket's "N matches" row). */
+function lookupQueryFromHash(hash) {
+  const m = /^#\/customers\?(.*)$/.exec(hash || '');
+  if (!m) return null;
+  try { return new URLSearchParams(m[1]).get('q'); } catch (_) { return null; }
+}
+
 function viewCustomers() {
   if (custIdx.state === 'idle') startCustomers();
   else if (custIdx.state === 'ready' && Date.now() - custIdxCheckedAt > CUST_RECHECK_MS) startCustomers(true);
-  const gate = customersGate(custIdx);
-  const head = html`<h1>Customers</h1><div class="sub">QuickBooks sales history · ${custIdx.data ? raw(html`${custIdx.data.count || (custIdx.data.customers || []).length} customers · as of ${fmtInstantCentral(custIdx.data.built || '')}`) : 'loading…'}</div>`;
-  if (gate) return head + gate;
-  if (custIdx.state === 'loading') return head + '<div class="loading">Loading customers…</div>';
+  const head = html`<h1>Look up</h1><div class="sub">Our machines · QuickBooks sales history${custIdx.data ? raw(html` · ${custIdx.data.count || (custIdx.data.customers || []).length} customers · as of ${fmtInstantCentral(custIdx.data.built || '')}`) : ''}</div>`;
+  // D128: the box always draws — unit search reads the snapshot; the customer half says its own state under it.
   return html`${raw(head)}
-    <input type="search" class="completed-q cu-q" id="cu-q" value="${ui.customerQuery}" placeholder="Search name, company or city" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <input type="search" class="completed-q cu-q" id="cu-q" value="${ui.customerQuery}" placeholder="Serial, asset #, customer, company or city" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div id="cu-results" class="card cu-results">${raw(customerResults())}</div>`;
 }
 
@@ -6406,9 +6458,9 @@ function renderHeader() {
   const n = state.pending.length;
   badge.hidden = n === 0;
   badge.textContent = `⏳ ${n} pending`;
-  // D115: the customer lookup is sales + owner (the Worker 403s the rest) — hide the door for everyone else.
+  // D128: the lookup (our machines + customers) is every crew role's — only intake (the website's token) has no door.
   const cu = $('#cust-btn');
-  if (cu) cu.hidden = !(state.me && (state.me.role === 'sales' || state.me.role === 'owner'));
+  if (cu) cu.hidden = !(state.me && state.me.role && state.me.role !== 'intake');
 }
 
 function renderTabs(route) {
@@ -6463,7 +6515,7 @@ function render() {
   if (state.error) { view.innerHTML = viewGate(state.error.code); renderHeader(); return; }
   if (!state.snapshot) { view.innerHTML = '<div class="loading">Loading…</div>'; renderHeader(); return; }
 
-  const parts = hash.replace(/^#\/?/, '').split('/');
+  const parts = hash.replace(/^#\/?/, '').replace(/\?.*$/, '').split('/');   // D128: #/customers?q=…
   const section = parts[0] || '';
   const arg = parts.slice(1).join('/');
 
@@ -6486,7 +6538,11 @@ function render() {
     const [lid, sub] = decodeURIComponent(arg || '').split('/');
     out = sub === 'quote' ? viewComposer(lid) : viewLead(lid);
   }
-  else if (section === 'customers') out = viewCustomers();                                  // D115
+  else if (section === 'customers') {                                                         // D115 · D128
+    const q = hash !== lastRenderedHash ? lookupQueryFromHash(hash) : null;
+    if (q != null) ui.customerQuery = q;
+    out = viewCustomers();
+  }
   else if (section === 'customer') out = viewCustomer(decodeURIComponent(arg || ''));        // D115
   else if (section === 'cat') out = viewCategory(decodeURIComponent(arg || ''));
   else if (section === 'unit') out = viewUnit(decodeURIComponent(arg || ''));
@@ -6988,6 +7044,9 @@ document.addEventListener('click', async (ev) => {
   if (rejBtn) { rejDismiss(rejBtn.dataset.rejDismiss); render(); return; }
   // D115: "Try again" on the Customers views.
   if (ev.target.closest('[data-cu-reload]')) { startCustomers(true); custCards.clear(); render(); return; }
+  // D128: a machine picked from the lookup joins the recent list; the link itself navigates.
+  const cuUnit = ev.target.closest('[data-cu-unit]');
+  if (cuUnit) rememberUnit(cuUnit.dataset.cuUnit);
   // D83: the quote composer handles its own taps (data-qc); nothing else uses the attribute.
   const qcEl = ev.target.closest('[data-qc]');
   if (qcEl && onComposerClick(qcEl)) return;
