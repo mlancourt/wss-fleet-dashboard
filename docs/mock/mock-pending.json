@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-11-06T16:59:48.630Z",
+    "ts": "2026-11-09T12:31:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -9,13 +9,13 @@
     "payload": {
       "customer": "Ironwood Packaging",
       "purpose": "quote hold",
-      "start": "2026-11-09",
-      "end": "2026-11-12"
+      "start": "2026-11-12",
+      "end": "2026-11-15"
     }
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-11-06T19:19:48.630Z",
+    "ts": "2026-11-09T14:51:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-11-06T19:47:48.630Z",
+    "ts": "2026-11-09T15:19:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-11-06T19:53:48.630Z",
+    "ts": "2026-11-09T15:25:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -55,13 +55,13 @@
     "payload": {
       "dispatch_id": "m-si-2201",
       "rig": "TRAILER-6000",
-      "date": "2026-11-07",
+      "date": "2026-11-10",
       "driver": "Kevin"
     }
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-11-06T19:56:48.630Z",
+    "ts": "2026-11-09T15:28:41.924Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-11-06T19:57:48.630Z",
+    "ts": "2026-11-09T15:29:41.924Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-11-06T19:34:48.630Z",
+    "ts": "2026-11-09T15:06:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-11-06T19:50:48.630Z",
+    "ts": "2026-11-09T15:22:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -121,14 +121,14 @@
     "payload": {
       "lead": "L1005",
       "stage": "DEMO-SCHEDULED",
-      "demo_date": "2026-11-08",
+      "demo_date": "2026-11-11",
       "demo_serial": "900107",
       "note": "They asked to see it run"
     }
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-11-06T19:52:48.630Z",
+    "ts": "2026-11-09T15:24:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -136,13 +136,13 @@
     "payload": {
       "agreement": "R092526A",
       "action": "OFF-RENT",
-      "date": "2026-11-06",
+      "date": "2026-11-09",
       "note": "Plant called — done with it"
     }
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-11-06T19:54:48.630Z",
+    "ts": "2026-11-09T15:26:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-11-06T19:56:48.630Z",
+    "ts": "2026-11-09T15:28:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -171,7 +171,7 @@
     "payload": {
       "action": "LABOR",
       "work_order": "W1001",
-      "date": "2026-11-06",
+      "date": "2026-11-09",
       "who": "Josh",
       "hours": 0.75,
       "note": "valve seat cleaned"
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-11-06T19:55:48.630Z",
+    "ts": "2026-11-09T15:27:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-11-06T19:57:48.630Z",
+    "ts": "2026-11-09T15:29:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -221,7 +221,7 @@
   },
   {
     "id": "evt-mock-15",
-    "ts": "2026-11-06T19:58:48.630Z",
+    "ts": "2026-11-09T15:30:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "doc_detach",
@@ -233,7 +233,7 @@
   },
   {
     "id": "evt-mock-16",
-    "ts": "2026-11-06T19:56:48.630Z",
+    "ts": "2026-11-09T15:28:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "quote_send",
@@ -267,20 +267,20 @@
     "result": {
       "number": "Q2004",
       "token": "44444444444444444444444444444444",
-      "sent_at": "2026-11-06T19:56:48.630Z",
+      "sent_at": "2026-11-09T15:28:41.924Z",
       "by": "Kevin",
       "to": "m.idle@harborline.example",
       "subtotal": 5455,
       "tax": 0,
       "total": 5455,
       "tax_rate": null,
-      "expires": "2026-12-06",
+      "expires": "2026-12-09",
       "pdf": "/q/44444444444444444444444444444444.pdf"
     }
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-11-06T19:55:48.630Z",
+    "ts": "2026-11-09T15:27:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",
@@ -294,7 +294,7 @@
   },
   {
     "id": "evt-mock-p1",
-    "ts": "2026-11-06T19:47:48.630Z",
+    "ts": "2026-11-09T15:19:41.924Z",
     "actor": "Josh",
     "role": "service",
     "action": "parts_open",
@@ -321,7 +321,7 @@
   },
   {
     "id": "evt-mock-p2",
-    "ts": "2026-11-06T19:53:48.630Z",
+    "ts": "2026-11-09T15:25:41.924Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "parts_update",
@@ -329,6 +329,42 @@
     "payload": {
       "order": "P1003",
       "note": "PO promised by Friday"
+    }
+  },
+  {
+    "id": "evt-mock-k1",
+    "ts": "2026-11-09T15:22:41.924Z",
+    "actor": "Zac",
+    "role": "service",
+    "action": "stock_order",
+    "serial": null,
+    "payload": {
+      "action": "OPEN",
+      "note": "squeegee bin low",
+      "parts": [
+        {
+          "manufacturer": "FACTORY-CAT",
+          "part_number": "21-422S",
+          "description": "Squeegee blade rear",
+          "qty": 6
+        }
+      ]
+    }
+  },
+  {
+    "id": "evt-mock-k2",
+    "ts": "2026-11-09T15:24:41.924Z",
+    "actor": "Josh",
+    "role": "service",
+    "action": "stock_order",
+    "serial": null,
+    "payload": {
+      "action": "PART-STATE",
+      "stock_order": "K1002",
+      "line": 2,
+      "state": "DELIVERED",
+      "date": "2026-11-09",
+      "note": null
     }
   }
 ]

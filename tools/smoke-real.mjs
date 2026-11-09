@@ -125,6 +125,7 @@ for (const role of ['owner', 'sales', 'service']) {
     .concat((snap.dispatch || []).map((r) => `#/dispatch/${encodeURIComponent(r.id)}`))
     .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
     .concat((snap.parts_orders || []).map((o) => `#/parts/${encodeURIComponent(o.order)}`))   // D88
+    .concat((snap.stock_orders || []).map((k) => `#/stock/${encodeURIComponent(k.id)}`))   // D127
     // D64: every agreement with an id has a page — int or WSS-paper string.
     .concat((snap.agreements || []).filter((a) => a.agreement != null)
       .map((a) => `#/agreement/${encodeURIComponent(String(a.agreement))}`));

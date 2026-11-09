@@ -52,6 +52,8 @@
  * work-order TEXT scan runs over every key but that block, and the block gets
  * the key-only check — re-asserted, not relaxed.
  *
+ * D127 adds shop stock: last_cost / value / value_total off `stock[]` and
+ * `stock_summary` for service, and no money on `stock_orders[]` for anyone.
  * D88 adds parts sales: `value` off every `parts_orders[]` row for service,
  * cost keys never (any role), and no figure in a parts-order LOG.
  *
@@ -255,6 +257,26 @@ try {
     const bad = po.filter((r) => (r.log || []).some((x) => COMMISSION_RE.test(String((x && x.text) || ''))));
     ok(bad.length === 0, `${role}: no parts_orders[].log row carries a commission figure (D111) (${n})`);
     for (const r of bad) console.log(`         ${r.order}`);
+  }
+
+  /* ------ D127: shop stock — last_cost / value / value_total stripped for service, K cost never ----
+   * The Worker deletes every key in `stock_summary.money_fields` off each
+   * `stock[]` row AND off `stock_summary` for a service token, then the list.
+   * `stock_orders[]` carries no money for ANY role: no cost / cost_source_inv /
+   * last_cost / value key (publish refuses them by name), and no dollar figure
+   * in its log (the engine redacts a typed one). No key passes vacuously. */
+  {
+    const st = Array.isArray(svc.snapshot.stock) ? svc.snapshot.stock : [];
+    const n = Array.isArray(svc.snapshot.stock) ? st.length : 'no key';
+    ok(st.every((r) => !('last_cost' in r) && !('value' in r)), `service: no last_cost / value on any stock row (${n})`);
+    const sm = svc.snapshot.stock_summary || {};
+    ok(!('value_total' in sm) && !('money_fields' in sm), 'service: stock_summary.value_total + money_fields are gone');
+  }
+  for (const [role, doc] of [['owner', owner], ['sales', sales], ['service', svc]]) {
+    const so = Array.isArray(doc.snapshot.stock_orders) ? doc.snapshot.stock_orders : [];
+    const n = Array.isArray(doc.snapshot.stock_orders) ? so.length : 'no key';
+    ok(!/"(cost|cost_source_inv|last_cost|value)"\s*:/.test(JSON.stringify(so)), `${role}: no money key on any stock order (${n})`);
+    ok(!so.some((r) => MONEY_RE.test(JSON.stringify(r.log || []))), `${role}: no stock_orders[].log text matches /\\$\\s?\\d/ (${n})`);
   }
 
   /* ------ D78 → D111: the activity tape carries no COMMISSION figure -----

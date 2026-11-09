@@ -130,6 +130,7 @@ export function pendingRecord(e) {
     case 'lead_update': case 'lead_close': return p.lead || null;
     case 'parts_update': case 'parts_close': return p.order || null;   // D88
     case 'work_order': return p.work_order || e.serial || null;
+    case 'stock_order': return p.stock_order || null;   // D127 — an OPEN has no K until the engine runs
     case 'doc_attach': case 'doc_detach': return p.record || null;
     case 'dispatch_claim': case 'dispatch_done': case 'dispatch_cancel': return p.dispatch_id || null;
     case 'rental_update': return p.agreement ?? null;
@@ -148,24 +149,27 @@ const LABEL = {
   parts_open: 'new parts order sent',
   parts_update: 'update sent',
   parts_close: 'close sent',
+  stock_order: 'stock order update sent',   // D127
   doc_attach: 'document attached',
   doc_detach: 'document removal sent',
   readiness: 'readiness sent',
   reserve: 'hold sent',
 };
 const WO_LABEL = { LABOR: 'hours logged', OPEN: 'work order sent', 'ADD-PARTS': 'parts added', INSPECT: 'inspection sent' };
+const K_LABEL = { OPEN: 'stock order sent', 'ADD-PARTS': 'parts added', 'PART-STATE': 'part update sent', CANCEL: 'cancel sent' };   // D127
 
 /** The ⏳ row's text: "<record>: <label>", or the label alone when there is no record. */
 export function pendingLabel(e) {
   const verb = e && e.payload && e.payload.action;
-  const label = (e && e.action === 'work_order' && WO_LABEL[verb]) || LABEL[e && e.action] || `${(e && e.action) || 'event'} sent`;
+  const label = (e && e.action === 'work_order' && WO_LABEL[verb]) || (e && e.action === 'stock_order' && K_LABEL[verb])
+    || LABEL[e && e.action] || `${(e && e.action) || 'event'} sent`;
   const rec = pendingRecord(e);
   return rec != null && rec !== '' ? `${rec}: ${label}` : label;
 }
 
 /** The `verb` an activity row would carry for this event (work_order only). */
 function pendingVerb(e) {
-  if (!e || e.action !== 'work_order' || !e.payload) return null;
+  if (!e || (e.action !== 'work_order' && e.action !== 'stock_order') || !e.payload) return null;   // D127: stock_order verbs too
   const a = e.payload.action;
   return a === 'INSPECT' && e.payload.step ? `INSPECT ${e.payload.step}` : (a || null);
 }
@@ -197,7 +201,7 @@ export function pendingActivityRows(pending, me, activity) {
 /**
  * Where a row goes, by the SHAPE of its record — not by its action (a
  * doc_attach is about a ticket, lead, parts order or (D116) work order; a work_order row may name a serial).
- *   S1031 → the ticket · L1009 → the lead · W1003 → the work order · P1001 → the parts order ·
+ *   S1031 → the ticket · L1009 → the lead · W1003 → the work order · P1001 → the parts order · K1001 → the stock order (D127) ·
  *   a serial that is one of ours → the unit · anything else (a dispatch id, an
  *   agreement number, null) → no link: a plain row.
  */
@@ -208,6 +212,7 @@ export function activityRoute(record, units) {
   if (/^L\d{4,}$/.test(s)) return `#/lead/${encodeURIComponent(s)}`;
   if (/^W\d{4,}$/.test(s)) return `#/wo/${encodeURIComponent(s)}`;
   if (/^P\d{4,}$/.test(s)) return `#/parts/${encodeURIComponent(s)}`;   // D88
+  if (/^K\d{4,}$/.test(s)) return `#/stock/${encodeURIComponent(s)}`;   // D127
   if (Array.isArray(units) && units.some((u) => u && String(u.serial) === s)) return `#/unit/${encodeURIComponent(s)}`;
   return null;
 }

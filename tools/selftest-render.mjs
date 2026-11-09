@@ -694,6 +694,7 @@ async function undoableIds(role) {
     .concat((snap.leads || []).map((l) => `#/lead/${encodeURIComponent(l.lead)}`))
     .concat((snap.parts_orders || []).map((o) => `#/parts/${encodeURIComponent(o.order)}`))
     .concat((snap.work_orders || []).map((w) => `#/wo/${encodeURIComponent(w.id)}`))
+    .concat((snap.stock_orders || []).map((k) => `#/stock/${encodeURIComponent(k.id)}`))   // D127
     // D69: a sheet change on a ⏳ NEW work order only shows on that page.
     .concat(app.__state().pending.filter((e) => e.action === 'work_order' && e.payload && e.payload.action === 'OPEN' && e.serial)
       .map((e) => `#/wo/new/${encodeURIComponent(e.serial)}`));
@@ -2840,14 +2841,17 @@ await check('D75: two strips under the utilization card — Work orders, then Pa
   const sales = (snap.parts_orders || []).filter((o) => o.status === 'OPEN' && (['ORDERED', 'IN-TRANSIT'].includes(o.stage) || o.boxes_open > 0));
   assert.equal(sales.length, snap.parts_summary.in_flight, 'parts_summary.in_flight agrees with the rows');
   const saleState = (o) => (o.stage === 'IN-TRANSIT' || o.boxes_open > 0 ? 'IN-TRANSIT' : o.stage);
+  // D127: open K-order lines count too — ORDERED / IN-TRANSIT as themselves, REQUESTED always "to order" (a restock has no sheet).
+  const kLines = (snap.stock_orders || []).filter((k) => k.status === 'OPEN').flatMap((k) => k.parts);
   const n = (st2) => open.filter((p) => p.state === st2).length + orders.filter((o) => o.state === st2).length
-    + sales.filter((o) => saleState(o) === st2).length;
+    + sales.filter((o) => saleState(o) === st2).length + (st2 === 'REQUESTED' ? 0 : kLines.filter((l) => l.state === st2).length);
   assert.ok(orders.some((o) => o.state === 'ORDERED') && orders.some((o) => o.state === 'IN-TRANSIT'), 'mock carries both');
   // D125: requested splits by the sheet — DONE/SKIPPED = to order, PENDING = still inspecting (zero segments drop).
   const openWo = snap.work_orders.filter((w) => w.status !== 'CLOSED');
   const isFinal = (w) => (typeof w.list_final === 'boolean' ? w.list_final : ((w.inspection && w.inspection.status) || 'PENDING') !== 'PENDING');
-  const toOrder = openWo.filter(isFinal).flatMap((w) => w.parts).filter((p) => p.state === 'REQUESTED').length;
-  const inspecting = n('REQUESTED') - toOrder;
+  const toOrder = openWo.filter(isFinal).flatMap((w) => w.parts).filter((p) => p.state === 'REQUESTED').length
+    + kLines.filter((l) => l.state === 'REQUESTED').length;
+  const inspecting = n('REQUESTED') - (toOrder - kLines.filter((l) => l.state === 'REQUESTED').length);
   const tail = [[toOrder, 'to order'], [inspecting, 'still inspecting']].filter(([k]) => k).map(([k, w]) => ` · ${k} ${w}`).join('');
   assert.ok(tr.includes(`>${n('ORDERED')} ordered · ${n('IN-TRANSIT')} in transit${tail}<`), 'pill = ordered · in transit · to order · still inspecting');
   assert.ok(toOrder > 0 || inspecting > 0, 'mock carries a REQUESTED line');
@@ -2884,7 +2888,7 @@ await check('D75: Parts tracker expanded — one fold per work order, oldest fir
   assert.ok(!tr.includes('🔩'), 'every group starts folded — no lines drawn');
   const order = [...tr.matchAll(/data-tracker-wo="(W\d{4})"/g)].map((m) => m[1]);
   assert.deepEqual(order, ['W1003', 'W1001', 'W1002', 'W1007'], 'Active: oldest age_days first (D126 added W1007); Delivered (30d) folded');
-  assert.ok(tr.includes('Delivered (30d) <span class="count">3</span>'), 'Delivered (30d) counts work orders (W1004, D126 W1008), not lines — plus the one DELIVERED customer order (D79)');
+  assert.ok(tr.includes('Delivered (30d) <span class="count">5</span>'), 'Delivered (30d) counts work orders (W1004, D126 W1008), not lines — plus the one DELIVERED customer order (D79) and the two K-orders with a line on the shelf (D127: K1002, K1003)');
   assert.ok(!tr.includes('W1005'), 'the 40-day-old closed work order never shows');
   assert.ok(!/>Active</i.test(tr), 'no label on the Active band');
   const w1 = trackerGroupOf(tr, 'W1001');
@@ -4209,6 +4213,7 @@ await check('D79: CLOSED tickets never draw; orders alone still draw the strip; 
   assert.ok(!trackerOf(await renderRoute('#/')).includes('CLOSEDREF'), 'a CLOSED ticket\'s order never shows');
   snap.work_orders = [];
   snap.parts_orders = [];   // D88: "nothing at all" now also needs no parts sales in flight
+  snap.stock_orders = [];   // D127: ... and no stock orders
   const only = trackerOf(await renderRoute('#/'));
   assert.ok(only.includes('Customer orders') && only.includes('>1 ordered · 1 in transit<'), 'no part lines, orders only: still drawn, head counts the orders');
   for (const t of snap.service_queue) t.order = null;
@@ -4631,6 +4636,7 @@ await check('D88 tracker: a Parts sales band (ORDERED + IN-TRANSIT) between Cust
   // Parts sales ALONE still draw the strip.
   const s2 = await asFull('owner');
   s2.work_orders = []; for (const t of s2.service_queue) t.order = null;
+  s2.stock_orders = [];   // D127: K-orders count in the head too — take them out for "parts sales alone"
   const alone = trackerOf(await renderRoute('#/'));
   assert.ok(alone.includes('Parts sales') && alone.includes('>1 ordered · 3 in transit<'), 'parts sales alone: drawn, head counts them (a box moving at APPROVED is in transit)');
   s2.parts_orders = [];
@@ -4963,6 +4969,155 @@ await check('D126: a pre-D126 snapshot (no damage / renter / damage_wo keys) dra
   const out = await renderRoute('#/wo/W1007');
   assert.ok(!out.includes('name="bill"') && !out.includes('dmg-note'), 'no bill box, no note');
   app.__ui().form = null;
+  await asFull('owner');
+});
+
+/* ------------------------------------------------------- D127 shop stock -- */
+
+const stockFoldOf = (out) => { const i = out.indexOf('data-stock-toggle'); return i < 0 ? '' : out.slice(out.lastIndexOf('<h2', i), (out.indexOf('Closed (14d)', i) + 1 || out.length + 1) - 1); };
+
+await check('D127: Parts tab — + New parts order · 🧰 Request stock parts side by side, for every crew role; the sheet carries no Order/Stock toggle and no price', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    await asFull(role);
+    const out = await renderRoute('#/parts');
+    const row = out.slice(out.indexOf('parts-btns'), out.indexOf('</div>', out.indexOf('parts-btns')));
+    assert.ok(row.includes('data-sheet="new-parts"') && row.includes('data-sheet="new-stock">🧰 Request stock parts'), `${role}: both buttons in one row`);
+    assert.ok(out.indexOf('Parts scoreboard') < out.indexOf('parts-btns') && out.indexOf('parts-btns') < out.indexOf('class="kanban"'), `${role}: scoreboard → buttons → kanban`);
+    assert.ok(out.indexOf('class="kanban"') < out.indexOf('data-stock-toggle') && out.indexOf('data-stock-toggle') < out.indexOf('Closed (14d)'), `${role}: kanban → Shop stock → Closed (14d)`);
+  }
+  app.__ui().form = { kind: 'new-stock', id: null };
+  const sheet = await renderRoute('#/parts');
+  const f = sheet.slice(sheet.indexOf('data-action="stock_order" data-verb="OPEN"'));
+  assert.ok(f.includes('data-toggle="manufacturer"') && f.includes('data-val="FACTORY-CAT"') && /tg on" data-val="FACTORY-CAT"/.test(f), 'make segmented, FACTORY-CAT default');
+  assert.ok(f.includes('class="wo-line k-line"') && f.includes('data-stock-addline'), 'part lines + "+ line"');
+  assert.ok(!f.slice(0, f.indexOf('</form>')).includes('data-wo-src') && !f.slice(0, f.indexOf('</form>')).includes('p_mfr'), 'no Order/Stock toggle, no per-line make');
+  assert.ok(f.includes('Matt places the order; the box tracks under 📦 Parts'), 'the restock copy');
+  app.__ui().form = null;
+});
+
+await check('D127: the Request sheet posts stock_order OPEN {note, parts[]} — no serial, no source, no money; a blank row is not a line', async () => {
+  const { posted } = await apiAs({ name: 'Zac', role: 'service' });
+  await submitWo({ action: 'stock_order', verb: 'OPEN' }, { manufacturer: 'FACTORY-CAT', note: '', p_num: [''], p_desc: ['filter'], p_qty: ['6'] });
+  assert.equal(posted.length, 0, 'no part number → nothing posts');
+  await submitWo({ action: 'stock_order', verb: 'OPEN' }, { manufacturer: 'FACTORY-CAT', note: 'filter bin down to one',
+    p_num: ['264-4086', '21-422S', ''], p_desc: ['Solution filter', '', ''], p_qty: ['6', '4', '1'] });
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0], { action: 'stock_order', serial: null, payload: { action: 'OPEN', note: 'filter bin down to one', parts: [
+    { manufacturer: 'FACTORY-CAT', part_number: '264-4086', description: 'Solution filter', qty: 6 },
+    { manufacturer: 'FACTORY-CAT', part_number: '21-422S', description: null, qty: 4 }] } });
+  assert.ok(!/source|cost|rate|price|value/i.test(JSON.stringify(posted[0])), 'no source, no money key');
+  const out = await renderRoute('#/parts');
+  assert.ok(stockFoldOf(out).includes('⏳ 1 new'), 'the fold head carries the ⏳ until the K lands');
+  await leaveApi();
+});
+
+await check('D127: Shop stock fold — folded by default; head counts parts · on order · pre-ledger, muted (never red); rows; pre-ledger muted', async () => {
+  const snap = await asFull('owner');
+  app.__ui().showStock = false;
+  let fold = stockFoldOf(await renderRoute('#/parts'));
+  const s = snap.stock_summary;
+  assert.ok(fold.includes(`${s.parts_tracked} parts · ${s.lines_open} on order · ${s.negative_count} pre-ledger`), fold.slice(0, 400));
+  assert.ok(fold.includes('class="count stock-pill"') && !/stock-pill[^"]*red|parts-n red/.test(fold), 'an informational pill, never red');
+  assert.ok(!fold.includes('id="stock-body"'), 'folded by default');
+  app.__ui().showStock = true;
+  fold = stockFoldOf(await renderRoute('#/parts'));
+  assert.equal([...fold.matchAll(/<div class="srow">/g)].length, snap.stock.length, 'one row per ledger file');
+  assert.ok(fold.includes('class="chip srow-oh pre"') && fold.includes('−1 · pre-ledger'.replace('−', '-')), 'the negative reads muted "-1 · pre-ledger"');
+  assert.ok(fold.indexOf('21-422S') < fold.indexOf('264-4086'), 'engine order kept (negatives first)');
+  assert.ok(fold.includes('href="#/stock/K1001">4 on order · K1001</a>'), 'on order → the newest open K for that part');
+  assert.ok(fold.includes('Shelf value $') && fold.includes('last-purchase basis'), 'owner: the shelf value footer');
+  assert.ok(fold.includes('last $12.40') && fold.includes('last —'), 'owner: last cost, "—" when null');
+  app.__ui().showStock = false;
+});
+
+await check('D127: money in the fold is owner/sales only, and only when a number — service sees no $ and no cost column; value_shipped false → none either', async () => {
+  for (const role of ['service', 'sales']) {
+    await asFull(role);
+    app.__ui().showStock = true;
+    const fold = stockFoldOf(await renderRoute('#/parts'));
+    if (role === 'service') {
+      assert.ok(!MONEY_RE.test(fold) && !fold.includes('last —') && !fold.includes('Shelf value'), 'service: no money, no column, no footer');
+    } else {
+      assert.ok(fold.includes('Shelf value $'), 'sales keeps the footer');
+    }
+  }
+  const snap = await asFull('owner');
+  for (const r of snap.stock) { delete r.last_cost; delete r.value; }
+  delete snap.stock_summary.value_total; snap.stock_summary.value_shipped = false;
+  app.__ui().showStock = true;
+  const fold = stockFoldOf(await renderRoute('#/parts'));
+  assert.ok(!MONEY_RE.test(fold) && !fold.includes('Shelf value'), 'nothing shipped → nothing drawn, not even $0');
+  app.__ui().showStock = false;
+});
+
+await check('D127: tracker — a Stock orders band between Parts sales and Delivered (30d); head counts K lines; delivered K rows in the fold; absent when none', async () => {
+  const snap = await asFull('owner');
+  setParts(false);
+  app.__ui().showTracker = true; app.__ui().showPartsDelivered = true;
+  const tr = trackerOf(await renderRoute('#/'));
+  const at = tr.indexOf('<div class="parts-g">Stock orders</div>');
+  assert.ok(at > tr.indexOf('<div class="parts-g">Parts sales</div>') && at < tr.indexOf('class="parts-sub"'), 'between Parts sales and Delivered (30d)');
+  const band = tr.slice(at, tr.indexOf('class="parts-sub"'));
+  assert.deepEqual([...band.matchAll(/PO <strong>(K\d{4})<\/strong>/g)].map((m) => m[1]), ['K1002', 'K1001'], 'open K-orders, oldest first; the closed one is not in the band');
+  assert.ok(band.includes('href="#/stock/K1001"') && band.includes('shop stock · 3 lines') && band.includes('1 to order') && band.includes('ups.com'), 'PO · shop stock · lines · to order · tracking');
+  assert.ok(!MONEY_RE.test(band), 'no money in the band');
+  const fold = tr.slice(tr.indexOf('class="parts-sub"'));
+  assert.ok(fold.includes('PO <strong>K1003</strong>') && fold.includes('PO <strong>K1002</strong>'), 'K-orders with a line on the shelf ride the Delivered (30d) fold');
+  snap.stock_orders = [];
+  assert.ok(!trackerOf(await renderRoute('#/')).includes('Stock orders'), 'no K-orders → no band');
+  setParts(false);
+  await asFull('owner');
+});
+
+await check('D127: #/stock/K1001 — PO big, line buttons by role (service: no Mark ordered), nobody gets Close or Use from stock', async () => {
+  const want = { owner: ['ORDERED', 'CANCELLED', 'IN-TRANSIT', 'DELIVERED'], sales: [], service: ['IN-TRANSIT', 'DELIVERED'] };
+  for (const role of ['owner', 'sales', 'service']) {
+    await asFull(role);
+    const out = await renderRoute('#/stock/K1001');
+    assert.ok(out.includes('PO <span>K1001</span>') && out.includes('K1001 · Shop stock · OPEN 3d'), `${role}: header`);
+    const acts = [...out.matchAll(/data-sheet="k-part" data-id="K1001\|\d+\|([A-Z-]+)"/g)].map((m) => m[1]);
+    assert.deepEqual([...new Set(acts)].sort(), want[role].slice().sort(), `${role}: line actions`);
+    assert.ok(!/data-sheet="(wo|k)-close"|Close (work|stock) order/.test(out), `${role}: no Close`);
+    assert.ok(!out.includes('Use from stock') && !out.includes('SHOP-STOCK'), `${role}: no Use from stock`);
+    assert.ok(out.includes('data-sheet="k-add"'), `${role}: + Add parts`);
+    assert.ok(!out.includes('data-sheet="k-cancel"'), `${role}: no Cancel order — lines are already ordered`);
+    assert.ok(!MONEY_RE.test(out), `${role}: no money on the K page`);
+  }
+  await asFull('owner');
+  const closed = await renderRoute('#/stock/K1003');
+  assert.ok(closed.includes('CLOSED') && closed.includes('· auto') && !closed.includes('data-sheet="k-part"') && !closed.includes('data-sheet="k-add"'), 'a closed K: CLOSED <date> · auto, no buttons');
+  const missing = await renderRoute('#/stock/K9999');
+  assert.ok(missing.includes('Stock order not found.'), 'unknown K');
+});
+
+await check('D127: a pending OPEN has its own page at #/stock/new/<event id>; once applied it hops to the K the activity tape names', async () => {
+  window.location.href = 'http://localhost:8787/?mock=full&role=owner&pending=1';
+  window.location.search = '?mock=full&role=owner&pending=1';
+  await app.__refresh();
+  const out = await renderRoute('#/stock/new/evt-mock-k1');
+  assert.ok(out.includes('PO <span>⏳ NEW</span>') && out.includes('not numbered yet') && out.includes('21-422S'), 'drawn as NEW — never an invented K');
+  const k2 = await renderRoute('#/stock/K1002');
+  assert.ok(k2.includes('⏳ line 2 → delivered — on the shelf'), 'a pending PART-STATE badges its line');
+  const st = app.__state();
+  st.pending = st.pending.filter((e) => e.id !== 'evt-mock-k1');
+  st.snapshot.activity = [{ ts: new Date().toISOString(), actor: 'Zac', action: 'stock_order', verb: 'OPEN', record: 'K1001', text: 'K1001 OPEN by Zac', evt: 'evt-mock-k1' }].concat(st.snapshot.activity || []);
+  window.location.hash = '#/stock/new/evt-mock-k1'; app.__render();
+  assert.equal(window.location.hash, '#/stock/K1001', 'replaced to the numbered K');
+  await asFull('owner');
+});
+
+await check('D127: activity routes K… to #/stock/; a pre-D127 snapshot (no stock keys) renders Parts, the tracker and a K link cleanly', async () => {
+  const { activityRoute, pendingLabel } = await import('../docs/activity.js');
+  assert.equal(activityRoute('K1001', []), '#/stock/K1001');
+  assert.equal(pendingLabel({ action: 'stock_order', payload: { action: 'PART-STATE', stock_order: 'K1001' } }), 'K1001: part update sent');
+  const snap = await asFull('owner');
+  delete snap.stock_orders; delete snap.stock; delete snap.stock_summary;
+  app.__ui().showStock = true;
+  const parts = await renderRoute('#/parts');
+  assert.ok(parts.includes('🧰 Request stock parts') && stockFoldOf(parts).includes('no shelf history yet') && stockFoldOf(parts).includes('the ledger starts with your first stock order'), 'legacy: the button + the empty fold');
+  assert.ok(!(await renderRoute('#/')).includes('Stock orders'), 'legacy: no band');
+  assert.ok((await renderRoute('#/stock/K1001')).includes('Stock order not found.'), 'legacy: a K link lands softly');
+  app.__ui().showStock = false;
   await asFull('owner');
 });
 

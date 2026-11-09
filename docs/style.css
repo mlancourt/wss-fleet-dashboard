@@ -1672,3 +1672,20 @@ a.chip.dmg { cursor: pointer; }
 .idmg .tg { min-height: 36px; font-size: 13px; padding: 4px 10px; }
 form.write.inline.dmg-flip { background: none; border: 0; box-shadow: none; padding: 0; margin: 8px 0 0; }
 .check.dmg-bill { font-weight: 600; }
+
+/* D127 — shop stock. The Request sheet's line: part # · qty, then description (no make — the sheet has one; no Order/Stock). */
+.wo-line.k-line { grid-template-columns: 1fr 76px; grid-template-areas: "num qty" "desc desc"; }
+@media (min-width: 700px) {
+  .wo-line.k-line { grid-template-columns: 1fr 2fr 76px; grid-template-areas: "num desc qty"; }
+}
+.parts-btns { flex-wrap: wrap; }
+/* The Shop stock fold: one row per part. A pre-ledger negative is muted, never an alarm. */
+.stock-pill { font-weight: 600; color: var(--ink-3); background: var(--slate-100); }
+.srow { padding: 10px 0; border-bottom: 1px solid var(--slate-100); }
+.srow:last-of-type { border-bottom: 0; }
+.srow-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; margin-bottom: 4px; }
+.srow-pn { font-weight: 700; }
+.srow-desc { color: var(--ink-2); font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+.chip.srow-oh { font-weight: 700; font-variant-numeric: tabular-nums; }
+.chip.srow-oh.pre { font-weight: 500; color: var(--ink-3); background: var(--slate-50); }
+.srow-foot { padding: 10px 0 2px; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--slate-200); }

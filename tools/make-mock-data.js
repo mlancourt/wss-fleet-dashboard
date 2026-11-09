@@ -1178,6 +1178,9 @@ function build({ withServiceQueue }) {
   // ---------------------------------------------------- parts sales (D88)
   const { parts_orders, parts_summary } = buildParts({ withParts: withServiceQueue, service_queue, leads });
 
+  // ------------------------------------------------- shop stock (D127)
+  const { stock_orders, stock, stock_summary } = buildStock({ withStock: withServiceQueue });
+
   // ---------------------------------------------------- activity (D78)
   const activity = buildActivity({ withActivity: withServiceQueue, units, service_queue, leads, work_orders, dispatch, agreements });
 
@@ -1268,9 +1271,68 @@ function build({ withServiceQueue }) {
     // D88 (schema 7, additive): parts sales. OPEN + closed <= 14 days.
     parts_orders,
     parts_summary,
+    // D127 (schema 7, additive): stock restocks (K) + the shop-stock ledger. Money only behind value_shipped.
+    stock_orders,
+    stock,
+    stock_summary,
   };
 
   return { snapshot, ledger };
+}
+
+/* ------------------------------------------------- shop stock (D127)
+ * Stock-Replenishment-Site-Spec §7. Three K-orders: K1001 OPEN with a line at
+ * each of REQUESTED · ORDERED · IN-TRANSIT (UPS); K1002 OPEN with one line
+ * DELIVERED and one IN-TRANSIT; K1003 CLOSED five days ago (auto). Six ledger
+ * rows: one pre-ledger negative, one on order (K1001), one never priced
+ * (last_cost null), three priced. The full variant ships the money
+ * (value_shipped: true — the Worker strips it for service); the empty variant
+ * ships the keys with nothing in them (value_shipped: false). No cost on any
+ * K line, ever — that is vault-only.
+ */
+function buildStock({ withStock }) {
+  const summaryOf = (orders, rows, shipped) => {
+    const open = orders.filter((k) => k.status === 'OPEN');
+    const openLines = open.flatMap((k) => k.parts.filter((l) => ['REQUESTED', 'ORDERED', 'IN-TRANSIT'].includes(l.state)));
+    const out = { orders_open: open.length, lines_open: openLines.length, parts_tracked: rows.length,
+      negative_count: rows.filter((r) => r.on_hand < 0).length,
+      on_order_lines: openLines.filter((l) => l.state === 'ORDERED' || l.state === 'IN-TRANSIT').length,
+      money_fields: ['last_cost', 'value', 'value_total'], value_shipped: shipped };
+    if (shipped) out.value_total = Number(rows.reduce((a, r) => a + (typeof r.value === 'number' ? r.value : 0), 0).toFixed(2));
+    return out;
+  };
+  if (!withStock) return { stock_orders: [], stock: [], stock_summary: summaryOf([], [], false) };
+  const line = (n, mfr, pn, desc, qty, state, x = {}) => ({ line: n, manufacturer: mfr, part_number: pn, description: desc, qty, state,
+    ordered: x.ordered == null ? null : d(-x.ordered), vendor: x.vendor || null, vendor_ref: x.ref || null,
+    tracking: x.tracking || null, carrier: x.tracking ? 'UPS' : null, delivered: x.delivered == null ? null : d(-x.delivered) });
+  const log = (rows) => rows.map(([ago_, who, text]) => ({ ts: `${d(-ago_)} 09:1${ago_ % 10} CT`, who, text }));
+  const orders = [
+    { id: 'K1001', status: 'OPEN', opened: d(-3), opened_by: 'Zac', closed: null, age_days: 3, note: 'filter bin down to one',
+      parts: [line(1, 'FACTORY-CAT', '264-4086', 'Solution filter', 6, 'IN-TRANSIT', { ordered: 2, vendor: 'RPS', ref: 'SO-449002', tracking: '1Z54054E0395003647' }),
+        line(2, 'FACTORY-CAT', '21-422S', 'Squeegee blade rear', 4, 'ORDERED', { ordered: 2, vendor: 'RPS', ref: 'SO-449002' }),
+        line(3, 'KODIAK', 'K-30-750', 'Brush drive belt', 2, 'REQUESTED')],
+      log: log([[3, 'Zac', 'opened by Zac (3 lines): filter bin down to one'], [2, 'Matt', 'Matt ORDERED #1 FACTORY-CAT 264-4086 ×6 from RPS ref SO-449002 — PO K1001'],
+        [1, 'engine', 'AP sweep — RPS invoice 651400: → IN-TRANSIT #1 264-4086; UPS 1Z54054E0395003647; cost backfilled on 1 line(s) (vault-only)']]) },
+    { id: 'K1002', status: 'OPEN', opened: d(-9), opened_by: 'Josh', closed: null, age_days: 9, note: null,
+      parts: [line(1, 'NILFISK', 'VR-12404', 'Vac motor gasket', 3, 'DELIVERED', { ordered: 8, vendor: 'NILFISK', delivered: 2 }),
+        line(2, 'NILFISK', 'VR-16002', 'Squeegee blade front', 2, 'IN-TRANSIT', { ordered: 8, vendor: 'NILFISK', tracking: '1Z54054E0394891056' })],
+      log: log([[9, 'Josh', 'opened by Josh (2 lines)'], [2, 'engine', 'UPS DELIVERED #1 NILFISK VR-12404 ×3 — on the shelf']]) },
+    { id: 'K1003', status: 'CLOSED', opened: d(-12), opened_by: 'Matt', closed: d(-5), age_days: null, note: 'pads for the rental floor',
+      parts: [line(1, 'OTHER', 'PAD-20-RED', 'Red buffing pad 20"', 10, 'DELIVERED', { ordered: 11, vendor: 'OTHER', delivered: 5 })],
+      log: log([[12, 'Matt', 'opened by Matt (1 line)'], [5, 'engine', 'auto-closed — all lines delivered']]) },
+  ].map((k) => ({ ...k, parts_open: k.parts.filter((l) => ['REQUESTED', 'ORDERED', 'IN-TRANSIT'].includes(l.state)).length }));
+  const row = (pn, mfr, desc, on_hand, last_cost, recv, pulls, on_order) => ({ part_number: pn, manufacturer: mfr, description: desc, on_hand,
+    last_received: recv == null ? null : d(-recv), pulls_90d: pulls, on_order, last_cost,
+    value: last_cost != null && on_hand >= 0 ? Number((on_hand * last_cost).toFixed(2)) : null });
+  const rows = [
+    row('21-422S', 'FACTORY-CAT', 'Squeegee blade rear', -1, null, null, 1, 4),          // pre-ledger, on order on K1001
+    row('VR-12404', 'NILFISK', 'Vac motor gasket', 2, null, 2, 1, 0),                    // received before the invoice — last_cost null
+    row('PAD-20-RED', 'OTHER', 'Red buffing pad 20"', 4, 6.15, 5, 6, 0),
+    row('264-4086', 'FACTORY-CAT', 'Solution filter', 5, 12.4, 20, 3, 6),                // priced and on order again
+    row('150-4500', 'FACTORY-CAT', 'Solution valve 24V', 1, 48.9, 30, 2, 0),
+    row('K-30-750', 'KODIAK', 'Brush drive belt', 7, 9.85, 40, 2, 2),
+  ].sort((a, b) => a.on_hand - b.on_hand || a.part_number.localeCompare(b.part_number));
+  return { stock_orders: orders, stock: rows, stock_summary: summaryOf(orders, rows, true) };
 }
 
 /* ------------------------------------------------- parts sales (D88)
@@ -2323,6 +2385,10 @@ function downgradeToSchema2(s3, ledger) {
   // D88 postdates it too: no parts orders. The tab says so; the tracker draws without the band.
   delete snap.parts_orders;
   delete snap.parts_summary;
+  // D127 postdates it too: no stock orders, no ledger. The tab's fold says "no shelf history yet".
+  delete snap.stock_orders;
+  delete snap.stock;
+  delete snap.stock_summary;
   for (const u of snap.units) { delete u.wo_inspection; delete u.last_inspection; delete u.hours_as_of; }
   return snap;
 }
@@ -2714,6 +2780,22 @@ const pending = [
     actor: 'Kevin', role: 'sales',
     action: 'parts_update', serial: null,
     payload: { order: 'P1003', note: 'PO promised by Friday' },
+  },
+  // D127: a stock restock requested from a phone (no K-number yet — the nonce is
+  // this event id) and Josh's DELIVERED tap on K1002's box still in transit.
+  {
+    id: 'evt-mock-k1',
+    ts: ago(9),
+    actor: 'Zac', role: 'service',
+    action: 'stock_order', serial: null,
+    payload: { action: 'OPEN', note: 'squeegee bin low', parts: [{ manufacturer: 'FACTORY-CAT', part_number: '21-422S', description: 'Squeegee blade rear', qty: 6 }] },
+  },
+  {
+    id: 'evt-mock-k2',
+    ts: ago(7),
+    actor: 'Josh', role: 'service',
+    action: 'stock_order', serial: null,
+    payload: { action: 'PART-STATE', stock_order: 'K1002', line: 2, state: 'DELIVERED', date: d(0), note: null },
   },
 ];
 const pfile = path.join(outdir, 'mock-pending.json');

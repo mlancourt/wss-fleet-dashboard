@@ -167,11 +167,17 @@ import {
   partsInFlight, inFlightCounts, shipmentsOf, boxesOpen, latestShipment, canShipBox, P_SHIP_FROM,
   partsScoreTiles, P_STAT_LABEL, P_STAT_WINDOWS,
 } from './parts.js';
+import {
+  K_DEFAULT_MFR, K_MAX_LINES, stockHref, newStockHref, kParts, isOpenK, kById, stockMoney, isPreLedger,
+  stockFoldCounts, stockFoldText, newestOpenKFor, shelfValue, kTrackerCounts, kTrackerRows, kOrderedOn, kTrackingLine, kVendors,
+  kPartActions, kCancelShown, kCanAdd, kStatusText, pendingStockOpens, pendingForStock, landedK, describeStockEvent,
+  stockLines, stockFormProblem, fmtUnitCost,
+} from './stock.js';   // D127
 
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-06-d126';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-09-d127';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -291,6 +297,11 @@ const TRACKER_OPEN_KEY = 'wss.tracker.open';
 function storedTrackerOpen() {
   try { return sessionStorage.getItem(TRACKER_OPEN_KEY) === '1'; } catch (_) { return false; }
 }
+// D127: the Parts tab's Shop stock fold, on its own key.
+const STOCK_OPEN_KEY = 'wss.stock.open';
+function storedStockOpen() {
+  try { return sessionStorage.getItem(STOCK_OPEN_KEY) === '1'; } catch (_) { return false; }
+}
 // D78: the Activity tape folds the same way, on its own key.
 const ACTIVITY_OPEN_KEY = 'wss.activity.open';
 function storedActivityOpen() {
@@ -348,6 +359,7 @@ const ui = {
   showTracker: storedTrackerOpen(),   // D75: the Parts tracker strip — collapsed by default, remembered per session
   trackerOpen: new Set(),         // D75: the W-numbers whose tracker group is unfolded — this page load only
   showActivity: storedActivityOpen(), // D78: the Activity tape — collapsed by default, remembered per session
+  showStock: storedStockOpen(),       // D127: the Parts tab's Shop stock fold — collapsed by default, remembered per session
   // D69: the 📋 sheet card on a work order — expanded while PENDING, folded once
   // DONE / SKIPPED. A tap flips it for this page view; key → true (open) / false.
   sheetCard: new Map(),
@@ -504,6 +516,10 @@ const insights = () => (state.snapshot && state.snapshot.insights) || null;
 const partsOrders = () => (state.snapshot && Array.isArray(state.snapshot.parts_orders) ? state.snapshot.parts_orders : []);
 const partsSummary = () => (state.snapshot && state.snapshot.parts_summary) || null;
 const hasParts = () => !!(state.snapshot && (Array.isArray(state.snapshot.parts_orders) || state.snapshot.parts_summary));
+// D127: shop stock. Absent on a pre-D127 snapshot — the button still works, the fold says "no shelf history yet".
+const stockOrders = () => (state.snapshot && Array.isArray(state.snapshot.stock_orders) ? state.snapshot.stock_orders : []);
+const stockRows = () => (state.snapshot && Array.isArray(state.snapshot.stock) ? state.snapshot.stock : []);
+const stockSummary = () => (state.snapshot && state.snapshot.stock_summary) || null;
 // D65. Absent on a pre-D65 snapshot, which reads as "no work orders" — the
 // strip draws empty and the unit page still offers the button.
 const workOrders = () => workOrdersOf(state.snapshot);
@@ -797,17 +813,21 @@ function partsTracker() {
   const co = customerOrders(serviceQueue());
   // D88: parts sales in flight (OPEN, ORDERED / IN-TRANSIT) ride the same strip.
   const ps = partsInFlight(partsOrders());
-  if (!g.active.length && !g.delivered.length && !co.active.length && !co.delivered.length && !ps.length) return '';
+  // D127: shop-stock restocks (K-orders) — the band between Parts sales and Delivered (30d).
+  const kr = kTrackerRows(stockOrders());
+  const kc = kTrackerCounts(stockOrders());
+  if (!g.active.length && !g.delivered.length && !co.active.length && !co.delivered.length && !ps.length && !kr.active.length && !kr.delivered.length) return '';
   const c = trackerCounts(list);
   const oc = orderCounts(co.active);
   const pc = inFlightCounts(ps);
   // D125: a final list with REQUESTED lines is Matt's to order now (red); lines on a sheet still open are a hold (amber).
-  const tone = c.toOrder ? 'red' : c.inspecting ? 'amber' : requestedTone(list, PARTS_AMBER, PARTS_RED);
+  // D127: a REQUESTED K line is always "to order" — a restock has no sheet to wait on.
+  const tone = (c.toOrder || kc.toOrder) ? 'red' : c.inspecting ? 'amber' : requestedTone(list, PARTS_AMBER, PARTS_RED);
   const open = ui.showTracker;
-  const segs = [[c.ordered + oc.ordered + pc.ordered, 'ordered'], [c.inTransit + oc.inTransit + pc.inTransit, 'in transit'], [c.toOrder, 'to order'], [c.inspecting, 'still inspecting']]
+  const segs = [[c.ordered + oc.ordered + pc.ordered + kc.ordered, 'ordered'], [c.inTransit + oc.inTransit + pc.inTransit + kc.inTransit, 'in transit'], [c.toOrder + kc.toOrder, 'to order'], [c.inspecting, 'still inspecting']]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
   const pill = segs.length ? segs.join(' · ') : 'nothing open';
-  const nDelivered = g.delivered.length + co.delivered.length;
+  const nDelivered = g.delivered.length + co.delivered.length + kr.delivered.length;
 
   const body = open ? html`
     <div class="parts-body" id="tracker-body">
@@ -815,11 +835,13 @@ function partsTracker() {
         <div class="parts-g">Customer orders</div>
         ${raw(co.active.map((r) => orderStripRow(r, false)).join(''))}`) : ''}${ps.length ? raw(html`
         <div class="parts-g">Parts sales</div>
-        ${raw(ps.map(partsSaleRow).join(''))}`) : ''}
+        ${raw(ps.map(partsSaleRow).join(''))}`) : ''}${kr.active.length ? raw(html`
+        <div class="parts-g">Stock orders</div>
+        ${raw(kr.active.map(kBandRow).join(''))}`) : ''}
       ${nDelivered ? raw(html`
         <button type="button" class="parts-sub" data-parts-delivered-toggle="1" aria-expanded="${ui.showPartsDelivered ? 'true' : 'false'}">
           Delivered (30d) <span class="count">${nDelivered}</span> ${ui.showPartsDelivered ? '▾' : '▸'}</button>
-        ${ui.showPartsDelivered ? raw(g.delivered.map((x) => trackerGroup(x, true)).join('') + co.delivered.map((r) => orderStripRow(r, true)).join('')) : ''}`) : ''}
+        ${ui.showPartsDelivered ? raw(g.delivered.map((x) => trackerGroup(x, true)).join('') + co.delivered.map((r) => orderStripRow(r, true)).join('') + kr.delivered.map(kDeliveredRow).join('')) : ''}`) : ''}
     </div>` : '';
 
   return html`
@@ -987,6 +1009,45 @@ function partsSaleRow(o) {
         ${raw(boxesChip(o))}
         ${raw(chip((P_STAGE_LABEL[o.stage] || o.stage).toLowerCase(), o.stage === 'IN-TRANSIT' ? 'rent' : 'hold'))}
       </div>
+    </div>`;
+}
+
+/**
+ * D127 — one shop-stock restock in the tracker: PO K1001 · shop stock · 2 lines ·
+ * to order / ordered <date> · vendor · carrier tracking. The K-number is the
+ * vendor PO. Tap → the order. No money, ever.
+ */
+function kBandRow(k) {
+  const href = stockHref(k.id);
+  const ls = kParts(k).filter((l) => l.state !== 'CANCELLED');
+  const toOrder = ls.filter((l) => l.state === 'REQUESTED').length;
+  const on = kOrderedOn(k);
+  const trk = kTrackingLine(k);
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="${raw(href)}">
+        <span class="prow-po">PO <strong>${k.id}</strong></span>
+        <span class="prow-desc">shop stock · ${ls.length} line${ls.length === 1 ? '' : 's'}</span>
+      </a>
+      <div class="chips">
+        ${toOrder ? raw(chip(`${toOrder} to order`, 'bad')) : ''}
+        ${on ? raw(chip(`ordered ${fmtDate(on)}`, 'cal')) : ''}
+        ${raw(kVendors(k).map((v) => chip(VENDOR_LABEL[v] || v, 'rig')).join(''))}
+        ${trk ? raw(trackingChip(trk)) : ''}
+        ${typeof k.age_days === 'number' ? raw(chip(ageText(k.age_days), 'age')) : ''}
+      </div>
+    </div>`;
+}
+/** D127 — a restock whose boxes landed, in Delivered (30d): PO K1001 · N on the shelf · delivered <date>. */
+function kDeliveredRow({ k, newest }) {
+  const n = kParts(k).filter((l) => l.state === 'DELIVERED').length;
+  return html`
+    <div class="prow">
+      <a class="prow-main" href="${raw(stockHref(k.id))}">
+        <span class="prow-po">PO <strong>${k.id}</strong></span>
+        <span class="prow-desc">shop stock · ${n} line${n === 1 ? '' : 's'} on the shelf</span>
+      </a>
+      <div class="chips">${newest ? raw(chip(`delivered ${fmtDate(newest)}`, 'ok')) : ''}${k.status === 'CLOSED' ? raw(chip('closed', 'ok')) : ''}</div>
     </div>`;
 }
 
@@ -5557,13 +5618,17 @@ function viewParts() {
   const opens = pendingPartsOpens();
   const head = html`<h1>Parts</h1>${raw(msgBlock())}
     ${raw(partsScoreboard())}
-    <div class="actions"><button class="btn" type="button" data-sheet="new-parts">+ New parts order</button></div>
+    <div class="actions row parts-btns">
+      <button class="btn" type="button" data-sheet="new-parts">+ New parts order</button>
+      <button class="btn ghost" type="button" data-sheet="new-stock">🧰 Request stock parts</button>
+    </div>
     ${sheetOpen('new-parts') ? raw(newPartsForm()) : ''}
+    ${sheetOpen('new-stock') ? raw(stockOrderForm(null)) : ''}
     ${opens.length ? raw(html`<div class="note"><strong>⏳ ${opens.length} new parts order${opens.length > 1 ? 's' : ''} pending</strong>
       ${raw(opens.map((e) => html`<div class="pend-row"><span>${pl(e).customer || '—'}${pl(e).parts ? ` · ${firstLine(pl(e).parts)}` : ''}</span>${raw(undoControl(e))}</div>`).join(''))}
       <div style="margin-top:6px">The engine assigns the P-number at the next run.</div></div>`) : ''}`;
 
-  if (!all.length && !opens.length) return head + emptyState('No parts orders yet. Open one from a call or an email.');
+  if (!all.length && !opens.length) return head + emptyState('No parts orders yet. Open one from a call or an email.') + shopStockFold();
 
   const cols = partsColumns(all, partsSummary()).map((c) => kanColumn({
     key: `parts:${c.stage}`, id: `parts-col-${enc(c.stage)}`, cls: `pcol-${enc(c.stage)}`,
@@ -5573,6 +5638,7 @@ function viewParts() {
   return html`${raw(head)}
     <div class="kan-wrap"><div class="kanban">${raw(cols.join(''))}</div></div>
     <div class="form-note">Swipe the columns sideways. Tap a card for the whole order.</div>
+    ${raw(shopStockFold())}
     ${raw(partsClosedStrip(all))}`;
 }
 
@@ -5702,6 +5768,263 @@ function newPartsForm() {
       ${raw(sheetButtons('Open the order'))}
       <div class="form-note">A proposal. The engine assigns the P-number — the vendor PO — at the next run.</div>
     </form>`;
+}
+
+/* ---- D127: shop stock — the Request sheet, the fold, the K page ---- */
+
+/** One line of the Request stock parts sheet: part # · qty · description. No make (the sheet has one), no Order/Stock toggle. */
+const stockLineRow = () => html`
+    <div class="wo-line k-line">
+      <input name="p_num" maxlength="40" placeholder="Part #" autocomplete="off" aria-label="Part number">
+      <input name="p_desc" maxlength="80" placeholder="Description" autocomplete="off" aria-label="Description">
+      <input name="p_qty" type="number" inputmode="numeric" min="1" max="99" step="1" value="1" aria-label="Quantity">
+    </div>`;
+
+/**
+ * 🧰 Request stock parts (OPEN, k = null) — and + Add parts on a K page (k set).
+ * One make for the sheet (FACTORY-CAT unless the order already says otherwise),
+ * 1–20 lines, an optional note. These are always orders: the shelf is what's
+ * being filled. No prices — cost comes off the vendor invoice.
+ */
+function stockOrderForm(k) {
+  const first = k && kParts(k)[0] ? kParts(k)[0].manufacturer : null;
+  const mfr = MANUFACTURERS.includes(first) ? first : K_DEFAULT_MFR;
+  return html`
+    <form class="write sheet" data-action="stock_order" data-verb="${k ? 'ADD-PARTS' : 'OPEN'}"${k ? raw(html` data-k="${k.id}"`) : ''}>
+      <label>Make</label>
+      ${raw(toggle('manufacturer', MANUFACTURERS.map((m) => [m, MANUFACTURER_LABEL[m] || m]), mfr))}
+      <label>Parts</label>
+      <div class="wo-lines k-lines">${raw(stockLineRow())}</div>
+      <button class="btn sm ghost" type="button" data-stock-addline="1">+ line</button>
+      <div class="form-note">Up to ${K_MAX_LINES} lines. Part # and quantity — no prices; cost comes off the vendor invoice.</div>
+      ${k ? '' : raw(html`
+      <label for="ks-note">Note (optional)</label>
+      <textarea id="ks-note" name="note" maxlength="200" placeholder="filter bin down to one"></textarea>`)}
+      ${raw(sheetButtons(k ? 'Add the parts' : 'Request the parts'))}
+      <div class="form-note">This is a restock for the shelf — Matt places the order; the box tracks under 📦 Parts.</div>
+    </form>`;
+}
+
+/**
+ * 🧰 Shop stock (D127 §6a) — the shelf, counted off the events the engine already
+ * sees. Folded by default, remembered per session. The pill is informational:
+ * a pre-ledger negative is expected (no opening count), so it is muted grey,
+ * never red. Money (last cost · value · the shelf value) only for owner/sales
+ * and only when the engine shipped a number — service never gets the columns.
+ */
+function shopStockFold() {
+  const rows = stockRows();
+  const orders = stockOrders();
+  const c = stockFoldCounts(rows, stockSummary(), orders);
+  const opens = pendingStockOpens(state.pending);
+  const open = ui.showStock;
+  const money = role() === 'owner' || role() === 'sales';
+  const total = money ? shelfValue(stockSummary()) : null;
+
+  const row = (r) => {
+    const k = r.on_order > 0 ? newestOpenKFor(orders, r.part_number) : null;
+    const pre = isPreLedger(r);
+    const lc = money ? stockMoney(r.last_cost) : null;
+    const val = money ? stockMoney(r.value) : null;
+    return html`
+      <div class="srow">
+        <div class="srow-top">
+          <span class="unit-serial srow-pn">${r.part_number || '—'}</span>
+          ${r.manufacturer ? raw(chip(MANUFACTURER_LABEL[r.manufacturer] || r.manufacturer, 'rig')) : ''}
+          <span class="srow-desc">${r.description || ''}</span>
+        </div>
+        <div class="chips">
+          <span class="chip srow-oh${pre ? ' pre' : ''}"${pre ? raw(html` title="${r.on_hand} · pre-ledger — the first restock corrects it"`) : ''}>${pre ? `${r.on_hand} · pre-ledger` : `${r.on_hand ?? 0} on hand`}</span>
+          ${r.on_order > 0 ? (k ? raw(html`<a class="chip rent" href="${raw(stockHref(k.id))}">${r.on_order} on order · ${k.id}</a>`) : raw(chip(`${r.on_order} on order`, 'rent'))) : ''}
+          ${r.last_received ? raw(chip(`received ${fmtDate(r.last_received)}`, 'cal')) : ''}
+          ${r.pulls_90d ? raw(chip(`${r.pulls_90d} used · 90d`, 'age')) : ''}
+          ${money ? raw(chip(lc == null ? 'last —' : `last ${fmtUnitCost(lc)}`, 'money')) : ''}
+          ${money && val != null ? raw(chip(`value ${fmtMoney(val)}`, 'money')) : ''}
+        </div>
+      </div>`;
+  };
+  const body = open ? html`
+    <div class="card dlist stock-fold" id="stock-body">
+      ${raw(opens.map((e) => html`<div class="pend-row"><span><a href="${raw(newStockHref(e.id))}">${describeStockEvent(e)}</a> — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
+      ${rows.length ? raw(rows.map(row).join('')) : raw('<div class="hold-empty">No shelf history yet — the ledger starts with your first stock order.</div>')}
+      ${total != null ? raw(html`<div class="srow-foot">Shelf value ${fmtMoney(total)} · last-purchase basis</div>`) : ''}
+    </div>` : '';
+  return html`
+    <h2><button type="button" class="disclose" data-stock-toggle="1" aria-expanded="${open ? 'true' : 'false'}" aria-controls="stock-body">
+      ${open ? '▾' : '▸'} 🧰 Shop stock <span class="count stock-pill">${stockFoldText(c)}</span>${opens.length ? raw(html` <span class="chip pending">⏳ ${opens.length} new</span>`) : ''}</button></h2>
+    ${raw(body)}`;
+}
+
+/**
+ * `#/stock/K1001` (D127 §6) — the work-order page's anatomy minus the serial,
+ * the sheet and labor: "PO K1001" big (the number Matt reads to RPS), the part
+ * lines with their buttons by role + state, + Add parts, Cancel order, the log.
+ * No Use from stock (it IS the stock order) and no Close — the engine closes it.
+ * `#/stock/new/<event id>` is a request sent from this phone, before the K lands.
+ */
+function viewStockOrder(arg) {
+  const crumb = html`<a class="crumb" href="#/parts">‹ Parts</a>`;
+  if (arg.startsWith('new/')) return viewNewStockOrder(decodeURIComponent(arg.slice(4)), crumb);
+  const id = decodeURIComponent(arg);
+  const k = kById(stockOrders(), id);
+  if (!k) return html`${raw(crumb)}${raw(emptyState('Stock order not found.', 'A closed one leaves after 30 days; a new one gets its K-number at the next run.'))}`;
+  const pend = pendingForStock(state.pending, k.id);
+  const me = meName();
+  const parts = kParts(k);
+  const log = (Array.isArray(k.log) ? k.log.filter(Boolean) : []).slice().reverse();
+  return html`
+    ${raw(crumb)}
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="po-big">PO <span>${k.id}</span></div>
+      <div class="s">${k.id} · Shop stock · ${kStatusText(k, fmtDate, ageText)}</div>
+      <div class="s">opened by ${k.opened_by || '—'}${k.opened ? ` ${fmtMD(k.opened)}` : ''}</div>
+      <div class="chips">
+        ${k.status === 'OPEN' ? '' : raw(chip(k.status, k.status === 'CLOSED' ? 'ok' : 'out'))}
+        ${pend.length ? raw(chip(`⏳ ${pend.length} pending`, 'pending')) : ''}
+      </div>
+    </div>
+    ${pend.length ? raw(html`<div class="note"><strong>⏳ ${pend.length} pending change${pend.length > 1 ? 's' : ''}</strong>
+      ${raw(pend.map((e) => html`<div class="pend-row"><span>${describeStockEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`).join(''))}
+      <div style="margin-top:6px">Applies at the next run — the page still shows the current truth.</div></div>`) : ''}
+    ${k.note ? raw(html`<div class="note"><strong>Note</strong>${k.note}</div>`) : ''}
+
+    <h2>Parts${parts.length ? raw(html` <span class="count">${parts.length}</span>`) : ''}</h2>
+    <div class="card dlist">
+      ${parts.length ? raw(parts.map((part) => kPartRow(k, part, pend, me)).join('')) : raw('<div class="hold-empty">No lines.</div>')}
+    </div>
+    <div class="actions row">
+      ${kCanAdd(k, role()) ? raw(html`<button class="btn ghost" type="button" data-sheet="k-add" data-id="${k.id}">+ Add parts</button>`) : ''}
+      ${kCancelShown(k, role(), me) ? raw(html`<button class="btn ghost" type="button" data-sheet="k-cancel" data-id="${k.id}">Cancel order</button>`) : ''}
+    </div>
+    ${sheetOpen('k-add', k.id) ? raw(stockOrderForm(k)) : ''}
+    ${sheetOpen('k-cancel', k.id) ? raw(html`
+      <form class="write sheet" data-action="stock_order" data-verb="CANCEL" data-k="${k.id}">
+        <div class="confirm-line">Cancel <strong>${k.id}</strong>? Nothing on it has been ordered.</div>
+        <label for="kc-note">Why (optional)</label>
+        <textarea id="kc-note" name="note" maxlength="200" placeholder="found a case in the back"></textarea>
+        ${raw(sheetButtons('Cancel the order'))}
+      </form>`) : ''}
+    ${k.status === 'OPEN' ? raw('<div class="form-note">It closes itself when the last line is delivered or cancelled — and every delivered line goes onto the shelf count.</div>') : ''}
+
+    <h2>Log${log.length ? raw(html` <span class="count">${log.length}</span>`) : ''}</h2>
+    <div class="card notes">
+      ${log.length ? raw(log.map((n) => html`
+        <div class="nrow">
+          <div class="ntext">${n.text}</div>
+          <div class="nmeta">${n.who ? raw(html`<span class="nwho">${n.who}</span>`) : ''}${n.ts ? raw(html`<span class="nts">${n.ts}</span>`) : ''}</div>
+        </div>`).join('')) : raw('<div class="hold-empty">Nothing logged yet.</div>')}
+    </div>`;
+}
+
+/** A request sent from this phone, not numbered yet — or, once the engine has run, a hop to the K it became. */
+function viewNewStockOrder(evtId, crumb) {
+  const e = pendingStockOpens(state.pending).find((x) => x.id === evtId) || null;
+  if (!e) {
+    const kid = landedK(state.snapshot && state.snapshot.activity, evtId);
+    if (kid && kById(stockOrders(), kid)) {
+      window.location.replace(`#/stock/${enc(kid)}`);
+      return html`<div class="loading">Opening ${kid}…</div>`;
+    }
+    return html`${raw(crumb)}${raw(emptyState('That stock order has been numbered.', 'Find it under 📦 Parts tracker on the Fleet tab, or in Shop stock on the Parts tab.'))}`;
+  }
+  const p = pl(e);
+  const lines = Array.isArray(p.parts) ? p.parts : [];
+  return html`
+    ${raw(crumb)}
+    ${raw(msgBlock())}
+    <div class="detail-head">
+      <div class="po-big">PO <span>⏳ NEW</span></div>
+      <div class="s">Shop stock · requested by ${e.actor || 'someone'}</div>
+    </div>
+    <div class="note"><strong>⏳ Stock order — not numbered yet</strong>
+      The engine gives it a K-number (the PO) at the next run.
+      <div class="pend-row"><span>${describeStockEvent(e)}</span>${raw(undoControl(e))}</div>
+    </div>
+    ${p.note ? raw(html`<div class="note"><strong>Note</strong>${p.note}</div>`) : ''}
+    <h2>Parts <span class="count">${lines.length}</span></h2>
+    <div class="card dlist">
+      ${raw(lines.map((l, i) => html`
+        <div class="drow wo-part">
+          <div class="drow-top">
+            <span class="drow-what"><span class="wo-ln">${i + 1}</span> <span class="unit-serial">${l.part_number || '—'}</span> × ${l.qty ?? 1}</span>
+            ${raw(chip('requested', 'pending'))}
+          </div>
+          <div class="drow-meta">${l.description || ''}${l.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[l.manufacturer] || l.manufacturer}`) : ''}</div>
+        </div>`).join(''))}
+    </div>`;
+}
+
+/** One K line, with the buttons its state + your role get (kPartActions). */
+function kPartRow(k, part, pend, me) {
+  const mine = pend.filter((e) => pl(e).action === 'PART-STATE' && pl(e).line === part.line);
+  const acts = mine.length ? [] : kPartActions(k, part, role(), me);
+  const cls = { REQUESTED: 'warn', ORDERED: 'hold', 'IN-TRANSIT': 'rent', DELIVERED: 'ok', CANCELLED: '' }[part.state] || '';
+  const open = ui.form && ui.form.kind === 'k-part' ? String(ui.form.id).split('|') : null;
+  const sheetState = open && open[0] === k.id && Number(open[1]) === part.line ? open[2] : null;
+  return html`
+    <div class="drow wo-part${part.state === 'CANCELLED' ? ' cancelled' : ''}">
+      <div class="drow-top">
+        <span class="drow-what"><span class="wo-ln">${part.line}</span> <span class="unit-serial">${part.part_number || '—'}</span> × ${part.qty ?? 1}</span>
+        ${raw(chip(PART_STATE_LABEL[part.state] || part.state, cls))}
+      </div>
+      <div class="drow-meta">${part.description || ''}${part.manufacturer ? raw(html` · ${MANUFACTURER_LABEL[part.manufacturer] || part.manufacturer}`) : ''}</div>
+      <div class="chips">
+        ${raw(partTrailChips(part, true))}
+        ${part.delivered ? raw(chip(`on the shelf ${fmtDate(part.delivered)}`, 'ok')) : ''}
+      </div>
+      ${mine.length ? raw(html`<div class="row-pending">${describeStockEvent(mine[0])} — applies at the next run</div>`) : ''}
+      ${acts.length ? raw(html`<div class="drow-btns">${raw(acts.map((st) => html`
+        <button class="btn sm${st === 'CANCELLED' ? ' ghost' : ''}" type="button" data-sheet="k-part" data-id="${k.id}|${part.line}|${st}">${PART_VERB_LABEL[st]}</button>`).join(''))}</div>`) : ''}
+      ${sheetState ? raw(kPartStateForm(k, part, sheetState)) : ''}
+    </div>`;
+}
+
+/** The sheet behind one K line button — each state asks only for what it stamps. */
+function kPartStateForm(k, part, st) {
+  const today = todayCentral();
+  const vendor = part.vendor || vendorFor(part.manufacturer);
+  const vopt = (v) => html`<option value="${v}"${v === vendor ? raw(' selected') : ''}>${VENDOR_LABEL[v]}</option>`;
+  const fields = st === 'ORDERED' ? html`
+      <label for="kp-date">Ordered on</label>
+      <input id="kp-date" name="date" type="date" value="${today}" max="${today}" required>
+      <label for="kp-vendor">Vendor</label>
+      <select id="kp-vendor" name="vendor">${raw(VENDORS.map(vopt).join(''))}</select>
+      <label for="kp-ref">Vendor order # (optional)</label>
+      <input id="kp-ref" name="vendor_ref" maxlength="40" autocomplete="off" placeholder="SO-…">
+      <div class="form-note">Give them <strong>PO ${k.id}</strong> — the invoice comes back with it and the box tracks itself.</div>`
+    : st === 'IN-TRANSIT' ? html`
+      <label for="kp-track">Tracking # (optional)</label>
+      <input id="kp-track" name="tracking" maxlength="60" autocomplete="off" placeholder="UPS 1Z… · FedEx · USPS">`
+    : st === 'DELIVERED' ? html`
+      <label for="kp-date">Delivered on</label>
+      <input id="kp-date" name="date" type="date" value="${today}" max="${today}" required>
+      <div class="form-note">On the shelf — the count goes up at the next run.</div>`
+    : '';
+  return html`
+    <form class="write sheet" data-action="stock_order" data-verb="PART-STATE" data-k="${k.id}" data-line="${part.line}" data-state="${st}">
+      ${raw(fields)}
+      <label for="kp-note">Note (optional)</label>
+      <textarea id="kp-note" name="note" maxlength="200" placeholder="${st === 'CANCELLED' ? 'wrong number, found a case…' : 'backorder, ETA…'}"></textarea>
+      ${raw(sheetButtons(`${PART_VERB_LABEL[st]} — line ${part.line}`))}
+    </form>`;
+}
+
+/** The stock_order payloads, from a sheet. `serial` never rides — a stock order has none. */
+function stockEventBody(form, fd, s, orNull) {
+  const verb = form.dataset.verb;
+  const key = form.dataset.k ? { stock_order: form.dataset.k } : {};
+  if (verb === 'OPEN' || verb === 'ADD-PARTS') {
+    const parts = stockLines({ mfr: s('manufacturer'), nums: fd.getAll('p_num'), descs: fd.getAll('p_desc'), qtys: fd.getAll('p_qty') });
+    return { serial: null, payload: verb === 'OPEN' ? { action: verb, note: orNull('note'), parts } : { action: verb, ...key, parts } };
+  }
+  if (verb === 'PART-STATE') {
+    const payload = { action: verb, ...key, line: Number(form.dataset.line), state: form.dataset.state };
+    for (const k of ['date', 'vendor', 'vendor_ref', 'tracking']) { const v = orNull(k); if (v) payload[k] = v; }
+    payload.note = orNull('note');
+    return { serial: null, payload };
+  }
+  return { serial: null, payload: { action: verb, ...key, note: orNull('note') } };
 }
 
 /* ---- parts order detail (§4.4) ---- */
@@ -6091,7 +6414,7 @@ function renderHeader() {
 function renderTabs(route) {
   // D88: Holds lost its tab to Parts; it is reached from Rentals, so it lights Rentals.
   const tab = route.startsWith('#/rentals') || route.startsWith('#/agreement/') || route.startsWith('#/holds') ? 'rentals'
-    : route.startsWith('#/parts') ? 'parts'
+    : route.startsWith('#/parts') || route.startsWith('#/stock') ? 'parts'   // D127: a K-order lives under Parts
     : route.startsWith('#/dispatch') ? 'dispatch'
     : route.startsWith('#/leads') || route.startsWith('#/lead/') ? 'leads'
     : route.startsWith('#/service') || route.startsWith('#/ticket') ? 'service' : 'fleet';
@@ -6157,6 +6480,7 @@ function render() {
   else if (section === 'ticket') out = viewTicket(decodeURIComponent(arg || ''));
   else if (section === 'leads') out = viewLeads();
   else if (section === 'parts') out = arg ? viewPartsOrder(decodeURIComponent(arg)) : viewParts();
+  else if (section === 'stock') out = viewStockOrder(arg || '');                             // D127
   else if (section === 'lead') {
     // D83: #/lead/<L>/quote is the composer.
     const [lid, sub] = decodeURIComponent(arg || '').split('/');
@@ -6887,6 +7211,29 @@ document.addEventListener('click', async (ev) => {
     if (note) note.hidden = ![...form.querySelectorAll('[name=p_src]')].some((i) => i.value === 'SHOP-STOCK');
     return;
   }
+  // D127: the Shop stock fold — remembered per session, like the tracker.
+  if (ev.target.closest('[data-stock-toggle]')) {
+    ui.showStock = !ui.showStock;
+    try { sessionStorage.setItem(STOCK_OPEN_KEY, ui.showStock ? '1' : '0'); } catch (_) { /* storage blocked */ }
+    render();
+    return;
+  }
+  // D127 "+ line" on a stock-order sheet: in place, never a render().
+  const addStock = ev.target.closest('[data-stock-addline]');
+  if (addStock) {
+    const wrap = addStock.closest('form') && addStock.closest('form').querySelector('.k-lines');
+    if (!wrap) return;
+    if (wrap.querySelectorAll('.k-line').length >= K_MAX_LINES) {
+      addStock.disabled = true;
+      addStock.textContent = `${K_MAX_LINES} lines max — add more after the next run`;
+      return;
+    }
+    wrap.insertAdjacentHTML('beforeend', stockLineRow());
+    const added = wrap.querySelectorAll('.k-line');
+    const input = added[added.length - 1] && added[added.length - 1].querySelector('[name=p_num]');
+    if (input) input.focus();
+    return;
+  }
   // D65 "+ line": appended in place — a render() would wipe what's been typed.
   const addLine = ev.target.closest('[data-wo-addline]');
   if (addLine) {
@@ -7511,6 +7858,7 @@ function eventBody(action, form, fd) {
     };
   }
   if (action === 'work_order') return woEventBody(form, fd, s, orNull);
+  if (action === 'stock_order') return stockEventBody(form, fd, s, orNull);   // D127
 
   /* ----------------------------------------------------------- D88 parts -- */
   // `serial` never rides at the top: a parts order is keyed on its P-number.
@@ -7717,6 +8065,14 @@ const INSPECT_MSG = {
   REOPEN: 'The sheet goes back to PENDING at the next run.',
 };
 
+// D127: what each stock_order tap will do.
+const K_MSG = {
+  OPEN: 'The engine assigns the K-number — the PO — at the next run. Matt places the order.',
+  'ADD-PARTS': 'The lines appear at the next run.',
+  'PART-STATE': 'Applies at the next run.',
+  CANCEL: 'It cancels at the next run.',
+};
+
 const SUBMIT_MSG = {
   ticket_open: 'The engine assigns the ticket number at the next run.',
   ticket_update: 'Applies at the next run.',
@@ -7729,6 +8085,7 @@ const SUBMIT_MSG = {
   parts_open: 'The engine assigns the P-number at the next run.',
   parts_update: 'Applies at the next run.',
   parts_close: 'It moves to Closed at the next run.',
+  stock_order: 'Applies at the next run.',
 };
 // D64: one action, three verbs — say what each one will actually do.
 const RENTAL_MSG = {
@@ -7790,6 +8147,15 @@ document.addEventListener('submit', async (ev) => {
     render();
     return;
   }
+  // D127: a stock order needs at least one part number — say so before the round trip.
+  if (action === 'stock_order' && ['OPEN', 'ADD-PARTS'].includes(form.dataset.verb)) {
+    const problem = stockFormProblem(stockLines({ mfr: fd.get('manufacturer'), nums: fd.getAll('p_num'), descs: fd.getAll('p_desc'), qtys: fd.getAll('p_qty') }));
+    if (problem) {
+      ui.msg = { tone: 'bad', text: problem };
+      render();
+      return;
+    }
+  }
   // D88: a parts order needs who and what — the Worker refuses either missing.
   if (action === 'parts_open') {
     const miss = ['customer', 'parts'].find((k) => !String(fd.get(k) || '').trim());
@@ -7847,7 +8213,7 @@ document.addEventListener('submit', async (ev) => {
       ui.form = null;
       ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb])
         || (verb === 'INSPECT' && INSPECT_MSG[form.dataset.step])
-        || (action === 'work_order' && woMsg(form, payload)) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.') || SUBMIT_MSG[action] || 'Applies at the next run.' };
+        || (action === 'work_order' && woMsg(form, payload)) || (action === 'stock_order' && K_MSG[form.dataset.verb]) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.') || SUBMIT_MSG[action] || 'Applies at the next run.' };
       render();
     }
   } catch (err) {

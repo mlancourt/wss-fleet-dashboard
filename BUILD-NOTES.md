@@ -2472,3 +2472,50 @@ ship_from/ship_lines without tracking 400, bad enum 400, service 403) · `selfte
 exact payloads, service view) · two D75/D88 render assertions updated for the band now
 carrying P1008/P1009. `money-gate.mjs` on the mock through `wrangler dev`: 45 / 0.
 
+
+## D127 (2026-11-09) — stock replenishment orders (K) + the shop-stock ledger
+
+Built from `Stock-Replenishment-Site-Spec.md` v1.0 against CLAUDE.md v6.11 → v6.12. Engine
+(vault `_templates/`: new `wss_stock.py`, `Stock-Order-Template.md`, `selftest_stock.py`; hooks
+in `wss_work_orders` · `wss_parts` · `wss_ap_sweep` · `wss_shipments` · `apply_events` ·
+`dashboard_builder`), Worker (`stock_order`, `stripStockMoney`, `refuseStockMoney`), page
+(`docs/stock.js`, the Parts tab button + Shop stock fold, the tracker's Stock orders band,
+`#/stock/K…`). `wss_stock.SHIP_VALUE` ships **False** — the Architect flips it.
+
+**Floor calls (and where they differ from the letter of the spec)**
+- **K numbering** scans `Parts/Stock-Orders/K*.md` for the highest number — what W and P
+  actually do (the spec said "`_runtime` sequence like W/P"; there is no such sequence).
+- **P pull `src` is `P1014#<row>`**, not bare `P1014`: two `lines[]` rows for the same part
+  would otherwise collapse into one posting under the idempotent-on-`src` rule.
+- **W CANCEL with stock lines:** before D127 the owner could not cancel a W carrying any
+  non-REQUESTED line — and a stock line is born DELIVERED — so §3's reversal was
+  unreachable. Now the owner may cancel when the only moved lines are SHOP-STOCK: they go
+  CANCELLED and back on the shelf (`W…#n:cancel`). Vendor lines still block, as before.
+- **A stock P a vendor then invoices** (the AP sweep flips SHOP-STOCK → VENDOR) gets its
+  pulls reversed if it had already reached DELIVERED. Not in the spec; keeps the shelf honest.
+- **The tracker band includes an OPEN K with only REQUESTED lines** (spec: ORDERED /
+  IN-TRANSIT only) — otherwise the head's "to order" has no row to tap. Same as a W group.
+- **K REQUESTED lines count as "to order"** in the head (there is no `requested` segment
+  since D125) and tone it red — a restock has no inspection sheet to wait on.
+- `lines_open` = every open K line; `on_order_lines` = ORDERED + IN-TRANSIT (the spec listed
+  both keys without telling them apart). The fold's "N on order" reads `lines_open`.
+- **`$` in a K log:** the Worker refuses it at publish (§5.3, as specified) — and the engine
+  redacts a `$` figure a person typed into a K note / hand bullet to `[$]` so that refusal can
+  never freeze the board (the D111 lesson).
+- **Unit cost draws in cents** (`last $12.40`); value and the shelf total in whole dollars.
+- **Pending OPEN nonce** = the Worker's event id (`#/stock/new/<id>`). Once applied, the
+  engine's activity row for that `evt` names the K (`activity_row` reads it off the
+  handler's detail) and the page hops there.
+- `pulls_90d` counts every − posting in 90 days, reversed pulls included (§3, literally).
+- `DOC_RECORD_RE` untouched — it is `^[SLPW]` since D116 (the spec quoted the older
+  `^[SLP]`); either way a K takes no docs.
+- **Selftest guard:** `wss_stock` raises `LedgerLeak` if a `selftest*` process would write
+  the REAL vault's ledger, and reads see an empty ledger there. It caught
+  `selftest_work_orders` / `selftest_inspections` on the first run; both now redirect.
+
+**Tests** — engine: `selftest_stock.py` 20/20; `selftest_work_orders` 26 · `selftest_parts`
+104 · `selftest_ap_sweep` 13 · `selftest_shipments` 10 (one D127 hook check each) ·
+`selftest_inspections` 18; every other engine suite unchanged and green. Site `npm test`:
+`selftest-worker` 33 (+5 D127) · `selftest-render` 227 (+8 D127; D75 / D79 / D88 tracker pins
+re-pinned for the K band). `money-gate.mjs` + `smoke-real.mjs` walk `stock_orders[]` /
+`stock[]`.

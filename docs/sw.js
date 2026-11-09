@@ -5,7 +5,7 @@
  *
  * Bump CACHE when any shell file changes; activate purges every other version.
  */
-const CACHE = 'wss-fleet-shell-v83';
+const CACHE = 'wss-fleet-shell-v84';
 
 // Relative paths: this must work at the domain root AND under /<repo>/.
 const SHELL = [
@@ -27,6 +27,7 @@ const SHELL = [
   'activity.js',      // D78 — the Activity tape
   'parts.js',         // D88 — the Parts tab
   'customers.js',     // D115 — the customer lookup
+  'stock.js',         // D127 — shop stock (K-orders + the shelf ledger)
   'composer.js',      // D83 — the quote composer
   'quote-email.js',   // D83 — the quote email template (shared with the Worker)
   'quotes.js',        // D83 — quote status / chips (shared with the Worker)

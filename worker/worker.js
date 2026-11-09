@@ -109,6 +109,12 @@ const ACTION_ROLES = {
   parts_open: OPEN_ROLES,   // D99: the site chat (intake) opens parts orders too — add a row, never read/edit/close one
   parts_update: ALL_ROLES,
   parts_close: new Set(['owner', 'sales']),
+  // D127 (2026-11-09) — the TWENTY-FIRST action: a shop-stock restock (the
+  // K-number is the vendor PO). Anyone on the crew may ask for stock parts —
+  // the tech at the empty bin is the one who knows — never `intake`. ORDERED
+  // (money leaves the building) is Matt's; a box on the move or on the shelf
+  // is the techs' too — narrowed in cleanPayload, the D65 matrix.
+  stock_order: ALL_ROLES,
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -242,6 +248,23 @@ const WO_INSPECT_KEYS = {
   REOPEN: ['action', 'step', 'work_order', 'note'],
 };
 const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty', 'source', 'damage']);   // D68: source · D126: damage
+// D127 — stock_order. A work order minus everything a shelf restock has no use
+// for: no serial, no labor, no sheet, no schedule, no close (the engine closes
+// it when the last line lands) — and no `source`: every K line IS an order.
+const K_VERBS = new Set(['OPEN', 'ADD-PARTS', 'PART-STATE', 'CANCEL']);
+const K_ID_RE = /^K\d{4}$/;
+const K_MAX_LINES = 20;              // per event; the engine holds the 30-per-order cap
+const K_KEYS = {
+  OPEN: ['action', 'note', 'parts'],
+  'ADD-PARTS': ['action', 'stock_order', 'parts'],
+  'PART-STATE': ['action', 'stock_order', 'line', 'state', 'date', 'vendor', 'vendor_ref', 'tracking', 'note'],
+  CANCEL: ['action', 'stock_order', 'note'],
+};
+const K_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty']);
+// Refused by NAME anywhere in a stock_order payload, before the key check turns
+// them into a generic "does not take" (cost/rate/price are already refused for
+// every action by refuseMoneyKeys; `source` is the one a K adds).
+const K_REFUSED_KEYS = new Set(['cost', 'rate', 'price', 'source']);
 /**
  * D65: NO MONEY FROM A PHONE, for any role, in any action. Cost is backfilled
  * in the vault from the vendor invoice (D66) and the shop rate lives there too;
@@ -568,7 +591,7 @@ async function crewData({ me, env }) {
   if (me.role === 'service' || stamps) {
     doc = parseSnapshot(snapshot);
     if (stamps) overlayLeads(doc.leads, stamps);
-    if (me.role === 'service') { stripLeadMoney(doc); stripPartsMoney(doc); }
+    if (me.role === 'service') { stripLeadMoney(doc); stripPartsMoney(doc); stripStockMoney(doc); }
     doc = JSON.stringify(doc);
   }
   // `quote_view` is the customer's, minted here — it is not a crew proposal and
@@ -715,6 +738,33 @@ function stripPartsMoney(doc) {
 }
 
 /**
+ * D127 — the same gate over the shop-stock ledger (Stock-Replenishment spec §5.2):
+ * every key named in `stock_summary.money_fields` (last_cost · value ·
+ * value_total), UNIONED with ours so a missing list cannot open the gate, off
+ * every `stock[]` row AND off `stock_summary` itself — then the list. The
+ * engine also holds them back until SHIP_VALUE is flipped; this is the line
+ * that makes flipping it safe. `stock_orders[]` carries no money to strip
+ * (publish refuses it — refuseStockMoney).
+ */
+const STOCK_MONEY_DEFAULT = ['last_cost', 'value', 'value_total'];
+function stripStockMoney(doc) {
+  const summary = doc.stock_summary && typeof doc.stock_summary === 'object' ? doc.stock_summary : null;
+  const fields = new Set(STOCK_MONEY_DEFAULT);
+  if (summary && Array.isArray(summary.money_fields)) for (const f of summary.money_fields) if (typeof f === 'string') fields.add(f);
+  if (Array.isArray(doc.stock)) {
+    for (const row of doc.stock) {
+      if (!row || typeof row !== 'object') continue;
+      for (const f of fields) deletePath(row, f);
+    }
+  }
+  if (summary) {
+    for (const f of fields) deletePath(summary, f);
+    delete summary.money_fields;
+  }
+  return doc;
+}
+
+/**
  * D87 (2026-10-13, v2 2026-10-14): wake the engine the moment an event lands. Until
  * 10/13 the only thing that ever APPLIED an event was the mini's hourly launchd
  * tick, so a crew tap sat in KV for up to an hour. Now every `evt:` put is
@@ -837,6 +887,35 @@ function refusePartsMoney(rows) {
   rows.forEach((r, i) => {
     const id = r && typeof r.order === 'string' ? r.order : String(i);
     walk(r, `parts_orders[${id}]`, 0);
+  });
+}
+
+/**
+ * D127 (Stock-Replenishment spec §5.3): a stock order's cost is vault-only —
+ * `cost` / `cost_source_inv` at ANY depth of a `stock_orders[]` row refuses the
+ * publish, by name; so do `last_cost` / `value` (they live on `stock[]` only,
+ * behind the strip). And the log is scanned for a dollar figure — the engine
+ * writes none and redacts any a person typed before it publishes.
+ */
+const STOCK_ORDER_MONEY_KEY_RE = /^(cost|cost_source_inv|last_cost|value)$/i;
+function refuseStockMoney(rows) {
+  if (!Array.isArray(rows)) return;
+  const walk = (v, at, depth) => {
+    if (!v || typeof v !== 'object' || depth > 8) return;
+    for (const [k, x] of Object.entries(v)) {
+      const here = Array.isArray(v) ? `${at}[${k}]` : `${at}.${k}`;
+      if (!Array.isArray(v) && STOCK_ORDER_MONEY_KEY_RE.test(k)) {
+        throw httpError(400, `refused: ${here} — stock-order money stays in the vault (D127)`);
+      }
+      walk(x, here, depth + 1);
+    }
+  };
+  rows.forEach((r, i) => {
+    const id = r && typeof r.id === 'string' ? r.id : String(i);
+    walk(r, `stock_orders[${id}]`, 0);
+    if (r && r.log != null && FIGURE_RE.test(JSON.stringify(r.log))) {
+      throw httpError(400, `refused: stock_orders[${id}].log carries a dollar figure (D127)`);
+    }
   });
 }
 
@@ -1586,6 +1665,75 @@ function cleanPayload(action, p, role, serial) {
     };
   }
 
+  /* ---------------------------------------------------------- D127 stock -- */
+
+  if (action === 'stock_order') {
+    // `source` (and the money words, if refuseMoneyKeys ever changes) — by name, at any depth.
+    const refuse = (v, at, depth) => {
+      if (!v || typeof v !== 'object' || depth > 4) return;
+      for (const [k, x] of Object.entries(v)) {
+        const here = Array.isArray(v) ? `${at}[${k}]` : (at ? `${at}.${k}` : k);
+        if (!Array.isArray(v) && K_REFUSED_KEYS.has(k.toLowerCase())) {
+          throw httpError(400, `refused: "${here}" — a stock order carries no ${k === 'source' ? 'source (every line is a vendor order)' : 'cost, rate or price'} (D127)`);
+        }
+        refuse(x, here, depth + 1);
+      }
+    };
+    refuse(obj, '', 0);
+    const verb = oneOf(obj.action, K_VERBS, 'action');
+    for (const k of Object.keys(obj)) {
+      if (!K_KEYS[verb].includes(k)) throw httpError(400, `stock_order ${verb} does not take ${k}`);
+    }
+    if (serial) throw httpError(400, 'a stock order has no serial');
+    const kKey = () => {
+      const t = str(obj.stock_order, 16, 'stock_order', true);
+      if (!K_ID_RE.test(t)) throw httpError(400, 'stock_order must look like K1001');
+      return { stock_order: t };
+    };
+    const lines = () => {
+      const list = obj.parts;
+      if (!Array.isArray(list)) throw httpError(400, 'parts must be a list');
+      if (!list.length) throw httpError(400, 'parts needs at least one line');
+      if (list.length > K_MAX_LINES) throw httpError(400, `parts is limited to ${K_MAX_LINES} lines per tap`);
+      return list.map((ln, i) => {
+        if (!ln || typeof ln !== 'object' || Array.isArray(ln)) throw httpError(400, `parts[${i}] must be an object`);
+        for (const k of Object.keys(ln)) if (!K_PART_KEYS.has(k)) throw httpError(400, `parts[${i}] does not take ${k}`);
+        const qty = ln.qty;
+        if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw httpError(400, `parts[${i}].qty must be a whole number 1–99`);
+        return {
+          manufacturer: oneOf(ln.manufacturer, WO_MANUFACTURERS, `parts[${i}].manufacturer`),
+          part_number: str(ln.part_number, 40, `parts[${i}].part_number`, true),
+          description: optStr(ln.description, 80, `parts[${i}].description`),
+          qty,
+        };
+      });
+    };
+    const note = () => optStr(obj.note, 200, 'note');
+    if (verb === 'OPEN') return { action: verb, note: note(), parts: lines() };
+    if (verb === 'ADD-PARTS') return { action: verb, ...kKey(), parts: lines() };
+    if (verb === 'PART-STATE') {
+      const state = oneOf(obj.state, WO_PART_STATES, 'state');
+      // The D65 matrix: Matt places orders; a box on the move or on the shelf is
+      // the techs' to call too. CANCELLED is the owner's, or the opener's while
+      // the line is REQUESTED — business state, so the engine referees that one.
+      if (state === 'ORDERED' && role !== 'owner') throw httpError(403, `role ${role} cannot mark a part ordered`);
+      if ((state === 'IN-TRANSIT' || state === 'DELIVERED') && role !== 'owner' && role !== 'service') {
+        throw httpError(403, `role ${role} cannot move a part to ${state}`);
+      }
+      if (!Number.isInteger(obj.line) || obj.line < 1 || obj.line > 99) throw httpError(400, 'line must be a line number');
+      return {
+        action: verb, ...kKey(), line: obj.line, state,
+        date: optDate(obj.date, 'date'),
+        vendor: optOneOf(obj.vendor, WO_VENDORS, 'vendor'),
+        vendor_ref: optStr(obj.vendor_ref, 40, 'vendor_ref'),
+        tracking: optStr(obj.tracking, 60, 'tracking'),
+        note: note(),
+      };
+    }
+    // CANCEL: owner, or the opener while every line is REQUESTED — the engine's call.
+    return { action: verb, ...kKey(), note: note() };
+  }
+
   return {}; // every action in ACTION_ROLES is handled above
 }
 
@@ -1647,6 +1795,7 @@ async function adminPublish({ request, env }) {
 
   refuseTicketMoney(doc.service_queue);
   refusePartsMoney(doc.parts_orders);
+  refuseStockMoney(doc.stock_orders);   // D127
 
   const metadata = {
     published_at: new Date().toISOString(),

@@ -622,4 +622,99 @@ await check('D115: customers — 503 before the push; the push writes index + ca
   assert.equal((await get('sales', '/api/customer/14')).status, 404);
 });
 
+/* ----------------------------------------------------------- D127 stock -- */
+
+const SO = (payload, serial) => (serial === undefined ? { action: 'stock_order', payload } : { action: 'stock_order', serial, payload });
+const KLINE = { manufacturer: 'FACTORY-CAT', part_number: '264-4086', description: 'Solution filter', qty: 6 };
+
+await check('D127: stock_order is the 21st action — OPEN / ADD-PARTS any crew role, intake 403; shape kept exactly', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    const e = await ok(role, SO({ action: 'OPEN', note: 'filters low', parts: [KLINE, { manufacturer: 'KODIAK', part_number: '21-422S', qty: 4 }] }), `${role} OPEN`);
+    assert.deepEqual(e.payload, { action: 'OPEN', note: 'filters low', parts: [KLINE, { manufacturer: 'KODIAK', part_number: '21-422S', description: null, qty: 4 }] });
+    assert.equal(e.serial, null);
+    await ok(role, SO({ action: 'ADD-PARTS', stock_order: 'K1001', parts: [KLINE] }), `${role} ADD-PARTS`);
+  }
+  await refused('intake', SO({ action: 'OPEN', parts: [KLINE] }), 'intake OPEN', 403);
+  await refused('intake', SO({ action: 'PART-STATE', stock_order: 'K1001', line: 1, state: 'DELIVERED' }), 'intake PART-STATE', 403);
+});
+
+await check('D127: cost / rate / price / source → 400 naming the key; unknown keys by name; serial, ids, lines, qty, 21 lines', async () => {
+  for (const k of ['cost', 'rate', 'price', 'source']) {
+    await refused('owner', SO({ action: 'OPEN', parts: [{ ...KLINE, [k]: k === 'source' ? 'SHOP-STOCK' : 1 }] }), `line ${k}`, 400, k);
+    await refused('owner', SO({ action: 'PART-STATE', stock_order: 'K1001', line: 1, state: 'DELIVERED', [k]: 1 }), `top ${k}`, 400, k);
+  }
+  await refused('owner', SO({ action: 'OPEN', parts: [KLINE], purpose: 'PM' }), 'a W key', 400, 'purpose');
+  await refused('owner', SO({ action: 'OPEN', parts: [{ ...KLINE, damage: true }] }), 'a line key', 400, 'damage');
+  await refused('owner', SO({ action: 'CLOSE', stock_order: 'K1001' }), 'no Close verb', 400, 'action');
+  await refused('owner', SO({ action: 'OPEN', parts: [KLINE] }, '150074'), 'a serial', 400, 'serial');
+  await refused('owner', SO({ action: 'ADD-PARTS', stock_order: 'W1001', parts: [KLINE] }), 'a W id', 400, 'K1001');
+  await refused('owner', SO({ action: 'OPEN', parts: [] }), 'no lines', 400, 'at least one');
+  await refused('owner', SO({ action: 'OPEN', parts: Array(21).fill(KLINE) }), '21 lines', 400, '20');
+  await refused('owner', SO({ action: 'OPEN', parts: [{ ...KLINE, qty: 100 }] }), 'qty 100', 400, 'qty');
+  await refused('owner', SO({ action: 'OPEN', parts: [{ ...KLINE, manufacturer: 'ACME' }] }), 'manufacturer', 400, 'manufacturer');
+  await refused('owner', SO({ action: 'OPEN', note: 'x'.repeat(201), parts: [KLINE] }), 'note 201', 400, 'note');
+});
+
+await check('D127: PART-STATE — ORDERED owner-only (403); IN-TRANSIT / DELIVERED service + owner; CANCELLED + CANCEL any crew (the engine referees)', async () => {
+  const ps = (state, extra = {}) => SO({ action: 'PART-STATE', stock_order: 'K1001', line: 1, state, ...extra });
+  const e = await ok('owner', ps('ORDERED', { date: '2026-11-10', vendor: 'RPS', vendor_ref: 'SO-449002' }), 'owner ORDERED');
+  assert.deepEqual(e.payload, { action: 'PART-STATE', stock_order: 'K1001', line: 1, state: 'ORDERED', date: '2026-11-10', vendor: 'RPS', vendor_ref: 'SO-449002', tracking: null, note: null });
+  for (const role of ['sales', 'service']) await refused(role, ps('ORDERED'), `${role} ORDERED`, 403);
+  for (const st of ['IN-TRANSIT', 'DELIVERED']) {
+    await ok('service', ps(st), `service ${st}`); await ok('owner', ps(st), `owner ${st}`);
+    await refused('sales', ps(st), `sales ${st}`, 403);
+  }
+  for (const role of ['owner', 'sales', 'service']) {
+    await ok(role, ps('CANCELLED', { note: 'wrong number' }), `${role} CANCELLED`);
+    await ok(role, SO({ action: 'CANCEL', stock_order: 'K1001' }), `${role} CANCEL`);
+  }
+  await refused('owner', ps('REQUESTED'), 'back to REQUESTED', 400, 'state');
+  await refused('owner', ps('DELIVERED', { line: 0 }), 'line 0', 400, 'line');
+});
+
+await check('D127: /api/data — service loses last_cost / value off stock[] and value_total + money_fields off stock_summary; owner/sales keep them', async () => {
+  const pub = await worker.fetch(new Request('https://w.example/api/admin/publish', {
+    method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ meta: { schema_version: 7 },
+      stock_orders: [{ id: 'K1001', status: 'OPEN', parts: [{ line: 1, part_number: '264-4086', qty: 6, state: 'ORDERED' }], log: [{ ts: 'x', who: 'Matt', text: 'ORDERED from RPS — PO K1001' }] }],
+      stock: [{ part_number: '264-4086', on_hand: 5, last_cost: 12.4, value: 62.0, on_order: 6 }, { part_number: '21-422S', on_hand: -1, last_cost: null, value: null, on_order: 0 }],
+      stock_summary: { parts_tracked: 2, negative_count: 1, value_total: 62.0, money_fields: ['last_cost', 'value', 'value_total'], value_shipped: true } }) }), env);
+  assert.equal(pub.status, 200, JSON.stringify(await pub.json()));
+  const read = async (role) => {
+    const r = await worker.fetch(new Request('https://w.example/api/data', { headers: { Authorization: `Bearer ${TOK[role]}` } }), env);
+    return { text: await r.clone().text(), body: await r.json() };
+  };
+  const svc = await read('service');
+  for (const row of svc.body.snapshot.stock) assert.ok(!('last_cost' in row) && !('value' in row), 'stock row stripped');
+  const sm = svc.body.snapshot.stock_summary;
+  assert.ok(!('value_total' in sm) && !('money_fields' in sm) && sm.parts_tracked === 2 && sm.negative_count === 1, JSON.stringify(sm));
+  assert.equal(svc.body.snapshot.stock[0].on_hand, 5, 'counts survive');
+  assert.ok(!/12\.4|"value":62|value_total|last_cost/.test(svc.text), 'no figure or money key in the raw bytes');
+  for (const role of ['owner', 'sales']) {
+    const b = (await read(role)).body.snapshot;
+    assert.equal(b.stock[0].last_cost, 12.4, `${role} keeps last_cost`);
+    assert.equal(b.stock_summary.value_total, 62, `${role} keeps value_total`);
+  }
+});
+
+await check('D127: publish refuses cost / cost_source_inv / last_cost / value anywhere on a stock order, and a $ figure in its log', async () => {
+  const pub = async (doc) => {
+    const res = await worker.fetch(new Request('https://w.example/api/admin/publish', {
+      method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' }, body: JSON.stringify(doc),
+    }), env);
+    return { status: res.status, body: await res.json() };
+  };
+  const snap = (r, line = {}) => ({ meta: { schema_version: 7 }, stock_orders: [{ id: 'K1001', status: 'OPEN', parts: [{ line: 1, part_number: 'x', qty: 1, ...line }], log: [], ...r }] });
+  assert.equal((await pub(snap({}))).status, 200);
+  for (const k of ['cost', 'cost_source_inv', 'last_cost', 'value']) {
+    const r = await pub(snap({}, { [k]: 1 }));
+    assert.equal(r.status, 400, k);
+    assert.ok(r.body.error.includes(k) && r.body.error.includes('K1001'), r.body.error);
+  }
+  assert.equal((await pub(snap({ value: 3 }))).status, 400, 'a row-level value');
+  const fig = await pub(snap({ log: [{ ts: 'x', who: 'engine', text: 'cost $12.40' }] }));
+  assert.equal(fig.status, 400); assert.ok(fig.body.error.includes('log'), fig.body.error);
+  assert.equal((await pub(snap({ log: [{ ts: 'x', who: 'engine', text: 'cost [$] each' }] }))).status, 200, 'the engine redaction publishes');
+});
+
 console.log(`${passed} checks passed.`);
