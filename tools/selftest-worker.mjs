@@ -695,7 +695,7 @@ await check('D127: PART-STATE — ORDERED owner-only (403); IN-TRANSIT / DELIVER
   await refused('owner', ps('DELIVERED', { line: 0 }), 'line 0', 400, 'line');
 });
 
-await check('D127: /api/data — service loses last_cost / value off stock[] and value_total + money_fields off stock_summary; owner/sales keep them', async () => {
+await check('D130: /api/data — service KEEPS last_cost / value on stock[] and value_total on stock_summary, like owner/sales', async () => {
   const pub = await worker.fetch(new Request('https://w.example/api/admin/publish', {
     method: 'POST', headers: { 'X-Admin-Secret': env.ADMIN_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ meta: { schema_version: 7 },
@@ -708,12 +708,11 @@ await check('D127: /api/data — service loses last_cost / value off stock[] and
     return { text: await r.clone().text(), body: await r.json() };
   };
   const svc = await read('service');
-  for (const row of svc.body.snapshot.stock) assert.ok(!('last_cost' in row) && !('value' in row), 'stock row stripped');
+  for (const row of svc.body.snapshot.stock) assert.ok('last_cost' in row && 'value' in row, 'stock row kept whole');
   const sm = svc.body.snapshot.stock_summary;
-  assert.ok(!('value_total' in sm) && !('money_fields' in sm) && sm.parts_tracked === 2 && sm.negative_count === 1, JSON.stringify(sm));
+  assert.ok(sm.value_total === 62 && Array.isArray(sm.money_fields) && sm.parts_tracked === 2 && sm.negative_count === 1, JSON.stringify(sm));
   assert.equal(svc.body.snapshot.stock[0].on_hand, 5, 'counts survive');
-  assert.ok(!/12\.4|"value":62|value_total|last_cost/.test(svc.text), 'no figure or money key in the raw bytes');
-  for (const role of ['owner', 'sales']) {
+  for (const role of ['owner', 'sales', 'service']) {
     const b = (await read(role)).body.snapshot;
     assert.equal(b.stock[0].last_cost, 12.4, `${role} keeps last_cost`);
     assert.equal(b.stock_summary.value_total, 62, `${role} keeps value_total`);

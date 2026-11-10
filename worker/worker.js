@@ -591,7 +591,7 @@ async function crewData({ me, env }) {
   if (me.role === 'service' || stamps) {
     doc = parseSnapshot(snapshot);
     if (stamps) overlayLeads(doc.leads, stamps);
-    if (me.role === 'service') { stripLeadMoney(doc); stripPartsMoney(doc); stripStockMoney(doc); }
+    if (me.role === 'service') { stripLeadMoney(doc); stripPartsMoney(doc); }   // D130: shop-stock money goes to every role
     doc = JSON.stringify(doc);
   }
   // `quote_view` is the customer's, minted here — it is not a crew proposal and
@@ -738,31 +738,11 @@ function stripPartsMoney(doc) {
 }
 
 /**
- * D127 — the same gate over the shop-stock ledger (Stock-Replenishment spec §5.2):
- * every key named in `stock_summary.money_fields` (last_cost · value ·
- * value_total), UNIONED with ours so a missing list cannot open the gate, off
- * every `stock[]` row AND off `stock_summary` itself — then the list. The
- * engine also holds them back until SHIP_VALUE is flipped; this is the line
- * that makes flipping it safe. `stock_orders[]` carries no money to strip
- * (publish refuses it — refuseStockMoney).
+ * D130 (2026-11-10): the D127 stripStockMoney is gone — Matt: the only figures
+ * service never sees are commissions, so stock[] last_cost / value and
+ * stock_summary.value_total ship to every role. refuseStockMoney (no cost on a
+ * K-order at publish) is unchanged.
  */
-const STOCK_MONEY_DEFAULT = ['last_cost', 'value', 'value_total'];
-function stripStockMoney(doc) {
-  const summary = doc.stock_summary && typeof doc.stock_summary === 'object' ? doc.stock_summary : null;
-  const fields = new Set(STOCK_MONEY_DEFAULT);
-  if (summary && Array.isArray(summary.money_fields)) for (const f of summary.money_fields) if (typeof f === 'string') fields.add(f);
-  if (Array.isArray(doc.stock)) {
-    for (const row of doc.stock) {
-      if (!row || typeof row !== 'object') continue;
-      for (const f of fields) deletePath(row, f);
-    }
-  }
-  if (summary) {
-    for (const f of fields) deletePath(summary, f);
-    delete summary.money_fields;
-  }
-  return doc;
-}
 
 /**
  * D87 (2026-10-13, v2 2026-10-14): wake the engine the moment an event lands. Until

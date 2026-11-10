@@ -177,7 +177,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-09-d128';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-10-d130';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -5861,8 +5861,9 @@ function stockOrderForm(k) {
  * 🧰 Shop stock (D127 §6a) — the shelf, counted off the events the engine already
  * sees. Folded by default, remembered per session. The pill is informational:
  * a pre-ledger negative is expected (no opening count), so it is muted grey,
- * never red. Money (last cost · value · the shelf value) only for owner/sales
- * and only when the engine shipped a number — service never gets the columns.
+ * never red. Money (last cost · value · the shelf value) for every role (D130 —
+ * service sees shop-stock cost; commissions are the one figure kept from it),
+ * and only when the engine shipped a number.
  */
 function shopStockFold() {
   const rows = stockRows();
@@ -5870,14 +5871,13 @@ function shopStockFold() {
   const c = stockFoldCounts(rows, stockSummary(), orders);
   const opens = pendingStockOpens(state.pending);
   const open = ui.showStock;
-  const money = role() === 'owner' || role() === 'sales';
-  const total = money ? shelfValue(stockSummary()) : null;
+  const total = shelfValue(stockSummary());
 
   const row = (r) => {
     const k = r.on_order > 0 ? newestOpenKFor(orders, r.part_number) : null;
     const pre = isPreLedger(r);
-    const lc = money ? stockMoney(r.last_cost) : null;
-    const val = money ? stockMoney(r.value) : null;
+    const lc = stockMoney(r.last_cost);
+    const val = stockMoney(r.value);
     return html`
       <div class="srow">
         <div class="srow-top">
@@ -5890,8 +5890,8 @@ function shopStockFold() {
           ${r.on_order > 0 ? (k ? raw(html`<a class="chip rent" href="${raw(stockHref(k.id))}">${r.on_order} on order · ${k.id}</a>`) : raw(chip(`${r.on_order} on order`, 'rent'))) : ''}
           ${r.last_received ? raw(chip(`received ${fmtDate(r.last_received)}`, 'cal')) : ''}
           ${r.pulls_90d ? raw(chip(`${r.pulls_90d} used · 90d`, 'age')) : ''}
-          ${money ? raw(chip(lc == null ? 'last —' : `last ${fmtUnitCost(lc)}`, 'money')) : ''}
-          ${money && val != null ? raw(chip(`value ${fmtMoney(val)}`, 'money')) : ''}
+          ${raw(chip(lc == null ? 'last —' : `last ${fmtUnitCost(lc)}`, 'money'))}
+          ${val != null ? raw(chip(`value ${fmtMoney(val)}`, 'money')) : ''}
         </div>
       </div>`;
   };

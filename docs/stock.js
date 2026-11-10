@@ -11,9 +11,9 @@
  * ledger has not seen yet reads −1 and corrects itself at the first restock —
  * drawn muted as "pre-ledger", never as an alarm.
  *
- * MONEY: `last_cost` / `value` / `value_total` arrive only for owner/sales and
- * only once the engine ships them (SHIP_VALUE) — the Worker strips them for
- * service. Nothing here invents a figure: absent or null draws "—".
+ * MONEY: `last_cost` / `value` / `value_total` arrive for every role (D130 —
+ * the Worker no longer strips them for service) once the engine ships them
+ * (SHIP_VALUE). Nothing here invents a figure: absent or null draws "—".
  *
  * Pure — no DOM, no network — so the selftests can drive it.
  */
@@ -75,7 +75,7 @@ export function newestOpenKFor(orders, partNumber) {
 }
 export const norm = (pn) => String(pn || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-/** The shelf value footer — only when the engine shipped value_total (owner/sales, SHIP_VALUE on). */
+/** The shelf value footer — only when the engine shipped value_total (every role since D130, SHIP_VALUE on). */
 export const shelfValue = (summary) => stockMoney(summary && summary.value_total);
 
 /* ---- the 📦 Parts tracker band ---- */

@@ -5087,16 +5087,12 @@ await check('D127: Shop stock fold — folded by default; head counts parts · o
   app.__ui().showStock = false;
 });
 
-await check('D127: money in the fold is owner/sales only, and only when a number — service sees no $ and no cost column; value_shipped false → none either', async () => {
-  for (const role of ['service', 'sales']) {
+await check('D130: money in the fold is every role\'s, and only when a number — service sees last cost, value and the footer; value_shipped false → none', async () => {
+  for (const role of ['service', 'sales', 'owner']) {
     await asFull(role);
     app.__ui().showStock = true;
     const fold = stockFoldOf(await renderRoute('#/parts'));
-    if (role === 'service') {
-      assert.ok(!MONEY_RE.test(fold) && !fold.includes('last —') && !fold.includes('Shelf value'), 'service: no money, no column, no footer');
-    } else {
-      assert.ok(fold.includes('Shelf value $'), 'sales keeps the footer');
-    }
+    assert.ok(fold.includes('Shelf value $') && /last \$/.test(fold) && /value \$/.test(fold), `${role} sees last cost, value and the footer`);
   }
   const snap = await asFull('owner');
   for (const r of snap.stock) { delete r.last_cost; delete r.value; }
