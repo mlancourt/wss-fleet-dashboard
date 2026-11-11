@@ -149,7 +149,7 @@ import {
 } from './map.js';
 import {
   docRows, docUrl, pendingDocRows, pendingDetachIds, resolveKind, sanitizeName, retypeName, cameraName,
-  isImageMime, humanBytes, kindLabel, docIcon, KIND_CHOICES, DOC_RECORD_RE,
+  isImageMime, humanBytes, kindLabel, docIcon, KIND_CHOICES, DOC_RECORD_RE, isUnitRecord,
 } from './attachments.js';
 import {
   NO_DATA, LEAD_PRIORITIES,
@@ -177,7 +177,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-10-d130';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-11-d131';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -691,6 +691,12 @@ function unitChips(u, opts = {}) {
     ${u.service_ticket ? raw(chip(`🔧 ${u.service_ticket}`, 'wrench')) : ''}
     ${p.length ? raw(chip(`⏳ ${p.length} pending`, 'pending')) : ''}
   </div>`;
+}
+
+/** D131: "Listed" — the unit is on the public website. Category list rows only. */
+const isListed = (u) => !!(u && u.listing && u.listing.state === 'LISTED');
+function listedChip(u) {
+  return isListed(u) ? html`<span class="chip listed" title="On the website${typeof u.listing.price === 'number' ? ` at ${fmtMoney(u.listing.price)}` : ''}">Listed</span>` : '';
 }
 
 /** "📅 2" — future holds on a unit that may well be AVAILABLE today. List rows only. */
@@ -1267,7 +1273,7 @@ function viewCategory(cat) {
         <span class="unit-main">
           <span class="unit-title">${unitName(u)}</span>
           <span class="unit-loc"><span class="unit-serial">${unitIds(u)}</span> · ${raw(where)}</span>
-          ${raw(unitChips(u).replace('</div>', calChip(u) + '</div>'))}
+          ${raw(unitChips(u).replace('</div>', calChip(u) + listedChip(u) + '</div>'))}
         </span>
         ${CHEV}
       </a>`;
@@ -1302,7 +1308,9 @@ function viewUnit(serial) {
       ? raw(html`<span>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</span>`)
       : e.action === 'work_order'
         ? raw(html`<span>${describeWoEvent(e)} by ${e.actor || 'someone'}</span>`)
-        : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
+        : e.action === 'unit_listing'
+          ? raw(html`<span>⏳ ${listingPendingText(e)} by ${e.actor || 'someone'}</span>`)
+          : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
     ${raw(undoControl(e))}
   </div>`;
   const pendingBlock = p.length ? html`
@@ -1353,6 +1361,8 @@ function viewUnit(serial) {
         ? raw(html`<a href="#/ticket/${raw(encodeURIComponent(u.service_ticket))}">🔧 ${u.service_ticket}</a>`) : ''))}
     </dl></div>
 
+    ${raw(websiteGroup(u))}
+
     ${raw(unitMoves(u))}
 
     ${raw(serviceHistory(u))}
@@ -1394,6 +1404,59 @@ function viewUnit(serial) {
       <h2>Placement</h2><div class="info">Out on demo. No agreement.</div>`) : ''}
 
     ${raw(actionsFor(u))}`;
+}
+
+/* ---- D131: the Website group (Used-Listing-Site-Spec §4) ----------------
+ * The box: Matt checks "List on website", sets the price (prefilled from the
+ * listing's own price, else the unit's ask — rule 2), Save → one
+ * `unit_listing`. Everyone else reads `On the website · $19,200 · View
+ * listing ›` or nothing. The photos are the unit's own docs on `U-<serial>`,
+ * any role, the usual rows + 📷 / 📎. A submitted box is a proposal like every
+ * other write: the pending row says what it asked for until the engine runs.
+ */
+const WWW = 'https://www.wisconsinscrubandsweep.com';
+const listingPendings = (serial) => pendingFor(serial).filter((e) => e.action === 'unit_listing');
+function listingPendingText(e) {
+  const p = pl(e);
+  if (!p.listed) return 'take it off the website';
+  return typeof p.price === 'number' ? `list on the website at ${fmtMoney(p.price)}` : 'list on the website';
+}
+/** Whole dollars for the price box: the listing's price, else the ask (rule 2). Never a fraction. */
+function listingPrefill(u) {
+  const l = u.listing || {};
+  if (typeof l.price === 'number' && l.price > 0) return Math.round(l.price);
+  return typeof u.ask === 'number' && u.ask > 0 ? Math.round(u.ask) : '';
+}
+function websiteGroup(u) {
+  const l = u.listing || null;
+  const listed = isListed(u);
+  const pend = listingPendings(u.serial);
+  const last = pend.length ? pl(pend[pend.length - 1]) : null;
+  const viewLink = listed && l.url ? html` · <a class="web-go" href="${WWW}${l.url}" target="_blank" rel="noopener">View listing ›</a>` : '';
+  const live = listed ? html`On the website${typeof l.price === 'number' ? ` · ${fmtMoney(l.price)}` : ''}${raw(viewLink)}` : '';
+  const rid = `U-${u.serial}`;
+
+  let box = '';
+  if (role() === 'owner' && u.unit_state !== 'RETIRED') {
+    const checked = last ? !!last.listed : listed;
+    const price = last && typeof last.price === 'number' ? last.price : listingPrefill(u);
+    box = html`
+      <form class="write web-form" data-action="unit_listing" data-serial="${u.serial}">
+        <label class="web-check"><input type="checkbox" name="listed" value="1"${checked ? ' checked' : ''}> List on website</label>
+        <label class="web-price"><span class="sr">Price</span><span class="web-dollar" aria-hidden="true">$</span><input name="price" inputmode="numeric" pattern="[0-9]*" autocomplete="off" aria-label="Website price, whole dollars" value="${price}"></label>
+        <button class="btn sm" type="submit">Save</button>
+      </form>
+      ${pend.length ? raw(html`<div class="web-line web-pend">⏳ ${listingPendingText(pend[pend.length - 1])} — applies at the next run</div>`) : ''}
+      ${live ? raw(html`<div class="web-line">${raw(live)}</div>`) : raw(html`<div class="web-line muted">Not on the website.</div>`)}`;
+  } else if (live || pend.length) {
+    box = html`
+      ${live ? raw(html`<div class="web-line">${raw(live)}</div>`) : ''}
+      ${pend.length ? raw(html`<div class="web-line web-pend">⏳ ${listingPendingText(pend[pend.length - 1])} — applies at the next run</div>`) : ''}`;
+  }
+  return html`
+    <h2>Website</h2>
+    ${box ? raw(html`<div class="card web-card">${raw(box)}</div>`) : ''}
+    ${raw(docsSection(u, rid, { head: false, note: 'These photos go on the website listing. First one is the main photo.' }))}`;
 }
 
 /**
@@ -2123,7 +2186,7 @@ function pendingLine(n) {
  * group always draws — an empty one is not a placeholder, it is the way to put
  * a document on the ticket. Everywhere else the S1 rule stands.
  */
-function docsSection(entity, recordId) {
+function docsSection(entity, recordId, opts = {}) {
   const filed = docRows(entity);
   const pendingRows = pendingDocsFor(recordId);
   const detaching = pendingDetachFor(recordId);
@@ -2139,8 +2202,9 @@ function docsSection(entity, recordId) {
     ${thumb ? raw(html`<img class="doc-thumb" src="${thumb}" alt="">`) : raw(html`<span class="doc-ico" aria-hidden="true">${d.icon}</span>`)}
     <span class="doc-name">${d.label} — ${d.name}</span>`;
 
+  // D131: the unit's Website group draws its own heading and adds one line under the buttons.
   return html`
-    <h2>Documents${total ? raw(html` <span class="count">${total}</span>`) : ''}</h2>
+    ${opts.head === false ? '' : raw(html`<h2>Documents${total ? raw(html` <span class="count">${total}</span>`) : ''}</h2>`)}
     <div class="card docs">
       ${raw(filed.map((d) => filedRow(d, recordId, detaching, row, face)).join(''))}
 
@@ -2155,6 +2219,7 @@ function docsSection(entity, recordId) {
         u.state === 'sending' ? 'disabled' : `data-doc-retry="${esc(u.localId)}"`)).join(''))}
 
       ${canAdd ? raw(docAddRow(recordId)) : ''}
+      ${opts.note ? raw(html`<div class="form-note docs-note">${opts.note}</div>`) : ''}
     </div>
     ${canAdd && sheetOpen('doc-kind', recordId) ? raw(kindSheet(recordId)) : ''}`;
 }
@@ -2181,18 +2246,21 @@ function filedRow(d, recordId, detaching, row, face) {
     <div class="docline">
       ${raw(plain)}
       <button class="docx" type="button" data-doc-detach="${d.id}" data-record="${recordId}"
-        aria-label="Remove ${d.name} from ${recordId}">✕</button>
+        aria-label="Remove ${d.name} from ${recordLabel(recordId)}">✕</button>
     </div>
     ${sheetOpen('doc-detach', key) ? raw(html`
       <div class="undo-confirm doc-detach">
-        <div class="undo-q"><strong>Remove this document from ${recordId}?</strong><br>
-          It comes off this ${recordId.startsWith('L') ? 'lead' : recordId.startsWith('P') ? 'order' : 'ticket'} at the next update. The file stays in the office archive — nothing is deleted.</div>
+        <div class="undo-q"><strong>Remove this ${isUnitRecord(recordId) ? 'photo' : 'document'} from ${recordLabel(recordId)}?</strong><br>
+          It comes off this ${isUnitRecord(recordId) ? 'unit — and its website listing —' : recordId.startsWith('L') ? 'lead' : recordId.startsWith('P') ? 'order' : 'ticket'} at the next update. The file stays in the office archive — nothing is deleted.</div>
         <div class="actions row">
           <button class="btn sm" type="button" data-doc-detach-go="${d.id}" data-record="${recordId}">Remove</button>
           <button class="btn sm ghost" type="button" data-sheet-close="1">Cancel</button>
         </div>
       </div>`) : ''}`;
 }
+
+/** D131: "#157229" for a unit record; every other record reads as its own id. */
+const recordLabel = (rid) => (isUnitRecord(rid) ? `#${String(rid).slice(2)}` : rid);
 
 /** The unsent files for one record, oldest first — insertion order of the Map. */
 const uploadsFor = (recordId) => [...uploads.values()].filter((u) => u.record === recordId);
@@ -2214,7 +2282,7 @@ function docAddRow(recordId) {
       <button class="btn sm ghost" type="button" data-doc-pick="camera">📷 Photo</button>
       <button class="btn sm ghost" type="button" data-doc-pick="file">📎 File</button>
       <input type="file" accept="image/*" capture="environment" data-doc-input="camera" data-record="${recordId}" hidden>
-      <input type="file" accept="image/*,application/pdf" data-doc-input="file" data-record="${recordId}" hidden>
+      <input type="file" accept="${isUnitRecord(recordId) ? 'image/*' : 'image/*,application/pdf'}" data-doc-input="file" data-record="${recordId}" hidden>
     </div>`;
 }
 
@@ -6998,6 +7066,20 @@ const humanSize = (n) => (typeof n === 'number' && isFinite(n) ? humanBytes(n) :
  * on its next run — so the worst case is a delay, never a lost photo. That is
  * why the binding is a header on the upload and not only a field on the event.
  */
+function startUpload(p, kind) {
+  const up = {
+    localId: `u${++uploadSeq}`,
+    record: p.record,
+    kind,
+    name: p.name, mime: p.mime, blob: p.blob, thumb: p.thumb,
+    label: '', icon: '', state: 'sending', error: null,
+  };
+  // The row has to draw before the first byte moves, so decorate it now.
+  Object.assign(up, { label: kindLabel(up.kind), icon: docIcon(up.kind) });
+  uploads.set(up.localId, up);
+  sendUpload(up);
+}
+
 async function sendUpload(up) {
   up.state = 'sending';
   up.error = null;
@@ -7494,17 +7576,7 @@ document.addEventListener('click', async (ev) => {
     const p = pendingPick;
     pendingPick = null;
     ui.form = null;
-    const up = {
-      localId: `u${++uploadSeq}`,
-      record: p.record,
-      kind: resolveKind(kindBtn.dataset.docKind, p.mime),
-      name: p.name, mime: p.mime, blob: p.blob, thumb: p.thumb,
-      label: '', icon: '', state: 'sending', error: null,
-    };
-    // The row has to draw before the first byte moves, so decorate it now.
-    Object.assign(up, { label: kindLabel(up.kind), icon: docIcon(up.kind) });
-    uploads.set(up.localId, up);
-    sendUpload(up);
+    startUpload(p, resolveKind(kindBtn.dataset.docKind, p.mime));
     return;
   }
 
@@ -7772,6 +7844,15 @@ document.addEventListener('change', async (ev) => {
     const source = input.dataset.docInput;
     try {
       const prepared = await prepareFile(file, source, record);
+      if (isUnitRecord(record)) {
+        // D131: a unit takes photos and nothing else — no "What is it?" sheet to ask.
+        if (!isImageMime(prepared.mime)) throw new Error('Photos only on a unit — the website listing takes JPEG or PNG.');
+        pendingPick = null;
+        ui.form = null;
+        ui.msg = null;
+        startUpload({ record, source, ...prepared }, 'PHOTO');
+        return;
+      }
       pendingPick = { record, source, ...prepared };
       ui.form = { kind: 'doc-kind', id: record, arg: null };
       ui.msg = null;
@@ -7805,6 +7886,13 @@ function eventBody(action, form, fd) {
   }
   if (action === 'readiness') {
     return { serial: form.dataset.serial, payload: { readiness: s('readiness'), note: s('note') } };
+  }
+  if (action === 'unit_listing') {
+    // D131: {serial, listed, price?}. The price rides only when listing — unchecking keeps the vault's.
+    const listed = !!fd.get('listed');
+    const price = parseInt(s('price').replace(/[$,\s]/g, ''), 10);
+    return { serial: form.dataset.serial,
+      payload: { serial: form.dataset.serial, listed, ...(listed && Number.isInteger(price) ? { price } : {}) } };
   }
   if (action === 'ticket_open') {
     const wss = s('machine_owner') === 'WSS';
@@ -8226,6 +8314,15 @@ document.addEventListener('submit', async (ev) => {
       return;
     }
   }
+  // D131: listing needs a price — whole dollars. The Worker and the engine refuse it too.
+  if (action === 'unit_listing' && fd.get('listed') && !/^[1-9]\d{0,5}$/.test(String(fd.get('price') || '').replace(/[$,\s]/g, ''))) {
+    const el = form.querySelector('[name=price]');
+    if (el) el.focus();
+    ui.msg = { tone: 'bad', text: 'Put a price on it — whole dollars, no cents.' };
+    render();
+    return;
+  }
+
   // A lead with no customer is a note to nobody.
   if (action === 'lead_open' && !String(fd.get('customer') || '').trim()) {
     const el = form.querySelector('[name=customer]');
@@ -8272,7 +8369,8 @@ document.addEventListener('submit', async (ev) => {
       ui.form = null;
       ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb])
         || (verb === 'INSPECT' && INSPECT_MSG[form.dataset.step])
-        || (action === 'work_order' && woMsg(form, payload)) || (action === 'stock_order' && K_MSG[form.dataset.verb]) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.') || SUBMIT_MSG[action] || 'Applies at the next run.' };
+        || (action === 'work_order' && woMsg(form, payload)) || (action === 'stock_order' && K_MSG[form.dataset.verb]) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.')
+        || (action === 'unit_listing' && (payload.listed ? 'Goes on the website after the next run — the site takes a few minutes to rebuild.' : 'Comes off the website after the next run.')) || SUBMIT_MSG[action] || 'Applies at the next run.' };
       render();
     }
   } catch (err) {

@@ -360,6 +360,8 @@ function build({ withServiceQueue }) {
         customer: unit_state === 'ON-RENT' || isLoaner ? customer : null,
         reservations: [],                               // v2: the hold list is the truth (filled below)
         service_ticket: null,                           // schema 3: "S1001" when a ticket is open on this unit
+        docs: [],                                       // D131: the unit's own photos (U-<serial>) — the website listing's set
+        listing: null,                                  // D131: null | {state, price, url, photos}
       };
 
       units.push(unit);
@@ -424,6 +426,21 @@ function build({ withServiceQueue }) {
   agreements[3].cycle = '28D';
   agreements[3].next_due = null;
   agreements[3].alerts = ['no billing seed — next due unknown'];
+
+  // D131: the website listing. One AVAILABLE unit LISTED with two crew photos (the first is the hero),
+  // one UNLISTED with its price kept, and an ON-RENT unit LISTED — listed stays listed while it's out.
+  {
+    const home = units.filter((u) => u.unit_state === 'AVAILABLE');
+    const slug = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const url = (u) => `/listings/used-${String(u.in_service).slice(0, 4)}-${slug(`${u.brand} ${u.model.replace(/ \d{4}$/, '')}`)}-${u.serial}`;
+    const photo = (u, i, id) => ({ id, name: `Unit-${u.serial}-2026110${i}-0915.jpg`, kind: 'PHOTO', bytes: 182000 + i * 9100, added: d(-i), crew: true });
+    const a = home[0], b = home[1], c = units.find((u) => u.unit_state === 'ON-RENT');
+    a.docs = [photo(a, 1, 'a1b2c3d4e5f60718'), photo(a, 2, 'b2c3d4e5f6071829')];
+    a.listing = { state: 'LISTED', price: Math.round(a.ask), url: url(a), photos: 2 };
+    b.listing = { state: 'UNLISTED', price: Math.round(b.ask), url: url(b), photos: 0 };
+    c.docs = [photo(c, 3, 'c3d4e5f60718293a')];
+    c.listing = { state: 'LISTED', price: Math.round(c.ask), url: url(c), photos: 1 };
+  }
 
   // The unbilled-rental alert: a unit out with no agreement number at all.
   const orphanUnit = units.find((u) => u.unit_state === 'ON-RENT' && u.agreement === agreements[10].agreement);

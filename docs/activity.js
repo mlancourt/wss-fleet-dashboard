@@ -213,6 +213,8 @@ export function activityRoute(record, units) {
   if (/^W\d{4,}$/.test(s)) return `#/wo/${encodeURIComponent(s)}`;
   if (/^P\d{4,}$/.test(s)) return `#/parts/${encodeURIComponent(s)}`;   // D88
   if (/^K\d{4,}$/.test(s)) return `#/stock/${encodeURIComponent(s)}`;   // D127
+  const unitRec = /^U-([A-Za-z0-9-]{1,32})$/.exec(s);                    // D131: a unit photo (U-<serial>) → the unit
+  if (unitRec && Array.isArray(units) && units.some((u) => u && String(u.serial) === unitRec[1])) return `#/unit/${encodeURIComponent(unitRec[1])}`;
   if (Array.isArray(units) && units.some((u) => u && String(u.serial) === s)) return `#/unit/${encodeURIComponent(s)}`;
   return null;
 }

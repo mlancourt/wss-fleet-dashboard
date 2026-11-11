@@ -114,7 +114,11 @@ export function docUrl(apiBase, id, token) {
 /* ===================================================== upload (S2) ======== */
 
 /** A ticket ("S1018"), a lead ("L1005") or — D88 — a parts order ("P1001"): what a doc can be attached to. */
-export const DOC_RECORD_RE = /^[SLPW]\d{4}$/;   // D116 (2026-10-21): + a fleet work order (W1006)
+// D116 (2026-10-21): + a fleet work order (W1006) · D131 (2026-11-11): + a fleet UNIT, `U-<serial>` (the
+// Worker's SERIAL_RE behind the prefix) — a unit's photos are its website listing's set, PHOTO only.
+export const DOC_RECORD_RE = /^(?:[SLPW]\d{4}|U-[A-Za-z0-9-]{1,32})$/;
+/** D131: a unit record — its docs are photos only, and they go on the website listing. */
+export const isUnitRecord = (record) => /^U-[A-Za-z0-9-]{1,32}$/.test(String(record || ''));
 
 /**
  * The three buttons on the kind sheet, in order. PHOTO is deliberately NOT a
@@ -191,7 +195,7 @@ export function retypeName(name, mime) {
 export function cameraName(record, mime, now = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
-  return retypeName(`WO-${record}-${stamp}`, mime);
+  return retypeName(isUnitRecord(record) ? `Unit-${String(record).slice(2)}-${stamp}` : `WO-${record}-${stamp}`, mime);
 }
 
 /**

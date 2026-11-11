@@ -5174,4 +5174,76 @@ await check('D127: activity routes K… to #/stock/; a pre-D127 snapshot (no sto
   await asFull('owner');
 });
 
+/* ============================================ D131: the Website group ===== */
+
+await check('D131: owner gets the box (checked + price + Save), View listing ›, the unit photos and the note', async () => {
+  const snap = await asFull('owner');
+  const u = snap.units.find((x) => x.listing && x.listing.state === 'LISTED' && x.unit_state === 'AVAILABLE');
+  assert.ok(u, 'the fixture must carry a listed unit at home');
+  const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('<h2>Website</h2>'), 'Website group');
+  assert.ok(out.indexOf('<h2>Unit</h2>') < out.indexOf('<h2>Website</h2>'), 'under the unit facts');
+  assert.ok(/data-action="unit_listing" data-serial="[^"]+"/.test(out), 'the box is a unit_listing form');
+  assert.ok(/name="listed" value="1" checked/.test(out), 'checked when listed');
+  assert.ok(out.includes(`name="price" inputmode="numeric"`) && out.includes(`value="${u.listing.price}"`), 'price prefilled with the listing price');
+  assert.ok(out.includes(`href="https://www.wisconsinscrubandsweep.com${u.listing.url}"`) && out.includes('View listing ›'), 'View listing goes to www');
+  assert.ok(out.includes(`data-record="U-${u.serial}"`), 'the photo buttons are bound to U-<serial>');
+  assert.equal([...out.matchAll(/data-doc-detach="/g)].length, u.docs.length, 'a ✕ on each crew photo');
+  assert.ok(out.includes('These photos go on the website listing. First one is the main photo.'), 'the one-line note');
+  assert.ok(!out.includes('<h2>Documents'), 'the unit draws no separate Documents group');
+  const pdfOk = /data-doc-input="file" data-record="U-/.test(out) && /accept="image\/\*" data-doc-input="file" data-record="U-/.test(out);
+  assert.ok(pdfOk, 'a unit\'s 📎 File takes images only');
+});
+
+await check('D131: everyone else reads it — On the website · $X · View listing › — and still gets 📷 / 📎', async () => {
+  for (const role of ['sales', 'service']) {
+    const snap = await asFull(role);
+    const u = snap.units.find((x) => x.listing && x.listing.state === 'LISTED');
+    const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+    assert.ok(!out.includes('data-action="unit_listing"'), `${role}: no box`);
+    assert.ok(out.includes('On the website · $') && out.includes('View listing ›'), `${role}: the read-only line`);
+    assert.ok(out.includes(`data-doc-pick="camera"`) && out.includes(`data-record="U-${u.serial}"`), `${role}: photo buttons`);
+    const un = snap.units.find((x) => x.listing && x.listing.state === 'UNLISTED');
+    const out2 = await renderRoute(`#/unit/${encodeURIComponent(un.serial)}`);
+    assert.ok(!out2.includes('On the website') && !out2.includes('Not on the website'), `${role}: nothing when unlisted`);
+  }
+});
+
+await check('D131: unchecked keeps the kept price; no listing prefills the ask; a pending tap badges', async () => {
+  const snap = await asFull('owner');
+  const un = snap.units.find((x) => x.listing && x.listing.state === 'UNLISTED');
+  let out = await renderRoute(`#/unit/${encodeURIComponent(un.serial)}`);
+  assert.ok(!/name="listed" value="1" checked/.test(out) && out.includes(`value="${un.listing.price}"`) && out.includes('Not on the website.'), 'unlisted: unchecked, kept price');
+  const bare = snap.units.find((x) => !x.listing && typeof x.ask === 'number' && x.ask > 0);
+  out = await renderRoute(`#/unit/${encodeURIComponent(bare.serial)}`);
+  assert.ok(out.includes(`value="${Math.round(bare.ask)}"`), 'no listing: the ask');
+  app.__state().pending.push({ id: 'evt-d131', ts: new Date().toISOString(), actor: 'Matt', role: 'owner', action: 'unit_listing', serial: bare.serial, payload: { serial: bare.serial, listed: true, price: 12345 } });
+  out = await renderRoute(`#/unit/${encodeURIComponent(bare.serial)}`);
+  assert.ok(out.includes('⏳ list on the website at $12,345'), 'the pending row says what it asked for');
+  assert.ok(/name="listed" value="1" checked/.test(out) && out.includes('value="12345"'), 'the box shows the pending ask');
+  assert.ok(out.includes('— applies at the next run'), 'never drawn as done');
+  app.__state().pending.pop();
+});
+
+await check('D131: a Listed chip on the category row — only on listed units', async () => {
+  const snap = await asFull('service');
+  const u = snap.units.find((x) => x.listing && x.listing.state === 'LISTED');
+  const out = await renderRoute(`#/cat/${encodeURIComponent(u.category)}`);
+  const listedHere = snap.units.filter((x) => x.category === u.category && x.listing && x.listing.state === 'LISTED').length;
+  assert.equal([...out.matchAll(/class="chip listed"/g)].length, listedHere, 'one chip per listed unit in the category');
+  const { activityRoute } = await import('../docs/activity.js');
+  assert.equal(activityRoute(`U-${u.serial}`, snap.units), `#/unit/${encodeURIComponent(u.serial)}`, 'a unit-photo tape row routes to the unit');
+  assert.equal(activityRoute('U-nope', snap.units), null);
+});
+
+await check('D131: a snapshot without units[].listing / docs draws the group with the photo buttons alone', async () => {
+  const snap = await asFull('owner');
+  for (const u of snap.units) { delete u.listing; delete u.docs; }
+  const u = snap.units[0];
+  const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
+  assert.ok(out.includes('<h2>Website</h2>') && out.includes(`data-record="U-${u.serial}"`), 'buttons alone');
+  assert.ok(!out.includes('undefined'), 'no undefined leak');
+  await asFull('owner');
+});
+
 console.log(`\n${passed} checks passed.`);
