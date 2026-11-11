@@ -123,10 +123,50 @@ await check('D69: INSPECT refusals — a 5th step, no step, SKIP with a section 
   await ok('owner', insp('SAVE', { items: [{ id: 'ctl.key_switch', result: 'WORN' }] }), 'scale mismatch is the engine’s call');
 });
 
+await check('D132: INSPECT FIX — item + note (≤120) or item + clear: true, every crew role, keyed like every verb but OPEN', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    const f = await ok(role, insp('FIX', { item: 'sq.blades', note: 'new rear blade' }), `${role} FIX`);
+    assert.deepEqual(f.payload, { action: 'INSPECT', step: 'FIX', work_order: 'W1001', item: 'sq.blades', note: 'new rear blade' });
+    const c = await ok(role, insp('FIX', { item: 'sq.blades', clear: true }), `${role} FIX clear`);
+    assert.deepEqual(c.payload, { action: 'INSPECT', step: 'FIX', work_order: 'W1001', item: 'sq.blades', clear: true });
+  }
+  const bare = await ok('service', insp('FIX', { item: 'sq.blades' }), 'FIX with no note');
+  assert.deepEqual(bare.payload, { action: 'INSPECT', step: 'FIX', work_order: 'W1001', item: 'sq.blades', note: null });
+  await ok('service', insp('FIX', { item: 'sq.blades', note: 'x'.repeat(120) }), 'note 120');
+  const byS = await ok('service', insp('FIX', { item: 'sq.blades', note: 'rotated' }, '153928'), 'FIX by serial');
+  assert.equal(byS.serial, '153928'); assert.ok(!('work_order' in byS.payload));
+  await refused('service', wo({ action: 'INSPECT', step: 'FIX', work_order: 'W1001', item: 'sq.blades' }, '153928'), 'FIX with both keys', 400, 'not both');
+  await refused('service', wo({ action: 'INSPECT', step: 'FIX', item: 'sq.blades' }), 'FIX with neither key', 400, 'needs the work_order');
+  await refused('service', insp('FIX', { item: 'sq.blades', note: 'x'.repeat(121) }), 'note 121', 400, 'note');
+  await refused('service', insp('FIX', {}), 'no item', 400, 'item');
+  await refused('service', insp('FIX', { item: 42 }), 'item not a string', 400, 'item');
+  await refused('service', insp('FIX', { item: 'sq blades!' }), 'item not a row id', 400, 'item');
+  await refused('service', insp('FIX', { item: 'sq.blades', clear: false }), 'clear false', 400, 'clear');
+  await refused('service', insp('FIX', { item: 'sq.blades', clear: 'yes' }), 'clear "yes"', 400, 'clear');
+  await refused('service', insp('FIX', { item: 'sq.blades', clear: true, note: 'oops' }), 'clear with a note', 400, 'no note');
+  for (const sec of [['items', []], ['readings', { hours_key: 1 }], ['comments', 'x'], ['battery', null], ['machine_class', 'SCRUBBER']]) {
+    await refused('service', insp('FIX', { item: 'sq.blades', [sec[0]]: sec[1] }), `FIX with ${sec[0]}`, 400, `FIX carries no sheet sections (got ${sec[0]})`);
+  }
+  await refused('service', insp('FIX', { item: 'sq.blades', tech: 'Josh' }), 'unknown key on FIX', 400, 'INSPECT FIX does not take tech');
+  await refused('service', insp('FIX', { item: 'sq.blades', fixed: { by: 'Josh' } }), 'a fixed key on FIX', 400, 'fixed');
+  await refused('service', insp('FIX', { item: 'sq.blades', cost: 40 }), 'money on FIX', 400, 'cost');
+  await refused('intake', insp('FIX', { item: 'sq.blades' }), 'intake FIX', 403);
+});
+
+await check('D132: a SAVE / DONE / OPEN row carrying its own `fixed` → 400 by name (the stamp is the engine\'s)', async () => {
+  const row = { id: 'sq.blades', result: 'REPAIR', note: 'rolled', fixed: { date: '2026-11-11', by: 'Josh', note: null } };
+  await refused('service', insp('SAVE', { items: [row] }), 'SAVE row with fixed', 400, 'items[0] does not take fixed');
+  await refused('service', insp('DONE', { tech: 'Josh', items: [row] }), 'DONE row with fixed', 400, 'items[0] does not take fixed');
+  await refused('service', wo({ action: 'OPEN', inspection: { items: [row] } }, '153928'), 'OPEN row with fixed', 400, 'does not take fixed');
+  const { fixed, ...plain } = row;
+  const sv = await ok('service', insp('SAVE', { items: [plain] }), 'the same row without it');
+  assert.ok(!('fixed' in sv.payload.items[0]));
+});
+
 await check('D69: every verb but OPEN — exactly one of work_order or the top-level serial', async () => {
   const verbs = [
     ['INSPECT', { step: 'SAVE', comments: 'x' }], ['INSPECT', { step: 'DONE', tech: 'Zac' }], ['INSPECT', { step: 'SKIP', reason: 'x' }],
-    ['INSPECT', { step: 'REOPEN' }], ['ADD-PARTS', { parts: [{ manufacturer: 'KODIAK', part_number: '1', qty: 1 }] }],
+    ['INSPECT', { step: 'REOPEN' }], ['INSPECT', { step: 'FIX', item: 'sq.blades' }], ['ADD-PARTS', { parts: [{ manufacturer: 'KODIAK', part_number: '1', qty: 1 }] }],
     ['PART-STATE', { line: 1, state: 'DELIVERED' }], ['PART-STATE', { line: 1, source: 'SHOP-STOCK' }],
     ['LABOR', { who: 'Zac', hours: 1.5 }], ['SCHEDULE', { date: '2026-10-21' }], ['SCHEDULE', { clear: true }], ['CLOSE', { ready: true }], ['CANCEL', {}],
   ];

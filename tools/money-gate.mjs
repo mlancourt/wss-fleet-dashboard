@@ -229,6 +229,30 @@ try {
     const found = moneyKeys([wos.map((w) => w.inspection), doc.snapshot.inspection_checklist || null]);
     ok(found.length === 0, `${role}: no cost / rate / price / amount key on any sheet or library row (${n})`);
     for (const f of found) console.log(`         ${f}`);
+    // D132: the "Repaired" stamp is a crew note, never money — key-only, like the
+    // rest of the sheet. A row's `fixed` is exactly {date, by, note}; the block's
+    // `fixed` (and units[].last_inspection.fixed) is a whole count ≤ flags. A
+    // snapshot from before D132 carries neither and passes.
+    const FIX_KEYS = new Set(['date', 'by', 'note']);
+    const isCount = (v, flags) => Number.isInteger(v) && v >= 0 && (flags == null || v <= flags);
+    const badFix = [];
+    for (const w of wos) {
+      const b = w.inspection && typeof w.inspection === 'object' ? w.inspection : {};
+      if ('fixed' in b && !isCount(b.fixed, b.flags)) badFix.push(`${w.id}.inspection.fixed = ${JSON.stringify(b.fixed)}`);
+      for (const [i, it] of (Array.isArray(b.items) ? b.items : []).entries()) {
+        if (it == null || !('fixed' in it)) continue;
+        const f = it.fixed;
+        if (!f || typeof f !== 'object' || Array.isArray(f) || Object.keys(f).some((k) => !FIX_KEYS.has(k))) {
+          badFix.push(`${w.id}.inspection.items[${i}].fixed keys ${JSON.stringify(f && typeof f === 'object' ? Object.keys(f) : f)}`);
+        }
+      }
+    }
+    for (const u of Array.isArray(doc.snapshot.units) ? doc.snapshot.units : []) {
+      const li = u.last_inspection;
+      if (li && 'fixed' in li && !isCount(li.fixed, li.flags)) badFix.push(`unit ${u.serial}.last_inspection.fixed = ${JSON.stringify(li.fixed)}`);
+    }
+    ok(badFix.length === 0, `${role}: every repaired stamp is {date, by, note} and every \`fixed\` count a whole number ≤ flags (D132)`);
+    for (const f of badFix) console.log(`         ${f}`);
   }
 
   /* ------ D79: the customer parts order carries no cost, every role -------

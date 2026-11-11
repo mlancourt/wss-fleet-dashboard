@@ -549,10 +549,27 @@ POSTWO "sg 2.0 -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"S
 POSTWO "an unknown top-level key -> 400" 400 "b.error.includes('signature')" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","signature":"x"}')"
 POSTWO "a result outside both scales -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","items":[{"id":"ctl.key_switch","result":"FINE"}]}')"
 POSTWO "a fractional brush percent -> 400" 400 "" "$T_OWNER" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","readings":{"brush1_pct":55.5}}')"
+
+echo "-- crew: D132 — INSPECT FIX, the Repaired stamp on a flagged row (any crew role; the stamp is the engine's)"
+POSTWO "INSPECT FIX item + note -> 201" 201 "b.payload.item==='sq.blades' && b.payload.note==='new rear blade'" \
+  "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"FIX","work_order":"W1001","item":"sq.blades","note":"new rear blade"}')"
+FX1=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "INSPECT FIX clear (sales) -> 201" 201 "b.payload.clear===true && !('note' in b.payload)" \
+  "$T_SALES" "$(IN '' '{"action":"INSPECT","step":"FIX","work_order":"W1001","item":"sq.blades","clear":true}')"
+FX2=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+POSTWO "INSPECT FIX keyed on the serial -> 201" 201 "b.serial==='900233' && !('work_order' in b.payload)" \
+  "$T_OWNER" "$(IN ',"serial":"900233"' '{"action":"INSPECT","step":"FIX","item":"sq.blades"}')"
+FX3=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
+LONG121=$(printf 'x%.0s' $(seq 1 121))
+POSTWO "FIX note 121 -> 400" 400 "b.error.includes('note')" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"FIX","work_order":"W1001","item":"sq.blades","note":"'"$LONG121"'"}')"
+POSTWO "FIX clear + note -> 400" 400 "b.error.includes('no note')" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"FIX","work_order":"W1001","item":"sq.blades","clear":true,"note":"x"}')"
+POSTWO "FIX with a section -> 400" 400 "b.error.includes('FIX carries no sheet sections')" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"FIX","work_order":"W1001","item":"sq.blades","items":[]}')"
+POSTWO "FIX with an unknown key -> 400" 400 "b.error.includes('tech')" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"FIX","work_order":"W1001","item":"sq.blades","tech":"Josh"}')"
+POSTWO "SAVE row carrying fixed -> 400 by name" 400 "b.error.includes('fixed')" "$T_SERVICE" "$(IN '' '{"action":"INSPECT","step":"SAVE","work_order":"W1001","items":[{"id":"sq.blades","result":"REPAIR","fixed":{"by":"Josh"}}]}')"
 POSTWO "the retired inspection action -> 400" 400 "" "$T_OWNER" '{"action":"inspection","serial":"900233","payload":{"action":"OPEN","kind":"PM"}}'
-expect "all seven sheet events drained -> deleted 7" 200 "b.deleted===7" \
+expect "all ten sheet events drained (seven + three D132 FIX) -> deleted 10" 200 "b.deleted===10" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
-  -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\",\"$IN7\"]}"
+  -d "{\"ids\":[\"$IN1\",\"$IN2\",\"$IN3\",\"$IN4\",\"$IN5\",\"$IN6\",\"$IN7\",\"$FX1\",\"$FX2\",\"$FX3\"]}"
 expect "pending back to baseline after the sheet" 200 "b.pending_count===$BEFORE" "$WORKER/api/health" -H "$(auth $T_OWNER)"
 
 echo "-- the money gate (Leads spec §6, L4) — NOT optional"

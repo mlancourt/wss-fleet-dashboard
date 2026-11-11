@@ -207,7 +207,7 @@ const WO_MAX_LINES = 10;             // per event; the engine holds the 20-per-W
 // answered all live in the vault's row library (Fleet/_Inspection-Checklist.md)
 // — the library is deliberately NOT on this Worker: a row is a vault edit,
 // never a deploy, and a second copy here would be the one that goes stale.
-const INSP_STEPS = new Set(['SAVE', 'DONE', 'SKIP', 'REOPEN']);
+const INSP_STEPS = new Set(['SAVE', 'DONE', 'SKIP', 'REOPEN', 'FIX']);   // FIX: D132 — the "Repaired" stamp on a flag row
 const INSP_CLASSES = new Set(['SWEEPER', 'SCRUBBER']);
 const INSP_BODY_STYLES = new Set(['WALK-BEHIND', 'RIDER', 'STAND-ON']);   // v1.2: was `controls`
 const INSP_BATTERY_TYPES = new Set(['WET', 'AGM', 'LITHIUM']);
@@ -231,6 +231,7 @@ const INSP_ROW_ID_RE = /^[A-Za-z0-9_.-]{1,64}$/;   // "ctl.key_switch" — shape
 const INSP_MAX_CELLS = 18;
 const INSP_MAX_ITEMS = 120;
 const INSP_MAX_REASON = 120;
+const INSP_MAX_ITEM_NOTE = 120;   // a row note, and (D132) a FIX note
 // The sections a SAVE may carry. Present = "replace this section", absent =
 // "leave it alone" (merge by section) — so a key is kept even when its value is
 // null, because a null there is an instruction to clear it.
@@ -252,6 +253,7 @@ const WO_INSPECT_KEYS = {
   DONE: ['action', 'step', 'work_order', 'tech', ...INSP_SECTIONS],   // DONE may carry the last section too
   SKIP: ['action', 'step', 'work_order', 'reason'],
   REOPEN: ['action', 'step', 'work_order', 'note'],
+  FIX: ['action', 'step', 'work_order', 'item', 'note', 'clear'],     // D132: item + note (≤120), or item + clear: true
 };
 const WO_PART_KEYS = new Set(['manufacturer', 'part_number', 'description', 'qty', 'source', 'damage']);   // D68: source · D126: damage
 // D127 — stock_order. A work order minus everything a shelf restock has no use
@@ -1090,6 +1092,8 @@ function cleanPayload(action, p, role, serial) {
       const seen = new Set();
       out.items = list.map((it, i) => {
         if (!it || typeof it !== 'object' || Array.isArray(it)) throw httpError(400, `items[${i}] must be an object`);
+        // D132: the repaired stamp is the engine's — set by INSPECT FIX, never sent on a row.
+        if ('fixed' in it) throw httpError(400, `items[${i}] does not take fixed — the repaired stamp is the engine's; send INSPECT step FIX`);
         for (const k of Object.keys(it)) if (!['id', 'result', 'note', 'damage'].includes(k)) throw httpError(400, `items[${i}] does not take ${k}`);
         if (typeof it.id !== 'string' || !INSP_ROW_ID_RE.test(it.id)) throw httpError(400, `items[${i}].id must look like ctl.key_switch`);
         if (seen.has(it.id)) throw httpError(400, `row ${it.id} is answered twice`);
@@ -1399,9 +1403,9 @@ function cleanPayload(action, p, role, serial) {
     // D69: SKIP is "no inspection, and here's why" — a sheet section riding
     // along is a contradiction, so it is refused by name before the key check
     // turns it into a generic "does not take".
-    if (step === 'SKIP') {
+    if (step === 'SKIP' || step === 'FIX') {   // D132: a FIX stamps one row; it is not a save
       const sec = INSP_SECTIONS.find((k) => k in obj);
-      if (sec) throw httpError(400, `SKIP carries no sheet sections (got ${sec}) — SAVE them or drop them`);
+      if (sec) throw httpError(400, `${step} carries no sheet sections (got ${sec}) — SAVE them or drop them`);
     }
     const allowed = step ? WO_INSPECT_KEYS[step] : WO_KEYS[verb];
     for (const k of Object.keys(obj)) {
@@ -1486,6 +1490,17 @@ function cleanPayload(action, p, role, serial) {
         const reason = str(obj.reason, INSP_MAX_REASON, 'reason', true);
         if (!reason) throw httpError(400, 'reason is required — say why there is no inspection');
         return { action: verb, step, ...key, reason };
+      }
+      if (step === 'FIX') {
+        // D132: "fixed it" on one flagged row. Which rows exist, that the row is
+        // a flag, that the sheet isn't SKIPPED and the WO is OPEN — the engine's.
+        if (typeof obj.item !== 'string' || !INSP_ROW_ID_RE.test(obj.item)) throw httpError(400, 'item must be a row id like sq.blades');
+        if (obj.clear != null) {
+          if (obj.clear !== true) throw httpError(400, 'clear must be true (or absent)');
+          if (obj.note != null && obj.note !== '') throw httpError(400, 'FIX with clear: true takes no note');
+          return { action: verb, step, ...key, item: obj.item, clear: true };
+        }
+        return { action: verb, step, ...key, item: obj.item, note: optStr(obj.note, INSP_MAX_ITEM_NOTE, 'note') };
       }
       // REOPEN: owner, or the tech within 24 h of DONE / SKIP — who did what
       // and when is business state, so the engine referees it.
