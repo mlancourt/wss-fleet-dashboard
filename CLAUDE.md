@@ -211,8 +211,8 @@ Event shapes (client sends `action`, `serial`, `payload`; server stamps the rest
 // items[] row carrying `fixed` → 400 by name. Engine: the WO OPEN, the sheet PENDING or DONE (SKIPPED → reject), `item` already on the sheet with a flag
 // result (else reject naming the row); a second FIX replaces the stamp; clear with no stamp → reject. A SAVE that re-sends the row with the SAME result keeps
 // the stamp; a changed result or a dropped row loses it; REOPEN keeps them. Nothing gates on it — CLOSE, the damage handoff, stage_of() and list_final are unchanged.
-{"action":"work_order","payload":{"action":"INSPECT","step":"FIX","work_order":"W1003","item":"sq.blades","note":"new rear blade"}}
-{"action":"work_order","payload":{"action":"INSPECT","step":"FIX","work_order":"W1003","item":"sq.blades","clear":true}}
+{"action":"work_order","payload":{"action":"INSPECT","step":"FIX","work_order":"W1003","item":"sqg.blades","note":"new rear blade"}}
+{"action":"work_order","payload":{"action":"INSPECT","step":"FIX","work_order":"W1003","item":"sqg.blades","clear":true}}
 {"action":"work_order","payload":{"action":"CLOSE","work_order":"W1003","ready":true,"bill":true}}     // D69: the close IS the ready call (default true; a home unit flips READY via set_readiness()); omit `ready` on an out unit — never touched
 // D126: `bill` (bool, default true). After the close: no damage → the plain close · no renter → ⚠️ "bill by hand", nothing opened · bill:false → logged
 // "damage not billed (Matt)" · an OPEN ticket on the serial → the damage block appended to it, billing_ticket = it · else the engine mints a WSS-owned ticket
