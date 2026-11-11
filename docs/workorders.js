@@ -603,7 +603,7 @@ export const pendingLineLabel = (p) => (isDamageFlip(p) ? (p.damage ? 'marked as
   : (p && (PART_STATE_LABEL[p.state] || p.state)) || '');
 
 /** One line of English for a pending work_order tap, whatever verb it was. */
-export function describeWoEvent(e) {
+export function describeWoEvent(e, labelOf) {   // labelOf: row id → library label (D132 FIX)
   const p = pl(e);
   const n = Array.isArray(p.parts) ? p.parts.length : 0;
   const parts = `${n} part${n === 1 ? '' : 's'}`;
@@ -620,7 +620,7 @@ export function describeWoEvent(e) {
     case 'CLOSE': return (p.ready === false ? 'close (readiness left alone)' : 'close')
       + (p.bill === true ? '; damage ticket opens at the next run' : p.bill === false ? '; damage not billed' : '');   // D126
     case 'CANCEL': return 'cancel the work order';
-    case 'INSPECT': return describeStep(p);
+    case 'INSPECT': return describeStep(p, labelOf);
     default: return 'work order change';
   }
 }

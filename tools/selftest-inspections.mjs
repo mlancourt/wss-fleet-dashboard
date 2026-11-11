@@ -11,6 +11,7 @@ import {
   checklistOf, rowIndex, deriveProfile, rowShows, visibleSections, blockOf, statusOf, isSettled,
   profileOf, cellLayout, parseSg, sheetFrom, overlay, firstHours, doneReady, flagCount, answeredIn, flaggedLabels,
   sectionValue, ctNow, minutesBetween, settledStamp, reopenShown, fmtReading, chipText, chipTone, describeStep,
+  fixedOf, fixedCount, flagsText, flagsTone, fixedLine,   // D132
   SCALES, FLAG_RESULTS,
 } from '../docs/inspections.js';
 
@@ -259,6 +260,36 @@ check('D126: a flagged row carries damage on the wire; a non-flag row (or one re
   assert.equal('damage' in sectionValue(s, 'items', LIB).find((i) => i.id === 'ctl.key'), false);
   // a pre-D126 block (no key) reads as not damage
   assert.equal(sheetFrom({ items: [{ id: 'ctl.key', result: 'REPAIR', note: null }] }).items.get('ctl.key').damage, false);
+});
+
+check('D132: the Repaired stamp — fixedOf / fixedCount / flagsText / flagsTone / fixedLine / chip / describeStep', () => {
+  const st = { date: '2026-11-14', by: 'Josh', note: 'new rear blade' };
+  assert.deepEqual(fixedOf({ id: 'a', result: 'REPAIR', fixed: st }), st);
+  assert.equal(fixedOf({ id: 'a', result: 'IN-SPEC', fixed: st }), null, 'a stale stamp on a non-flag row is ignored');
+  assert.equal(fixedOf({ id: 'a', result: 'REPLACE' }), null, 'no key → no stamp');
+  assert.equal(fixedOf(null), null);
+  assert.equal(fixedCount({ flags: 2, fixed: 1 }), 1);
+  assert.equal(fixedCount({ flags: 2 }), 0, 'a block without the key reads as zero');
+  assert.equal(fixedCount({ flags: 1, fixed: 3 }), 1, 'never more than flags');
+  assert.equal(fixedCount(null), 0);
+  assert.equal(flagsText(2, 0), '2 ⚑');
+  assert.equal(flagsText(2, undefined), '2 ⚑');
+  assert.equal(flagsText(2, 1), '2 ⚑ · 1 fixed');
+  assert.equal(flagsText(2, 2), '2 fixed');
+  assert.equal(flagsText(0, 0), '');
+  assert.equal(flagsTone(2, 1), 'warn'); assert.equal(flagsTone(2, 2), 'ok'); assert.equal(flagsTone(0, 0), 'ok');
+  assert.equal(fixedLine(st), '✓ Repaired Nov 14 · Josh · new rear blade');
+  assert.equal(fixedLine({ date: '2026-11-14', by: 'Zac', note: null }), '✓ Repaired Nov 14 · Zac');
+  assert.equal(chipText({ status: 'DONE', flags: 2 }), '✓ 2 ⚑', 'unchanged when nothing is fixed');
+  assert.equal(chipText({ status: 'DONE', flags: 2, fixed: 1 }), '✓ 2 ⚑ · 1 fixed');
+  assert.equal(chipText({ status: 'DONE', flags: 2, fixed: 2 }), '✓ 2 fixed');
+  assert.equal(chipTone({ status: 'DONE', flags: 2, fixed: 1 }), 'warn');
+  assert.equal(chipTone({ status: 'DONE', flags: 2, fixed: 2 }), 'ok', 'all repaired → green');
+  assert.equal(chipText({ status: 'PENDING', flags: 2, fixed: 1 }), 'pending');
+  const lbl = (id) => ({ 'sq.blades': 'Squeegee blades' })[id];
+  assert.equal(describeStep({ step: 'FIX', item: 'sq.blades', note: 'new rear blade' }, lbl), '"Squeegee blades" marked repaired — new rear blade');
+  assert.equal(describeStep({ step: 'FIX', item: 'sq.blades', clear: true }, lbl), '"Squeegee blades" — repaired mark cleared');
+  assert.equal(describeStep({ step: 'FIX', item: 'x.y' }), '"x.y" marked repaired', 'no library → the row id');
 });
 
 console.log(`${passed} checks passed.`);

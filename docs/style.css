@@ -1717,3 +1717,18 @@ form.write.web-form .btn { flex: 0 0 auto; min-height: var(--tap); min-width: 96
 .web-go { color: var(--rent); text-decoration: none; white-space: nowrap; }
 .docs-note { margin: 4px 0 10px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* D132 — the "Repaired" stamp on a flagged row. The amber finding stays; the repair is a green line under it. */
+.idmg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.idmg .tg { flex: 0 0 auto; }
+.tg.ifix-btn { color: var(--ok); border-color: var(--ok); }
+.ifix { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 6px;
+  color: var(--ok); font-size: 13.5px; font-weight: 600; }
+.ifix.pending { color: var(--ink-2); font-weight: 500; }
+.ifix.is-clearing { color: var(--ink-3); font-weight: 500; }
+.ifix .ifix-p { color: var(--ink-2); }
+.ifix form.write { display: inline; background: none; border: 0; box-shadow: none; padding: 0; margin: 0; }
+.ifix-undo { background: none; border: 0; padding: 4px 0; min-height: var(--tap); color: var(--ink-3); font: inherit;
+  font-weight: 500; text-decoration: underline; cursor: pointer; }
+form.write.ifix-form:not([data-clear]) { margin-top: 8px; }
+.form-note.unfixed { color: var(--warn); font-weight: 600; margin: 4px 0 8px; }

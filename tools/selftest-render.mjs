@@ -3615,7 +3615,7 @@ await check('D69: unit page — Last inspection line (tap → the WO), the hours
     assert.ok(out.includes(`href="#/wo/W1002">`) && out.includes(`Last inspection</span> PM · ${FMT_MD(u.last_inspection.done)} · Zac · 961.5 h · 2 ⚑ · W1002`), `${role}: the line`);
     const closed = snap.units.find((x) => x.last_inspection && x.last_inspection.work_order === 'W1004');
     const cout = await renderRoute(`#/unit/${encodeURIComponent(closed.serial)}`);
-    assert.ok(cout.includes(`Last inspection</span> Check-out · ${FMT_MD(closed.last_inspection.done)} · Josh · 412.5 h · 2 ⚑ · W1004`), `${role}: a closed CHECKOUT`);
+    assert.ok(cout.includes(`Last inspection</span> Check-out · ${FMT_MD(closed.last_inspection.done)} · Josh · 412.5 h · 2 fixed · W1004`), `${role}: a closed CHECKOUT — D132: both findings repaired`);
     assert.ok(!cout.includes('Inspect<'), `${role}: no Inspect button`);
   }
   const snap = await asFull('service');
@@ -4924,7 +4924,8 @@ await check('D126: WO page — header chip → renter, 💥 on marked lines + la
   app.__ui().sheetCard.set('W1007', true);
   out = await renderRoute('#/wo/W1007');
   assert.equal([...out.matchAll(/class="idmg"/g)].length, 1, 'read-only: only the flagged row marked as damage draws the mark (drive forward is a flag, not damage)');
-  assert.ok(/<div class="idmg"><span class="chip dmg">💥 damage<\/span><\/div>/.test(out), 'DONE sheet: the marked flag reads 💥 damage');
+  assert.ok(/<div class="idmg"><span class="chip dmg">💥 damage<\/span><button type="button" class="tg ifix-btn" data-sheet="insp-fix" data-id="W1007:ctl.key_switch">✓ Repaired<\/button><\/div>/.test(out),
+    'DONE sheet: the marked flag reads 💥 damage — D132: and, unrepaired on an OPEN work order, offers ✓ Repaired beside it');
   app.__ui().sheetCard.clear();
   // W1008: closed + handed off
   const w8 = snap.work_orders.find((w) => w.id === 'W1008');
@@ -5243,6 +5244,191 @@ await check('D131: a snapshot without units[].listing / docs draws the group wit
   const out = await renderRoute(`#/unit/${encodeURIComponent(u.serial)}`);
   assert.ok(out.includes('<h2>Website</h2>') && out.includes(`data-record="U-${u.serial}"`), 'buttons alone');
   assert.ok(!out.includes('undefined'), 'no undefined leak');
+  await asFull('owner');
+});
+
+/* ================================================ D132 "Repaired" stamp == */
+const { fmtDate: FMT_DATE } = await import('../docs/dates.js');
+const rowOf = (out, rid) => {   // one sheet row's markup, by the segmented control's data-iseg
+  const i = out.indexOf(`data-iseg="${rid}"`);
+  if (i < 0) return '';
+  const starts = [...out.matchAll(/<div class="irow( flag)?">/g)].map((m) => m.index);
+  const start = starts.filter((x) => x < i).pop();
+  const next = starts.find((x) => x > i);
+  const end = out.indexOf('</section>', i);
+  return out.slice(start, next != null && next < end ? next : end);
+};
+const escH = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const labelIn = (snap, rid) => { for (const sec of snap.inspection_checklist.sections) for (const r of sec.rows) if (r.id === rid) return r.label; return rid; };
+
+await check('D132 a: ✓ Repaired on an unstamped flag row — DONE (read-only) and PENDING sheets of an OPEN work order; never a non-flag row, a CLOSED, SKIPPED or ⏳ NEW one', async () => {
+  for (const role of ['owner', 'sales', 'service']) {
+    const snap = await asFull(role);
+    resetSheets();
+    app.__ui().sheetCard.set('W1002', true);
+    const out = await renderRoute('#/wo/W1002');
+    const w2 = snap.work_orders.find((w) => w.id === 'W1002');
+    const flagged = w2.inspection.items.filter((i) => ['REPAIR', 'PROBLEM', 'REPLACE'].includes(i.result));
+    const plain = w2.inspection.items.find((i) => i.result && !['REPAIR', 'PROBLEM', 'REPLACE'].includes(i.result));
+    for (const it of flagged) {
+      const r = rowOf(out, it.id);
+      assert.ok(r.includes(`<button type="button" class="tg ifix-btn" data-sheet="insp-fix" data-id="W1002:${it.id}">✓ Repaired</button>`), `${role}: ${it.id} offers ✓ Repaired on the DONE sheet`);
+      assert.ok(r.includes(escH(it.note)), `${role}: the finding's note stays`);
+    }
+    if (plain) assert.ok(!rowOf(out, plain.id).includes('ifix-btn'), `${role}: no button on a ${plain.result} row`);
+  }
+  // a PENDING sheet: an applied flag row offers it too (and the editable segments stay)
+  const snap = await asFull('service');
+  const w1 = snap.work_orders.find((w) => w.id === 'W1001');
+  const lib = snap.inspection_checklist.sections.find((x) => !x.shows_for);
+  const rid = lib.rows.find((r) => !r.shows_for && !r.retired && r.scale === 'FUNCTION').id;
+  w1.inspection = { ...w1.inspection, items: [{ id: rid, result: 'REPAIR', note: 'loose' }], flags: 1, fixed: 0 };
+  resetSheets();
+  let out = await renderRoute('#/wo/W1001');
+  assert.ok(rowOf(out, rid).includes(`data-id="W1001:${rid}">✓ Repaired</button>`), 'PENDING sheet: the button too');
+  // tap → the one-field sheet
+  app.__ui().form = { kind: 'insp-fix', id: `W1001:${rid}`, arg: null };
+  out = await renderRoute('#/wo/W1001');
+  const r = rowOf(out, rid);
+  assert.ok(r.includes('data-step="FIX"') && r.includes(`data-item="${rid}"`) && r.includes('data-wo="W1001"'), 'the FIX form, keyed on the W-number');
+  assert.ok(r.includes('What did you do?') && /name="note" maxlength="120"/.test(r) && r.includes('>Submit</button>'), 'one optional field, 120, Submit');
+  // a locally changed result (not yet saved) hides it — the stamp would land on the wrong finding
+  app.__ui().form = null;
+  app.__sheetLocal().set('W1001', { edits: { items: new Map([[rid, { result: 'IN-SPEC', note: null, damage: false }]]) }, dirty: new Set(), status: 'idle', notes: new Set(), chain: Promise.resolve() });
+  out = await renderRoute('#/wo/W1001');
+  assert.ok(!rowOf(out, rid).includes('ifix-btn'), 'local edit away from the flag → no button');
+  resetSheets();
+  // CLOSED (W1004), SKIPPED (W1003): nothing tappable
+  app.__ui().sheetCard.set('W1004', true);
+  out = await renderRoute('#/wo/W1004');
+  assert.ok(!out.includes('ifix-btn') && !out.includes('ifix-undo'), 'CLOSED: no button, no Not repaired');
+  app.__ui().sheetCard.set('W1003', true);
+  out = await renderRoute('#/wo/W1003');
+  assert.ok(!out.includes('ifix-btn'), 'SKIPPED: no rows, no button');
+  resetSheets();
+  await asFull('owner');
+});
+
+await check('D132 a: Submit posts INSPECT FIX {item, note}; "Not repaired" posts {item, clear: true}; the copy names the row', async () => {
+  const { posted } = await apiInsp({ name: 'Josh', role: 'service' });
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'FIX', key: 'W1002', wo: 'W1002', item: 'ctl.drive_forward', label: 'Drive forward' }, { note: '  new contactor ' });
+  assert.ok(view._html.includes('&quot;Drive forward&quot; marked repaired — lands at the next run.'), 'the copy names the row');
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'FIX', key: 'W1002', wo: 'W1002', item: 'ctl.drive_forward', label: 'Drive forward' }, { note: '' });
+  await submitForm({ action: 'work_order', verb: 'INSPECT', step: 'FIX', key: 'W1007', wo: 'W1007', item: 'ctl.drive_forward', label: 'Drive forward', clear: '1' }, {});
+  assert.ok(view._html.includes('&quot;Drive forward&quot; — the repaired mark comes off at the next run.'), 'clear copy');
+  assert.deepEqual(posted.map((p) => [p.action, p.serial ?? null, p.payload]), [
+    ['work_order', null, { action: 'INSPECT', step: 'FIX', work_order: 'W1002', item: 'ctl.drive_forward', note: 'new contactor' }],
+    ['work_order', null, { action: 'INSPECT', step: 'FIX', work_order: 'W1002', item: 'ctl.drive_forward', note: null }],
+    ['work_order', null, { action: 'INSPECT', step: 'FIX', work_order: 'W1007', item: 'ctl.drive_forward', clear: true }],
+  ]);
+  assert.ok(posted.every((p) => !/cost|price|rate/.test(JSON.stringify(p))), 'no money');
+  await leaveApi();
+});
+
+await check('D132 b: a stamped row keeps its amber finding + note and adds the green line; Not repaired while OPEN; CLOSED draws the line only', async () => {
+  const snap = await asFull('service');
+  const w7 = snap.work_orders.find((w) => w.id === 'W1007');
+  const it = w7.inspection.items.find((i) => i.fixed);
+  resetSheets();
+  app.__ui().sheetCard.set('W1007', true);
+  let out = await renderRoute('#/wo/W1007');
+  let r = rowOf(out, it.id);
+  assert.ok(r.startsWith('<div class="irow flag">'), 'still amber — the finding is what was found');
+  assert.ok(r.includes(escH(it.note)), 'the original note stays');
+  assert.ok(r.includes(`<div class="ifix">✓ Repaired ${FMT_DATE(it.fixed.date)} · ${it.fixed.by} · ${escH(it.fixed.note)}<form`), 'the green line: ✓ Repaired <date> · <by> · <note>');
+  assert.ok(r.includes('data-step="FIX"') && r.includes('data-clear="1"') && r.includes('>Not repaired</button>'), 'a quiet Not repaired → clear');
+  assert.ok(!r.includes('ifix-btn'), 'no ✓ Repaired on a stamped row');
+  // CLOSED: W1004 — every finding stamped, the lines draw, nothing tappable
+  const w4 = snap.work_orders.find((w) => w.id === 'W1004');
+  app.__ui().sheetCard.set('W1004', true);
+  out = await renderRoute('#/wo/W1004');
+  for (const x of w4.inspection.items.filter((i) => i.fixed)) {
+    r = rowOf(out, x.id);
+    assert.ok(r.includes(`<div class="ifix">${['✓ Repaired', [FMT_DATE(x.fixed.date), x.fixed.by, x.fixed.note].filter(Boolean).join(' · ')].join(' ')}</div>`), `CLOSED ${x.id}: the line, no link`);
+  }
+  // a stamp on a row whose SHOWN result moved (a pending SAVE) is not drawn — the engine drops it
+  const st = app.__state();
+  st.pending.push(evt('pfx', '2026-11-11T15:00:00.000Z', 'Josh', 'service', null, { action: 'INSPECT', step: 'FIX', work_order: 'W1007', item: it.id, clear: true }));
+  out = await renderRoute('#/wo/W1007');
+  r = rowOf(out, it.id);
+  assert.ok(r.includes('class="ifix is-clearing"><s>✓ Repaired') && r.includes('⏳ comes off at the next run') && !r.includes('Not repaired'), 'pending clear: struck through, ⏳, no link');
+  assert.ok(out.includes(`${escH(`"${labelIn(snap, it.id)}"`)} — repaired mark cleared — by Josh`), 'the pending list names the row, with Undo');
+  st.pending = st.pending.filter((e) => e.id !== 'pfx');
+  // pending FIX on the unstamped row
+  const open = w7.inspection.items.find((i) => !i.fixed);
+  st.pending.push(evt('pfx2', '2026-11-11T15:00:01.000Z', 'Josh', 'service', null, { action: 'INSPECT', step: 'FIX', work_order: 'W1007', item: open.id, note: 'new key switch' }));
+  out = await renderRoute('#/wo/W1007');
+  r = rowOf(out, open.id);
+  assert.ok(r.includes('<div class="ifix pending">⏳ Repaired · new key switch — lands at the next run</div>') && !r.includes('ifix-btn'), 'pending FIX: badged, never drawn as applied, no second button');
+  assert.ok(out.includes(`${escH(`"${labelIn(snap, open.id)}"`)} marked repaired — new key switch — by Josh`), 'pending list row');
+  st.pending = st.pending.filter((e) => e.id !== 'pfx2');
+  resetSheets();
+  await asFull('owner');
+});
+
+await check('D132 c: the 📋 chip — ✓ 2 ⚑ / ✓ 2 ⚑ · 1 fixed / ✓ 2 fixed (green) on the strip, Last inspection, service history, ticket chip and the card pill; no key reads as zero', async () => {
+  let snap = await asFull('owner');
+  setParts(false);
+  app.__ui().showParts = true;
+  let st = partsStripOf(await renderRoute('#/'));
+  assert.ok(st.includes('>📋 ✓ 2 ⚑</span>'), 'W1002: nothing fixed');
+  assert.ok(/chip insp warn">📋 ✓ 2 ⚑ · 1 fixed<\/span>/.test(st), 'W1007: one of two fixed, still amber');
+  // the card pill
+  const w7 = snap.work_orders.find((w) => w.id === 'W1007');
+  let out = await renderRoute('#/wo/W1007');
+  assert.ok(out.includes(`<span class="chip warn">DONE · ${w7.inspection.tech} · ${FMT_MD(w7.inspection.done)} · 2 ⚑ · 1 fixed</span>`), 'W1007 pill');
+  const w4 = snap.work_orders.find((w) => w.id === 'W1004');
+  out = await renderRoute('#/wo/W1004');
+  assert.ok(out.includes(`<span class="chip ok">DONE · ${w4.inspection.tech} · ${FMT_MD(w4.inspection.done)} · 2 fixed</span>`), 'W1004 pill: all fixed, green, no ⚑');
+  // the unit page: Last inspection + the W1004 service-history row
+  const u4 = snap.units.find((u) => u.serial === w4.serial);
+  out = await renderRoute(`#/unit/${encodeURIComponent(u4.serial)}`);
+  assert.ok(/Last inspection<\/span> [^<]* · 2 fixed · W1004/.test(out), 'Last inspection: 2 fixed');
+  assert.ok(out.includes('<span class="chip insp ok">📋 ✓ 2 fixed</span>'), 'service history: ✓ 2 fixed, green');
+  // no `fixed` key anywhere (a pre-D132 snapshot) → the old reading
+  for (const w of snap.work_orders) {
+    if (!w.inspection || typeof w.inspection !== 'object') continue;
+    delete w.inspection.fixed;
+  }
+  for (const u of snap.units) if (u.last_inspection) delete u.last_inspection.fixed;
+  st = partsStripOf(await renderRoute('#/'));
+  assert.ok(/chip insp warn">📋 ✓ 2 ⚑<\/span>/.test(st) && !st.includes('fixed'), 'W1007 without the block key: ✓ 2 ⚑');
+  out = await renderRoute(`#/unit/${encodeURIComponent(u4.serial)}`);
+  assert.ok(/Last inspection<\/span> [^<]* · 2 ⚑ · W1004/.test(out) && out.includes('📋 ✓ 2 ⚑</span>'), 'unit page without the keys: 2 ⚑');
+  for (const w of snap.work_orders) if (w.inspection && Array.isArray(w.inspection.items)) for (const i of w.inspection.items) delete i.fixed;
+  resetSheets();
+  app.__ui().sheetCard.set('W1007', true);
+  out = await renderRoute('#/wo/W1007');
+  assert.ok(!out.includes('class="ifix"') && [...out.matchAll(/ifix-btn/g)].length === 2, 'rows without the key: no stamp line, both findings offer ✓ Repaired');
+  // a ticket's work-order chip
+  snap = await asFull('owner');
+  const t = snap.service_queue.find((x) => x.ticket && x.status === 'OPEN');
+  const wt = snap.work_orders.find((w) => w.id === 'W1007');
+  wt.ticket = t.ticket;
+  out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+  assert.ok(out.includes('🔧 W1007 · 📋 2 ⚑ · 1 fixed</a>'), 'ticket chip');
+  resetSheets();
+  await asFull('owner');
+});
+
+await check('D132 d: the Close sheet says "N findings not marked repaired." when flags > fixed — a plain line, it gates nothing', async () => {
+  const snap = await asFull('owner');
+  const w2 = snap.work_orders.find((w) => w.id === 'W1002');
+  w2.parts = w2.parts.map((p) => ({ ...p, state: 'DELIVERED' })); w2.parts_open = 0;   // settled, so Close is offered
+  app.__ui().form = { kind: 'wo-close', id: 'W1002', arg: null };
+  let out = await renderRoute('#/wo/W1002');
+  assert.ok(/<div class="form-note unfixed">2 findings not marked repaired\.<\/div>\s*<label class="check"><input type="checkbox" name="ready"/.test(out), 'above the boxes');
+  assert.ok(out.includes('data-verb="CLOSE"') && /type="submit">Close W1002</.test(out), 'Close still offered');
+  w2.inspection.fixed = 1;
+  out = await renderRoute('#/wo/W1002');
+  assert.ok(out.includes('>1 finding not marked repaired.<'), 'one');
+  w2.inspection.fixed = 2;
+  out = await renderRoute('#/wo/W1002');
+  assert.ok(!out.includes('not marked repaired'), 'every finding repaired → no line');
+  delete w2.inspection.fixed;
+  out = await renderRoute('#/wo/W1002');
+  assert.ok(out.includes('>2 findings not marked repaired.<'), 'no key reads as zero fixed');
+  app.__ui().form = null;
   await asFull('owner');
 });
 

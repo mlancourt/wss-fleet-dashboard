@@ -133,6 +133,7 @@ import {
   checklistOf, blockOf, deriveProfile, visibleSections, profileOf,
   cellLayout, cellKey, parseSg, sheetFrom, overlay, firstHours, doneReady, isFlag, flagCount, answeredIn,
   sectionValue, reopenShown, fmtReading, chipText as sheetChipText, chipTone as sheetChipTone,
+  rowIndex, fixedOf, fixedCount, flagsText, flagsTone, fixedLine,   // D132
 } from './inspections.js';
 import {
   statusOf, outMove, inMove, rentalGroups, rentalActions, dueBackTone, outDatePassed, clampToToday,
@@ -177,7 +178,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-11-d131';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-11-d132';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -1307,7 +1308,7 @@ function viewUnit(serial) {
     ${e.action === 'reserve'
       ? raw(html`<span>⏳ hold pending — ${e.payload && e.payload.customer ? e.payload.customer + ', ' : ''}${fmtRange(e.payload && e.payload.start, e.payload && (e.payload.end || e.payload.until))} by ${e.actor || 'someone'}</span>`)
       : e.action === 'work_order'
-        ? raw(html`<span>${describeWoEvent(e)} by ${e.actor || 'someone'}</span>`)
+        ? raw(html`<span>${describeWoEvent(e, rowLabel)} by ${e.actor || 'someone'}</span>`)
         : e.action === 'unit_listing'
           ? raw(html`<span>⏳ ${listingPendingText(e)} by ${e.actor || 'someone'}</span>`)
           : raw(html`<span>${e.action} by ${e.actor || 'someone'}</span>`)}
@@ -1470,7 +1471,7 @@ function lastInspectionLine(u) {
   if (!li || typeof li !== 'object' || !li.work_order) return '';
   const bits = [PURPOSE_LABEL[li.purpose] || li.purpose || '—', fmtMD(li.done) || '—', li.tech || '—'];
   if (typeof u.hours === 'number' && u.hours_as_of && u.hours_as_of === li.done) bits.push(`${fmtReading(u.hours)} h`);
-  if (li.flags) bits.push(`${li.flags} ⚑`);
+  if (li.flags) bits.push(flagsText(li.flags, fixedCount(li)));   // D132: "2 ⚑ · 1 fixed" / "2 fixed"
   bits.push(li.work_order);
   return html`<a class="irow-link last-insp" href="#/wo/${raw(enc(li.work_order))}">
     <span><span class="li-t">Last inspection</span> ${bits.join(' · ')}</span>${CHEV}</a>`;
@@ -2995,7 +2996,7 @@ function ticketWoChips(t, u) {
   }
   return list.map((w) => {
     const b = blockOf(w);
-    const sh = b.status === 'DONE' ? (b.flags ? `${b.flags} ⚑` : '✓') : b.status === 'SKIPPED' ? 'skipped' : 'pending';
+    const sh = b.status === 'DONE' ? (b.flags ? flagsText(b.flags, fixedCount(b)) : '✓') : b.status === 'SKIPPED' ? 'skipped' : 'pending';   // D132
     return html`<a class="chip wo" href="#/wo/${raw(enc(w.id))}">🔧 ${w.id} · 📋 ${sh}</a>`;
   }).join('');
 }
@@ -3067,7 +3068,7 @@ function woCtx(arg) {
     const locked = bySerial.find((e) => isInspect(e, 'DONE', 'SKIP')) || null;
     const editable = mine.length > 0 && !locked;
     return { key, serial, u, isNew: true, isOpen: true, openEvt, purpose: pl(openEvt).purpose || null,
-      pend: opens.concat(bySerial).sort(byTs), locked, lib, editable, log: [],
+      pend: opens.concat(bySerial).sort(byTs), locked, lib, editable, log: [], applied: new Map(),
       sheet: withEdits(key, sheet, editable) };
   }
   const id = decodeURIComponent(arg);
@@ -3083,7 +3084,9 @@ function woCtx(arg) {
   if (sheet.status === 'PENDING') for (const e of pend) if (isInspect(e, 'SAVE', 'DONE')) sheet = overlay(sheet, pl(e));
   const locked = sheet.status === 'PENDING' ? pend.find((e) => isInspect(e, 'DONE', 'SKIP')) || null : null;
   const editable = isOpen && sheet.status === 'PENDING' && !locked;
-  return { key: id, id, wo, u, serial: wo.serial, isOpen, purpose: wo.purpose, pend, locked, lib, editable,
+  // D132: the rows as the VAULT holds them — a repaired stamp is drawn only off these, never off a local edit.
+  const applied = new Map((Array.isArray(block.items) ? block.items : []).filter((i) => i && i.id).map((i) => [i.id, i]));
+  return { key: id, id, wo, u, serial: wo.serial, isOpen, purpose: wo.purpose, pend, locked, lib, editable, applied,
     log: Array.isArray(wo.log) ? wo.log.filter(Boolean) : [], sheet: withEdits(id, sheet, editable) };
 }
 
@@ -3116,7 +3119,9 @@ function viewWorkOrder(arg) {
   return c.isNew ? viewNewWorkOrder(c, crumb) : viewNumberedWorkOrder(c, crumb);
 }
 
-const pendRow = (e) => html`<div class="pend-row"><span>${describeWoEvent(e)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`;
+/** D132: a row id → its library label, for the pending FIX copy. */
+const rowLabel = (id) => { const r = rowIndex(checklist() || []).get(id); return (r && r.label) || id; };
+const pendRow = (e) => html`<div class="pend-row"><span>${describeWoEvent(e, rowLabel)} — by ${e.actor || 'someone'}</span>${raw(undoControl(e))}</div>`;
 
 function viewNumberedWorkOrder(c, crumb) {
   const { wo, u, pend } = c;
@@ -3472,6 +3477,7 @@ function woFooter(c, me) {
     ${sheetOpen('wo-close', wo.id) && canClose ? raw(html`
       <form class="write sheet" data-action="work_order" data-verb="CLOSE" data-wo="${wo.id}">
         <div class="confirm-line">Close <strong>${wo.id}</strong>${c.u ? ` on ${unitName(c.u)}` : ''}?</div>
+        ${raw(unfixedNote(wo))}
         ${offerReady ? raw(html`<label class="check"><input type="checkbox" name="ready" value="1" checked>
           Mark READY${readiness && readiness !== 'READY' ? ` (now ${READY_LABEL[readiness] || readiness})` : ''}</label>`) : ''}
         ${raw(closeDamageHtml(wo))}
@@ -3487,6 +3493,13 @@ function woFooter(c, me) {
         ${raw(sheetButtons(`Cancel ${wo.id}`))}
         <div class="form-note">An un-done inspection sheet goes with it.</div>
       </form>`) : ''}`;
+}
+
+/** D132 — "2 findings not marked repaired." above the Close boxes. A plain line; it gates nothing. */
+function unfixedNote(wo) {
+  const b = blockOf(wo);
+  const n = Math.max(0, (Number.isFinite(b.flags) ? b.flags : 0) - fixedCount(b));
+  return n ? html`<div class="form-note unfixed">${n} finding${n === 1 ? '' : 's'} not marked repaired.</div>` : '';
 }
 
 /** D126 — the Close sheet's damage part: the box (renter on record), the amber note (none), or nothing. */
@@ -3534,10 +3547,10 @@ const withEdits = (key, sheet, editable) => {
 };
 const sheetExpanded = (c) => (ui.sheetCard.has(c.key) ? ui.sheetCard.get(c.key) : c.sheet.status === 'PENDING');
 
-function sheetPillHtml(c, flags) {
+function sheetPillHtml(c, flags, fixed) {
   const sh = c.sheet;
-  if (sh.status === 'DONE') {
-    return chip(`DONE · ${sh.tech || '—'}${sh.done ? ` · ${fmtMD(sh.done)}` : ''}${flags ? ` · ${flags} ⚑` : ''}`, flags ? 'warn' : 'ok');
+  if (sh.status === 'DONE') {   // D132: "· 2 ⚑ · 1 fixed" / "· 2 fixed" (green)
+    return chip(`DONE · ${sh.tech || '—'}${sh.done ? ` · ${fmtMD(sh.done)}` : ''}${flags ? ` · ${flagsText(flags, fixed)}` : ''}`, flagsTone(flags, fixed));
   }
   if (sh.status === 'SKIPPED') return chip(`SKIPPED · ${sh.tech || '—'}: ${sh.skipped_reason || '—'}`, 'skip');
   if (c.locked) return chip(isInspect(c.locked, 'DONE') ? '⏳ DONE — at the next run' : '⏳ NO INSPECTION — at the next run', 'pending');
@@ -3553,6 +3566,9 @@ function sheetCardHtml(c, sheetPend) {
   const carried = new Set(sheet.items.keys());
   const visible = lib ? visibleSections(lib, profileOf(sheet), carried) : [];
   const flags = settled && sheet.flags != null ? sheet.flags : flagCount(sheet, visible);
+  // D132: repaired findings — the engine's count on a settled sheet, the stamps still standing on a PENDING one.
+  const fixed = settled ? fixedCount(c.wo ? blockOf(c.wo) : null)
+    : visible.reduce((n, { rows }) => n + rows.filter((r) => stampFor(c, r.id, (sheet.items.get(r.id) || {}).result)).length, 0);
   const pend = sheetPend.length ? html`<div class="note"><strong>⏳ ${sheetPend.length} sheet change${sheetPend.length > 1 ? 's' : ''} pending</strong>
       ${raw(sheetPend.map(pendRow).join(''))}<div style="margin-top:6px">Applies at the next run — the sheet shows them now, badged.</div></div>` : '';
 
@@ -3588,13 +3604,66 @@ function sheetCardHtml(c, sheetPend) {
     <section class="sheet-card${open ? ' open' : ''}${sheet.status === 'PENDING' && !c.locked ? ' pending' : ''}" aria-label="Inspection">
       <button type="button" class="sheet-head" data-sheet-card="${c.key}" aria-expanded="${open ? 'true' : 'false'}">
         <span class="sheet-t">📋 Inspection ${open ? '▾' : '▸'}</span>
-        ${raw(sheetPillHtml(c, flags))}
-        ${settled || c.locked ? '' : raw(chip(`${flags} ⚑`, flags ? 'warn' : 'ok'))}
+        ${raw(sheetPillHtml(c, flags, fixed))}
+        ${settled || c.locked ? '' : raw(chip(flags ? flagsText(flags, fixed) : '0 ⚑', flagsTone(flags, fixed)))}
       </button>
       ${raw(pend)}
       ${raw(body)}
       ${raw(sheetFooter(c, flags))}
     </section>`;
+}
+
+/**
+ * D132 — the "Repaired" stamp on a flagged row. The finding (`result`, its
+ * note, its amber) is never touched: a repair is a line UNDER it.
+ *   no stamp      "✓ Repaired" → a one-field sheet ("What did you do?") → INSPECT FIX
+ *   stamped       green `✓ Repaired Nov 14 · Josh · new rear blade` + a quiet
+ *                 "Not repaired" (→ FIX clear) while the work order is OPEN
+ *   pending FIX   `⏳ Repaired — lands at the next run`; a pending clear strikes
+ *                 the stamp through. Undo is the sheet's pending list.
+ * Offered on an OPEN, numbered work order only, never on a SKIPPED sheet or
+ * one a pending No inspection is about to skip. The stamp is drawn off the
+ * VAULT's row, and only while the row still shows the result it was stamped
+ * on — the engine drops a stamp whose result changes, so the page does too.
+ */
+function stampFor(c, rid, shown) {
+  const ap = c && c.applied && c.applied.get(rid);
+  const f = fixedOf(ap);
+  return f && ap.result === shown ? f : null;
+}
+function fixHtml(c, r, a) {
+  const none = { btn: '', line: '' };
+  if (!c) return none;
+  const canFix = !!c.isOpen && !c.isNew && c.sheet.status !== 'SKIPPED' && !(c.locked && isInspect(c.locked, 'SKIP'));
+  const label = String(r.label || r.id);
+  const pend = (c.pend || []).filter((e) => isInspect(e, 'FIX') && pl(e).item === r.id);
+  const last = pend[pend.length - 1] || null;
+  const stamp = stampFor(c, r.id, a.result);
+  const formAttrs = html`class="write sheet ifix-form" data-action="work_order" data-verb="INSPECT" data-step="FIX" data-key="${c.key}" data-item="${r.id}" data-label="${label}" ${raw(woKeyAttr(c))}`;
+  if (last && !pl(last).clear) {
+    const n = pl(last).note;
+    return { btn: '', line: html`<div class="ifix pending">⏳ Repaired${n ? ` · ${n}` : ''} — lands at the next run</div>` };
+  }
+  if (stamp) {
+    if (last && pl(last).clear) {
+      return { btn: '', line: html`<div class="ifix is-clearing"><s>${fixedLine(stamp)}</s> <span class="ifix-p">⏳ comes off at the next run</span></div>` };
+    }
+    const undo = canFix ? html`<form ${raw(formAttrs)} data-clear="1"><button type="submit" class="ifix-undo" aria-label="${label} is not repaired">Not repaired</button></form>` : '';
+    return { btn: '', line: html`<div class="ifix">${fixedLine(stamp)}${raw(undo)}</div>` };
+  }
+  // The button needs the finding on the VAULT's row (a flag typed a moment ago lands with its SAVE first).
+  const ap = c.applied && c.applied.get(r.id);
+  if (!canFix || !ap || !isFlag(ap.result) || ap.result !== a.result) return none;
+  const id = `${c.key}:${r.id}`;
+  const btn = html`<button type="button" class="tg ifix-btn" data-sheet="insp-fix" data-id="${id}">✓ Repaired</button>`;
+  const line = sheetOpen('insp-fix', id) ? html`
+      <form ${raw(formAttrs)}>
+        <label for="if-${r.id}">What did you do? <span class="opt">(optional)</span></label>
+        <input id="if-${r.id}" name="note" maxlength="${MAX_ITEM_NOTE}" autocomplete="off" placeholder="new rear blade">
+        ${raw(sheetButtons('Submit'))}
+        <div class="form-note">The finding stays on the sheet as found — this adds "repaired" under it.</div>
+      </form>` : '';
+  return { btn, line };
 }
 
 function sectionCard(section, rows, sheet, l, dis, editable, c) {
@@ -3613,11 +3682,14 @@ function sectionCard(section, rows, sheet, l, dis, editable, c) {
       : (editable ? html`<button type="button" class="inote-add" data-inote="${r.id}">+ note</button>` : '');
     // D126: a flagged row may be the renter's doing — a Damage? toggle under the note (never on a non-flag row).
     const dmgOn = flag && a.damage === true;
-    const dmgCtl = flag
+    const dmgBtn = flag
       ? (editable
-        ? html`<div class="idmg"><button type="button" class="tg dmg-tg${dmgOn ? ' on' : ''}" data-idmg="${r.id}" aria-pressed="${dmgOn ? 'true' : 'false'}"${dis}>💥 Damage?</button></div>`
-        : (dmgOn ? html`<div class="idmg">${raw(chip('💥 damage', 'dmg'))}</div>` : ''))
+        ? html`<button type="button" class="tg dmg-tg${dmgOn ? ' on' : ''}" data-idmg="${r.id}" aria-pressed="${dmgOn ? 'true' : 'false'}"${dis}>💥 Damage?</button>`
+        : (dmgOn ? chip('💥 damage', 'dmg') : ''))
       : '';
+    // D132: "✓ Repaired" beside it — on a PENDING or a DONE (read-only) sheet, while the work order is OPEN.
+    const fx = flag ? fixHtml(c, r, a) : { btn: '', line: '' };
+    const dmgCtl = dmgBtn || fx.btn ? html`<div class="idmg">${raw(dmgBtn)}${raw(fx.btn)}</div>` : '';
     // D69: a flagged row grows "+ part" — the part goes on THIS work order.
     const part = flag && canPart
       ? html`<button type="button" class="inote-add ipart" data-sheet="wo-add" data-id="${c.key}" data-desc="${String(r.label || r.id).slice(0, 80)}">+ part</button>` : '';
@@ -3627,6 +3699,7 @@ function sectionCard(section, rows, sheet, l, dis, editable, c) {
       <div class="iseg" role="group" aria-label="${r.label || r.id}">${raw(seg)}</div>
       ${noteOpen ? raw(note) : ''}
       ${raw(dmgCtl)}
+      ${raw(fx.line)}
     </div>`;
   };
   return html`
@@ -8110,7 +8183,11 @@ function woEventBody(form, fd, s, orNull) {
     const step = form.dataset.step;
     const payload = { action: verb, step, ...key };
     if (step === 'DONE') payload.tech = orNull('tech');
-    else if (step === 'SKIP') payload.reason = String(fd.get('reason') || '').trim().slice(0, MAX_REASON);
+    else if (step === 'FIX') {   // D132: item + note, or item + clear: true
+      payload.item = form.dataset.item;
+      if (form.dataset.clear) payload.clear = true;
+      else payload.note = orNull('note') ? orNull('note').slice(0, MAX_ITEM_NOTE) : null;
+    } else if (step === 'SKIP') payload.reason = String(fd.get('reason') || '').trim().slice(0, MAX_REASON);
     else payload.note = orNull('note');
     return { serial, payload };
   }
@@ -8368,6 +8445,9 @@ document.addEventListener('submit', async (ev) => {
     } else {
       ui.form = null;
       ui.msg = { tone: 'ok', text: (action === 'rental_update' && RENTAL_MSG[form.dataset.verb])
+        || (verb === 'INSPECT' && form.dataset.step === 'FIX' && (form.dataset.clear
+          ? `"${form.dataset.label}" — the repaired mark comes off at the next run.`
+          : `"${form.dataset.label}" marked repaired — lands at the next run.`))   // D132
         || (verb === 'INSPECT' && INSPECT_MSG[form.dataset.step])
         || (action === 'work_order' && woMsg(form, payload)) || (action === 'stock_order' && K_MSG[form.dataset.verb]) || (action === 'lead_close' && form.dataset.mode === 'spam' && 'Marked as spam — it comes off the board at the next run.')
         || (action === 'unit_listing' && (payload.listed ? 'Goes on the website after the next run — the site takes a few minutes to rebuild.' : 'Comes off the website after the next run.')) || SUBMIT_MSG[action] || 'Applies at the next run.' };

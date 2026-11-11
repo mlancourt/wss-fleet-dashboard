@@ -1,7 +1,7 @@
 [
   {
     "id": "evt-mock-1",
-    "ts": "2026-11-11T14:27:39.947Z",
+    "ts": "2026-11-11T17:09:30.218Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "reserve",
@@ -15,7 +15,7 @@
   },
   {
     "id": "evt-mock-2",
-    "ts": "2026-11-11T16:47:39.947Z",
+    "ts": "2026-11-11T19:29:30.218Z",
     "actor": "Josh",
     "role": "service",
     "action": "readiness",
@@ -27,7 +27,7 @@
   },
   {
     "id": "evt-mock-3",
-    "ts": "2026-11-11T17:15:39.947Z",
+    "ts": "2026-11-11T19:57:30.218Z",
     "actor": "Josh",
     "role": "service",
     "action": "ticket_open",
@@ -47,7 +47,7 @@
   },
   {
     "id": "evt-mock-4",
-    "ts": "2026-11-11T17:21:39.947Z",
+    "ts": "2026-11-11T20:03:30.218Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "dispatch_claim",
@@ -61,7 +61,7 @@
   },
   {
     "id": "evt-mock-5",
-    "ts": "2026-11-11T17:24:39.947Z",
+    "ts": "2026-11-11T20:06:30.218Z",
     "actor": "Zac",
     "role": "service",
     "action": "ticket_update",
@@ -74,7 +74,7 @@
   },
   {
     "id": "evt-mock-6",
-    "ts": "2026-11-11T17:25:39.947Z",
+    "ts": "2026-11-11T20:07:30.218Z",
     "actor": "Matt",
     "role": "owner",
     "action": "dispatch_done",
@@ -86,7 +86,7 @@
   },
   {
     "id": "evt-mock-7",
-    "ts": "2026-11-11T17:02:39.947Z",
+    "ts": "2026-11-11T19:44:30.219Z",
     "actor": "Josh",
     "role": "service",
     "action": "lead_open",
@@ -113,7 +113,7 @@
   },
   {
     "id": "evt-mock-8",
-    "ts": "2026-11-11T17:18:39.947Z",
+    "ts": "2026-11-11T20:00:30.219Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_update",
@@ -128,7 +128,7 @@
   },
   {
     "id": "evt-mock-10",
-    "ts": "2026-11-11T17:20:39.947Z",
+    "ts": "2026-11-11T20:02:30.219Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "rental_update",
@@ -142,7 +142,7 @@
   },
   {
     "id": "evt-mock-11",
-    "ts": "2026-11-11T17:22:39.947Z",
+    "ts": "2026-11-11T20:04:30.219Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -163,7 +163,7 @@
   },
   {
     "id": "evt-mock-12",
-    "ts": "2026-11-11T17:24:39.947Z",
+    "ts": "2026-11-11T20:06:30.219Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -179,7 +179,7 @@
   },
   {
     "id": "evt-mock-13",
-    "ts": "2026-11-11T17:23:39.947Z",
+    "ts": "2026-11-11T20:05:30.219Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -207,7 +207,7 @@
   },
   {
     "id": "evt-mock-14",
-    "ts": "2026-11-11T17:25:39.947Z",
+    "ts": "2026-11-11T20:07:30.219Z",
     "actor": "Josh",
     "role": "service",
     "action": "work_order",
@@ -221,7 +221,7 @@
   },
   {
     "id": "evt-mock-15",
-    "ts": "2026-11-11T17:26:39.947Z",
+    "ts": "2026-11-11T20:08:30.219Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "doc_detach",
@@ -233,7 +233,7 @@
   },
   {
     "id": "evt-mock-16",
-    "ts": "2026-11-11T17:24:39.947Z",
+    "ts": "2026-11-11T20:06:30.219Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "quote_send",
@@ -267,7 +267,7 @@
     "result": {
       "number": "Q2004",
       "token": "44444444444444444444444444444444",
-      "sent_at": "2026-11-11T17:24:39.947Z",
+      "sent_at": "2026-11-11T20:06:30.219Z",
       "by": "Kevin",
       "to": "m.idle@harborline.example",
       "subtotal": 5455,
@@ -280,7 +280,7 @@
   },
   {
     "id": "evt-mock-9",
-    "ts": "2026-11-11T17:23:39.947Z",
+    "ts": "2026-11-11T20:05:30.219Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "lead_close",
@@ -294,7 +294,7 @@
   },
   {
     "id": "evt-mock-p1",
-    "ts": "2026-11-11T17:15:39.947Z",
+    "ts": "2026-11-11T19:57:30.219Z",
     "actor": "Josh",
     "role": "service",
     "action": "parts_open",
@@ -321,7 +321,7 @@
   },
   {
     "id": "evt-mock-p2",
-    "ts": "2026-11-11T17:21:39.947Z",
+    "ts": "2026-11-11T20:03:30.219Z",
     "actor": "Kevin",
     "role": "sales",
     "action": "parts_update",
@@ -333,7 +333,7 @@
   },
   {
     "id": "evt-mock-k1",
-    "ts": "2026-11-11T17:18:39.947Z",
+    "ts": "2026-11-11T20:00:30.219Z",
     "actor": "Zac",
     "role": "service",
     "action": "stock_order",
@@ -353,7 +353,7 @@
   },
   {
     "id": "evt-mock-k2",
-    "ts": "2026-11-11T17:20:39.947Z",
+    "ts": "2026-11-11T20:02:30.219Z",
     "actor": "Josh",
     "role": "service",
     "action": "stock_order",

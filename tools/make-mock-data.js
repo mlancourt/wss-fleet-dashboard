@@ -1633,6 +1633,7 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [], damageTicket 
     };
     b.readings = { ...blankReadings(), ...(o.readings || {}) };
     b.flags = b.items.filter((i) => FLAGS.includes(i.result)).length;
+    b.fixed = b.items.filter((i) => FLAGS.includes(i.result) && i.fixed).length;   // D132: stamped flag rows
     return b;
   };
   const wo = (id, u, o) => {
@@ -1678,7 +1679,7 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [], damageTicket 
     const ins = row.inspection;
     if (ins.status === 'DONE') {
       if (!u.last_inspection || ins.done > u.last_inspection.done) {
-        u.last_inspection = { work_order: id, purpose: row.purpose, done: ins.done, flags: ins.flags, tech: ins.tech };
+        u.last_inspection = { work_order: id, purpose: row.purpose, done: ins.done, flags: ins.flags, tech: ins.tech, fixed: ins.fixed };   // D132
         const h = ins.readings.hours_key ?? ins.readings.hours_traction ?? ins.readings.hours_scrub;
         if (h != null) { u.hours = h; u.hours_as_of = ins.done; }
       }
@@ -1778,8 +1779,9 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [], damageTicket 
         items: [
           { id: 'bat.terminals', result: 'IN-SPEC', note: null }, { id: 'bat.cables', result: 'IN-SPEC', note: null },
           { id: 'bat.watering', result: 'IN-SPEC', note: null }, { id: 'ctl.key_switch', result: 'IN-SPEC', note: null },
-          { id: 'ctl.estop', result: 'IN-SPEC', note: null }, { id: 'deck.curtains', result: 'REPLACE', note: 'rear curtain torn' },
-          { id: 'sqg.blades', result: 'REPAIR', note: 'rear blade rolled' },
+          { id: 'ctl.estop', result: 'IN-SPEC', note: null },
+          { id: 'deck.curtains', result: 'REPLACE', note: 'rear curtain torn', fixed: { date: d(-6), by: 'Josh', note: 'new rear curtain' } },   // D132
+          { id: 'sqg.blades', result: 'REPAIR', note: 'rear blade rolled', fixed: { date: d(-6), by: 'Josh', note: null } },
         ],
         comments: 'pump swapped, curtain and blade done before it went out',
       }),
@@ -1840,7 +1842,8 @@ function buildWorkOrders({ withWorkOrders, units, agreements = [], damageTicket 
         status: 'DONE', done: d(-1), tech: 'Josh', readings: { hours_key: 702 },
         items: [
           { id: 'ctl.key_switch', result: 'PROBLEM', note: 'key snapped off in the switch', damage: true },
-          { id: 'ctl.drive_forward', result: 'REPAIR', note: 'worn contactor — age, not the renter' },
+          { id: 'ctl.drive_forward', result: 'REPAIR', note: 'worn contactor — age, not the renter',
+            fixed: { date: d(-1), by: 'Josh', note: 'cleaned the contactor' } },   // D132: one of two repaired
         ],
       }),
       parts: [

@@ -21,8 +21,14 @@
  * wall-clock NOW built from Intl parts — the same comparison the engine makes
  * for the 24-hour Reopen window.
  *
+ * D132 (2026-11-11): a flag row may carry `fixed: {date, by, note}` — the tech's
+ * "Repaired" stamp, set by INSPECT step FIX on a PENDING or DONE sheet of an
+ * OPEN work order. `result` stays what was FOUND. The block counts the stamps
+ * as `fixed` beside `flags`; a row or block without the key reads as zero.
+ *
  * NO MONEY. Nothing on a sheet is money-shaped, and nothing here derives one.
  */
+import { fmtDate } from './dates.js';
 
 export const STATUSES = ['PENDING', 'DONE', 'SKIPPED'];
 export const CLASSES = ['SCRUBBER', 'SWEEPER'];
@@ -387,18 +393,49 @@ export const fmtReading = (v) => {
 /**
  * The 📋 chip on a work order (strip rows, ticket detail, the unit's WO chip):
  *   PENDING → "pending" (amber) · DONE → "✓ 2 ⚑" / "✓" · SKIPPED → "skipped"
+ *   D132: DONE → "✓ 2 ⚑ · 1 fixed" when some findings are repaired, "✓ 2 fixed" (green) when all are
  */
 export function chipText(block) {
   const b = block || {};
-  if (b.status === 'DONE') return `✓${num(b.flags) ? ` ${b.flags} ⚑` : ''}`;
+  if (b.status === 'DONE') { const t = flagsText(b.flags, fixedCount(b)); return `✓${t ? ` ${t}` : ''}`; }   // D132
   if (b.status === 'SKIPPED') return 'skipped';
   return 'pending';
 }
-export const chipTone = (block) => (block && block.status === 'DONE' ? ((num(block.flags) || 0) ? 'warn' : 'ok')
+export const chipTone = (block) => (block && block.status === 'DONE' ? flagsTone(block.flags, fixedCount(block))
   : block && block.status === 'SKIPPED' ? '' : 'amber');
 
-/** One line of English for a pending INSPECT tap. */
-export function describeStep(p) {
+/* ----------------------------------------------------- D132: "Repaired" */
+
+/** A row's repaired stamp, or null. Only a flag row carries one — a stale key elsewhere is ignored. */
+export function fixedOf(item) {
+  const f = item && item.fixed;
+  return f && typeof f === 'object' && !Array.isArray(f) && isFlag(item.result) ? f : null;
+}
+/** The block's `fixed` count (engine-computed); absent or odd → 0, never more than `flags`. */
+export function fixedCount(block) {
+  const b = block || {};
+  const f = num(b.fixed);
+  return f == null || f < 0 ? 0 : Math.min(f, num(b.flags) ?? f);
+}
+/** "2 ⚑" · "2 ⚑ · 1 fixed" · "2 fixed" (every finding repaired) · "" (no flags). */
+export function flagsText(flags, fixed) {
+  const n = num(flags) || 0;
+  if (!n) return '';
+  const f = Math.min(Math.max(num(fixed) || 0, 0), n);
+  if (!f) return `${n} ⚑`;
+  return f >= n ? `${n} fixed` : `${n} ⚑ · ${f} fixed`;
+}
+/** Amber while a finding is still open; green when there are none, or every one is repaired. */
+export const flagsTone = (flags, fixed) => ((num(flags) || 0) > (num(fixed) || 0) ? 'warn' : 'ok');
+/** "✓ Repaired Nov 14 · Josh · new rear blade" — the date verbatim-formatted (string surgery, rule 7). */
+export function fixedLine(f) {
+  if (!f) return '';
+  return ['✓ Repaired', [fmtDate(f.date), f.by, f.note].filter((x) => x != null && x !== '').join(' · ')]
+    .filter(Boolean).join(' ');
+}
+
+/** One line of English for a pending INSPECT tap. `labelOf` names a row (FIX) from the library. */
+export function describeStep(p, labelOf) {
   const q = p || {};
   const secs = SECTION_KEYS.filter((k) => k in q);
   const what = secs.length ? secs.map((k) => (k === 'machine_class' ? 'machine' : k)).join(', ') : '';
@@ -407,6 +444,10 @@ export function describeStep(p) {
     case 'DONE': return `sheet done${q.tech ? ` (${q.tech})` : ''}`;
     case 'SKIP': return `no inspection — ${q.reason || ''}`;
     case 'REOPEN': return 'sheet reopened';
+    case 'FIX': {   // D132
+      const lbl = (labelOf && labelOf(q.item)) || q.item || 'a finding';
+      return q.clear ? `"${lbl}" — repaired mark cleared` : `"${lbl}" marked repaired${q.note ? ` — ${q.note}` : ''}`;
+    }
     default: return 'sheet change';
   }
 }
