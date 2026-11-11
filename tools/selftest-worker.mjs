@@ -739,4 +739,55 @@ await check('D127: publish refuses cost / cost_source_inv / last_cost / value an
   assert.equal((await pub(snap({ log: [{ ts: 'x', who: 'engine', text: 'cost [$] each' }] }))).status, 200, 'the engine redaction publishes');
 });
 
+await check('D131: unit_listing — owner only, {serial, listed, price?} by shape, price public on this action only', async () => {
+  const UL = (payload, serial) => (serial === undefined ? { action: 'unit_listing', payload } : { action: 'unit_listing', serial, payload });
+  const e = await ok('owner', UL({ serial: '157229', listed: true, price: 19200 }), 'list');
+  assert.deepEqual(e.payload, { serial: '157229', listed: true, price: 19200 });
+  assert.equal(e.serial, '157229', 'the event carries the serial at the top too');
+  const off = await ok('owner', UL({ serial: '157229', listed: false }), 'unlist, no price');
+  assert.deepEqual(off.payload, { serial: '157229', listed: false });
+  const top = await ok('owner', UL({ listed: true }, '146620'), 'serial only at the top');
+  assert.equal(top.payload.serial, '146620');
+  await refused('owner', UL({ serial: '157229', listed: true }, '146620'), 'serials disagree', 400, 'disagree');
+  for (const role of ['sales', 'service', 'intake']) await refused(role, UL({ serial: '157229', listed: true, price: 100 }), `${role} listing`, 403);
+  await refused('owner', UL({ serial: '157229', listed: 'yes' }), 'listed not boolean', 400, 'listed');
+  await refused('owner', UL({ serial: '157229' }), 'listed missing', 400, 'listed');
+  for (const bad of [0, -1, 12.5, '19200', 1000000, true]) await refused('owner', UL({ serial: '157229', listed: true, price: bad }), `price ${bad}`, 400, 'price');
+  await refused('owner', UL({ serial: 'bad serial!', listed: true, price: 5 }), 'bad serial', 400, 'serial');
+  await refused('owner', UL({ serial: '157229', listed: true, price: 5, note: 'x' }), 'unknown key', 400, '"note"');
+  await refused('owner', UL({ serial: '157229', listed: true, price: 5, cost: 1 }), 'cost still refused by name', 400, 'cost');
+  await refused('owner', UL({ serial: '157229', listed: true, price: 5, x: { price: 1 } }), 'a nested price is still money', 400, 'price');
+  await refused('owner', { action: 'readiness', serial: '157229', payload: { readiness: 'READY', price: 5 } }, 'price elsewhere still refused', 400, 'price');
+});
+
+await check('D131: U-<serial> is a doc record — PHOTO only, JPEG/PNG only; S/L/P/W unchanged', async () => {
+  const up = (record, kind, mime, bytes) => worker.fetch(new Request('https://w.example/api/doc', { method: 'POST',
+    headers: { Authorization: `Bearer ${TOK.service}`, 'Content-Type': mime, 'X-Doc-Name': 'unit.jpg', 'X-Doc-Record': record, 'X-Doc-Kind': kind },
+    body: bytes }), env);
+  const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 3, 1]);
+  const r = await up('U-157229', 'PHOTO', 'image/jpeg', jpg);
+  assert.ok(r.status === 201 || r.status === 200, `photo on a unit: ${r.status}`);
+  const { id } = await r.json();
+  const meta = await env.FLEET_KV.get(`docmeta:${id}`, 'json');
+  assert.equal(meta.record, 'U-157229'); assert.equal(meta.kind, 'PHOTO');
+  assert.equal((await up('u-157229', 'PHOTO', 'image/png', new Uint8Array([0x89, 0x50, 0x4e, 0x47, 9]))).status, 201, 'lower-case u- normalised, PNG ok');
+  assert.equal((await up('U-157229', 'PHOTO', 'application/pdf', new TextEncoder().encode('%PDF-1.4 u'))).status, 415, 'no PDF on a unit');
+  assert.equal((await up('U-157229', 'WORKORDER', 'image/jpeg', jpg)).status, 400, 'no WORKORDER on a unit');
+  assert.equal((await up('U-', 'PHOTO', 'image/jpeg', jpg)).status, 400, 'U- needs a serial');
+  assert.equal((await up('U-bad serial', 'PHOTO', 'image/jpeg', jpg)).status, 400, 'U- serial on SERIAL_RE');
+  const a = await ok('service', { action: 'doc_attach', payload: { record: 'U-157229', doc_id: id, kind: 'PHOTO', name: 'unit.jpg' } }, 'attach to unit');
+  assert.equal(a.payload.record, 'U-157229');
+  await refused('service', { action: 'doc_attach', payload: { record: 'U-157229', doc_id: id, kind: 'OTHER', name: 'unit.jpg' } }, 'attach non-PHOTO to unit', 400, 'PHOTO');
+  // a PDF uploaded against a ticket can't then be attached to a unit
+  const pdfRes = await worker.fetch(new Request('https://w.example/api/doc', { method: 'POST',
+    headers: { Authorization: `Bearer ${TOK.service}`, 'Content-Type': 'application/pdf', 'X-Doc-Name': 'wo.pdf', 'X-Doc-Record': 'S1018', 'X-Doc-Kind': 'PHOTO' },
+    body: new TextEncoder().encode('%PDF-1.4 ticket first') }), env);
+  const pdfId = (await pdfRes.json()).id;
+  await refused('service', { action: 'doc_attach', payload: { record: 'U-157229', doc_id: pdfId, kind: 'PHOTO', name: 'wo.pdf' } }, 'a PDF id onto a unit', 400, 'JPEG or PNG');
+  const d = await ok('sales', { action: 'doc_detach', payload: { record: 'U-157229', doc_id: id } }, 'detach off a unit');
+  assert.equal(d.payload.record, 'U-157229');
+  await refused('service', { action: 'doc_detach', payload: { record: 'X-157229', doc_id: id } }, 'unknown record shape', 400, 'U-150074');
+  assert.equal((await ok('service', { action: 'doc_detach', payload: { record: 's1018', doc_id: id } }, 'S still upper-cased')).payload.record, 'S1018');
+});
+
 console.log(`${passed} checks passed.`);

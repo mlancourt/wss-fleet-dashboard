@@ -115,6 +115,12 @@ const ACTION_ROLES = {
   // (money leaves the building) is Matt's; a box on the move or on the shelf
   // is the techs' too — narrowed in cleanPayload, the D65 matrix.
   stock_order: ALL_ROLES,
+  // D131 (2026-11-11) — the TWENTY-SECOND action: "List on website", the box on
+  // the unit. Matt's alone — it puts a machine and a price on the public site.
+  // {serial, listed, price?}; the engine writes the unit's `listing:` block. The
+  // unit's PHOTOS are not this action: they are ordinary crew docs on a
+  // `U-<serial>` record (POST /api/doc + doc_attach / doc_detach, any role).
+  unit_listing: new Set(['owner']),
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -309,6 +315,20 @@ const CREW_DOC_KINDS = new Set(['WORKORDER', 'PARTS-LIST', 'PHOTO', 'OTHER']);
 // A ticket ("S1018") or a lead ("L1005"). Shape only, as ever: whether that
 // record exists is the vault's call, not this file's.
 const DOC_RECORD_RE = /^[SLPW]\d{4}$/;  // D88: + a parts order (P1001) · D116: + a fleet work order (W1006)
+// D131: + a fleet UNIT — `U-<serial>`, the serial on the SERIAL_RE every other
+// write uses. A unit takes PHOTOS only (JPEG / PNG): they are the website
+// listing's picture set, so a PDF or a work-order scan has no business there.
+const UNIT_RECORD_RE = /^U-[A-Za-z0-9-]{1,32}$/;
+const UNIT_DOC_MIMES = new Set(['image/jpeg', 'image/png']);
+const DOC_RECORD_HINT = 'a ticket, lead, parts order, work order or unit (S1018 / L1005 / P1001 / W1006 / U-150074)';
+/** A doc record, normalised: S/L/P/W ids upper-cased; `U-` + the serial exactly as typed (a serial is case-blind nowhere). */
+function docRecord(raw) {
+  const t = String(raw == null ? '' : raw).trim();
+  if (/^u-/i.test(t)) { const r = `U-${t.slice(2)}`; return UNIT_RECORD_RE.test(r) ? r : null; }
+  const r = t.toUpperCase();
+  return DOC_RECORD_RE.test(r) ? r : null;
+}
+const MAX_LISTING_PRICE = 999999;   // D131: whole dollars
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const DOC_NAME_MAX = 120;
 
@@ -787,10 +807,25 @@ async function crewEvent({ request, me, env }) {
     throw httpError(400, 'bad serial');
   }
 
-  refuseMoneyKeys(body.payload);
+  // D131: a website listing's price is PUBLIC by definition (it is printed on
+  // the page), so `price` at the TOP of a unit_listing payload is the one money
+  // key a phone may send. Everything under it is still refused by name.
+  if (action === 'unit_listing' && body.payload && typeof body.payload === 'object' && !Array.isArray(body.payload)) {
+    const { price, ...rest } = body.payload;   // eslint-disable-line no-unused-vars
+    refuseMoneyKeys(rest);
+  } else {
+    refuseMoneyKeys(body.payload);
+  }
   // D83: the one action acted on here — it sends an email, and only then is stored.
   if (action === 'quote_send') return quoteSend({ request, env, me, raw: body.payload });
   const payload = cleanPayload(action, body.payload, me.role, serial);
+  if (action === 'unit_listing') {
+    // D131: the serial rides in the payload (the spec's shape); the top-level
+    // one, when sent, must agree — and the stored event carries it so the tape
+    // and the pending badge key on the unit like every other unit write.
+    if (serial && serial !== payload.serial) throw httpError(400, 'serial and payload.serial disagree');
+    serial = payload.serial;
+  }
 
   // THE ONE BUSINESS-STATE CHECK IN THIS FILE, and it is deliberate (S2).
   // Every other action is shape-only because the vault owns state — but a
@@ -800,6 +835,8 @@ async function crewEvent({ request, me, env }) {
   if (action === 'doc_attach') {
     const meta = await env.FLEET_KV.get(`docmeta:${payload.doc_id}`, 'json');
     if (!meta) throw httpError(400, 'unknown doc_id — upload the file first');
+    // D131: the same bytes may have gone up against a ticket as a PDF first.
+    if (payload.record.startsWith('U-') && !UNIT_DOC_MIMES.has(meta.mime)) throw httpError(400, 'a unit takes JPEG or PNG photos only');
   }
 
   // Server stamps everything the client must not be trusted with.
@@ -1281,12 +1318,14 @@ function cleanPayload(action, p, role, serial) {
     // only here; crewEvent does the one existence check, on our own store.
     const doc_id = str(obj.doc_id, 64, 'doc_id', true);
     if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
-    const record = str(obj.record, 16, 'record', true).toUpperCase();
-    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead, parts order or work order id (S1018 / L1005 / P1001 / W1006)');
+    const record = docRecord(str(obj.record, 40, 'record', true));
+    if (!record) throw httpError(400, `record must be ${DOC_RECORD_HINT}`);
+    const kind = oneOf(String(obj.kind || '').toUpperCase(), CREW_DOC_KINDS, 'kind');
+    if (record.startsWith('U-') && kind !== 'PHOTO') throw httpError(400, 'a unit takes PHOTO only');   // D131
     return {
       record,
       doc_id,
-      kind: oneOf(String(obj.kind || '').toUpperCase(), CREW_DOC_KINDS, 'kind'),
+      kind,
       name: str(obj.name, DOC_NAME_MAX, 'name', true),
     };
   }
@@ -1297,9 +1336,28 @@ function cleanPayload(action, p, role, serial) {
     // cache, and the vault is the authority. The engine is idempotent.
     const doc_id = str(obj.doc_id, 64, 'doc_id', true);
     if (!DOC_ID_RE.test(doc_id)) throw httpError(400, 'bad doc_id');
-    const record = str(obj.record, 16, 'record', true).toUpperCase();
-    if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'record must be a ticket, lead, parts order or work order id (S1018 / L1005 / P1001 / W1006)');
+    const record = docRecord(str(obj.record, 40, 'record', true));
+    if (!record) throw httpError(400, `record must be ${DOC_RECORD_HINT}`);
     return { record, doc_id };
+  }
+
+  if (action === 'unit_listing') {
+    // D131 — {serial, listed, price?}. Shape only: whether the unit exists, is
+    // retired, or matches a catalog model is the engine's (it rejects by name).
+    for (const k of Object.keys(obj)) {
+      if (!['serial', 'listed', 'price'].includes(k)) throw httpError(400, `unit_listing: unknown key "${k}"`);
+    }
+    const s = obj.serial == null || obj.serial === '' ? (serial || '') : obj.serial;
+    if (typeof s !== 'string' || !SERIAL_RE.test(s)) throw httpError(400, 'bad serial');
+    if (typeof obj.listed !== 'boolean') throw httpError(400, 'listed must be true or false');
+    const out = { serial: s, listed: obj.listed };
+    if (obj.price != null) {
+      if (typeof obj.price !== 'number' || !Number.isInteger(obj.price) || obj.price < 1 || obj.price > MAX_LISTING_PRICE) {
+        throw httpError(400, `price must be whole dollars, 1 to ${MAX_LISTING_PRICE}`);
+      }
+      out.price = obj.price;
+    }
+    return out;
   }
 
   if (action === 'lead_close') {
@@ -2641,11 +2699,17 @@ async function adminDocPut({ request, env, id }) {
 async function crewDocPost({ request, me, env }) {
   const name = docName(request.headers.get('X-Doc-Name'));
 
-  const record = (request.headers.get('X-Doc-Record') || '').trim().toUpperCase();
-  if (!DOC_RECORD_RE.test(record)) throw httpError(400, 'X-Doc-Record must be a ticket, lead, parts order or work order id (S1018 / L1005 / P1001 / W1006)');
+  const record = docRecord(request.headers.get('X-Doc-Record'));
+  if (!record) throw httpError(400, `X-Doc-Record must be ${DOC_RECORD_HINT}`);
 
   const kind = (request.headers.get('X-Doc-Kind') || '').trim().toUpperCase();
   if (!CREW_DOC_KINDS.has(kind)) throw httpError(400, `X-Doc-Kind must be one of ${[...CREW_DOC_KINDS].join(', ')}`);
+  if (record.startsWith('U-')) {
+    // D131: a unit's docs are the website listing's photos — PHOTO, JPEG / PNG.
+    if (kind !== 'PHOTO') throw httpError(400, 'a unit takes PHOTO only');
+    const declared = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+    if (!UNIT_DOC_MIMES.has(declared)) throw httpError(415, 'a unit takes JPEG or PNG photos only');
+  }
 
   const { mime, bytes } = await readDocBody(request);
   const id = (await sha256Hex(bytes)).slice(0, DOC_ID_LEN);
