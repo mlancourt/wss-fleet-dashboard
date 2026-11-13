@@ -818,7 +818,7 @@ D4=$(node -e "console.log(JSON.parse(process.argv[1]).id)" "$LAST")
 expect "doc_detach with a bad doc_id -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_SALES)" -H "Content-Type: application/json" \
   -d '{"action":"doc_detach","payload":{"record":"S1018","doc_id":"../snapshot"}}'
 expect "doc_detach with a bad record -> 400" 400 "" -X POST "$WORKER/api/event" -H "$(auth $T_OWNER)" -H "Content-Type: application/json" \
-  -d "{\"action\":\"doc_detach\",\"payload\":{\"record\":\"W1001\",\"doc_id\":\"$DOC_ID\"}}"
+  -d "{\"action\":\"doc_detach\",\"payload\":{\"record\":\"X1001\",\"doc_id\":\"$DOC_ID\"}}"
 expect "all three doc_attach events + the detach drained -> deleted 4" 200 "b.deleted===4" \
   -X POST "$WORKER/api/admin/events/ack" "${H_ADMIN[@]}" \
   -d "{\"ids\":[\"$D1\",\"$D2\",\"$D3\",\"$D4\"]}"
