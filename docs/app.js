@@ -114,6 +114,10 @@ import {
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
 import {
+  hoursLive, hoursRequired, ticketLabor, ticketHours, linkedWoHours, pendingTicketHours, askHoursOnMove, offerCancel,
+  hoursFieldProblem, closeReasonText, woNeedsLabor, ticketLaborPayloads, NEED_LABOR_LINE, CLOSE_CANCELLED,
+} from './hours.js';   // D134 — hours on every job
+import {
   PURPOSES, PURPOSE_LABEL, MANUFACTURERS, MANUFACTURER_LABEL, VENDORS, VENDOR_LABEL, PART_STATE_LABEL, PART_VERB_LABEL,
   MAX_LINES, HOURS_MAX, HOURS_STEP,
   workOrdersOf, woById, laborOf, requestedTone, lineTone, listFinal, trackingUrl,
@@ -178,7 +182,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-11-d132';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-18-d134';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -556,7 +560,7 @@ const pl = (e) => (e && e.payload) || {};
 // D77: a pending doc_detach rides in the ticket's (and the lead's) own pending
 // list, so it gets the ordinary badge + Undo — no special case.
 const isDetachOn = (e, id) => e.action === 'doc_detach' && pl(e).record === id;
-const pendingForTicket = (id) => (id ? state.pending.filter((e) => (e.action === 'ticket_update' && pl(e).ticket === id) || isDetachOn(e, id)) : []);
+const pendingForTicket = (id) => (id ? state.pending.filter((e) => ((e.action === 'ticket_update' || e.action === 'ticket_labor') && pl(e).ticket === id) || isDetachOn(e, id)) : []);   // D134: + ticket_labor
 const pendingForDispatch = (id) => (id ? state.pending.filter((e) => String(e.action).startsWith('dispatch_') && pl(e).dispatch_id === id) : []);
 const pendingTicketOpens = () => state.pending.filter((e) => e.action === 'ticket_open');
 const pendingDispatchAdds = () => state.pending.filter((e) => e.action === 'dispatch_add');
@@ -2548,7 +2552,7 @@ function completedRows(q, filter, summary) {
           <span class="drow-what">${t.customer || '—'}</span>
           ${raw(chip(t.ticket, 'out'))}
         </div>
-        <div class="drow-meta">${raw(what)}${t.closed ? raw(html` · Closed ${fmtDateFull(t.closed)}`) : ''}${t.close_reason === 'NO-RESPONSE' ? raw(html` · <span class="muted">no response</span>`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
+        <div class="drow-meta">${raw(what)}${t.closed ? raw(html` · Closed ${fmtDateFull(t.closed)}`) : ''}${closeReasonText(t.close_reason) ? raw(html` · <span class="muted">${closeReasonText(t.close_reason)}</span>`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
       </a>`;
   }).join('');
 }
@@ -2794,9 +2798,9 @@ function newTicketForm() {
     </form>`;
 }
 
-const sheetButtons = (label) => html`
+const sheetButtons = (label, disabled = false) => html`
   <div class="actions row">
-    <button class="btn" type="submit">${label}</button>
+    <button class="btn" type="submit"${disabled ? raw(' disabled') : ''}>${label}</button>
     <button class="btn ghost" type="button" data-sheet-close="1">Cancel</button>
   </div>`;
 
@@ -2834,7 +2838,7 @@ function viewTicket(id) {
         ${raw(chip(STAGE_LABEL[t.stage] || t.stage, 'stage'))}
         ${raw(chip(PRI_LABEL[t.priority] || t.priority || '—', `pri-chip pri-${t.priority || 'MEDIUM'}`))}
         ${raw(chip(t.machine_owner === 'WSS' ? 'Our machine' : "Customer's machine", t.machine_owner === 'WSS' ? 'rent' : 'out'))}
-        ${t.status === 'CLOSED' ? raw(chip(t.close_reason === 'NO-RESPONSE' ? 'CLOSED · no response' : 'CLOSED', 'ok')) : ''}
+        ${t.status === 'CLOSED' ? raw(chip(closeReasonText(t.close_reason) ? `CLOSED · ${closeReasonText(t.close_reason)}` : 'CLOSED', 'ok')) : ''}
         ${isDormant(t) ? raw(chip('💤 Dormant', 'warn')) : ''}
         ${/* D69: read-only — the work orders on this ticket (or its unit's open one), each with its sheet. */
           raw(ticketWoChips(t, u))}
@@ -2870,6 +2874,7 @@ function viewTicket(id) {
       ${t.closed ? raw(kvRow('Closed', fmtDateFull(t.closed))) : ''}
     </dl></div>
 
+    ${raw(ticketLaborCard(t, canWork))}
     ${raw(docsSection(t, t.ticket))}
     ${raw(notesSection(t, pend))}
     ${raw(stagePicker(t, canWork))}
@@ -2881,8 +2886,11 @@ function viewTicket(id) {
 function describeUpdate(e) {
   if (e.action === 'doc_detach') return describeDetach(e);
   const p = pl(e);
+  if (e.action === 'ticket_labor') return `${fmtHours(p.hours)} h${laborKindOf(p) === 'TRAVEL' ? ' travel' : ''} logged for ${p.who || 'someone'}`;   // D134
   const bits = [];
   if (p.stage) bits.push(`stage → ${STAGE_LABEL[p.stage] || p.stage}`);
+  if (p.close_reason === CLOSE_CANCELLED) bits.push('closed as cancelled');   // D134 H6
+  if (typeof p.hours === 'number') bits.push(`${fmtHours(p.hours)} h labor${p.who ? ` for ${p.who}` : ''}`);   // D134
   if (p.assigned) bits.push(`assigned to ${p.assigned}`);
   if (p.scheduled) bits.push(`scheduled ${fmtDate(p.scheduled)}`);
   if (p.intake_move) bits.push(`intake → ${MOVE_LABEL[p.intake_move] || p.intake_move}`);
@@ -2914,13 +2922,69 @@ function stageForm(t, stage) {
   // D79: the WAITING-ON-PARTS move carries the customer parts order — vendor,
   // ref, and THIS sheet's note goes out as `order_note`, not `note`.
   const parts = stage === 'WAITING-ON-PARTS';
+  // D134 §5: a move into READY-TO-INVOICE / COMPLETE on a ticket with no hours
+  // asks for them — optional before the engine's date, required from it (the
+  // button stays off until they're in). COMPLETE also offers the cancel switch.
+  const snap = state.snapshot;
+  const ask = askHoursOnMove(snap, t, stage, pendingTicketHours(state.pending, t.ticket).length);
+  const required = ask && hoursRequired(snap, todayCentral());
+  const cancel = offerCancel(snap, stage);
   return html`
-    <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="stage">
+    <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="stage"${required ? raw(' data-hours-gate="1"') : ''}>
       <input type="hidden" name="stage" value="${stage}">
       ${parts ? raw(orderFields(orderOf(t))) : raw(html`
       <label for="sf-note">Move to ${STAGE_LABEL[stage] || stage} — note (optional)</label>
       <textarea id="sf-note" name="note" placeholder="what you found, what you did"></textarea>`)}
-      ${raw(sheetButtons(`Move to ${STAGE_LABEL[stage] || stage}`))}
+      ${cancel ? raw(html`<label class="check"><input type="checkbox" name="cancelled" value="1" data-cancel-switch> Cancelled, no work done</label>`) : ''}
+      ${ask ? raw(html`<div class="hours-field">${raw(hoursStepper('hours', `Hours on this job${required ? '' : ' (optional)'}`, 0))}
+        <div class="form-note">Quarter hours — logged as labor for you, today.</div></div>`) : ''}
+      ${raw(sheetButtons(`Move to ${STAGE_LABEL[stage] || stage}`, required))}
+    </form>`;
+}
+
+/**
+ * D134 §5 — the work order's Labor card, on a ticket: the ticket's own
+ * entries, one read-only line per linked work order (`from W1003 · 2 h`), the
+ * total (H4, the engine's), and + Hours (techs + Matt, OPEN tickets). Drawn
+ * only off a D134 snapshot — an older one shows the page as it was (H11).
+ */
+function ticketLaborCard(t, canWork) {
+  const snap = state.snapshot;
+  if (!hoursLive(snap)) return '';
+  const own = ticketLabor(t);
+  const fromWo = linkedWoHours(t, workOrders());
+  const pend = state.pending.filter((e) => e.action === 'ticket_labor' && pl(e).ticket === t.ticket);
+  const rows = own.map(laborRow).concat(fromWo.map((w) => html`
+    <div class="lrow from-wo"><a class="lrow-w" href="#/wo/${raw(enc(w.id))}">${w.text}</a></div>`))
+    .concat(pend.map((e) => html`<div class="lrow pending"><span class="row-pending">⏳ ${describeUpdate(e)} — lands at the next run</span></div>`));
+  const canLog = canWork && t.status === 'OPEN';
+  return html`
+    <h2>Labor · ${fmtHours(ticketHours(t))} h</h2>
+    <div class="card dlist">
+      ${rows.length ? raw(rows.join('')) : raw('<div class="hold-empty">No hours logged yet.</div>')}
+    </div>
+    ${canLog ? raw(html`<div class="actions row"><button class="btn ghost" type="button" data-sheet="t-labor" data-id="${t.ticket}">+ Hours</button></div>`) : ''}
+    ${canLog && sheetOpen('t-labor', t.ticket) ? raw(ticketLaborForm(t)) : ''}`;
+}
+
+/** D134 H1 — + Hours on a ticket: the work order's + Log hours sheet, no damage toggle. */
+function ticketLaborForm(t) {
+  const today = todayCentral();
+  const me = state.me && DRIVERS.includes(state.me.name) ? state.me.name : DRIVERS[0];
+  return html`
+    <form class="write sheet" data-action="ticket_labor" data-id="${t.ticket}">
+      <div class="form-note">Drive time and time on the machine go in separately — quarter hours.</div>
+      <label for="wl-date">Day</label>
+      <input id="wl-date" name="date" type="date" value="${today}" max="${today}" required>
+      <div class="form-note">The day the work happened.</div>
+      ${raw(hoursStepper('travel', 'Travel (drive time)', 0))}
+      ${raw(hoursStepper('labor', 'Labor (on the machine)', 1))}
+      <label>Who</label>
+      ${raw(toggle('who', DRIVERS.map((n) => [n, n]), me))}
+      <label for="wl-note">Note (optional)</label>
+      <textarea id="wl-note" name="note" maxlength="200" placeholder="what got done"></textarea>
+      ${raw(sheetButtons('Log the hours'))}
+      <div class="form-note">Hours only — the shop rate lives in the vault, not on the phone.</div>
     </form>`;
 }
 
@@ -3465,7 +3529,9 @@ function woFooter(c, me) {
   const showCancel = cancelShown(wo, r, me);
   if (!showClose && !showCancel) return '';
   const blocker = closeBlocker(wo);
-  const canClose = !blocker;
+  // D134 §5: from the engine's date a work order with no labor can't close (labor pending on this phone counts).
+  const needLabor = woNeedsLabor(wo, hoursRequired(state.snapshot, todayCentral()), (c.pend || []).filter((e) => pl(e).action === 'LABOR').length);
+  const canClose = !blocker && !needLabor;
   const offerReady = readyOffered(c.u);
   const readiness = c.u && c.u.readiness;
   return html`
@@ -3474,6 +3540,7 @@ function woFooter(c, me) {
       ${showCancel ? raw(html`<button class="btn ghost" type="button" data-sheet="wo-cancel" data-id="${wo.id}">Cancel work order</button>`) : ''}
     </div>
     ${showClose && blocker ? raw(html`<div class="form-note close-why">Can't close yet — ${blocker}.</div>`) : ''}
+    ${showClose && needLabor ? raw(html`<div class="form-note close-why need-labor">${NEED_LABOR_LINE}</div>`) : ''}
     ${sheetOpen('wo-close', wo.id) && canClose ? raw(html`
       <form class="write sheet" data-action="work_order" data-verb="CLOSE" data-wo="${wo.id}">
         <div class="confirm-line">Close <strong>${wo.id}</strong>${c.u ? ` on ${unitName(c.u)}` : ''}?</div>
@@ -4574,13 +4641,18 @@ function claimForm(r) {
 }
 
 function doneForm(r) {
+  // D134 §5: the driver's door-to-door time — optional before the engine's date, required from it.
+  const live = hoursLive(state.snapshot);
+  const required = live && hoursRequired(state.snapshot, todayCentral());
   return html`
-    <form class="write sheet" data-action="dispatch_done" data-id="${r.id}">
+    <form class="write sheet" data-action="dispatch_done" data-id="${r.id}"${required ? raw(' data-hours-gate="1"') : ''}>
       ${r.source === 'RENTAL-RETURN' ? raw(html`<div class="note"><strong>Bringing it home</strong>This brings ${r.serial ? `#${r.serial}` : 'the unit'} home and ends the agreement at the next run.</div>`) : ''}
       ${r.source === 'RENTAL-DELIVER' ? raw(deliverDoneNote(r)) : ''}
+      ${live ? raw(html`<div class="hours-field">${raw(hoursStepper('hours', `Hours on this run${required ? '' : ' (optional)'}`, 0))}
+        <div class="form-note">Door to door, quarter hours.</div></div>`) : ''}
       <label for="df-note">Note (optional)</label>
       <textarea id="df-note" name="note" placeholder="hours on the meter, damage, who signed"></textarea>
-      ${raw(sheetButtons('Mark it done'))}
+      ${raw(sheetButtons('Mark it done', required))}
     </form>`;
 }
 
@@ -7478,6 +7550,7 @@ document.addEventListener('click', async (ev) => {
     // D71: each of the two steppers can sit at 0 ("none of this kind").
     const next = Math.min(HOURS_MAX, Math.max(0, Math.round((cur + Number(step.dataset.hoursStep) * HOURS_STEP) * 4) / 4));
     input.value = String(next);
+    updateHoursGate(step.closest('form'));   // D134: a stage / Done sheet's button follows its hours
     return;
   }
   if (ev.target.closest('[data-completed-toggle]')) { ui.showCompleted = !ui.showCompleted; render(); return; }
@@ -7861,10 +7934,26 @@ document.addEventListener('input', (ev) => {
   }
   const form = ev.target.closest('form.write');
   if (!form) return;
+  if (ev.target.name === 'hours' || ev.target.name === 'cancelled') updateHoursGate(form);   // D134
   if (form.dataset.action === 'reserve' && ['start', 'end'].includes(ev.target.name)) updateWindowHint(form);
   if (form.dataset.action === 'ticket_open') applyConditionals(form);
   if (form.dataset.action === 'dispatch_claim' && ['rig', 'date'].includes(ev.target.name)) updateRigHint(form);
 });
+/**
+ * D134 §5 — in place, no render: the cancel switch hides the hours field, and a
+ * gated sheet's button stays off until the hours are a real reading (or the
+ * ticket is cancelled). An ungated sheet is never disabled here.
+ */
+function updateHoursGate(form) {
+  if (!form) return;
+  const cancelled = !!(form.querySelector('[name=cancelled]') || {}).checked;
+  const field = form.querySelector('.hours-field');
+  if (field) field.hidden = cancelled;
+  if (!form.dataset.hoursGate) return;
+  const btn = form.querySelector('button[type=submit]');
+  const input = form.querySelector('[name=hours]');
+  if (btn) btn.disabled = !cancelled && !!hoursFieldProblem(input ? input.value : '', true);
+}
 /** The stack keys currently drawable — used to drop stops a filter just hid. */
 function stackKeysOnScreen() {
   const { pins } = collect(state.snapshot);
@@ -7900,6 +7989,8 @@ function toggleStop(key) {
  * its `.files` list with it. Read it late and it is gone.
  */
 document.addEventListener('change', async (ev) => {
+  // D134: the cancel switch (some browsers fire only `change` on a checkbox).
+  if (ev.target.name === 'cancelled' && ev.target.closest('form.write')) { updateHoursGate(ev.target.closest('form.write')); return; }
   // D67: a field on the inspection sheet was left (or a dropdown picked) — save now.
   const ifield = ev.target.closest && ev.target.closest('[data-ifield]');
   if (ifield) { onInspField(ifield, true); return; }
@@ -7997,8 +8088,20 @@ function eventBody(action, form, fd) {
       const v = s(k);
       if (v) payload[k] = v;
     }
+    // D134: the cancel switch sends close_reason and no hours; else hours ride the move when filled in.
+    if (payload.stage === 'COMPLETE' && fd.get('cancelled')) payload.close_reason = CLOSE_CANCELLED;
+    else if (Number(s('hours') || 0) > 0) payload.hours = Number(s('hours'));
     const t = ticketById(form.dataset.id);
     return { serial: t && t.serial ? t.serial : null, payload };
+  }
+  if (action === 'ticket_labor') {
+    // D134 H1: one event per non-zero stepper, TRAVEL first — the work order's + Log hours.
+    const t = ticketById(form.dataset.id);
+    const payloads = ticketLaborPayloads({
+      ticket: form.dataset.id, date: orNull('date'), who: s('who'), note: orNull('note'),
+      travel: Number(s('travel') || 0), labor: Number(s('labor') || 0),
+    });
+    return { serial: t && t.serial ? t.serial : null, payload: payloads[0], payloads };
   }
   if (action === 'dispatch_add') {
     const serial = orNull('serial');
@@ -8018,8 +8121,9 @@ function eventBody(action, form, fd) {
   }
   if (action === 'dispatch_done') {
     const r = dispatchById(dispatchRows(), form.dataset.id);
-    return { serial: r && r.serial ? r.serial : null,
-      payload: { dispatch_id: form.dataset.id, note: orNull('note') } };
+    const payload = { dispatch_id: form.dataset.id, note: orNull('note') };
+    if (Number(s('hours') || 0) > 0) payload.hours = Number(s('hours'));   // D134
+    return { serial: r && r.serial ? r.serial : null, payload };
   }
 
   /* --------------------------------------------------------- schema 5 ---- */
@@ -8303,6 +8407,7 @@ const SUBMIT_MSG = {
   dispatch_add: 'The run appears on the board at the next run.',
   dispatch_claim: 'The row moves to Scheduled at the next run.',
   dispatch_done: 'It clears at the next run.',
+  ticket_labor: 'The hours land at the next run.',   // D134
   lead_open: 'The engine assigns the lead number at the next run.',
   lead_update: 'Applies at the next run.',
   lead_close: 'It moves to Closed at the next run.',
@@ -8363,6 +8468,15 @@ document.addEventListener('submit', async (ev) => {
       }
       return;
     }
+  }
+  // D134: ticket hours — the two steppers' rule; a stage / Done sheet's one hours field.
+  if (action === 'ticket_labor') {
+    const problem = laborProblem(Number(fd.get('travel') || 0), Number(fd.get('labor') || 0));
+    if (problem) { ui.msg = { tone: 'bad', text: problem }; render(); return; }
+  }
+  if ((action === 'ticket_update' || action === 'dispatch_done') && form.querySelector('[name=hours]') && !fd.get('cancelled')) {
+    const problem = hoursFieldProblem(fd.get('hours'), !!form.dataset.hoursGate);
+    if (problem) { ui.msg = { tone: 'bad', text: problem }; render(); return; }
   }
   // D79: Edit order with every field blank changes nothing — say so here, not as a Worker 400.
   if (action === 'ticket_update' && form.dataset.mode === 'order'

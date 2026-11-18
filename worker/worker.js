@@ -121,6 +121,13 @@ const ACTION_ROLES = {
   // unit's PHOTOS are not this action: they are ordinary crew docs on a
   // `U-<serial>` record (POST /api/doc + doc_attach / doc_detach, any role).
   unit_listing: new Set(['owner']),
+  // D134 (2026-11-18) — the TWENTY-THIRD action: hours on a ticket, the work
+  // order's labor entry ({ticket, date?, who, hours, kind?, note?}, no damage).
+  // The techs' and Matt's — the people who did the work, like a stage move.
+  // The same release puts optional `hours` on a ticket stage move and on
+  // dispatch_done, and `close_reason: "CANCELLED"` on a move to COMPLETE. The
+  // date gate (2027-01-01) is the ENGINE's — this file checks shape only.
+  ticket_labor: new Set(['owner', 'service']),
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
 // schema-3 ones — a customer's own machine and a parts run have no unit.
@@ -192,6 +199,10 @@ const WO_PURPOSES = new Set(['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER', 'REN
 const WO_MANUFACTURERS = new Set(['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'OTHER']);
 const WO_VENDORS = new Set(['RPS', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'TENNANT', 'OTHER']);
 const WO_LABOR_KINDS = new Set(['LABOR', 'TRAVEL']);   // D71: travel vs labor hours — absent = LABOR
+// D134: the one close_reason a phone may send (H6) — NO-RESPONSE is the engine's own close, never posted.
+const TICKET_CLOSE_REASONS = new Set(['CANCELLED']);
+// D134: ticket_labor's keys — anything else is a 400 by name (`damage` is the work order's, H1).
+const TICKET_LABOR_KEYS = ['ticket', 'date', 'who', 'hours', 'kind', 'note'];
 // REQUESTED is where a line starts, never where a tap sends it — the one
 // backwards move this file can see without knowing the line's current state.
 const WO_PART_STATES = new Set(['ORDERED', 'IN-TRANSIT', 'DELIVERED', 'CANCELLED']);
@@ -985,6 +996,14 @@ function cleanPayload(action, p, role, serial) {
     return t;
   };
   const optStr = (v, max, field) => (v == null || v === '' ? null : str(v, max, field, true));
+  // D134 H2: hours, everywhere — the work order's LABOR rule (D65): a number, 0.25 to 12, quarter-hour
+  // steps. There is no zero. `field` names the key in the 400.
+  const quarterHours = (v, field) => {
+    if (typeof v !== 'number' || !isFinite(v) || v < 0.25 || v > 12) throw httpError(400, `${field} must be 0.25–12`);
+    if (Math.round(v * 4) !== v * 4) throw httpError(400, `${field} go in quarter-hour steps`);
+    return v;
+  };
+  const optHours = (v, field) => (v == null || v === '' ? null : quarterHours(v, field));
   // D126: an optional boolean — absent stays absent (undefined); anything but true/false is a 400 by name.
   const optBool = (v, field) => {
     if (v == null) return undefined;
@@ -1192,6 +1211,23 @@ function cleanPayload(action, p, role, serial) {
     if ((vendor || vref || onote) && stage && stage !== 'WAITING-ON-PARTS') {
       throw httpError(400, 'vendor / vendor_ref / order_note ride only with stage WAITING-ON-PARTS');
     }
+    // D134: optional `hours` (+ `who`) ride a stage move — one LABOR entry the
+    // engine writes before it judges the gate; `close_reason` "CANCELLED" rides
+    // a move to COMPLETE (whoever may send COMPLETE may send it — no new role).
+    const hours = optHours(obj.hours, 'hours');
+    if (hours != null) {
+      if (!stage) throw httpError(400, 'hours ride a stage move — use ticket_labor otherwise');
+      out.hours = hours;
+    }
+    const hwho = optOneOf(obj.who, DRIVERS, 'who');
+    if (hwho) {
+      if (hours == null) throw httpError(400, 'who rides with hours');
+      out.who = hwho;
+    }
+    if (obj.close_reason != null && obj.close_reason !== '') {
+      out.close_reason = oneOf(obj.close_reason, TICKET_CLOSE_REASONS, 'close_reason');
+      if (stage !== 'COMPLETE') throw httpError(400, 'close_reason rides a move to COMPLETE');
+    }
     if (Object.keys(out).length < 2) throw httpError(400, 'ticket_update needs at least one field to change');
     return out;
   }
@@ -1223,7 +1259,31 @@ function cleanPayload(action, p, role, serial) {
   }
 
   if (action === 'dispatch_done') {
-    return { dispatch_id: refId(obj.dispatch_id, 'dispatch_id'), note: optStr(obj.note, 500, 'note') };
+    // D134: `hours` = the driver's door-to-door time for the run. Optional here
+    // always — from 2027-01-01 the ENGINE refuses a Done without it.
+    const out = { dispatch_id: refId(obj.dispatch_id, 'dispatch_id'), note: optStr(obj.note, 500, 'note') };
+    const hours = optHours(obj.hours, 'hours');
+    if (hours != null) out.hours = hours;
+    return out;
+  }
+
+  if (action === 'ticket_labor') {
+    // D134 H1: the work order's LABOR entry on a ticket — same rule (who from
+    // the crew, quarter hours 0.25–12, kind LABOR|TRAVEL stored upper and only
+    // when sent, note ≤ 200). No `damage` (that is the work order's) and no
+    // unknown keys: each is a 400 by name.
+    for (const k of Object.keys(obj)) {
+      if (!TICKET_LABOR_KEYS.includes(k)) throw httpError(400, `ticket_labor does not take ${k}`);
+    }
+    const out = {
+      ticket: refId(obj.ticket, 'ticket'),
+      date: optDate(obj.date, 'date'),
+      who: oneOf(obj.who, DRIVERS, 'who'),
+      hours: quarterHours(obj.hours, 'hours'),
+      note: optStr(obj.note, 200, 'note'),
+    };
+    if (obj.kind != null) out.kind = oneOf(String(obj.kind).toUpperCase(), WO_LABOR_KINDS, 'kind');
+    return out;
   }
 
   if (action === 'dispatch_cancel') {
@@ -1564,9 +1624,7 @@ function cleanPayload(action, p, role, serial) {
       return move;
     }
     if (verb === 'LABOR') {
-      const h = obj.hours;
-      if (typeof h !== 'number' || !isFinite(h) || h < 0.25 || h > 12) throw httpError(400, 'hours must be 0.25–12');
-      if (Math.round(h * 4) !== h * 4) throw httpError(400, 'hours go in quarter-hour steps');
+      const h = quarterHours(obj.hours, 'hours');                    // D134: the one hours rule, shared
       const out = { action: verb, ...woKey(), date: optDate(obj.date, 'date'), who: oneOf(obj.who, DRIVERS, 'who'), hours: h, note: note() };
       // D71: travel vs labor hours. Absent = LABOR (the engine defaults it), so
       // the key is only stored when sent; case-insensitive, anything else a 400.

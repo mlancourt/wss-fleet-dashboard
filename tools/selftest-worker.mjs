@@ -830,4 +830,63 @@ await check('D131: U-<serial> is a doc record — PHOTO only, JPEG/PNG only; S/L
   assert.equal((await ok('service', { action: 'doc_detach', payload: { record: 's1018', doc_id: id } }, 'S still upper-cased')).payload.record, 'S1018');
 });
 
+// ---- D134: hours on every job. Shape only — the 2027-01-01 gate is the engine's.
+const BAD_HOURS = [0, -1, 0.1, 1.3, 12.25, 13, '1.5', true];   // (NaN can't ride JSON — it arrives as null = absent)
+await check('D134: ticket_labor — owner + service; the work order LABOR rule; kind stored upper only when sent; no damage, no unknown key', async () => {
+  const TL = (extra) => ({ action: 'ticket_labor', payload: { ticket: 'S1042', who: 'Josh', hours: 1.5, ...extra } });
+  const a = await ok('service', TL({ date: '2026-11-17', note: 'diag' }), 'service logs ticket hours');
+  assert.deepEqual(a.payload, { ticket: 'S1042', date: '2026-11-17', who: 'Josh', hours: 1.5, note: 'diag' });
+  assert.equal(a.serial, null, 'no serial on ticket_labor');
+  assert.equal((await ok('owner', TL({ kind: 'travel', hours: 0.25 }), 'owner, travel')).payload.kind, 'TRAVEL');
+  assert.equal((await ok('service', TL({ hours: 12 }), '12 h')).payload.hours, 12);
+  await refused('sales', TL(), 'sales', 403);
+  await refused('intake', TL(), 'intake', 403);
+  for (const h of BAD_HOURS) await refused('service', TL({ hours: h }), `hours ${JSON.stringify(h)}`, 400, 'hours');
+  await refused('service', TL({ hours: undefined }), 'hours missing', 400, 'hours');
+  await refused('service', TL({ who: 'Nobody' }), 'who off the crew', 400, 'who');
+  await refused('service', TL({ who: undefined }), 'who missing', 400, 'who');
+  await refused('service', TL({ kind: 'NAP' }), 'kind', 400, 'kind');
+  await refused('service', TL({ date: '11/17/2026' }), 'date shape', 400, 'date');
+  await refused('service', TL({ note: 'x'.repeat(201) }), 'note > 200', 400, 'note');
+  await refused('service', TL({ damage: true }), 'damage is the work order\'s', 400, 'damage');
+  await refused('service', TL({ work_order: 'W1001' }), 'unknown key', 400, 'work_order');
+  await refused('service', TL({ rate: 90 }), 'money by name', 400, '"rate"');
+  await refused('service', { action: 'ticket_labor', payload: { who: 'Josh', hours: 1 } }, 'no ticket', 400, 'ticket');
+});
+
+await check('D134: ticket_update — optional hours (+ who) ride a stage move; close_reason only CANCELLED, only with COMPLETE', async () => {
+  const TU = (extra) => ({ action: 'ticket_update', payload: { ticket: 'S1042', ...extra } });
+  const a = await ok('service', TU({ stage: 'READY-TO-INVOICE', hours: 1.5 }), 'hours on the move');
+  assert.deepEqual(a.payload, { ticket: 'S1042', stage: 'READY-TO-INVOICE', hours: 1.5 });
+  assert.equal((await ok('service', TU({ stage: 'COMPLETE', hours: 0.25, who: 'Zac' }), 'who with hours')).payload.who, 'Zac');
+  for (const h of BAD_HOURS) await refused('service', TU({ stage: 'READY-TO-INVOICE', hours: h }), `hours ${JSON.stringify(h)}`, 400, 'hours');
+  await refused('service', TU({ hours: 1 }), 'hours without a stage', 400, 'stage move');
+  await refused('service', TU({ stage: 'COMPLETE', who: 'Zac' }), 'who without hours', 400, 'who rides with hours');
+  await refused('service', TU({ stage: 'COMPLETE', hours: 1, who: 'Nobody' }), 'who off the crew', 400, 'who');
+  await refused('sales', TU({ stage: 'COMPLETE', hours: 1 }), 'sales still cannot move a stage', 403);
+  const c = await ok('owner', TU({ stage: 'COMPLETE', close_reason: 'CANCELLED', note: 'customer sold it' }), 'cancel');
+  assert.deepEqual(c.payload, { ticket: 'S1042', stage: 'COMPLETE', note: 'customer sold it', close_reason: 'CANCELLED' });
+  assert.equal((await ok('service', TU({ stage: 'COMPLETE', close_reason: 'CANCELLED' }), 'service may send COMPLETE (engine referees who)')).payload.close_reason, 'CANCELLED');
+  for (const v of ['NO-RESPONSE', 'cancelled', 'LOST', true]) await refused('owner', TU({ stage: 'COMPLETE', close_reason: v }), `close_reason ${v}`, 400, 'close_reason');
+  await refused('owner', TU({ stage: 'READY-TO-INVOICE', close_reason: 'CANCELLED' }), 'close_reason off COMPLETE', 400, 'COMPLETE');
+  await refused('owner', TU({ close_reason: 'CANCELLED' }), 'close_reason with no stage', 400, 'COMPLETE');
+  const n = await ok('sales', TU({ note: 'called' }), 'a note alone still travels for sales');
+  assert.equal(n.payload.hours, undefined, 'no hours key when none sent');
+});
+
+await check('D134: dispatch_done takes optional hours (every row kind), the same quarter-hour rule; the Worker never judges the date', async () => {
+  for (const id of ['m-ab12cd', 'm-S1042-out', 'm-dl-R092526A', 'm-pu-150074']) {
+    const d = await ok('service', { action: 'dispatch_done', payload: { dispatch_id: id, hours: 1.25 } }, `hours on ${id}`);
+    assert.equal(d.payload.hours, 1.25);
+  }
+  const bare = await ok('sales', { action: 'dispatch_done', payload: { dispatch_id: 'm-ab12cd' } }, 'no hours: the engine decides');
+  assert.ok(!('hours' in bare.payload), 'absent stays absent');
+  for (const h of BAD_HOURS) await refused('service', { action: 'dispatch_done', payload: { dispatch_id: 'm-ab12cd', hours: h } }, `hours ${JSON.stringify(h)}`, 400, 'hours');
+});
+
+await check('D134: the work order LABOR rule is unchanged by the shared helper (same messages)', async () => {
+  await refused('service', wo({ action: 'LABOR', work_order: 'W1003', who: 'Josh', hours: 0 }), 'zero', 400, 'hours must be 0.25–12');
+  await refused('service', wo({ action: 'LABOR', work_order: 'W1003', who: 'Josh', hours: 1.3 }), 'step', 400, 'hours go in quarter-hour steps');
+});
+
 console.log(`${passed} checks passed.`);

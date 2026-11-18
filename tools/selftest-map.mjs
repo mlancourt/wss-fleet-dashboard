@@ -404,7 +404,7 @@ check('a shop with no coordinates disables the shop pin, not the map', () => {
 const mock = JSON.parse(fs.readFileSync(path.join(DOCS, 'mock', 'mock-full.json'), 'utf8'));
 
 check('the mock carries every case the map has to survive (§4)', () => {
-  assert.equal(mock.meta.schema_version, 7);
+  assert.equal(mock.meta.schema_version, 8);   // D134: schema 8 (additive — the map reads nothing new)
   const { pins, off } = collect(mock);
   const stacks = stack(pins);
 

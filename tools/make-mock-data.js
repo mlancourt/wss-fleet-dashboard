@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 7).
+ * make-mock-data.js — FAKE dashboard snapshot generator (schema_version 8 — D134 hours; 7 before).
  *
  * EVERYTHING in this file is invented. Fake customers, fake serials, fake money.
  * No real WSS data may ever be pasted in here — see CLAUDE.md rule 1.
  *
  * Emits three variants so every view can be exercised:
  *   mock-full.json    schema 5 — service queue, dispatch board, pick-ups, holds, leads
- *   mock-empty.json   schema 7 — service_queue: [], dispatch: [] and leads: [] (empty
+ *   mock-empty.json   schema 8 — service_queue: [], dispatch: [] and leads: [] (empty
  *                     states); ON-DEMO row = 0 on the status board
  *   mock-legacy.json  schema 2 — the pre-Dispatch snapshot, kept for one release
  *                     so the board still renders during the cutover
@@ -1198,6 +1198,9 @@ function build({ withServiceQueue }) {
   // ------------------------------------------------- shop stock (D127)
   const { stock_orders, stock, stock_summary } = buildStock({ withStock: withServiceQueue });
 
+  // ------------------------------------------- D134: hours on every job (schema 8)
+  const hours_summary = buildHours({ withHours: withServiceQueue, service_queue, work_orders, dispatch });
+
   // ---------------------------------------------------- activity (D78)
   const activity = buildActivity({ withActivity: withServiceQueue, units, service_queue, leads, work_orders, dispatch, agreements });
 
@@ -1224,7 +1227,8 @@ function build({ withServiceQueue }) {
 
   const snapshot = {
     meta: {
-      schema_version: 7,
+      schema_version: 8,                            // D134
+      hours_required_from: '2027-01-01',            // D134: the engine's gate date — the page reads it, never holds it
       generated_at: new Date().toISOString(),
       applied_through: new Date().toISOString(),   // A96
       run_id: `mock-${withServiceQueue ? 'full' : 'empty'}-${new Date().toISOString().slice(0, 10)}`,
@@ -1262,6 +1266,8 @@ function build({ withServiceQueue }) {
     service_summary,
     dispatch,
     dispatch_warnings,
+    // D134 (schema 8, additive): totals by kind, by month — no name, no customer, no record id (H10).
+    hours_summary,
     // Still emitted for the engine's own consumers; the app must NOT render it (D39).
     billing: { due_next_7_days, created_last_run },
     // schema 5 (Leads spec §2). Additive: everything above is byte-identical.
@@ -2302,6 +2308,41 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
 }
 
 /**
+ * D134 — hours on every job. Every ticket gets `labor[]` (its own entries,
+ * the work order's shape minus damage) and `hours_total` (H4: own + every
+ * linked work order's — the engine's sum, copied here the way the engine
+ * makes it); every dispatch row gets `hours` (null until Done; a couple of
+ * DONE rows carry a door-to-door figure); the snapshot gets `hours_summary`
+ * for this year and last. All invented. The empty variant: no rows, an empty
+ * summary.
+ */
+function buildHours({ withHours, service_queue, work_orders, dispatch }) {
+  const L = (date, who, hours, kind = 'LABOR', note = null) => ({ date, who, kind, hours, note });
+  const open = service_queue.filter((t) => t.status === 'OPEN' && t.machine_owner === 'CUSTOMER');
+  for (const t of service_queue) t.labor = [];
+  if (withHours && open[0]) open[0].labor = [L(d(-2), 'Josh', 0.75, 'TRAVEL', 'drive out'), L(d(-2), 'Josh', 1.5, 'LABOR', 'diagnosed the key switch')];
+  if (withHours && open[1]) open[1].labor = [L(d(-1), 'Zac', 2)];
+  // a ticket worked on its work order only: link one OPEN WO to a fleet ticket that has none
+  const fleetT = service_queue.find((t) => t.status === 'OPEN' && t.machine_owner === 'WSS');
+  const woWithHours = (work_orders || []).find((w) => w.status === 'OPEN' && w.hours_total > 0 && !w.ticket);
+  if (withHours && fleetT && woWithHours && !(work_orders || []).some((w) => w.ticket === fleetT.ticket)) woWithHours.ticket = fleetT.ticket;
+  for (const t of service_queue) {
+    const own = t.labor.reduce((n, l) => n + l.hours, 0);
+    const linked = (work_orders || []).filter((w) => w.ticket === t.ticket).reduce((n, w) => n + (w.hours_total || 0), 0);
+    t.hours_total = Math.round((own + linked) * 100) / 100;
+  }
+  let k = 0;
+  for (const r of dispatch) r.hours = r.status === 'DONE' && (k++ % 2 === 0) ? 1.25 : null;
+  if (!withHours) return { from: `${new Date().getFullYear() - 1}-01-01`, by_month: {}, closed: {} };
+  const y = new Date().getFullYear();
+  return {
+    from: `${y - 1}-01-01`,
+    by_month: { [`${y - 1}-11`]: { service: 31.5, fleet: 44, delivery: 12.25 }, [`${y}-10`]: { service: 40.25, fleet: 58.5, delivery: 16 } },
+    closed: { [`${y - 1}-11`]: { jobs: 30, with_hours: 12, exempt: 1 }, [`${y}-10`]: { jobs: 41, with_hours: 20, exempt: 2 } },
+  };
+}
+
+/**
  * The pre-Dispatch snapshot, rebuilt from a schema-3 one. Kept for one release
  * so a board pointed at a stale KV value still renders during the cutover:
  * the old six-stage service queue with `ticket_id` / `unit_desc`, the singular
@@ -2316,6 +2357,9 @@ function downgradeToSchema2(s3, ledger) {
 
   snap.meta.schema_version = 2;
   snap.meta.run_id = `mock-legacy-${new Date().toISOString().slice(0, 10)}`;
+  delete snap.meta.hours_required_from;            // D134: an old snapshot has none of the hours keys
+  delete snap.hours_summary;
+  for (const r of snap.dispatch || []) delete r.hours;
 
   // Schema 2 carried acquisition_cost and book on every unit and a four-part
   // fleet_totals. Put them back from the ledger: this file's only job is to be
