@@ -854,7 +854,7 @@ await check('D134: ticket_labor — owner + service; the work order LABOR rule; 
   await refused('service', { action: 'ticket_labor', payload: { who: 'Josh', hours: 1 } }, 'no ticket', 400, 'ticket');
 });
 
-await check('D134: ticket_update — optional hours (+ who) ride a stage move; close_reason only CANCELLED, only with COMPLETE', async () => {
+await check('D134: ticket_update — optional hours (+ who) ride a stage move; no close_reason is ever stored', async () => {
   const TU = (extra) => ({ action: 'ticket_update', payload: { ticket: 'S1042', ...extra } });
   const a = await ok('service', TU({ stage: 'READY-TO-INVOICE', hours: 1.5 }), 'hours on the move');
   assert.deepEqual(a.payload, { ticket: 'S1042', stage: 'READY-TO-INVOICE', hours: 1.5 });
@@ -864,12 +864,10 @@ await check('D134: ticket_update — optional hours (+ who) ride a stage move; c
   await refused('service', TU({ stage: 'COMPLETE', who: 'Zac' }), 'who without hours', 400, 'who rides with hours');
   await refused('service', TU({ stage: 'COMPLETE', hours: 1, who: 'Nobody' }), 'who off the crew', 400, 'who');
   await refused('sales', TU({ stage: 'COMPLETE', hours: 1 }), 'sales still cannot move a stage', 403);
-  const c = await ok('owner', TU({ stage: 'COMPLETE', close_reason: 'CANCELLED', note: 'customer sold it' }), 'cancel');
-  assert.deepEqual(c.payload, { ticket: 'S1042', stage: 'COMPLETE', note: 'customer sold it', close_reason: 'CANCELLED' });
-  assert.equal((await ok('service', TU({ stage: 'COMPLETE', close_reason: 'CANCELLED' }), 'service may send COMPLETE (engine referees who)')).payload.close_reason, 'CANCELLED');
-  for (const v of ['NO-RESPONSE', 'cancelled', 'LOST', true]) await refused('owner', TU({ stage: 'COMPLETE', close_reason: v }), `close_reason ${v}`, 400, 'close_reason');
-  await refused('owner', TU({ stage: 'READY-TO-INVOICE', close_reason: 'CANCELLED' }), 'close_reason off COMPLETE', 400, 'COMPLETE');
-  await refused('owner', TU({ close_reason: 'CANCELLED' }), 'close_reason with no stage', 400, 'COMPLETE');
+  const c = await ok('owner', TU({ stage: 'COMPLETE', close_reason: 'CANCELLED', note: 'customer sold it' }), 'a stale close_reason');
+  assert.deepEqual(c.payload, { ticket: 'S1042', stage: 'COMPLETE', note: 'customer sold it' }, 'v2.0: close_reason is never stored');
+  assert.deepEqual((await ok('owner', TU({ stage: 'COMPLETE' }), 'the owner completes with no hours — the engine never gates the owner')).payload,
+    { ticket: 'S1042', stage: 'COMPLETE' });
   const n = await ok('sales', TU({ note: 'called' }), 'a note alone still travels for sales');
   assert.equal(n.payload.hours, undefined, 'no hours key when none sent');
 });

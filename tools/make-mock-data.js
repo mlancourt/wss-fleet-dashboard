@@ -2308,13 +2308,14 @@ function buildLeads({ withLeads, demoHold, demoUnit, service_queue }) {
 }
 
 /**
- * D134 — hours on every job. Every ticket gets `labor[]` (its own entries,
- * the work order's shape minus damage) and `hours_total` (H4: own + every
- * linked work order's — the engine's sum, copied here the way the engine
- * makes it); every dispatch row gets `hours` (null until Done; a couple of
- * DONE rows carry a door-to-door figure); the snapshot gets `hours_summary`
- * for this year and last. All invented. The empty variant: no rows, an empty
- * summary.
+ * D134 v2.0 — hours on every job. Every ticket gets `labor[]` (its own
+ * entries, the work order's shape minus damage) and `hours_total` (the H3
+ * pool: own + every tied work order's — tied by `ticket`, the damage block's
+ * billing ticket, or the ticket's `damage_wo`); every work order gets
+ * `hours_pool` (its tied ticket's pool, else its own hours); every dispatch row
+ * gets `hours` (null until Done; a couple of DONE rows carry a door-to-door
+ * figure); the snapshot gets `hours_summary` {from, by_month} for this year and
+ * last. All invented. The empty variant: no rows, an empty summary.
  */
 function buildHours({ withHours, service_queue, work_orders, dispatch }) {
   const L = (date, who, hours, kind = 'LABOR', note = null) => ({ date, who, kind, hours, note });
@@ -2326,19 +2327,23 @@ function buildHours({ withHours, service_queue, work_orders, dispatch }) {
   const fleetT = service_queue.find((t) => t.status === 'OPEN' && t.machine_owner === 'WSS');
   const woWithHours = (work_orders || []).find((w) => w.status === 'OPEN' && w.hours_total > 0 && !w.ticket);
   if (withHours && fleetT && woWithHours && !(work_orders || []).some((w) => w.ticket === fleetT.ticket)) woWithHours.ticket = fleetT.ticket;
+  const tied = (t, w) => w.ticket === t.ticket || (w.damage && w.damage.billing_ticket === t.ticket) || t.damage_wo === w.id;
   for (const t of service_queue) {
     const own = t.labor.reduce((n, l) => n + l.hours, 0);
-    const linked = (work_orders || []).filter((w) => w.ticket === t.ticket).reduce((n, w) => n + (w.hours_total || 0), 0);
+    const linked = (work_orders || []).filter((w) => tied(t, w)).reduce((n, w) => n + (w.hours_total || 0), 0);
     t.hours_total = Math.round((own + linked) * 100) / 100;
+  }
+  for (const w of work_orders || []) {
+    const t = service_queue.find((x) => tied(x, w));
+    w.hours_pool = t ? t.hours_total : (w.hours_total || 0);
   }
   let k = 0;
   for (const r of dispatch) r.hours = r.status === 'DONE' && (k++ % 2 === 0) ? 1.25 : null;
-  if (!withHours) return { from: `${new Date().getFullYear() - 1}-01-01`, by_month: {}, closed: {} };
+  if (!withHours) return { from: `${new Date().getFullYear() - 1}-01-01`, by_month: {} };
   const y = new Date().getFullYear();
   return {
     from: `${y - 1}-01-01`,
     by_month: { [`${y - 1}-11`]: { service: 31.5, fleet: 44, delivery: 12.25 }, [`${y}-10`]: { service: 40.25, fleet: 58.5, delivery: 16 } },
-    closed: { [`${y - 1}-11`]: { jobs: 30, with_hours: 12, exempt: 1 }, [`${y}-10`]: { jobs: 41, with_hours: 20, exempt: 2 } },
   };
 }
 

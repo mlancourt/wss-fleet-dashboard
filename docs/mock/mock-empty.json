@@ -2,8 +2,8 @@
   "meta": {
     "schema_version": 8,
     "hours_required_from": "2027-01-01",
-    "generated_at": "2026-11-18T15:20:00.044Z",
-    "applied_through": "2026-11-18T15:20:00.044Z",
+    "generated_at": "2026-11-18T15:57:57.711Z",
+    "applied_through": "2026-11-18T15:57:57.711Z",
     "run_id": "mock-empty-2026-11-18",
     "fleet_totals": {
       "units": 39
@@ -2650,8 +2650,7 @@
   "dispatch_warnings": [],
   "hours_summary": {
     "from": "2025-01-01",
-    "by_month": {},
-    "closed": {}
+    "by_month": {}
   },
   "billing": {
     "due_next_7_days": [
@@ -3049,7 +3048,7 @@
   "rejections": [
     {
       "id": "rej-mock-1",
-      "ts": "2026-11-18T15:20:00.044Z",
+      "ts": "2026-11-18T15:57:57.711Z",
       "actor": "Matt",
       "role": "owner",
       "action": "parts_update",
@@ -3058,7 +3057,7 @@
     },
     {
       "id": "rej-mock-2",
-      "ts": "2026-11-18T15:20:00.044Z",
+      "ts": "2026-11-18T15:57:57.711Z",
       "actor": "Zac",
       "role": "service",
       "action": "ticket_update",

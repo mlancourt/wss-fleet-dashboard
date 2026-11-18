@@ -125,8 +125,8 @@ const ACTION_ROLES = {
   // order's labor entry ({ticket, date?, who, hours, kind?, note?}, no damage).
   // The techs' and Matt's — the people who did the work, like a stage move.
   // The same release puts optional `hours` on a ticket stage move and on
-  // dispatch_done, and `close_reason: "CANCELLED"` on a move to COMPLETE. The
-  // date gate (2027-01-01) is the ENGINE's — this file checks shape only.
+  // dispatch_done. The date gate (2027-01-01) and who it binds (everyone but
+  // the owner, on a ticket) are the ENGINE's — this file checks shape only.
   ticket_labor: new Set(['owner', 'service']),
 };
 // `serial` is required for the three v1/v2 actions and optional for the six
@@ -199,8 +199,6 @@ const WO_PURPOSES = new Set(['CHECKOUT', 'RETURN', 'PM', 'REPAIR', 'OTHER', 'REN
 const WO_MANUFACTURERS = new Set(['FACTORY-CAT', 'KODIAK', 'TENNANT', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'OTHER']);
 const WO_VENDORS = new Set(['RPS', 'IPC-EAGLE', 'NILFISK', 'MINUTEMAN', 'TENNANT', 'OTHER']);
 const WO_LABOR_KINDS = new Set(['LABOR', 'TRAVEL']);   // D71: travel vs labor hours — absent = LABOR
-// D134: the one close_reason a phone may send (H6) — NO-RESPONSE is the engine's own close, never posted.
-const TICKET_CLOSE_REASONS = new Set(['CANCELLED']);
 // D134: ticket_labor's keys — anything else is a 400 by name (`damage` is the work order's, H1).
 const TICKET_LABOR_KEYS = ['ticket', 'date', 'who', 'hours', 'kind', 'note'];
 // REQUESTED is where a line starts, never where a tap sends it — the one
@@ -1212,8 +1210,8 @@ function cleanPayload(action, p, role, serial) {
       throw httpError(400, 'vendor / vendor_ref / order_note ride only with stage WAITING-ON-PARTS');
     }
     // D134: optional `hours` (+ `who`) ride a stage move — one LABOR entry the
-    // engine writes before it judges the gate; `close_reason` "CANCELLED" rides
-    // a move to COMPLETE (whoever may send COMPLETE may send it — no new role).
+    // engine counts before it judges the gate. (No close_reason: v2.0 cut it —
+    // like any key this action doesn't know, it is not stored.)
     const hours = optHours(obj.hours, 'hours');
     if (hours != null) {
       if (!stage) throw httpError(400, 'hours ride a stage move — use ticket_labor otherwise');
@@ -1223,10 +1221,6 @@ function cleanPayload(action, p, role, serial) {
     if (hwho) {
       if (hours == null) throw httpError(400, 'who rides with hours');
       out.who = hwho;
-    }
-    if (obj.close_reason != null && obj.close_reason !== '') {
-      out.close_reason = oneOf(obj.close_reason, TICKET_CLOSE_REASONS, 'close_reason');
-      if (stage !== 'COMPLETE') throw httpError(400, 'close_reason rides a move to COMPLETE');
     }
     if (Object.keys(out).length < 2) throw httpError(400, 'ticket_update needs at least one field to change');
     return out;

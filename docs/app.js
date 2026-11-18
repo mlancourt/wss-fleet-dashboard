@@ -114,9 +114,9 @@ import {
 } from './service.js';
 import { logRows, pendingNotes } from './notes.js';
 import {
-  hoursLive, hoursRequired, ticketLabor, ticketHours, linkedWoHours, pendingTicketHours, askHoursOnMove, offerCancel,
-  hoursFieldProblem, closeReasonText, woNeedsLabor, ticketLaborPayloads, NEED_LABOR_LINE, CLOSE_CANCELLED,
-} from './hours.js';   // D134 — hours on every job
+  hoursLive, hoursRequired, hoursRequiredOnMove, ticketLabor, ticketHours, linkedWoHours, pendingTicketHours, askHoursOnMove,
+  hoursFieldProblem, woNeedsLabor, ticketLaborPayloads, NEED_LABOR_LINE,
+} from './hours.js';   // D134 v2.0 — hours on every job
 import {
   PURPOSES, PURPOSE_LABEL, MANUFACTURERS, MANUFACTURER_LABEL, VENDORS, VENDOR_LABEL, PART_STATE_LABEL, PART_VERB_LABEL,
   MAX_LINES, HOURS_MAX, HOURS_STEP,
@@ -182,7 +182,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-18-d134';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-18-d134b';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -2552,7 +2552,7 @@ function completedRows(q, filter, summary) {
           <span class="drow-what">${t.customer || '—'}</span>
           ${raw(chip(t.ticket, 'out'))}
         </div>
-        <div class="drow-meta">${raw(what)}${t.closed ? raw(html` · Closed ${fmtDateFull(t.closed)}`) : ''}${closeReasonText(t.close_reason) ? raw(html` · <span class="muted">${closeReasonText(t.close_reason)}</span>`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
+        <div class="drow-meta">${raw(what)}${t.closed ? raw(html` · Closed ${fmtDateFull(t.closed)}`) : ''}${t.close_reason === 'NO-RESPONSE' ? raw(html` · <span class="muted">no response</span>`) : ''}${t.assigned ? raw(html` <span class="who" title="${t.assigned}">${String(t.assigned).slice(0, 1)}</span>`) : ''}${docs ? raw(html` <span class="doc-n" title="${docs} document${docs > 1 ? 's' : ''}">📎${docs}</span>`) : ''}</div>
       </a>`;
   }).join('');
 }
@@ -2838,7 +2838,7 @@ function viewTicket(id) {
         ${raw(chip(STAGE_LABEL[t.stage] || t.stage, 'stage'))}
         ${raw(chip(PRI_LABEL[t.priority] || t.priority || '—', `pri-chip pri-${t.priority || 'MEDIUM'}`))}
         ${raw(chip(t.machine_owner === 'WSS' ? 'Our machine' : "Customer's machine", t.machine_owner === 'WSS' ? 'rent' : 'out'))}
-        ${t.status === 'CLOSED' ? raw(chip(closeReasonText(t.close_reason) ? `CLOSED · ${closeReasonText(t.close_reason)}` : 'CLOSED', 'ok')) : ''}
+        ${t.status === 'CLOSED' ? raw(chip(t.close_reason === 'NO-RESPONSE' ? 'CLOSED · no response' : 'CLOSED', 'ok')) : ''}
         ${isDormant(t) ? raw(chip('💤 Dormant', 'warn')) : ''}
         ${/* D69: read-only — the work orders on this ticket (or its unit's open one), each with its sheet. */
           raw(ticketWoChips(t, u))}
@@ -2889,7 +2889,6 @@ function describeUpdate(e) {
   if (e.action === 'ticket_labor') return `${fmtHours(p.hours)} h${laborKindOf(p) === 'TRAVEL' ? ' travel' : ''} logged for ${p.who || 'someone'}`;   // D134
   const bits = [];
   if (p.stage) bits.push(`stage → ${STAGE_LABEL[p.stage] || p.stage}`);
-  if (p.close_reason === CLOSE_CANCELLED) bits.push('closed as cancelled');   // D134 H6
   if (typeof p.hours === 'number') bits.push(`${fmtHours(p.hours)} h labor${p.who ? ` for ${p.who}` : ''}`);   // D134
   if (p.assigned) bits.push(`assigned to ${p.assigned}`);
   if (p.scheduled) bits.push(`scheduled ${fmtDate(p.scheduled)}`);
@@ -2922,20 +2921,18 @@ function stageForm(t, stage) {
   // D79: the WAITING-ON-PARTS move carries the customer parts order — vendor,
   // ref, and THIS sheet's note goes out as `order_note`, not `note`.
   const parts = stage === 'WAITING-ON-PARTS';
-  // D134 §5: a move into READY-TO-INVOICE / COMPLETE on a ticket with no hours
-  // asks for them — optional before the engine's date, required from it (the
-  // button stays off until they're in). COMPLETE also offers the cancel switch.
+  // D134: a move into READY-TO-INVOICE / COMPLETE on a ticket whose pool is
+  // empty asks for hours — required (the button off until they're in) only from
+  // the engine's date and never of the owner (H5), optional otherwise.
   const snap = state.snapshot;
   const ask = askHoursOnMove(snap, t, stage, pendingTicketHours(state.pending, t.ticket).length);
-  const required = ask && hoursRequired(snap, todayCentral());
-  const cancel = offerCancel(snap, stage);
+  const required = ask && hoursRequiredOnMove(snap, todayCentral(), role());
   return html`
     <form class="write sheet" data-action="ticket_update" data-id="${t.ticket}" data-mode="stage"${required ? raw(' data-hours-gate="1"') : ''}>
       <input type="hidden" name="stage" value="${stage}">
       ${parts ? raw(orderFields(orderOf(t))) : raw(html`
       <label for="sf-note">Move to ${STAGE_LABEL[stage] || stage} — note (optional)</label>
       <textarea id="sf-note" name="note" placeholder="what you found, what you did"></textarea>`)}
-      ${cancel ? raw(html`<label class="check"><input type="checkbox" name="cancelled" value="1" data-cancel-switch> Cancelled, no work done</label>`) : ''}
       ${ask ? raw(html`<div class="hours-field">${raw(hoursStepper('hours', `Hours on this job${required ? '' : ' (optional)'}`, 0))}
         <div class="form-note">Quarter hours — logged as labor for you, today.</div></div>`) : ''}
       ${raw(sheetButtons(`Move to ${STAGE_LABEL[stage] || stage}`, required))}
@@ -2943,10 +2940,10 @@ function stageForm(t, stage) {
 }
 
 /**
- * D134 §5 — the work order's Labor card, on a ticket: the ticket's own
- * entries, one read-only line per linked work order (`from W1003 · 2 h`), the
- * total (H4, the engine's), and + Hours (techs + Matt, OPEN tickets). Drawn
- * only off a D134 snapshot — an older one shows the page as it was (H11).
+ * D134 — the work order's Labor card, on a ticket: the ticket's own entries,
+ * one read-only line per tied work order (`from W1003 · 2 h`), the total (the
+ * H3 pool, the engine's), and + Hours (techs + Matt, OPEN tickets). Drawn only
+ * off a D134 snapshot — an older one shows the page as it was (H10).
  */
 function ticketLaborCard(t, canWork) {
   const snap = state.snapshot;
@@ -3529,7 +3526,7 @@ function woFooter(c, me) {
   const showCancel = cancelShown(wo, r, me);
   if (!showClose && !showCancel) return '';
   const blocker = closeBlocker(wo);
-  // D134 §5: from the engine's date a work order with no labor can't close (labor pending on this phone counts).
+  // D134: from the engine's date a work order with an empty pool can't close (labor pending on this phone counts).
   const needLabor = woNeedsLabor(wo, hoursRequired(state.snapshot, todayCentral()), (c.pend || []).filter((e) => pl(e).action === 'LABOR').length);
   const canClose = !blocker && !needLabor;
   const offerReady = readyOffered(c.u);
@@ -4641,7 +4638,7 @@ function claimForm(r) {
 }
 
 function doneForm(r) {
-  // D134 §5: the driver's door-to-door time — optional before the engine's date, required from it.
+  // D134: the driver's door-to-door time — optional before the engine's date, required from it (every role).
   const live = hoursLive(state.snapshot);
   const required = live && hoursRequired(state.snapshot, todayCentral());
   return html`
@@ -7934,25 +7931,20 @@ document.addEventListener('input', (ev) => {
   }
   const form = ev.target.closest('form.write');
   if (!form) return;
-  if (ev.target.name === 'hours' || ev.target.name === 'cancelled') updateHoursGate(form);   // D134
+  if (ev.target.name === 'hours') updateHoursGate(form);   // D134
   if (form.dataset.action === 'reserve' && ['start', 'end'].includes(ev.target.name)) updateWindowHint(form);
   if (form.dataset.action === 'ticket_open') applyConditionals(form);
   if (form.dataset.action === 'dispatch_claim' && ['rig', 'date'].includes(ev.target.name)) updateRigHint(form);
 });
 /**
- * D134 §5 — in place, no render: the cancel switch hides the hours field, and a
- * gated sheet's button stays off until the hours are a real reading (or the
- * ticket is cancelled). An ungated sheet is never disabled here.
+ * D134 — in place, no render: a gated sheet's button stays off until the hours
+ * are a real reading. An ungated sheet is never disabled here.
  */
 function updateHoursGate(form) {
-  if (!form) return;
-  const cancelled = !!(form.querySelector('[name=cancelled]') || {}).checked;
-  const field = form.querySelector('.hours-field');
-  if (field) field.hidden = cancelled;
-  if (!form.dataset.hoursGate) return;
+  if (!form || !form.dataset.hoursGate) return;
   const btn = form.querySelector('button[type=submit]');
   const input = form.querySelector('[name=hours]');
-  if (btn) btn.disabled = !cancelled && !!hoursFieldProblem(input ? input.value : '', true);
+  if (btn) btn.disabled = !!hoursFieldProblem(input ? input.value : '', true);
 }
 /** The stack keys currently drawable — used to drop stops a filter just hid. */
 function stackKeysOnScreen() {
@@ -7989,8 +7981,6 @@ function toggleStop(key) {
  * its `.files` list with it. Read it late and it is gone.
  */
 document.addEventListener('change', async (ev) => {
-  // D134: the cancel switch (some browsers fire only `change` on a checkbox).
-  if (ev.target.name === 'cancelled' && ev.target.closest('form.write')) { updateHoursGate(ev.target.closest('form.write')); return; }
   // D67: a field on the inspection sheet was left (or a dropdown picked) — save now.
   const ifield = ev.target.closest && ev.target.closest('[data-ifield]');
   if (ifield) { onInspField(ifield, true); return; }
@@ -8088,9 +8078,7 @@ function eventBody(action, form, fd) {
       const v = s(k);
       if (v) payload[k] = v;
     }
-    // D134: the cancel switch sends close_reason and no hours; else hours ride the move when filled in.
-    if (payload.stage === 'COMPLETE' && fd.get('cancelled')) payload.close_reason = CLOSE_CANCELLED;
-    else if (Number(s('hours') || 0) > 0) payload.hours = Number(s('hours'));
+    if (Number(s('hours') || 0) > 0) payload.hours = Number(s('hours'));   // D134: hours ride the move when filled in
     const t = ticketById(form.dataset.id);
     return { serial: t && t.serial ? t.serial : null, payload };
   }
@@ -8474,7 +8462,7 @@ document.addEventListener('submit', async (ev) => {
     const problem = laborProblem(Number(fd.get('travel') || 0), Number(fd.get('labor') || 0));
     if (problem) { ui.msg = { tone: 'bad', text: problem }; render(); return; }
   }
-  if ((action === 'ticket_update' || action === 'dispatch_done') && form.querySelector('[name=hours]') && !fd.get('cancelled')) {
+  if ((action === 'ticket_update' || action === 'dispatch_done') && form.querySelector('[name=hours]')) {
     const problem = hoursFieldProblem(fd.get('hours'), !!form.dataset.hoursGate);
     if (problem) { ui.msg = { tone: 'bad', text: problem }; render(); return; }
   }

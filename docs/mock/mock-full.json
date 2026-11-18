@@ -2,8 +2,8 @@
   "meta": {
     "schema_version": 8,
     "hours_required_from": "2027-01-01",
-    "generated_at": "2026-11-18T15:20:00.043Z",
-    "applied_through": "2026-11-18T15:20:00.043Z",
+    "generated_at": "2026-11-18T15:57:57.711Z",
+    "applied_through": "2026-11-18T15:57:57.711Z",
     "run_id": "mock-full-2026-11-18",
     "fleet_totals": {
       "units": 39
@@ -3996,7 +3996,7 @@
       "closed_age_days": null,
       "geo": null,
       "labor": [],
-      "hours_total": 0
+      "hours_total": 3.5
     }
   ],
   "service_summary": {
@@ -4244,18 +4244,6 @@
         "service": 40.25,
         "fleet": 58.5,
         "delivery": 16
-      }
-    },
-    "closed": {
-      "2025-11": {
-        "jobs": 30,
-        "with_hours": 12,
-        "exempt": 1
-      },
-      "2026-10": {
-        "jobs": 41,
-        "with_hours": 20,
-        "exempt": 2
       }
     }
   },
@@ -5798,7 +5786,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": "WAITING-ON-PARTS"
+      "stage": "WAITING-ON-PARTS",
+      "hours_pool": 2.5
     },
     {
       "id": "W1002",
@@ -5925,7 +5914,8 @@
       "renter": null,
       "damage": null,
       "scheduled_in_days": 2,
-      "stage": "WAITING-ON-PARTS"
+      "stage": "WAITING-ON-PARTS",
+      "hours_pool": 1
     },
     {
       "id": "W1003",
@@ -6029,7 +6019,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": "WAITING-ON-PARTS"
+      "stage": "WAITING-ON-PARTS",
+      "hours_pool": 0
     },
     {
       "id": "W1004",
@@ -6350,7 +6341,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": null
+      "stage": null,
+      "hours_pool": 2.75
     },
     {
       "id": "W1006",
@@ -6414,7 +6406,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": "READY-TO-SCHEDULE"
+      "stage": "READY-TO-SCHEDULE",
+      "hours_pool": 0
     },
     {
       "id": "W1005",
@@ -6510,7 +6503,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": null
+      "stage": null,
+      "hours_pool": 1.5
     },
     {
       "id": "W1007",
@@ -6685,7 +6679,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": "WAITING-ON-PARTS"
+      "stage": "WAITING-ON-PARTS",
+      "hours_pool": 4.25
     },
     {
       "id": "W1008",
@@ -6830,7 +6825,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": null
+      "stage": null,
+      "hours_pool": 3.5
     },
     {
       "id": "W1009",
@@ -6909,7 +6905,8 @@
       "scheduled": null,
       "scheduled_tech": null,
       "scheduled_in_days": null,
-      "stage": "IN-PROGRESS"
+      "stage": "IN-PROGRESS",
+      "hours_pool": 1.5
     }
   ],
   "work_order_summary": {
@@ -7087,7 +7084,7 @@
   },
   "activity": [
     {
-      "ts": "2026-11-18T15:12:00.043Z",
+      "ts": "2026-11-18T15:49:57.711Z",
       "actor": "Josh",
       "role": "service",
       "action": "work_order",
@@ -7097,7 +7094,7 @@
       "evt": "mock-act-1"
     },
     {
-      "ts": "2026-11-18T14:55:00.043Z",
+      "ts": "2026-11-18T15:32:57.711Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "lead_update",
@@ -7107,7 +7104,7 @@
       "evt": "mock-act-2"
     },
     {
-      "ts": "2026-11-18T14:25:00.043Z",
+      "ts": "2026-11-18T15:02:57.711Z",
       "actor": "Matt",
       "role": "owner",
       "action": "dispatch_done",
@@ -7117,7 +7114,7 @@
       "evt": "evt-mock-6"
     },
     {
-      "ts": "2026-11-18T13:45:00.043Z",
+      "ts": "2026-11-18T14:22:57.711Z",
       "actor": "Zac",
       "role": "service",
       "action": "readiness",
@@ -7127,7 +7124,7 @@
       "evt": "mock-act-3"
     },
     {
-      "ts": "2026-11-18T13:00:00.043Z",
+      "ts": "2026-11-18T13:37:57.711Z",
       "actor": "Josh",
       "role": "service",
       "action": "doc_attach",
@@ -7137,7 +7134,7 @@
       "evt": "mock-act-4"
     },
     {
-      "ts": "2026-11-18T12:00:00.043Z",
+      "ts": "2026-11-18T12:37:57.711Z",
       "actor": "Architect",
       "role": null,
       "action": "ticket_update",
@@ -7147,7 +7144,7 @@
       "evt": "mock-act-5"
     },
     {
-      "ts": "2026-11-17T19:20:00.043Z",
+      "ts": "2026-11-17T19:57:57.711Z",
       "actor": "Matt",
       "role": "owner",
       "action": "work_order",
@@ -7157,7 +7154,7 @@
       "evt": "mock-act-6"
     },
     {
-      "ts": "2026-11-17T17:20:00.043Z",
+      "ts": "2026-11-17T17:57:57.711Z",
       "actor": "Zac",
       "role": "service",
       "action": "work_order",
@@ -7167,7 +7164,7 @@
       "evt": "mock-act-7"
     },
     {
-      "ts": "2026-11-17T13:20:00.043Z",
+      "ts": "2026-11-17T13:57:57.711Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "rental_update",
@@ -7177,7 +7174,7 @@
       "evt": "mock-act-8"
     },
     {
-      "ts": "2026-11-17T09:20:00.043Z",
+      "ts": "2026-11-17T09:57:57.711Z",
       "actor": "Josh",
       "role": "service",
       "action": "ticket_update",
@@ -7187,7 +7184,7 @@
       "evt": "mock-act-9"
     },
     {
-      "ts": "2026-11-15T13:20:00.043Z",
+      "ts": "2026-11-15T13:57:57.711Z",
       "actor": "Matt",
       "role": "owner",
       "action": "lead_open",
@@ -7197,7 +7194,7 @@
       "evt": "mock-act-10"
     },
     {
-      "ts": "2026-11-15T11:20:00.043Z",
+      "ts": "2026-11-15T11:57:57.711Z",
       "actor": "Kevin",
       "role": "sales",
       "action": "reserve",
@@ -7210,7 +7207,7 @@
   "rejections": [
     {
       "id": "rej-mock-1",
-      "ts": "2026-11-18T15:20:00.043Z",
+      "ts": "2026-11-18T15:57:57.711Z",
       "actor": "Matt",
       "role": "owner",
       "action": "parts_update",
@@ -7219,7 +7216,7 @@
     },
     {
       "id": "rej-mock-2",
-      "ts": "2026-11-18T15:20:00.043Z",
+      "ts": "2026-11-18T15:57:57.711Z",
       "actor": "Zac",
       "role": "service",
       "action": "ticket_update",

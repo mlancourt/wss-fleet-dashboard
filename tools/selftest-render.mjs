@@ -5477,7 +5477,7 @@ await check('D134 b: an old snapshot (no hours keys) renders the ticket, the sta
   for (const stage of ['READY-TO-INVOICE', 'COMPLETE']) {
     app.__ui().form = { kind: 'stage', id: t.ticket, arg: stage };
     out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
-    assert.ok(out.includes('data-mode="stage"') && !out.includes('name="hours"') && !out.includes('name="cancelled"') && !out.includes('data-hours-gate'), `${stage}: today's sheet`);
+    assert.ok(out.includes('data-mode="stage"') && !out.includes('name="hours"') && !out.includes('data-hours-gate'), `${stage}: today's sheet`);
   }
   const r = snap.dispatch.find((x) => x.status === 'SCHEDULED');
   app.__ui().form = { kind: 'done', id: r.id, arg: null };
@@ -5492,19 +5492,28 @@ await check('D134 b: an old snapshot (no hours keys) renders the ticket, the sta
   await asFull('owner');
 });
 
-await check('D134 c: a move into READY-TO-INVOICE / COMPLETE with no hours asks for them — optional before the date, the button off until filled from it; hours on the ticket → no field', async () => {
+await check('D134 c: a move into READY-TO-INVOICE / COMPLETE with an empty pool asks for hours — optional before the date, required (button off) from it for a tech, never for the owner; a pool → no field', async () => {
   const snap = await asFull('service');
   const t = snap.service_queue.find((x) => x.status === 'OPEN' && x.machine_owner === 'CUSTOMER' && x.hours_total === 0);
   app.__ui().form = { kind: 'stage', id: t.ticket, arg: 'READY-TO-INVOICE' };
   let out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
   assert.ok(out.includes('name="hours"') && out.includes('Hours on this job (optional)'), 'before the date: optional');
   assert.ok(!out.includes('data-hours-gate') && !/type="submit" disabled>Move to/.test(out), 'and the button is on');
-  assert.ok(!out.includes('name="cancelled"'), 'no cancel switch off COMPLETE');
   snap.meta.hours_required_from = PAST_GATE;
   out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
   assert.ok(out.includes('data-hours-gate="1"') && out.includes('>Hours on this job<') && /type="submit" disabled>Move to Ready to invoice|type="submit" disabled>Move to /.test(out), 'from the date: required, the button off');
+  // the owner: the field still shows (the pool is empty), never required — H5
+  await asFull('owner');
+  const so = app.__state().snapshot; so.meta.hours_required_from = PAST_GATE;
+  for (const stage of ['READY-TO-INVOICE', 'COMPLETE']) {
+    app.__ui().form = { kind: 'stage', id: t.ticket, arg: stage };
+    out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
+    assert.ok(out.includes('Hours on this job (optional)') && !out.includes('data-hours-gate') && !/type="submit" disabled>Move to/.test(out), `owner, ${stage}: optional, button on`);
+    assert.ok(!out.includes('name="cancelled"') && !out.includes('Cancelled, no work done'), 'v2.0: no cancel switch');
+  }
+  await asFull('service');
   // a ticket with hours → no field at all
-  const h = snap.service_queue.find((x) => x.status === 'OPEN' && x.hours_total > 0);
+  const h = app.__state().snapshot.service_queue.find((x) => x.status === 'OPEN' && x.hours_total > 0);
   app.__ui().form = { kind: 'stage', id: h.ticket, arg: 'READY-TO-INVOICE' };
   out = await renderRoute(`#/ticket/${encodeURIComponent(h.ticket)}`);
   assert.ok(out.includes('data-mode="stage"') && !out.includes('name="hours"') && !out.includes('data-hours-gate'), 'hours already on it → nothing asked');
@@ -5512,29 +5521,6 @@ await check('D134 c: a move into READY-TO-INVOICE / COMPLETE with no hours asks 
   app.__ui().form = { kind: 'stage', id: t.ticket, arg: 'IN-PROGRESS' };
   out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
   assert.ok(!out.includes('name="hours"'), 'IN-PROGRESS: no hours field');
-  app.__ui().form = null;
-  await asFull('owner');
-});
-
-await check('D134 d: COMPLETE offers `Cancelled, no work done` (whoever may send COMPLETE); the switch hides the hours field and frees the button', async () => {
-  const snap = await asFull('owner');
-  snap.meta.hours_required_from = PAST_GATE;
-  const t = snap.service_queue.find((x) => x.status === 'OPEN' && x.machine_owner === 'CUSTOMER' && x.hours_total === 0);
-  app.__ui().form = { kind: 'stage', id: t.ticket, arg: 'COMPLETE' };
-  const out = await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`);
-  assert.ok(out.includes('name="cancelled" value="1" data-cancel-switch> Cancelled, no work done'), 'the switch');
-  assert.ok(out.indexOf('name="cancelled"') < out.indexOf('class="hours-field"'), 'above the hours it hides');
-  // the in-place gate: a stub form, the input listener
-  const btn = { disabled: true }; const field = { hidden: false }; const cb = { checked: false, name: 'cancelled' }; const hrs = { value: '0', name: 'hours' };
-  const form = { dataset: { action: 'ticket_update', hoursGate: '1' },
-    querySelector: (q) => ({ '[name=cancelled]': cb, '.hours-field': field, 'button[type=submit]': btn, '[name=hours]': hrs })[q] || null };
-  const fire = (target) => { target.closest = (q) => (q === 'form.write' ? form : null); for (const fn of listeners.get('input') || []) fn({ target }); };
-  fire(hrs); assert.equal(btn.disabled, true, '0 h: still off');
-  hrs.value = '1.3'; fire(hrs); assert.equal(btn.disabled, true, 'not a quarter: still off');
-  hrs.value = '0.25'; fire(hrs); assert.equal(btn.disabled, false, '0.25: on');
-  hrs.value = '0'; fire(hrs); cb.checked = true; fire(cb);
-  assert.equal(btn.disabled, false, 'cancelled: on with no hours'); assert.equal(field.hidden, true, 'and the hours field hides');
-  cb.checked = false; fire(cb); assert.equal(btn.disabled, true, 'switch off again: back to needing hours'); assert.equal(field.hidden, false);
   app.__ui().form = null;
   await asFull('owner');
 });
@@ -5553,21 +5539,24 @@ await check('D134 e: Dispatch Done carries an Hours field — optional before th
   await asFull('owner');
 });
 
-await check('D134 f: from the date, a work order with no labor can\'t Close — disabled, one line `Add labor to close`; labor (or labor pending on this phone) frees it', async () => {
+await check('D134 f: from the date, a work order with an empty pool can\'t Close — disabled, one line `Add labor to close`; labor, its ticket\'s hours (hours_pool), or labor pending on this phone frees it', async () => {
   const snap = await asFull('owner');
   const w = snap.work_orders.find((x) => x.id === 'W1002');
   w.parts = w.parts.map((pp) => ({ ...pp, state: 'DELIVERED' })); w.parts_open = 0;
-  w.labor = []; w.hours_total = 0;
+  w.labor = []; w.hours_total = 0; w.hours_pool = 0;
   let out = await renderRoute('#/wo/W1002');
   assert.ok(/data-sheet="wo-close" data-id="W1002">Close work order/.test(out) && !out.includes('Add labor to close'), 'before the date: Close is on');
   snap.meta.hours_required_from = PAST_GATE;
   out = await renderRoute('#/wo/W1002');
   assert.ok(/data-sheet="wo-close" data-id="W1002" disabled>Close work order/.test(out), 'from the date: off');
   assert.ok(out.includes('<div class="form-note close-why need-labor">Add labor to close</div>'), 'the one line');
-  w.labor = [{ date: '2026-11-17', who: 'Josh', kind: 'LABOR', hours: 0.25, note: null }]; w.hours_total = 0.25;
+  w.labor = [{ date: '2026-11-17', who: 'Josh', kind: 'LABOR', hours: 0.25, note: null }]; w.hours_total = 0.25; w.hours_pool = 0.25;
   out = await renderRoute('#/wo/W1002');
   assert.ok(!out.includes('Add labor to close') && !/data-id="W1002" disabled>Close/.test(out), '0.25 h frees it');
-  w.labor = []; w.hours_total = 0;
+  w.labor = []; w.hours_total = 0; w.hours_pool = 1;
+  out = await renderRoute('#/wo/W1002');
+  assert.ok(!out.includes('Add labor to close'), 'hours on its ticket (the pool) free it — nothing typed twice');
+  w.hours_pool = 0;
   app.__state().pending.push({ id: 'evt-d134-lab', ts: new Date().toISOString(), actor: 'Matt', role: 'owner', action: 'work_order', serial: null,
     payload: { action: 'LABOR', work_order: 'W1002', who: 'Matt', hours: 1 } });
   out = await renderRoute('#/wo/W1002');
@@ -5576,20 +5565,18 @@ await check('D134 f: from the date, a work order with no labor can\'t Close — 
   await asFull('owner');
 });
 
-await check('D134 g: CLOSED · cancelled on the ticket and the Completed strip; H7 — no counter, list or report of jobs without hours anywhere', async () => {
+await check('D134 g: H6 — no counter, list or report of jobs without hours anywhere; no cancelled state drawn', async () => {
   const snap = await asFull('owner');
-  const t = snap.service_queue.find((x) => x.status === 'CLOSED' && !x.close_reason);
-  t.close_reason = 'CANCELLED';
-  assert.ok((await renderRoute(`#/ticket/${encodeURIComponent(t.ticket)}`)).includes('CLOSED · cancelled'), 'the chip');
   snap.meta.hours_required_from = PAST_GATE;
   const pages = await allRoutes('full', 'owner');
   for (const [hash, out] of pages) {
-    assert.ok(!/without hours|no hours yet|missing hours|hours missing|need(s)? hours/i.test(out), `${hash}: no nag (H7)`);
+    assert.ok(!/without hours|no hours yet|missing hours|hours missing|need(s)? hours/i.test(out), `${hash}: no nag (H6)`);
+    assert.ok(!/CLOSED · cancelled|Cancelled, no work done/.test(out), `${hash}: v2.0 has no cancelled state`);
   }
   await asFull('owner');
 });
 
-await check('D134 h: the sheets post the spec\'s shapes — ticket_labor (TRAVEL first, no damage) · hours on the move · close_reason CANCELLED (no hours) · hours on Done', async () => {
+await check('D134 h: the sheets post the spec\'s shapes — ticket_labor (TRAVEL first, no damage) · hours on the move · never a close_reason · hours on Done', async () => {
   const { snapshot, posted } = await apiAs({ name: 'Josh', role: 'service' });
   const t = snapshot.service_queue.find((x) => x.status === 'OPEN' && x.machine_owner === 'CUSTOMER');
   const submit = async (dataset, fields, withHours = false) => {
@@ -5611,8 +5598,8 @@ await check('D134 h: the sheets post the spec\'s shapes — ticket_labor (TRAVEL
   assert.equal(posted.length, n, '0 / 0 never leaves the phone');
   await submit({ action: 'ticket_update', id: t.ticket, mode: 'stage' }, { stage: 'READY-TO-INVOICE', note: '', hours: '1.5' }, true);
   assert.deepEqual(posted[posted.length - 1].payload, { ticket: t.ticket, stage: 'READY-TO-INVOICE', hours: 1.5 }, 'hours ride the move');
-  await submit({ action: 'ticket_update', id: t.ticket, mode: 'stage' }, { stage: 'COMPLETE', note: 'sold it', hours: '2', cancelled: '1' }, true);
-  assert.deepEqual(posted[posted.length - 1].payload, { ticket: t.ticket, stage: 'COMPLETE', note: 'sold it', close_reason: 'CANCELLED' }, 'cancel: close_reason, never hours');
+  await submit({ action: 'ticket_update', id: t.ticket, mode: 'stage' }, { stage: 'COMPLETE', note: 'sold it', hours: '0' }, true);
+  assert.deepEqual(posted[posted.length - 1].payload, { ticket: t.ticket, stage: 'COMPLETE', note: 'sold it' }, 'an optional 0 sends no hours and no close_reason');
   const before = posted.length;
   await submit({ action: 'ticket_update', id: t.ticket, mode: 'stage', hoursGate: '1' }, { stage: 'READY-TO-INVOICE', note: '', hours: '0' }, true);
   assert.equal(posted.length, before, 'a gated sheet with no hours never leaves the phone');

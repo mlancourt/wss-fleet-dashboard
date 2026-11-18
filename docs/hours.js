@@ -1,18 +1,20 @@
 /**
- * hours.js — D134 (2026-11-18): hours on every job. Pure; no DOM, no clock of its own.
+ * hours.js — D134 v2.0 (2026-11-18): hours on every job. Pure; no DOM, no clock of its own.
  *
  * THE GATE IS THE ENGINE'S. From `meta.hours_required_from` (the engine ships the
- * date; this file never holds one) a work-order Close, a ticket move into
- * READY-TO-INVOICE or COMPLETE and a dispatch Done each need hours (0.25 to 12,
- * quarter steps, never zero). The page only helps the tech meet the gate: it asks
+ * date; this file never holds one) a work-order Close needs its POOL (H3: the work
+ * order + the ticket it is tied to + that ticket's other work orders), a ticket
+ * moved into READY-TO-INVOICE or COMPLETE by anyone but the OWNER needs its pool
+ * (`hours_total`), and a dispatch Done needs hours (0.25 to 12, quarter steps,
+ * never zero). The owner is never gated on a ticket (H5). The page only helps the tech meet the gate: it asks
  * for hours where they are missing, and once the date has come it keeps the button
  * off until they are there. A refusal arrives through the ordinary rejection notice
  * with the engine's own sentence ("hours needed to close S1042 — add them and try again").
  *
- * H7: no nag. Nothing here counts jobs without hours, ages them or lists them —
+ * H6: no nag. Nothing here counts jobs without hours, ages them or lists them —
  * there is no such badge, counter or report anywhere on the page.
  *
- * H11: a snapshot without `meta.hours_required_from` comes from an engine before
+ * H10: a snapshot without `meta.hours_required_from` comes from an engine before
  * D134 — it would drop the new keys on the floor — so the page draws no hours UI at
  * all for it (hoursLive false) and renders exactly as it did.
  *
@@ -26,8 +28,6 @@ const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
 /** H3: the two ticket stages a move into needs hours. */
 export const HOURS_GATED_STAGES = new Set(['READY-TO-INVOICE', 'COMPLETE']);
-/** H6: the one close_reason a phone sends. */
-export const CLOSE_CANCELLED = 'CANCELLED';
 /** §5: the line under a disabled work-order Close. */
 export const NEED_LABOR_LINE = 'Add labor to close';
 export const HOURS_FIELD_PROBLEM = 'Put the hours in — quarter hours, 0.25 to 12.';
@@ -47,17 +47,25 @@ export const hoursRequired = (snap, today) => {
 
 /** A ticket's own labor entries (H1). A pre-D134 row reads as none. */
 export const ticketLabor = (t) => (t && Array.isArray(t.labor) ? t.labor.filter((l) => l && typeof l === 'object') : []);
-/** H4's sum, read off the engine — the page never adds. A row without it reads 0. */
+/** The H3 pool, read off the engine — the page never adds. A row without it reads 0. */
 export const ticketHours = (t) => (t ? num(t.hours_total) || 0 : 0);
 
 /**
- * §5: "from W1003 · 2 h" — the work orders linked to this ticket that carry
- * hours, one read-only line each (their hours are already in hours_total).
+ * H3, as the snapshot shows it: a work order is tied to this ticket by its
+ * `ticket`, by the billing ticket its damage block names, or by the ticket's
+ * `damage_wo`.
+ */
+export const tiedTo = (t, w) => !!t && !!w && ((!!t.ticket && (w.ticket === t.ticket
+  || (w.damage && typeof w.damage === 'object' && w.damage.billing_ticket === t.ticket))) || (!!w.id && t.damage_wo === w.id));
+
+/**
+ * §Page: "from W1003 · 2 h" — the tied work orders that carry hours of their
+ * own, one read-only line each (their hours are already in hours_total).
  */
 export function linkedWoHours(t, workOrders) {
-  if (!t || !t.ticket || !Array.isArray(workOrders)) return [];
+  if (!t || !Array.isArray(workOrders)) return [];
   return workOrders
-    .filter((w) => w && w.ticket === t.ticket && (num(w.hours_total) || 0) > 0)
+    .filter((w) => tiedTo(t, w) && (num(w.hours_total) || 0) > 0)
     .map((w) => ({ id: w.id, hours: w.hours_total, text: `from ${w.id} · ${fmtHours(w.hours_total)} h` }));
 }
 
@@ -68,15 +76,15 @@ export const pendingTicketHours = (pending, ticket) => (Array.isArray(pending) ?
 });
 
 /**
- * §5: the stage sheet asks for hours when the move is into READY-TO-INVOICE or
- * COMPLETE, the snapshot is D134's and the ticket has none (a pending
+ * The stage sheet asks for hours when the move is into READY-TO-INVOICE or
+ * COMPLETE, the snapshot is D134's and the pool is empty (a pending
  * ticket_labor counts — it lands first).
  */
 export const askHoursOnMove = (snap, t, stage, pendingHours = 0) =>
   hoursLive(snap) && HOURS_GATED_STAGES.has(stage) && ticketHours(t) === 0 && !pendingHours;
 
-/** §5: the `Cancelled, no work done` switch sits on the COMPLETE sheet (the sheet only opens for a role that may send it). */
-export const offerCancel = (snap, stage) => hoursLive(snap) && stage === 'COMPLETE';
+/** …and requires them only from the date, and never of the owner (H5 — the owner always moves a ticket). */
+export const hoursRequiredOnMove = (snap, today, role) => role !== 'owner' && hoursRequired(snap, today);
 
 /**
  * The one hours field on a stage or Done sheet: '' / 0 is "not filled".
@@ -89,15 +97,15 @@ export function hoursFieldProblem(value, required) {
   return hoursValid(v) ? null : HOURS_FIELD_PROBLEM;
 }
 
-/** CLOSED · no response / CLOSED · cancelled — the board's word for an exempt close (D81 · H6). */
-export const closeReasonText = (r) => (r === 'NO-RESPONSE' ? 'no response' : r === CLOSE_CANCELLED ? 'cancelled' : null);
+/** The work order's pool (H3) — `hours_pool`, else its own `hours_total` on a pre-v2.0 row. */
+export const woPool = (wo) => (wo ? (num(wo.hours_pool) != null ? num(wo.hours_pool) : num(wo.hours_total) || 0) : 0);
 
 /**
- * §5: from the date, a work order with no labor can't close. Labor waiting in
+ * From the date, a work order with an empty pool can't close. Labor waiting in
  * this phone's pending list counts — the engine applies it before the Close.
  */
 export const woNeedsLabor = (wo, required, pendingLabor = 0) =>
-  !!required && !!wo && wo.status === 'OPEN' && !((num(wo.hours_total) || 0) > 0) && !pendingLabor;
+  !!required && !!wo && wo.status === 'OPEN' && !(woPool(wo) > 0) && !pendingLabor;
 
 /**
  * + Hours on a ticket → ticket_labor payloads: the work order's two steppers
