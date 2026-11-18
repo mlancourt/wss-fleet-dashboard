@@ -1889,7 +1889,17 @@ async function crewHealth({ env }) {
 /* ------------------------------------------------------------------ admin */
 
 async function adminPublish({ request, env }) {
-  const text = await request.text();
+  // 2026-11-18: the engine gzips the snapshot (800 KB -> ~100 KB) so a choked home upstream
+  // can't time the publish out. Sniff the gzip magic bytes rather than trust Content-Encoding
+  // (the edge may or may not have decoded it already); plain JSON bodies still work.
+  const raw = new Uint8Array(await request.arrayBuffer());
+  let text;
+  if (raw.length > 2 && raw[0] === 0x1f && raw[1] === 0x8b) {
+    const ds = new Response(raw).body.pipeThrough(new DecompressionStream('gzip'));
+    text = await new Response(ds).text();
+  } else {
+    text = new TextDecoder().decode(raw);
+  }
   if (text.length > MAX_SNAPSHOT_BYTES) throw httpError(413, 'snapshot too large');
 
   let doc;
