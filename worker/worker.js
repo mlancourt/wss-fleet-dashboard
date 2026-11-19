@@ -368,6 +368,7 @@ const QUOTE_KEYS = new Set(['lead', 'to', 'cc', 'subject', 'lines', 'tax', 'note
 const QUOTE_LINE_KEYS = new Set(['kind', 'key', 'description', 'model', 'qty', 'unit', 'options', 'list', 'discount', 'note', 'listing',
   'term', 'stock']);   // v1.1: list/discount/note · v1.3: listing · D100: term (rental; `list` = the matrix rate), stock (addon)
 const MAX_LINE_NOTE = 300;
+const MAX_ADDON_DESC = 400;   // D135: an add-on line's description — the PM plan's matrix wording + brand and model runs past 200
 const QUOTE_OPTION_KEYS = new Set(['part', 'description', 'unit']);
 const CATALOG_KEY_RE = /^[a-z0-9][a-z0-9-]{0,159}$/;
 const CATALOG_NEVER = /^(net|disc)$/i;            // dealer cost + discount never leave the vault
@@ -2224,7 +2225,7 @@ function cleanQuote(p, catalog) {
       if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > 99) throw httpError(400, `${at}.qty must be 1–99`);
       qty = l.qty;
     }
-    let description = str(l.description, 200, `${at}.description`, false);
+    let description = str(l.description, l.kind === 'addon' ? MAX_ADDON_DESC : 200, `${at}.description`, false);   // D135
     let model = str(l.model, 80, `${at}.model`, false);
     let unit = l.unit == null || l.unit === '' ? null : money(l.unit, `${at}.unit`);
     const lineNote = str(l.note, MAX_LINE_NOTE, `${at}.note`, false);

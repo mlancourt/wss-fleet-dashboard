@@ -22,6 +22,11 @@ export const BRAND_CHIPS = ['Factory Cat', 'Kodiak', 'Tomcat', 'other', 'Rentals
 export const RENTAL_CHIP = 'Rentals';
 export const DEFAULT_TERM = 'week';          // the site's floor (no day rate advertised); Kevin changes it
 export const ADDON_LIMIT = 12;
+// D135 PM5: the PM-plan add-ons (stock PM-*, group "PM Plan") the engine builds from the Service-Rate-Matrix — the page
+// holds no price: the chip reads `list` off the catalog. A known stock gets a word; any other PM-* stock its own name.
+export const PM_PREFIX = 'PM-';
+export const PM_LABEL = { 'PM-WB': 'walk-behind', 'PM-RIDER': 'rider' };
+export const PM_PLACEHOLDER = '<Brand> <Model>';
 const NAMED_BRANDS = new Set(['Factory Cat', 'Kodiak', 'Tomcat']);
 export const SEARCH_LIMIT = 20;
 export const MAX_LINES = 25;
@@ -209,6 +214,42 @@ export function addAddon(draft, a) {
   return line;
 }
 
+/** D135 PM5: the catalog's PM-plan add-ons, in catalog order ([] when the engine shipped none). */
+export function pmAddons(catalog) {
+  return ((catalog && catalog.addons) || []).filter((a) => a && typeof a.stock === 'string' && a.stock.startsWith(PM_PREFIX));
+}
+
+/** D135: the chip's word for a PM add-on. */
+export const pmLabel = (a) => PM_LABEL[a.stock] || a.stock.slice(PM_PREFIX.length).toLowerCase();
+
+/** D135: the matrix wording with this machine's brand and model in place of <Brand> <Model> (left as written when unknown). */
+export function pmWording(addon, machine) {
+  const w = String((addon && addon.description) || '');
+  const name = [machine && machine.manufacturer, machine && machine.model].map((x) => String(x || '').trim()).filter(Boolean).join(' ')
+    || String((machine && machine.description) || '').trim();
+  return name ? w.split(PM_PLACEHOLDER).join(name) : w;
+}
+
+/** D135: the PM chips under one machine line — none for a non-machine line, none once that line has its PM line. */
+export function pmChips(draft, catalog, line) {
+  if (!line || line.kind !== 'machine') return [];
+  if (draft.lines.some((x) => x.pm_for === line.id)) return [];
+  return pmAddons(catalog);
+}
+
+/** D135 PM5: a tap → one add-on line under that machine: the stock, the machine's qty, the wording filled in. An ordinary
+ *  add-on line after that (Kevin can remove it; its amount is in the total). `pm_for` is page memory, never sent. */
+export function addPmLine(draft, machineLineId, addon) {
+  if (draft.lines.length >= MAX_LINES || !addon) return null;
+  const at = draft.lines.findIndex((x) => x.id === machineLineId);
+  const m = draft.lines[at];
+  if (!m || m.kind !== 'machine' || draft.lines.some((x) => x.pm_for === m.id)) return null;
+  const line = { id: ++draft.seq, kind: 'addon', stock: addon.stock, description: pmWording(addon, m), qty: String(m.qty || '1'),
+    unit: money2(addon.list), note: '', pm_for: m.id };
+  draft.lines.splice(at + 1, 0, line);
+  return line;
+}
+
 /** D100: self-pickup at the shop → no delivery, no pick-up (matrix: waives both). Off again → the zone refills them. */
 export function setSelfPickup(draft, on, catalog = null) {
   draft.selfPickup = !!on;
@@ -222,6 +263,7 @@ export function addMachine(draft, m, lead) {
   const line = {
     id: ++draft.seq, kind: 'machine', key: m.key, description: m.title || '', model: m.model || '', stock: m.stock || '',
     qty: '1', unit: money2(m.list), list: typeof m.list === 'number' ? m.list : null, discount: '', note: '',
+    manufacturer: m.manufacturer || '',     // D135: the PM line's wording names the brand; never sent
     series: m.series || null, deck_in: m.deck_in == null ? null : m.deck_in, deck_type: m.deck_type || null, options: [],
     listing: true,      // v1.3 (D91): the photo + specs + description ride along unless Kevin turns it off
   };
@@ -487,12 +529,15 @@ function lineCard(draft, catalog, l) {
   const listing = l.key ? `
     <label class="qc-chk qc-listing"><input type="checkbox" data-qc="listing" data-line="${l.id}"${l.listing !== false ? ' checked' : ''}>
       <span>Include listing <span class="qc-part">photo · specs · description</span></span></label>` : '';
+  // D135 PM5: the PM-plan chips — only with a PM-* add-on in the catalog, gone once this line has its PM line.
+  const pms = pmChips(draft, catalog, l);
+  const pmRow = pms.length ? `<div class="qc-pm">${pms.map((a) => `<button type="button" class="qc-pm-chip" data-qc="pm" data-line="${l.id}" data-stock="${attr(a.stock)}">+ PM plan · ${esc(pmLabel(a))} ${esc(fmtUsd(a.list))}</button>`).join('')}</div>` : '';
   return head(`
     <div class="qc-line-h"><strong>${esc(l.description)}</strong>${rm}</div>
     <div class="qc-sub">${[l.model && `Model ${esc(l.model)}`, l.stock && `Stock ${esc(l.stock)}`, l.list != null ? `MSRP ${esc(fmtUsd(l.list))}` : 'no list price — type one'].filter(Boolean).join(' · ')}</div>
     ${qtyUnit}
     ${groups.length ? `<div class="qc-opts-h">Options</div>${grp}` : ''}
-    ${noteField}${listing}`);
+    ${noteField}${listing}${pmRow}`);
 }
 
 export function resultsHtml(draft, catalog) {

@@ -17,6 +17,7 @@ import {
   searchMachines, groupsFor, noteTemplate, parseMoney, newDraft, addMachine, addText, toggleOption, removeLine,
   draftPayload, draftProblem, draftTotals, previewInput, subjectOf, parseDiscount, syncPrice,
   searchAddons, zoneForCity, addRental, setTerm, addAddon, setSelfPickup, deliveryHtml, addonResultsHtml, resultsHtml,
+  pmAddons, pmChips, addPmLine, pmWording, composerView,
 } from '../docs/composer.js';
 import { RENTAL_NOTES, RENTAL_NOTES_HEAD, hasRental } from '../docs/quote-email.js';
 
@@ -1002,6 +1003,70 @@ await check('D100 Worker: a rental line fills title / model / matrix rate by key
   assert.ok((await bad([{ kind: 'rental', key: 'large-rider-rental', term: 'day', options: [] }], 'options on a rental')).includes('options ride only on a machine line'));
   const ok3 = await send('sales', PAYLOAD({ lines: [{ kind: 'rental', key: 'no-rate-rental', term: 'day', unit: 300 }] }));
   assert.equal(ok3.status, 201, 'no matrix rate + a typed unit is fine'); assert.ok(!('list' in ok3.body.payload.lines[0]) && !('matrix' in ok3.body.payload.lines[0]));
+  await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG });
+});
+
+/* ============================================================ D135 — the PM-plan chips (PM5, Acceptance 12) */
+
+// INVENTED prices — the engine builds these two rows from the vault's Service-Rate-Matrix; the page holds no price.
+const PMW = 'Basic Preventive Maintenance Plan (Annual) - <Brand> <Model>. Includes 3 on-site PM inspections per year with minor adjustments. '
+  + 'Non-warrantable parts and labor quoted separately; return site visits billed at 50% of the standard rate.';
+const PMCAT = { ...RCAT, addons: [...RCAT.addons,
+  { stock: 'PM-WB', description: PMW, list: 612, group: 'PM Plan' }, { stock: 'PM-RIDER', description: PMW, list: 1087.5, group: 'PM Plan' }] };
+const PMLEAD = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com', site: 'Ixonia', interest: 'SALE-NEW' };
+const view = (d, cat) => composerView(d, PMLEAD, { state: 'ready', data: cat });
+
+await check('D135 composer: PM chips only with a machine line AND a PM-* add-on; a tap adds one add-on line (the stock, the machine\'s qty, brand + model in the wording) right under it; that line\'s chip is gone, the line is ordinary after', () => {
+  const d = newDraft(PMLEAD);
+  assert.ok(!view(d, PMCAT).includes('data-qc="pm"'), 'no machine line → no chip');
+  const r = addRental(d, PMCAT.rentals[0], PMLEAD, PMCAT);
+  assert.deepEqual(pmChips(d, PMCAT, r), [], 'a rental line takes no PM chip');
+  assert.ok(!view(d, PMCAT).includes('data-qc="pm"'));
+  removeLine(d, r.id, PMLEAD, PMCAT);
+  const m = addMachine(d, PMCAT.machines[0], PMLEAD);
+  m.qty = '3';
+  assert.deepEqual(pmChips(d, RCAT, m), [], 'no PM-* add-on in the catalog → no chip');
+  assert.ok(!view(d, RCAT).includes('data-qc="pm"') && !view(d, CATALOG).includes('data-qc="pm"'), 'an older catalog draws none');
+  assert.deepEqual(pmAddons(PMCAT).map((a) => a.stock), ['PM-WB', 'PM-RIDER']);
+  const html = view(d, PMCAT);
+  assert.ok(html.includes(`data-qc="pm" data-line="${m.id}" data-stock="PM-WB">+ PM plan · walk-behind $612.00</button>`), html);
+  assert.ok(html.includes(`data-stock="PM-RIDER">+ PM plan · rider $1,087.50</button>`));
+  const m2 = addMachine(d, PMCAT.machines[1], PMLEAD);
+  const pl = addPmLine(d, m.id, PMCAT.addons.find((a) => a.stock === 'PM-WB'));
+  assert.equal(pl.kind, 'addon'); assert.equal(pl.stock, 'PM-WB'); assert.equal(pl.qty, '3', 'qty = the machine line\'s'); assert.equal(pl.unit, '612');
+  assert.equal(pl.description, PMW.replace('<Brand> <Model>', 'Acme X20-PA'));
+  assert.deepEqual(d.lines.map((l) => l.id), [m.id, pl.id, m2.id], 'right under its machine');
+  assert.deepEqual(pmChips(d, PMCAT, m), [], 'the chip for that line is gone');
+  assert.equal(pmChips(d, PMCAT, m2).length, 2, 'the other machine keeps its chips');
+  const after = view(d, PMCAT);
+  assert.ok(!after.includes(`data-qc="pm" data-line="${m.id}"`) && after.includes(`data-qc="pm" data-line="${m2.id}"`));
+  assert.equal(addPmLine(d, m.id, PMCAT.addons[3]), null, 'one PM line per machine line');
+  const p = draftPayload(d);
+  assert.deepEqual(p.lines[1], { kind: 'addon', description: PMW.replace('<Brand> <Model>', 'Acme X20-PA'), qty: 3, unit: 612, stock: 'PM-WB' }, 'pm_for never leaves the page');
+  assert.ok(!JSON.stringify(p).includes('manufacturer'), 'the brand rides only in the wording');
+  assert.equal(draftTotals(d).subtotal, quoteTotals(p.lines.map((l) => ({ ...l, unit: l.unit || 0 })), true).subtotal);
+  assert.ok(draftTotals(d).subtotal >= 3 * 612, 'its amount is in the total');
+  pl.unit = '500'; pl.qty = '2';
+  assert.equal(draftPayload(d).lines[1].unit, 500, 'an ordinary add-on line: Kevin edits it');
+  removeLine(d, pl.id, PMLEAD, PMCAT);
+  assert.equal(pmChips(d, PMCAT, m).length, 2, 'removed → the chip is back');
+  assert.equal(pmWording({ description: PMW }, { model: '', manufacturer: '', description: '' }), PMW, 'no machine known → the wording as written');
+});
+
+await check('D135 Worker: a PM add-on line keeps the description the page sent (the Worker fills one only when absent); the wording fits on an add-on line (≤ 400) but not a text line (≤ 200)', async () => {
+  const okc = await asJson(await call('POST', '/api/admin/catalog', { admin: true, body: PMCAT }));
+  assert.equal(okc.status, 200); assert.equal(okc.body.addons, 4);
+  const filled = PMW.replace('<Brand> <Model>', 'Acme X20-PA');
+  assert.ok(filled.length > 200, 'the reason for the add-on cap');
+  const r = await send('sales', PAYLOAD({ lines: [LINES[0], { kind: 'addon', stock: 'PM-WB', description: filled, qty: 1, unit: 612 },
+    { kind: 'addon', stock: 'PM-RIDER', qty: 2 }] }));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.payload.lines[1], { kind: 'addon', stock: 'PM-WB', description: filled, qty: 1, unit: 612 }, 'kept, never overwritten');
+  assert.deepEqual(r.body.payload.lines[2], { kind: 'addon', stock: 'PM-RIDER', description: PMW, qty: 2, unit: 1087.5 }, 'absent → the catalog fills the generic wording + price');
+  const long = await send('sales', PAYLOAD({ lines: [{ kind: 'addon', stock: 'PM-WB', description: 'x'.repeat(401), unit: 1 }] }));
+  assert.equal(long.status, 400); assert.ok(long.body.error.includes('too long (max 400)'), long.body.error);
+  const txt = await send('sales', PAYLOAD({ lines: [{ kind: 'text', description: filled, unit: 1 }] }));
+  assert.equal(txt.status, 400, 'a text line keeps the 200 cap'); assert.ok(txt.body.error.includes('max 200'));
   await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG });
 });
 

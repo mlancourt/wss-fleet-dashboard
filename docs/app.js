@@ -103,6 +103,7 @@ import {
   composerView, newDraft, addMachine, addText, removeLine, toggleOption, groupsFor, draftPayload, draftProblem,
   resultsHtml, totalsHtml, syncPrice,
   addRental, addAddon, setTerm, setSelfPickup, applyZone, addonResultsHtml,   // D100
+  addPmLine,                                                                 // D135
 } from './composer.js';
 import { quoteState, quoteChipText, quoteStateLong, monDayOf, tokenOf, isTracked } from './quotes.js';
 import { utilizationFrom, statusBoard, recurringRevenue } from './metrics.js';
@@ -182,7 +183,7 @@ import {
 /* ============================================================ 1. config ==== */
 
 // The Worker origin (API_BASE) lives in docs/api.js.
-const BUILD = '2026-11-18-d134b';   // shown on gate screens so a phone report pins the build
+const BUILD = '2026-11-19-d135';   // shown on gate screens so a phone report pins the build
 // The header badge shows the BUILD's short tag (`d67d`), so a phone screenshot
 // pins the build without the gate screen. Audit 2026-09-25: it was a hand-typed
 // 'v2.1' that nobody bumped since D46.
@@ -5491,6 +5492,9 @@ function onComposerClick(el) {
   } else if (act === 'pick-addon') {                                           // D100
     const a = cat && (cat.addons || []).find((x) => (x.stock || '') === (el.dataset.stock || '') && x.description === el.dataset.desc);
     if (a) addAddon(d, a);
+  } else if (act === 'pm' && line) {                                          // D135 PM5: + PM plan under a machine line
+    const a = cat && (cat.addons || []).find((x) => x.stock === el.dataset.stock);
+    if (a) addPmLine(d, line.id, a);
   } else if (act === 'self-pickup') setSelfPickup(d, !d.selfPickup, cat);        // D100
   else if (act === 'listing' && line) line.listing = line.listing === false; else if (act === 'brand') d.brand = d.brand === el.dataset.brand ? null : el.dataset.brand;
   else if (act === 'add-text') addText(d);

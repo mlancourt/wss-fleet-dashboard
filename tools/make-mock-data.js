@@ -2601,6 +2601,9 @@ const mockCatalog = {
     { stock: 'ASFP0001', description: 'Auto-Scrub Detergent Fast Packs - For Floor Scrubbers', list: 58, group: 'Cleaning Solution' },
     { stock: 'DLQ4X1', description: 'Liquid Cleaner - Neutral pH - Light Duty - For Floor Scrubbers', list: 109, group: 'Cleaning Solution' },
     { stock: 'FLRPDS020', description: 'Floor Pads, 20" Red - Case of 5 pads', list: 44.2, group: 'Floor Pads' },
+    // D135: the two PM-plan rows the engine builds from the service rate matrix — INVENTED prices (rule 1), the wording's shape only
+    { stock: 'PM-WB', description: 'Basic Preventive Maintenance Plan (Annual) - <Brand> <Model>. Includes 3 on-site PM inspections per year (mock wording).', list: 612, group: 'PM Plan' },
+    { stock: 'PM-RIDER', description: 'Basic Preventive Maintenance Plan (Annual) - <Brand> <Model>. Includes 3 on-site PM inspections per year (mock wording).', list: 1087.5, group: 'PM Plan' },
   ],
   business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', url: 'https://example.com', street: '1 Example Way', city_line: 'Ixonia, WI 53036', city: 'Ixonia', region: 'WI' },
   valid_days: 30,

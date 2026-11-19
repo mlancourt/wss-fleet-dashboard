@@ -1595,6 +1595,9 @@ label.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ok
 .qc-addtext { margin-top: 12px; }
 .qc .qc-tax { margin-top: 10px; }
 .qc .qc-listing { margin-top: 4px; }
+.qc-pm { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }   /* D135 PM5 */
+.qc-pm-chip { min-height: var(--tap); padding: 8px 14px; border-radius: 999px; border: 1px dashed var(--red); background: var(--white);
+  color: var(--slate-800); font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .qc-bar { position: sticky; bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); z-index: 5; margin-top: 14px;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-up); padding: 10px 14px 12px; }
 .qc-sum-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--slate-700); font-variant-numeric: tabular-nums; }
