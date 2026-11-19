@@ -87,8 +87,8 @@ export function fmtWhole(c) {
  * (spec v1.1 §3 step 3, Machinio-Quote-Example-300160):
  *
  *   Kodiak K12 Walk-Behind Floor Scrubber (20" Disk)          (title, bold)
- *   #K12-20PA (NEW)
- *   ($5,433 MSRP)
+ *   #K12-20PA (NEW)                                           (D136: "(USED)" then "Serial N" on a used unit)
+ *   ($5,433 MSRP)                                             (D136: "($X asking)" on a used unit)
  *   Discount applied: −$543                                   (only when > 0)
  *   Options:
  *   K12-010 115ah AGM (2x) / Onboard Charger (+$135)          ((included) at $0)
@@ -116,10 +116,14 @@ export function lineBlocks(lines) {
     }
     if (l.kind === 'addon' && l.stock) detail.push({ text: `#${l.stock}`, tone: 'sub' });
     if (l.kind === 'machine') {
-      if (l.model) detail.push({ text: `#${l.model} (NEW)`, tone: 'sub' });
+      // D136 UQ6: a used unit (`condition: 'used'`, filled from the catalog — never the phone) reads
+      // "#Z30 (USED)" · "Serial 900001" · "($14,500 asking)". Any other machine line is worded as it always was.
+      const used = l.condition === 'used';
+      if (l.model) detail.push({ text: `#${l.model} (${used ? 'USED' : 'NEW'})`, tone: 'sub' });
+      if (used && l.serial) detail.push({ text: `Serial ${l.serial}`, tone: 'sub' });
       const list = typeof l.list === 'number' ? toCents(l.list) : null;
       const disc = typeof l.discount === 'number' ? toCents(l.discount) : 0;
-      if (list != null) detail.push({ text: `(${fmtWhole(list)} MSRP)`, tone: 'plain' });
+      if (list != null) detail.push({ text: `(${fmtWhole(list)} ${used ? 'asking' : 'MSRP'})`, tone: 'plain' });
       if (disc > 0) detail.push({ text: `Discount applied: −${fmtWhole(disc)}`, tone: 'plain' });
       const opts = l.options || [];
       if (opts.length) {

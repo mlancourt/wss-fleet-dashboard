@@ -17,7 +17,7 @@ import {
   searchMachines, groupsFor, noteTemplate, parseMoney, newDraft, addMachine, addText, toggleOption, removeLine,
   draftPayload, draftProblem, draftTotals, previewInput, subjectOf, parseDiscount, syncPrice,
   searchAddons, zoneForCity, addRental, setTerm, addAddon, setSelfPickup, deliveryHtml, addonResultsHtml, resultsHtml,
-  pmAddons, pmChips, addPmLine, pmWording, composerView,
+  pmAddons, pmChips, addPmLine, pmWording, composerView, BRAND_CHIPS, USED_CHIP,
 } from '../docs/composer.js';
 import { RENTAL_NOTES, RENTAL_NOTES_HEAD, hasRental } from '../docs/quote-email.js';
 
@@ -1068,6 +1068,123 @@ await check('D135 Worker: a PM add-on line keeps the description the page sent (
   const txt = await send('sales', PAYLOAD({ lines: [{ kind: 'text', description: filled, unit: 1 }] }));
   assert.equal(txt.status, 400, 'a text line keeps the 200 cap'); assert.ok(txt.body.error.includes('max 200'));
   await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG });
+});
+
+/* ===================================================== D136 — used units */
+// Every serial, price and name below is invented (rule 1).
+const UKEY = 'used-2025-acme-z30-900001';
+const UROW = { key: UKEY, title: '2025 Acme Z30 Rider Scrubber (30" Disk)', manufacturer: 'Acme', model: 'Z30', stock: '900001', category: 'Floor Scrubbers',
+  condition: 'used', serial: '900001', list: 14500, series: null, deck_in: null, deck_type: null, image: null, url: `https://www.example.com/listings/${UKEY}`,
+  specs: [{ k: 'Serial', v: '900001' }, { k: 'Hours', v: '212.5' }], description: 'Fresh batteries.' };
+const UCAT = { ...CATALOG, machines: [...CATALOG.machines, UROW] };
+const XNEW = CATALOG.machines[0];
+const UUSED_DETAIL = ['#Z30 (USED)', 'Serial 900001', '($14,500 asking)', 'Discount applied: −$500', 'Subtotal: $14,000', 'Runs well.'];
+
+await check('D136 UQ6: a used line reads "#Z30 (USED)" · "Serial N" · "($X asking)"; discount, options and Subtotal rows unchanged; the PDF follows', async () => {
+  const used = { kind: 'machine', key: UKEY, description: UROW.title, model: 'Z30', qty: 1, unit: 14000, list: 14500, discount: 500, note: 'Runs well.', condition: 'used', serial: '900001', listing: true, options: [] };
+  assert.deepEqual(lineBlocks([used])[0].detail.map((d) => d.text), UUSED_DETAIL);
+  assert.deepEqual(lineBlocks([{ ...used, serial: undefined }])[0].detail.map((d) => d.text).slice(0, 2), ['#Z30 (USED)', '($14,500 asking)'], 'no serial → no Serial row');
+  assert.deepEqual(lineBlocks([{ ...used, condition: 'new' }])[0].detail.map((d) => d.text).slice(0, 2), ['#Z30 (NEW)', '($14,500 MSRP)'], 'only condition used changes the words');
+  const { renderQuotePdf } = await import('../worker/quote-pdf.js');
+  const q = { number: 'Q2001', date: '2026-11-19', expires: '2026-12-19', valid_days: 30, customer: 'Acme Foods', to: 'pat@example.com', lines: [used], tax: true, tax_rate: null,
+    note: 'Hi', sender: { name: 'Kevin Example', mailbox: 'kevin@example.com' }, business: CATALOG.business };
+  const t = await pdfText(await renderQuotePdf(q));
+  assert.ok(t.includes('#Z30 (USED)') && t.includes('Serial 900001') && t.includes('($14,500 asking)') && !t.includes('MSRP') && !t.includes('(NEW)'), t);
+});
+
+await check('D136 UQ6: a NEW machine line renders byte for byte as before D136 (lineBlocks words + the whole email’s sha256, pinned pre-change)', async () => {
+  const { createHash } = await import('node:crypto');
+  const lines = [{ kind: 'machine', key: 'acme-x20-walk-behind-scrubber-20-disk', description: 'Acme X20 Walk-Behind Scrubber (20" Disk)', model: 'X20-PA', qty: 2, unit: 4890, list: 5433, discount: 543,
+    note: 'Delivery included.', listing: true, options: [{ part: 'X-035', description: '130ah WET (2x)', unit: 54 }, { part: 'X-020', description: '33" Squeegee', unit: 0 }] }];
+  assert.deepEqual(lineBlocks(lines)[0].detail.map((d) => d.text),
+    ['#X20-PA (NEW)', '($5,433 MSRP)', 'Discount applied: −$543', 'Options:', 'X-035 130ah WET (2x) (+$54)', 'X-020 33" Squeegee (included)', 'Subtotal: $4,944', 'Delivery included.']);
+  const q = { number: 'Q2001', date: '2026-10-08', expires: '2026-11-07', valid_days: 30, customer: 'Acme Foods', contact: 'Pat Example', to: 'pat@example.com', lines, tax: true, tax_rate: null,
+    note: 'Hi Pat,\n\nHere it is.', sender: { name: 'Kevin Example', mailbox: 'kevin@example.com', phone: '(555) 010-0001', title: 'Territory Manager' },
+    pdf_url: 'https://w.example/q/abc.pdf', pixel_url: 'https://w.example/q/abc/o.gif', banner_url: 'https://p.example/assets/wss-banner-1200.png',
+    business: { name: 'Wisconsin Scrub & Sweep', phone: '(555) 010-0000', email: 'info@example.com', street: '1 Fake St', city_line: 'Ixonia, WI 53036' }, listings: null };
+  const { html, text } = renderQuoteEmail(q);
+  const h = (s) => createHash('sha256').update(s).digest('hex');
+  assert.equal(h(html), '64169a9dd823f40d7be1ebf8429995b8c069c6473c17b3ab0ea29279c2df750e', 'email HTML byte-identical to the D135 build');
+  assert.equal(h(text), '165a62e0010bec14bc00a15d5e87f66563f6a9cd15769dd9d6e479c0283d3c93', 'plain text byte-identical to the D135 build');
+});
+
+await check('D136 UQ4: used rows search with the machines; the Used chip narrows to them; brand chips keep their brand’s used units; a used hit carries the used chip', () => {
+  assert.ok(BRAND_CHIPS.includes(USED_CHIP) && USED_CHIP === 'Used');
+  assert.deepEqual(searchMachines(UCAT, '', 'Used').map((m) => m.key), [UKEY], 'the Used chip: used rows only');
+  assert.deepEqual(searchMachines(UCAT, 'x20', 'Used'), [], '…and the words still apply');
+  assert.deepEqual(searchMachines(UCAT, 'z30').map((m) => m.key), [UKEY], 'searches with the machines');
+  assert.deepEqual(searchMachines(UCAT, '900001').map((m) => m.key), [UKEY], 'stock = the serial');
+  assert.deepEqual(searchMachines(UCAT, '', 'Acme').map((m) => m.key), ['acme-x20-walk-behind-scrubber-20-disk', UKEY], 'a brand chip keeps its used units');
+  assert.ok(searchMachines(UCAT, '', 'Rentals').every((m) => m.rental), 'Rentals unchanged');
+  const many = { machines: Array.from({ length: 30 }, (_, i) => ({ ...UROW, key: `used-2025-acme-z30-9${String(i).padStart(5, '0')}` })) };
+  assert.equal(searchMachines(many, 'z30', 'Used').length, 20, 'same limit');
+  const d = newDraft({ lead: 'L1034', customer: 'Acme Foods' });
+  d.query = 'acme';
+  const html = resultsHtml(d, UCAT);
+  const hits = html.split('<button').slice(1);
+  assert.equal(hits.length, 2);
+  assert.ok(hits[1].includes(`data-key="${UKEY}"`) && hits[1].includes('<span class="chip rent">used</span>'), hits[1]);
+  assert.ok(!hits[0].includes('chip rent'), 'a new machine hit has no chip');
+  assert.ok(composerView(d, { lead: 'L1034', customer: 'Acme Foods' }, { state: 'ready', data: UCAT }).includes('data-brand="Used">Used</button>'));
+});
+
+await check('D136 UQ5 + UQ7: the used line reads Model · Serial · Asking and "Discount off $Y asking"; the payload never sends condition/serial; the preview fills both from the catalog copy', () => {
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com' };
+  const d = newDraft(lead);
+  const ul = addMachine(d, UROW, lead);
+  const view = composerView(d, lead, { state: 'ready', data: UCAT });
+  assert.ok(view.includes('Model Z30 · Serial 900001 · Asking $14,500.00'), 'UQ5 sub-line');
+  assert.ok(view.includes('Discount off $14,500.00 asking<input'), 'UQ5 discount label');
+  assert.ok(!view.includes('MSRP'), 'no MSRP wording on a used line');
+  assert.ok(view.includes('data-qc="listing"') && view.includes('checked'), 'Include listing, on');
+  ul.discount = '500'; syncPrice(ul, 'discount');
+  assert.equal(ul.unit, '14000', 'the discount sync is the machine line’s');
+  const p = draftPayload(d);
+  assert.deepEqual(p.lines[0], { kind: 'machine', key: UKEY, description: UROW.title, model: 'Z30', qty: 1, unit: 14000, options: [], list: 14500, discount: 500, listing: true });
+  assert.ok(!/"condition"|"serial"/.test(JSON.stringify(p)), 'UQ7: the phone never sends them');
+  const pi = previewInput(d, lead, UCAT, { today: '2026-11-19', expires: '2026-12-19' });
+  assert.equal(pi.lines[0].condition, 'used'); assert.equal(pi.lines[0].serial, '900001');
+  const { html } = renderQuoteEmail(pi);
+  assert.ok(html.includes('#Z30 (USED)') && html.includes('Serial 900001') && html.includes('($14,500 asking)') && !html.includes('(NEW)'), 'the preview words it as the send will');
+  // a new machine's preview line gains nothing; and a draft whose used key left the catalog copy previews as the send would (UQ8)
+  const dn = newDraft(lead); addMachine(dn, XNEW, lead);
+  const pn = previewInput(dn, lead, UCAT, {}).lines[0];
+  assert.ok(!('condition' in pn) && !('serial' in pn));
+  assert.ok(!('condition' in previewInput(d, lead, CATALOG, {}).lines[0]), 'sold (gone from the catalog copy) → filled from nothing, like the Worker');
+  // the composer card for a new machine reads as it always did
+  assert.ok(composerView(dn, lead, { state: 'ready', data: UCAT }).includes('Model X20-PA · Stock X20-001 · MSRP $5,433.00'));
+});
+
+await check('D136 UQ7 Worker: a used catalog key → the stored line carries condition + serial from the catalog; a new key → neither; either key from the phone → 400', async () => {
+  assert.equal((await call('POST', '/api/admin/catalog', { admin: true, body: UCAT })).status, 200);
+  const r = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: UKEY, qty: 1, unit: 14000, list: 14500, discount: 500 }] }));
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.deepEqual(r.body.payload.lines[0], { kind: 'machine', key: UKEY, condition: 'used', serial: '900001', description: UROW.title, model: 'Z30', qty: 1, unit: 14000, list: 14500, discount: 500, listing: true, options: [] });
+  const mail = sent.at(-1).body;
+  assert.ok(mail.html.includes('#Z30 (USED)') && mail.html.includes('Serial 900001') && mail.html.includes('($14,500 asking)') && !mail.html.includes('(NEW)'), 'the send words it as the preview did');
+  const rec = await env.FLEET_KV.get(`quote:${r.body.result.token}`, 'json');
+  assert.ok(JSON.stringify(rec).includes('"condition":"used"'), 'the stored record carries the line as sent');
+  const n = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: 'zeta-micro-20-disk' }] }));
+  assert.equal(n.status, 201);
+  assert.ok(!('condition' in n.body.payload.lines[0]) && !('serial' in n.body.payload.lines[0]), 'a new machine line carries neither');
+  for (const [k, v] of [['condition', 'used'], ['serial', '900001'], ['condition', 'new']]) {
+    const bad = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: UKEY, [k]: v }] }));
+    assert.equal(bad.status, 400, k); assert.ok(bad.body.error.includes(`does not take ${k}`), bad.body.error);
+  }
+  const free = await send('sales', PAYLOAD({ lines: [{ kind: 'text', description: 'x', unit: 1, serial: '1' }] }));
+  assert.equal(free.status, 400, 'on any line kind');
+});
+
+await check('D136 UQ8: a used key gone from the catalog is refused, even with the composer’s description + price — a sold unit is never quoted', async () => {
+  assert.equal((await call('POST', '/api/admin/catalog', { admin: true, body: CATALOG })).status, 200);   // the unit sold → off /used → off the catalog
+  const lead = { lead: 'L1034', customer: 'Acme Foods', contact: 'Pat Example', email: 'pat@example.com' };
+  const d = newDraft(lead); addMachine(d, UROW, lead);
+  const before = sent.length;
+  const r = await send('sales', draftPayload(d));
+  assert.equal(r.status, 400, JSON.stringify(r.body)); assert.ok(r.body.error.includes('no longer listed'));
+  assert.equal(sent.length, before, 'nothing sent');
+  const bare = await send('sales', PAYLOAD({ lines: [{ kind: 'machine', key: UKEY }] }));
+  assert.equal(bare.status, 400); assert.ok(bare.body.error.includes('no longer listed'));
 });
 
 globalThis.fetch = realFetch;

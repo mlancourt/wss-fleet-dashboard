@@ -18,8 +18,11 @@ import {
   DEFAULT_VALID_DAYS, TAX_NOTE_LINE, TAX_EXEMPT_LINE, RENTAL_TERMS, TERM_LABEL, TERM_SHORT, SHORT_TERMS,
 } from './quote-email.js';
 
-export const BRAND_CHIPS = ['Factory Cat', 'Kodiak', 'Tomcat', 'other', 'Rentals'];   // D100: Rentals narrows to the rental listings
+export const BRAND_CHIPS = ['Factory Cat', 'Kodiak', 'Tomcat', 'other', 'Used', 'Rentals'];   // D100: Rentals narrows to the rental listings · D136: Used to the used units
 export const RENTAL_CHIP = 'Rentals';
+export const USED_CHIP = 'Used';
+/** D136: a catalog machine row (or a draft line picked from one) that is a used unit off the website's /used page. */
+export const isUsed = (m) => !!m && m.condition === 'used';
 export const DEFAULT_TERM = 'week';          // the site's floor (no day rate advertised); Kevin changes it
 export const ADDON_LIMIT = 12;
 // D135 PM5: the PM-plan add-ons (stock PM-*, group "PM Plan") the engine builds from the Service-Rate-Matrix — the page
@@ -42,10 +45,13 @@ export function searchMachines(catalog, query, brand = null) {
   const out = [];
   // D100: the rental listings search alongside the machines (Kevin types "XR" either way); each hit says
   // which it is. The Rentals chip narrows to rentals only; a brand chip narrows to that brand's machines.
+  // D136: the used units are machines[] rows (`condition: 'used'`) — they search with the machines, a brand chip
+  // keeps its brand's used units, and the Used chip narrows to them alone.
   const rentals = (brand == null || brand === RENTAL_CHIP) ? ((catalog && catalog.rentals) || []).map((r) => ({ ...r, rental: true })) : [];
   const machines = brand === RENTAL_CHIP ? [] : ((catalog && catalog.machines) || []);
   for (const m of [...rentals, ...machines]) {
-    if (!m.rental && brand && (brand === 'other' ? NAMED_BRANDS.has(m.manufacturer) : m.manufacturer !== brand)) continue;
+    if (brand === USED_CHIP) { if (!isUsed(m)) continue; }
+    else if (!m.rental && brand && (brand === 'other' ? NAMED_BRANDS.has(m.manufacturer) : m.manufacturer !== brand)) continue;
     const hay = norm([m.title, m.model, m.stock, m.rental ? `rental ${m.rate_class || ''}` : ''].join(' '));
     if (words.every((w) => hay.includes(w))) out.push(m);
     if (out.length >= SEARCH_LIMIT) break;
@@ -264,6 +270,7 @@ export function addMachine(draft, m, lead) {
     id: ++draft.seq, kind: 'machine', key: m.key, description: m.title || '', model: m.model || '', stock: m.stock || '',
     qty: '1', unit: money2(m.list), list: typeof m.list === 'number' ? m.list : null, discount: '', note: '',
     manufacturer: m.manufacturer || '',     // D135: the PM line's wording names the brand; never sent
+    ...(isUsed(m) ? { condition: 'used', serial: m.serial || '' } : {}),   // D136 UQ5: the line's words; never sent (UQ7)
     series: m.series || null, deck_in: m.deck_in == null ? null : m.deck_in, deck_type: m.deck_type || null, options: [],
     listing: true,      // v1.3 (D91): the photo + specs + description ride along unless Kevin turns it off
   };
@@ -439,7 +446,14 @@ export function previewInput(draft, lead, catalog, { today, expires, me, listing
   // D100: the preview's rental lines carry the matrix rates (`matrix`) the Worker will read back from the catalog by
   // key (the "Other terms available" line) — the payload itself never sends them.
   const ratesByKey = new Map(draft.lines.filter((l) => l.kind === 'rental' && l.key).map((l) => [l.key, l.rates || {}]));
-  const lines = p.lines.map((l) => ({ ...l, unit: Number.isFinite(l.unit) ? l.unit : 0,
+  // D136 UQ7: a used machine line carries condition + serial from the CATALOG COPY by key — exactly where the Worker
+  // fills them at send — so the preview words the line the way the send will. The payload never carries either.
+  const usedByKey = new Map(((catalog && catalog.machines) || []).filter(isUsed).map((m) => [m.key, m]));
+  const usedFill = (l) => {
+    const m = l.kind === 'machine' && l.key ? usedByKey.get(l.key) : null;
+    return m ? { condition: 'used', ...(m.serial != null && String(m.serial) !== '' ? { serial: String(m.serial) } : {}) } : {};
+  };
+  const lines = p.lines.map((l) => ({ ...l, unit: Number.isFinite(l.unit) ? l.unit : 0, ...usedFill(l),
     ...(l.kind === 'rental' && l.key && ratesByKey.has(l.key) ? { matrix: ratesByKey.get(l.key) } : {}),
     options: (l.options || []).map((o) => ({ ...o, unit: Number.isFinite(o.unit) ? o.unit : 0 })) }));
   return {
@@ -461,12 +475,13 @@ function lineCard(draft, catalog, l) {
   const head = html => `<div class="qc-line card" data-line="${l.id}">${html}</div>`;
   const rm = `<button type="button" class="qc-x" data-qc="remove" data-line="${l.id}" aria-label="Remove this line">✕</button>`;
   const msrp = l.kind === 'machine' && typeof l.list === 'number';
+  const used = l.kind === 'machine' && isUsed(l);     // D136 UQ5: a used unit's price is its asking price, not an MSRP
   const qtyUnit = `
     <div class="qc-2">
       <label>Qty<input data-qc-line="qty" data-line="${l.id}" inputmode="numeric" value="${attr(l.qty)}"></label>
       <label>Unit price<input data-qc-line="unit" data-line="${l.id}" inputmode="decimal" value="${attr(l.unit)}" placeholder="0.00"></label>
     </div>
-    ${msrp ? `<label>Discount off ${esc(fmtUsd(l.list))} MSRP<input data-qc-line="discount" data-line="${l.id}" inputmode="decimal" value="${attr(l.discount)}" placeholder="543 or 10%"></label>` : ''}`;
+    ${msrp ? `<label>Discount off ${esc(fmtUsd(l.list))} ${used ? 'asking' : 'MSRP'}<input data-qc-line="discount" data-line="${l.id}" inputmode="decimal" value="${attr(l.discount)}" placeholder="543 or 10%"></label>` : ''}`;
   const noteField = `<label>Line note<input data-qc-line="note" data-line="${l.id}" maxlength="300" value="${attr(l.note || '')}" placeholder="Delivery included · approx. lead time 15 business days"></label>`;
   if (l.kind === 'text') {
     return head(`
@@ -534,7 +549,9 @@ function lineCard(draft, catalog, l) {
   const pmRow = pms.length ? `<div class="qc-pm">${pms.map((a) => `<button type="button" class="qc-pm-chip" data-qc="pm" data-line="${l.id}" data-stock="${attr(a.stock)}">+ PM plan · ${esc(pmLabel(a))} ${esc(fmtUsd(a.list))}</button>`).join('')}</div>` : '';
   return head(`
     <div class="qc-line-h"><strong>${esc(l.description)}</strong>${rm}</div>
-    <div class="qc-sub">${[l.model && `Model ${esc(l.model)}`, l.stock && `Stock ${esc(l.stock)}`, l.list != null ? `MSRP ${esc(fmtUsd(l.list))}` : 'no list price — type one'].filter(Boolean).join(' · ')}</div>
+    <div class="qc-sub">${(used
+    ? [l.model && `Model ${esc(l.model)}`, l.serial && `Serial ${esc(l.serial)}`, l.list != null ? `Asking ${esc(fmtUsd(l.list))}` : 'no asking price — type one']
+    : [l.model && `Model ${esc(l.model)}`, l.stock && `Stock ${esc(l.stock)}`, l.list != null ? `MSRP ${esc(fmtUsd(l.list))}` : 'no list price — type one']).filter(Boolean).join(' · ')}</div>
     ${qtyUnit}
     ${groups.length ? `<div class="qc-opts-h">Options</div>${grp}` : ''}
     ${noteField}${listing}${pmRow}`);
@@ -551,7 +568,7 @@ export function resultsHtml(draft, catalog) {
       <span class="qc-hit-s">${esc([m.model, m.rate_class].filter(Boolean).join(' · '))}<span class="qc-hit-p">${esc(rentalPriceText(m))}</span></span>
     </button>` : `
     <button type="button" class="qc-hit" data-qc="pick" data-key="${attr(m.key)}">
-      <span class="qc-hit-t">${esc(m.title)}</span>
+      <span class="qc-hit-t">${esc(m.title)}${isUsed(m) ? ' <span class="chip rent">used</span>' : ''}</span>
       <span class="qc-hit-s">${esc([m.model, m.stock].filter(Boolean).join(' · '))}<span class="qc-hit-p">${esc(priceText(m.list))}</span></span>
     </button>`)).join('');
 }
