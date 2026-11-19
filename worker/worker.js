@@ -2255,10 +2255,6 @@ function cleanQuote(p, catalog) {
           // D136 UQ8 (Architect, 2026-11-19): a used unit gone from the catalog has sold or come off /used — never quote it
           // through the free-text fallback (it would word as NEW at the old asking price).
           throw httpError(400, `${at}: that used unit is no longer listed — remove the line`);
-        } else if (key.startsWith('used-')) {
-          // D136 UQ8 (Architect, 2026-11-19): a used unit gone from the catalog has sold or come off /used — never quote it
-          // through the free-text fallback (it would word as NEW at the old asking price).
-          throw httpError(400, `${at}: that used unit is no longer listed — remove the line`);
         } else if (!description || unit == null) {
           throw httpError(400, `${at}: ${key} is not in the catalog — give it a description and a price, or pick it again`);
         } else {
